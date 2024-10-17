@@ -1,0 +1,57 @@
+#observablehq-main,
+#observablehq-header,
+#observablehq-footer 
+{
+  max-width: none;
+  margin-left: 20%;
+}
+
+h1, h2, h3, h4 {
+  max-width: none;
+
+}
+main {
+  font-family:'Times New Roman', Times, serif
+}
+
+
+a {
+  font-family:'Times New Roman', Times, serif;
+  border-bottom:1px dashed black;
+  text-decoration: none;
+
+}
+/* unvisited link */
+a:link {
+color: black;
+  text-decoration: none;
+
+}
+
+/* visited link */
+a:visited {
+color: black;
+  text-decoration: none;
+}
+
+/* mouse over link */
+a:hover {
+color: #067;
+text-decoration: none!important;
+}
+
+/* selected link */
+a:active {
+color: #067;
+text-decoration: none!important;
+}
+
+
+:root {
+
+  --theme-foreground-focus:   #067;
+
+
+}
+
+

@@ -1,0 +1,322 @@
+[
+  {
+    "id": [
+      "id"
+    ],
+    "description": [
+      "registry number"
+    ],
+    "display_name": [],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "NCT04353336",
+      "NCT04329923",
+      "NCT04338698",
+      "NCT04345289",
+      "NCT04308668",
+      "NCT04384380",
+      "NCT04316377",
+      "NCT04325893",
+      "NCT04342221",
+      "NCT02735707",
+      "ChiCTR2000029868",
+      "NCT04381936",
+      "NCT04342650",
+      "NCT04323527",
+      "NCT04261517",
+      "NCT04369742",
+      "NCT04315896",
+      "ChiCTR2000031204",
+      "NCT04333654",
+      "NCT04345692",
+      "NCT04335552",
+      "NL8490",
+      "NCT04322123",
+      "ChiCTR2000030054",
+      "NCT04304053",
+      "ChiCTR2000029559",
+      "NCT04340544",
+      "NCT04491994"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "acronym"
+    ],
+    "description": [
+      "shortened registry number"
+    ],
+    "display_name": [],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "NCT04353336",
+      "PATCH",
+      "PROTECT C",
+      "PROTECT A",
+      "PROTECT B",
+      "CCAP-1",
+      "COVID-PEP",
+      "NCT04384380",
+      "NO COVID-19",
+      "NCT04325893",
+      "COV-HCQ",
+      "REMAP-CAP",
+      "ChiCTR2000029868",
+      "RECOVERY",
+      "CloroCOVID19II B",
+      "CloroCOVID19II A",
+      "NCT04261517",
+      "TEACH",
+      "HYDRA",
+      "ChiCTR2000031204",
+      "NCT04333654",
+      "OAHU-COVID19",
+      "NCT04335552 A",
+      "NCT04335552 B",
+      "ARCHAIC",
+      "Coalition I",
+      "ChiCTR2000030054",
+      "BCN PEP CoV-2 Study",
+      "ChiCTR2000029559",
+      "COMIHY",
+      "NCT04491994"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "patient_setting"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Patient Setting"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "Inpatient",
+      "Outpatient",
+      "ICU"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "covid_status"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Covid status"],
+    "type": [
+      "character"
+    ],
+    "values": [
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "blinding_exact"
+    ],
+    "description": [
+      "Who was blinded during the study?"
+    ],
+    "display_name": ["Blinding"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "None",
+      "Participant, Caregiver",
+      "Investigator",
+      "Participant",
+      "none"
+    ],
+    "display_values": [
+        "None",
+        "Participant, Caregiver",
+        "Investigator",
+        "Participant",
+        "None"
+      ],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "high_dose"
+    ],
+    "description": [
+      "High or low dose of medication"
+    ],
+    "display_name": ["Dose"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "no",
+      "yes"
+    ],
+    "display_values": ["Low dose","High Dose"],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "Published"
+    ],
+    "description": [""],
+    "display_name": ["Publication status"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "Published",
+      "Not published"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "hcq_cq"
+    ],
+    "description": [
+      "HCQ = hydroxychloroquine \n CQ = chloroquine"
+    ],
+    "display_name": ["Medication type"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "hcq",
+      "cq"
+    ],
+    "display_values": ["HCQ", "CQ"],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "hcq_arm_event"
+    ],
+    "description": [
+      "Number of deaths in the treatment group"
+    ],
+    "display_name": ["Deaths Treatment"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "6",
+      "0",
+      "1",
+      "17",
+      "418",
+      "7",
+      "28",
+      "2"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+
+
+  {
+    "id": [
+      "control_arm_event"
+    ],
+    "description": [
+      "Number of deaths in the control group"
+    ],
+    "display_name": ["Deaths Control"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "control_arm_total"
+    ],
+    "description": [
+      "Number of subjects in the control group"
+    ],
+    "display_name": ["Control group size"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "hcq_arm_total"
+    ],
+    "description": [
+      "Number of subjects in the treatment group"
+    ],
+    "display_name": ["Treatment group size"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "Control"
+    ],
+    "description": [
+      "Type of treatment of the control group"
+    ],
+    "display_name": [],
+    "type": [
+      "numeric"
+    ],
+    "values": [ "Standard of Care", "Placebo"],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  }
+]

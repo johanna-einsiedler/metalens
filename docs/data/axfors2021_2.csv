@@ -1,0 +1,34 @@
+,id,Patient setting,Covid status,Blinding,Dose,Published,Treatment,Treatment group size,Treatment group deaths,Control group size,Control group deaths,Control,yi,vi
+1,NCT04353336,Inpatient,Confirmed,None,Low dose,Published,HCQ,97,6,97,5,Standard of Care,0.193250627326145,0.388525242873069
+2,NCT04329923,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,15,0,15,0,Placebo,0,4.12903225806452
+3,NCT04338698,Inpatient,Confirmed,Investigator,Low dose,Not published,HCQ,64,0,64,0,Standard of Care,0,4.03100775193798
+4,NCT04338698,Inpatient,Confirmed,Investigator,Low dose,Not published,HCQ,62,0,63,1,Standard of Care,-1.09861228866811,2.69866666666667
+5,NCT04338698,Inpatient,Confirmed,Investigator,Low dose,Not published,HCQ,59,1,61,2,Standard of Care,-0.676052747200645,1.53419053185272
+6,NCT04345289,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,1,0,1,0,Placebo,0,5.33333333333333
+7,NCT04308668,Outpatient,Confirmed and Suspected,"Participant, Caregiver",Low dose,Published,HCQ,244,1,247,1,Placebo,0.0122700925918142,2.00818026698786
+8,NCT04384380,Inpatient,Confirmed,None,Low dose,Published,HCQ,21,0,12,0,Standard of Care,-0.542324290825362,4.12651162790698
+9,NCT04316377,Inpatient,Confirmed,None,Low dose,Published,HCQ,27,1,26,1,Standard of Care,-0.0392207131532816,2.07846153846154
+10,NCT04325893,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,124,6,123,11,Placebo,-0.658321556740886,0.274978905275515
+11,NCT04342221,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,13,1,14,0,Placebo,1.24703229378638,2.81563218390805
+12,NCT02735707,ICU,Confirmed and Suspected,None,High dose,Not published,HCQ,61,17,81,22,Standard of Care,0.0355187006853585,0.143954500135956
+13,ChiCTR2000029868,Inpatient,Confirmed,None,Low dose,Published,HCQ,75,0,75,0,Standard of Care,0,4.02649006622516
+14,NCT04381936,Inpatient,Confirmed and Suspected,None,High dose,Published,HCQ,1561,418,3155,788,Standard of Care,0.0939502883860504,0.00495874637691956
+15,NCT04342650,Outpatient,Suspected,"Participant, Caregiver",Low dose,Not published,CQ,78,0,74,0,Placebo,-0.0522994994028485,4.02616167229513
+16,NCT04323527,Inpatient,Suspected,"Participant, Caregiver",Low dose,Not published,CQ,41,17,41,12,Placebo,0.537548693906744,0.218306288032454
+17,NCT04261517,Inpatient,Confirmed,None,Low dose,Published,HCQ,15,0,15,0,Standard of Care,0,4.12903225806452
+18,NCT04369742,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Published,HCQ,67,7,61,6,Placebo,0.0671393028376284,0.344372294372294
+19,NCT04315896,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,75,28,77,29,Placebo,-0.014037910613438,0.11230697341299
+20,ChiCTR2000031204,Inpatient,Confirmed,Participant,Low dose,Not published,CQ,18,0,17,0,Placebo,-0.0555698511548108,4.11119691119691
+21,NCT04333654,Outpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,5,0,3,0,Placebo,-0.451985123743057,4.46753246753247
+22,NCT04345692,Inpatient,Confirmed,None,Low dose,Not published,HCQ,10,2,6,0,Standard of Care,1.34117392583942,2.67149321266968
+23,NCT04335552,Inpatient,Confirmed,None,Low dose,Not published,HCQ,4,1,2,0,Standard of Care,0.762140052046897,3.35238095238095
+24,NCT04335552,Inpatient,Confirmed,None,Low dose,Not published,HCQ,2,1,3,2,Standard of Care,-0.693147180559945,3.5
+25,NL8490,Inpatient,Confirmed,None,Low dose,Not published,CQ,5,1,3,0,Standard of Care,0.847297860387204,3.17460317460317
+26,NL8490,Inpatient,Confirmed,None,Low dose,Not published,HCQ,4,2,3,0,Standard of Care,1.94591014905531,3.08571428571429
+27,NCT04322123,Inpatient,Confirmed and Suspected,None,Low dose,Published,HCQ,221,7,227,6,Standard of Care,0.18633736632316,0.318721593597899
+28,ChiCTR2000030054,Inpatient,Confirmed,None,Low dose,Published,HCQ,18,0,12,0,Standard of Care,-0.392042087776024,4.13405405405405
+29,ChiCTR2000030054,Inpatient,Confirmed,None,Low dose,Published,CQ,18,0,12,0,Standard of Care,-0.392042087776024,4.13405405405405
+30,NCT04304053,Outpatient,Confirmed,None,Low dose,Published,HCQ,136,0,157,0,Standard of Care,0.143100843640673,4.01367521367521
+31,ChiCTR2000029559,Inpatient,Confirmed,"Participant, Caregiver",Low dose,Published,HCQ,31,0,31,0,Standard of Care,0,4.06349206349206
+32,NCT04340544,Outpatient,Confirmed,"Participant, Caregiver",Low dose,Not published,HCQ,8,0,8,0,Placebo,0,4.23529411764706
+33,NCT04491994,Inpatient,Confirmed,none,Low dose,Published,HCQ,349,0,151,0,Standard of Care,-0.83591793672444,4.00946189039505
