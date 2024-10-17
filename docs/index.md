@@ -87,7 +87,7 @@ a:active {
 <div class="hero">
   <h1>Metalens</h1>
   <h2>An interactive tool to explore scientific evidence </h2>
-  <a class ='indexLink' href="https://observablehq.com/framework/getting-started" target="_blank">Get started<span style="display: inline-block; margin-left: 0.25rem; 
+  <a class ='indexLink' href="/example-dashboard" target="_blank">Get started<span style="display: inline-block; margin-left: 0.25rem; 
 ">↗︎</span></a>
 </div>
 
