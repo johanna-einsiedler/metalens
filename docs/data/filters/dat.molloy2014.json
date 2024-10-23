@@ -1,0 +1,220 @@
+[
+  {
+    "id": [
+      "year"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Publication year"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "2009",
+      "2011",
+      "2010",
+      "1999",
+      "1995",
+      "2004",
+      "2005",
+      "2007",
+      "2006",
+      "1997",
+      "2003",
+      "2012"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "ni"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Sample size"],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "109",
+      "749",
+      "55",
+      "107",
+      "72",
+      "65",
+      "174",
+      "326",
+      "58",
+      "771",
+      "56",
+      "91",
+      "116",
+      "537",
+      "158"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "yi"
+    ],
+    "description": [
+      "Observed correlation"
+    ],
+    "display_name": [],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "0.187",
+      "0.162",
+      "0.34",
+      "0.32",
+      "0.27",
+      "0",
+      "0.175",
+      "0.05",
+      "0.26",
+      "0.01",
+      "-0.09",
+      "0.37",
+      "0.15",
+      "0.24",
+      "0.04"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "controls"
+    ],
+    "description": [
+      "Number of variables controlled for"
+    ],
+    "display_name": ["Number of controls"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "none",
+      "multiple"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "design"
+    ],
+    "description": [
+      "Whether a cross-sectional or prospective design was used"
+    ],
+    "display_name": ["Design"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "cross-sectional",
+      "prospective"
+    ],
+    "display_values": ["Cross-sectional","Prospective"],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "a_measure"
+    ],
+    "description": [
+      "Measurement based on self-reports or a more ‘objective’ measure (e.g.,electronic monitoring of pill bottle openings, pill counts)"
+    ],
+    "display_name": ["Adherence measure"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "self-report",
+      "other"
+    ],
+    "display_values": ["Self-report","Other"],
+    "display": [
+      "false"
+    ]
+  },
+
+  {
+    "id": [
+      "c_measure"
+    ],
+    "description": [
+      "Measurement with some version of the NEO personality inventory or some other scale"
+    ],
+    "display_name": ["Conscientiousness measure"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "NEO",
+      "other"
+    ],
+    "display_values": ["NEO","Other"],
+    "display": [
+      "false"
+    ]
+  },
+
+  {
+    "id": [
+      "meanage"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Mean age"],
+    "type": [
+      "character"
+    ],
+    "values": [
+
+        
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "quality"
+    ],
+    "description": [
+      "Methodological quality was scored by the authorson a 1 to 4 scale with higher scores indicating higher quality"
+    ],
+    "display_name": ["Methodological quality"],
+    "type": [
+      "character"
+    ],
+    "values": [
+
+        
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  }
+]

@@ -1,0 +1,115 @@
+[
+  {
+    "id": [
+      "id"
+    ],
+    "description": [
+      "Study author(s) and year"
+    ],
+    "display_name": ["Study"],
+    "type": [
+      "character"
+    ],
+    "values": [
+      "Abu-Bader (2000)",
+      "Cole et al. (2004)",
+      "Wallach & Mueller (2006)",
+      "Weaver et al. (2007)",
+      "Acker (2004)"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "n"
+    ],
+    "description": [""],
+    "display_name": ["Sample size"],
+    "type": [
+      "integer"
+    ],
+    "values": [
+      "218",
+      "232",
+      "156",
+      "382",
+      "259"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "t-value"
+    ],
+    "description": [
+      "t-statistic for the test of the association/predictor"
+    ],
+    "display_name": [],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "4.61",
+      "6.19",
+      "4.07",
+      "-0.77",
+      "1.16"
+    ],
+    "display_values": [],
+    "display": [
+      "true"
+    ]
+  },
+  {
+    "id": [
+      "preds"
+    ],
+    "description": [
+      "Number of predictors included in the regression model"
+    ],
+    "display_name": ["Number of predictors"],
+    "type": [
+      "integer"
+    ],
+    "values": [
+      "4",
+      "7",
+      "6",
+      "19",
+      "15"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
+      "R2"
+    ],
+    "description": [
+      "The coefficient of determination (i.e., R-squared value) of the regression model"
+    ],
+    "display_name": [],
+    "type": [
+      "numeric"
+    ],
+    "values": [
+      "0.24",
+      "0.455",
+      "0.5",
+      "0.327",
+      "0.117"
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  }
+]

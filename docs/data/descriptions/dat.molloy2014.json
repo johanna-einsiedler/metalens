@@ -1,0 +1,31 @@
+{
+  "id": [
+    "dat.molloy2014"
+  ],
+  "title": [
+    "Studies on the Relationship between Conscientiousness and Medication Adherence"
+  ],
+  "display_title": [
+    ""
+  ],
+  "description": [
+    "Results from 16 studies on the correlation betweenconscientiousness and medication adherence."
+  ],
+  "details": [
+    "Conscientiousness, one of the big-5 personality traits, can bedefined as “socially prescribed impulse control that facilitates task- and goal-directed behaviour, such as thinking before acting, delaying gratification, following norms and rules and planning, organising and prioritising tasks” (John & Srivastava, 1999). Conscientiousness has been shown to be related to a number of health-related behaviors (e.g., tobacco/alcohol/drug use, diet andactivity patterns, risky behaviors). A recent meta-analysis by Molloy et al. (2014) examined to what extent conscientiousness is related to medication adherence, that is, the extent to which (typically chronically ill) patients follow a prescribed medication regimen (e.g., taking a daily dose of a cholesterol lowering drug in patients with high LDL serum cholesterol levels). The results from the 16 studies included in this meta-analysis are provided in this dataset."
+  ],
+  "concepts": [
+    "psychology",
+    " medicine",
+    " correlation coefficients"
+  ],
+  "note": [
+    ""
+  ],
+  "source": [
+    "Molloy, G. J., O'Carroll, R. E., & Ferguson, E. (2014).Conscientiousness and medication adherence: A meta-analysis._Annals of Behavioral Medicine_, *47*(1), 92-101.https://doi.org/10.1007/s12160-013-9524-4"
+  ],
+  "references": [
+    "John, O. P., & Srivastava, S. (1999). The Big Five Trait taxonomy:History, measurement, and theoretical perspectives. In L. A.Pervin & O. P. John (Eds.), _Handbook of personality: Theory andresearch_ (2nd ed., pp. 102-138). New York: Guilford Press."
+  ]
+}

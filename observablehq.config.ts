@@ -2,21 +2,41 @@
 export default {
   // The project’s title; used in the sidebar and webpage titles.
   title: "Metalens",
-  theme: 'air',
-  pager: false,
+ theme: 'air',
 
   // The pages and sections in the sidebar. If you don’t specify this option,
   // all pages will be listed in alphabetical order. Listing pages explicitly
   // lets you organize them into sections and have unlisted pages.
   pages: [
-    {
-     name: "Examples",
-     pages: [
-         {name: "Hydroxchloroquine", path: "/example-dashboard"},
-         //{name: 'test', path: '/test'}
-  //       {name: "Report", path: "/example-report"}
-       ]
-   }
+  {
+    name: "Examples",
+    pages: [
+      {name: "Hydroxchloroquine", path: '/studies/dat.axfors2021'},
+      {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
+        {name: "Conscientiousness & Medication adherence", path: "studies/dat.molloy2014"},
+    ]},
+    {name: "Upload your own data",
+    pages: [
+      {name: "Input", path: "/input"}
+    ]},
+
+    {name: "About",
+      pages: [
+        {name: "About the project", path: "/about"},
+        {name: "Methodology", path:"/methodology"}
+      ]},
+
+
+
+
+        //{name: 'test', path: '/test'}
+ //       {name: "Report", path: "/example-report"}
+    
+ ],
+  dynamicPaths: [
+        "/studies/dat.axfors2021",
+    "/studies/dat.aloe2013",
+    "/studies/dat.molloy2014"
   ],
 
   // Some additional configuration options and their defaults:
@@ -29,3 +49,5 @@ export default {
   // output: "dist", // path to the output root for build
   search: true, // activate search
 };
+
+

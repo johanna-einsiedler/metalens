@@ -17,12 +17,8 @@ pager: false
 
 }
 
-a {
-    font-family:'Times New Roman', Times, serif;
-
-}
 .indexLink{
-   font-family:'Times New Roman', Times, serif;
+    padding-top: 10px;
     border-bottom:1px dashed black;
 
 }
@@ -58,7 +54,6 @@ a:active {
   font-weight: 900;
   line-height: 1;
   color: #067;
-  font-family:'Times New Roman', Times, serif;
   -webkit-background-clip: text;
   -webkit-text-fill-color:#067;
   background-clip: text;
@@ -72,7 +67,6 @@ a:active {
   font-weight: 500;
   line-height: 1.5;
   color: black;
-  font-family:'Times New Roman', Times, serif;
 
 }
 

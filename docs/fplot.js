@@ -1,240 +1,50 @@
----
-theme: light
-title: Example dashboard
-toc: false
-
----
-
-# Rocket launches 🚀
-
-<!-- Load and transform the data -->
-
-```js
-import * as duckdb from 'npm:@duckdb/duckdb-wasm'
-import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
 
-//const data = await DuckDBClient.of({base: FileAttachment("/data/data_v2.json")});
-//const c = await db.connect();
-// Select a bundle based on browser checks
-//const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
-// Instantiate the asynchronus version of DuckDB-wasm
-//const worker = new Worker(bundle.mainWorker!);
-//const logger = new duckdb.ConsoleLogger();
-//const db = new duckdb.AsyncDuckDB(logger, worker);
-//await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-//const launches = FileAttachment('data/launches.csv').csv({ typed: true })
-//const studyDatabase = FileAttachment('data/study_database_test.csv').csv({
-  //typed: true
-//})
-
-//const data = db2.sql`SELECT * FROM base`
-
-const coerceRow = (d) => ({id: d.acronym,
-                        //variable: d.variable,
-                        //y: Number(d.y)});
-                        //steps: Number(d.steps),
-                        //fatigue: Number(d.fatigue),
-                        yi: Number(d.yi),
-                        vi: Number(d.vi),
-                        patient_setting: d.patient_setting,
-                        n: 5,
-                        //ci_lower: Number(d.ci_lower),
-                        //ci_upper: Number(d.ci_upper)
-                        })
-//const correlations  = FileAttachment("data/correlations.csv").csv({typed: true})
-//const surveyData = FileAttachment("data/study_data.csv").csv({typed: true}).then((D) => D.map(coerceRow));
-//const data = FileAttachment('/data/axfors2021.csv').csv({typed: true}).then((D) => D.map(coerceRow));
-  // calculate lower and upper
-  //data.forEach(obj => {
-    //obj.ci_lower = obj.measure - Math.sqrt(obj.vi); // Calculate lower ci boundary
-    //obj.ci_upper = obj.measure +Math.sqrt(obj.vi); //calcualte upper ci boundary
-  //});
-
-// define table name
-const tableName = 'axfors2021';
-```
-
-
- <div id="chartArea"></div>
-
-```js
-display([...columnNames])
-//const search = view(Inputs.search(studyDatabase, {placeholder: "Search penguins…"}));
-//const name = Generators.input(nameInput)
-
-const mag = view(Inputs.range([0, 10], { label: 'Magnitude' }))
-const db = await DuckDBClient.of({
-  axfors2021: FileAttachment('/data/datasets/dat.axfors2021.csv')
-})
-
-//console.log(Number(data[0].yi).toFixed(2))
-
-//display(Inputs.table(test))
-```
-
-<!-- get column names -->
-```sql id=columnNames
-select column_name
-from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=${tableName}
-```
-
-
-```js
-// vector to collect selectors
-const selectors = {}
-for (let i = 3; i < 5; i++) {
-// get column
-const thisColumn = [...columnNames][i].column_name
-// SQL query to get distinct values present in this column
-const SQLString = 'SELECT DISTINCT ' + thisColumn + ' FROM axfors2021'
-const queryResults = await db.query(SQLString)
-// collect distinct values present in the column
-let distinctValues = []
-let j = -1
-while (++j < [...queryResults].length) {
-  distinctValues [j] = [...queryResults][j][thisColumn];
-}
-// create input selector
-const myInput = Inputs.checkbox(distinctValues , {label: thisColumn});
-//const myInput = view(Inputs.checkbox(['1','2','3'] , {label: 'test'}));
-//selectors.push({[thisColumn]: myInput})
-selectors[thisColumn] = myInput;
-}
-
-const options = view(Inputs.form(
-  selectors
-))
-
-
-//const test  = view(Generators.input(myInput))
-//console.log(Number([...waitPromise][10].yi))
-//console.log([...columnNames][14].column_name)
-//display(Inputs.table(queryResults[0]))
-
-//const mag = view(Inputs.range([[...waitPromise][1].yi,[...waitPromise][10].yi), {label: "Magnitude"}));
-//const mag = view(
-  //Inputs.range([[...waitPromise][1].yi, [...waitPromise][10].yi], {
-    //label: 'Magnitude'
-  //})
-//)
-//display(col1)
-```
-
-Hello ${name || 'anonymous'}!
-This is a ${options}
-
-```sql id=inputData 
-select * from axfors2021;
-```
-
-
-
-```sql id=col1Values
-select distinct "id" from axfors2021;
-```
-
-
-
-<style>
-text {
-  fill: #222;
-  font-family: sans-serif;
-}
-
-.mark {
-  fill: #333;
-}
-
-line.mark {
-  stroke: #333;
-  stroke-width: 2;
-}
-
-.heterogeneity-band {
-	fill: #067;
-	mix-blend-mode: multiply;
-}
-
-</style>
-```js
-display(options)
-console.log(Object.keys(options).length)
-display([...inputData])
-
-function filterByValue(array, string){
-  let newData = array;
-  console.log(string)
-  if (string.length>1){
-  return array.filter( row => string.some(value => row[string].includes(value)))
-  }
-  if (string.length===1){
-      return array.filter( row => row[string].includes(string))
-  }
-  else {
-    return []
-  }
-}
-let newData = filterByValue([...inputData], options.patient_setting)
-for (let i = 3; i < 4; i++) {
-//view([...inputData].filter((d) => d.patient_setting ==== 'Inpatient'))
-let relevantColumn = [...columnNames][i].column_name;
-const SQLString2 = "SELECT * FROM axfors2021 WHERE " + relevantColumn +" IN ('" + options.patient_setting.join("','") +"')"
-console.log(SQLString2)
-//const SQLString2 = "SELECT * FROM axfors2021 WHERE id ='NCT04353336'"
-// WHERE patient_setting = "Inpatient"'
-
-const queryResults2 = await db.query(SQLString2)
-//view([...queryResults2])
-}
-
-const drawGraph = item => {
-
+// function to draw the Graph
+export const drawGraph = item => {
   // parse proxy item
   let data = JSON.parse(JSON.stringify(item))
-
+console.log('datalen', data.length)
   //delete existing viz
   d3.select('#chartArea').selectAll('*').remove()
 
   // set dimensions
   let width = document.getElementById('chartArea').clientWidth
-  console.log('width', width)
-  let height = width
+
+  let height = width+ width*data.length/60
   const margin = { top: 80, right: 20, bottom: 100, left: 400 }
   const innerWidth = width - margin.right - margin.left
   const innerHeight = height - margin.top - margin.bottom
-  const innerLeftMargin = margin.left - margin.left*0.05
+  const innerLeftMargin = margin.left - margin.left * 0.05
 
   const statOffset = -20
   const titleOffset = -100
   const subtitleOffset = -70
 
-
-  if(data && data.length > 0) {
-  data.sort((a, b) => a.yi- b.yi);
+  if (data && data.length > 0) {
+    data.sort((a, b) => a.yi - b.yi)
   }
   // calculate lower and upper
   data.forEach(obj => {
-    obj.ci_lower = obj.yi - Math.sqrt(obj.vi); // Calculate lower ci boundary
-    obj.ci_upper = obj.yi +Math.sqrt(obj.vi); //calcualte upper ci boundary
-    obj.n = 5; // for now set square size to  5 -> potentially make it adjust to sample size in the future
-  });
+    obj.ci_lower = obj.yi - Math.sqrt(obj.vi) // Calculate lower ci boundary
+    obj.ci_upper = obj.yi + Math.sqrt(obj.vi) //calcualte upper ci boundary
+    obj.n = 5 // for now set square size to  5 -> potentially make it adjust to sample size in the future
+  })
   const xMax = d3.max(data, d => d.ci_upper)
   const xMin = d3.min(data, d => d.ci_lower)
 
-
   // check if adjusted odds ratios provided, if so take these
- // let i = 0
+  // let i = 0
   //for (let i = 0; i < data.length; i++) {
-    //if (data[i].a_point) {
-      //console.log(data[i].a_point)
-      //console.log(data[i].name)
-      //data[i].point = data[i].a_point
-      //data[i].lo = data[i].a_lo
-      //data[i].hi = data[i].a_hi
-      //data[i].lpoint = data[i].a_lpoint
-      //data[i].se_lpoint = data[i].a_se_lpoint
-    //}
+  //if (data[i].a_point) {
+  //console.log(data[i].a_point)
+  //console.log(data[i].name)
+  //data[i].point = data[i].a_point
+  //data[i].lo = data[i].a_lo
+  //data[i].hi = data[i].a_hi
+  //data[i].lpoint = data[i].a_lpoint
+  //data[i].se_lpoint = data[i].a_se_lpoint
+  //}
   //}
   let svg = d3
     .select('#chartArea')
@@ -279,18 +89,21 @@ const drawGraph = item => {
     //no_mask_risk.push(data[i].c/data[i].n2)
     i++
   }
-    // fixed effects model
-    let k = data.length //number of studies
-    let FF = WY/W // calculate joint estiamte by dividing the sum of the weighted estimates by the sum of the weights
-    let FF_VI = 1/W; // calculate the variance by taking the inverse of the sum of the weights
+  // fixed effects model
+  let k = data.length //number of studies
+  let FF = WY / W // calculate joint estiamte by dividing the sum of the weighted estimates by the sum of the weights
+  let FF_VI = 1 / W // calculate the variance by taking the inverse of the sum of the weights
 
-
-    Object.assign(data,{[k]:{id: 'Fixed effects model',
-                                          yi: FF,
-                                          //point: Math.exp(FF_LOR),
-                                          vi: FF_VI,
-                                          ci_lower: FF - Math.sqrt(FF_VI),
-                                          ci_upper: FF + Math.sqrt(FF_VI)}})
+  Object.assign(data, {
+    [k]: {
+      id: 'Fixed effects model',
+      yi: FF,
+      //point: Math.exp(FF_LOR),
+      vi: FF_VI,
+      ci_lower: FF - Math.sqrt(FF_VI),
+      ci_upper: FF + Math.sqrt(FF_VI)
+    }
+  })
 
   // calculate random effects meta estimate
   let df = k - 1
@@ -306,28 +119,29 @@ const drawGraph = item => {
     //nom = nom + data[i].lpoint * (1 / (Math.pow(data[i].se_lpoint, 2) + T2))
     //denom = denom + 1 / (Math.pow(data[i].se_lpoint, 2) + T2)
     //i++
-    nom =nom + data[i].yi*(1/(data[i].vi+T2))
-    denom = denom + 1/(data[i].vi+T2)
-    i++;
+    nom = nom + data[i].yi * (1 / (data[i].vi + T2))
+    denom = denom + 1 / (data[i].vi + T2)
+    i++
   }
-  let RF= nom/denom;
-  let RF_VI = Math.sqrt(1/denom);
+  let RF = nom / denom
+  let RF_VI = Math.sqrt(1 / denom)
 
-  data = Object.assign(data,{[k+1]:{id: 'Random effects model',
-                                        yi: RF,
-                                        vi:RF_VI,
-                                        ci_lower: RF - Math.sqrt(RF_VI),
-                                        ci_upper: RF + Math.sqrt(RF_VI)
-                                        
-    
-      }})
+  data = Object.assign(data, {
+    [k + 1]: {
+      id: 'Random effects model',
+      yi: RF,
+      vi: RF_VI,
+      ci_lower: RF - Math.sqrt(RF_VI),
+      ci_upper: RF + Math.sqrt(RF_VI)
+    }
+  })
 
   const xScale = d3
     .scaleLinear()
     .domain([
-    xMin > 1 ? 1 - (xMax - xMin) : xMin,
-     xMax < 1 ? 1 + (xMax - xMin) : xMax
-    // 0,10
+      xMin > 1 ? 1 - (xMax - xMin) : xMin,
+      xMax < 1 ? 1 + (xMax - xMin) : xMax
+      // 0,10
     ])
     .range([0, innerWidth])
 
@@ -386,6 +200,15 @@ const drawGraph = item => {
     .attr('stroke', '#555')
     .attr('stroke-width', 2)
 
+      // y axis line
+  //
+  plotG
+    .append('line')
+    .attr('transform', `translate(${xScale(0)},0)`)
+    .attr('y2', innerHeight)
+    .attr('stroke', '#555')
+    .attr('stroke-width', 2)
+
   // heterogeneity bands
   //
   plotG
@@ -400,16 +223,18 @@ const drawGraph = item => {
         .attr('width', d => xScale(d.ci_upper) - xScale(d.ci_lower))
         .attr('height', innerHeight)
         .attr('opacity', 0.01 + 1 / data.length)
-        .attr('fill','#067')
-        .attr('mix-blend-mode','multiply')
+        .attr('fill', '#067')
+        .attr('mix-blend-mode', 'multiply')
     })
-
 
   const gSub = plotG
     .selectAll('g')
     .data(data.filter((_, i) => i < data.length - 2))
     .enter()
     .append('g')
+
+      //
+
   //
   //
   // study rectangle
@@ -420,8 +245,8 @@ const drawGraph = item => {
     .attr('y', d => yScale(d.id) - widthScale(d.n) / 2)
     .attr('width', d => widthScale(d.n))
     .attr('height', d => widthScale(d.n))
-    .attr('fill',  '#333')
-    //.classed('mark', true)
+    .attr('fill', '#333')
+  //.classed('mark', true)
 
   // confint
   //
@@ -429,12 +254,12 @@ const drawGraph = item => {
     .append('line')
     //.classed('mark', true)
     .attr('transform', d => `translate(0,${yScale(d.id)})`)
-   // .attr('x1', d => xScale(d.ci_lower))
+    // .attr('x1', d => xScale(d.ci_lower))
     .attr('x1', d => xScale(d.ci_lower))
     .attr('x2', d => xScale(d.ci_upper))
     .attr('stroke', '#333')
-    .attr('stroke-width',2)
-    .attr('fill','#333')
+    .attr('stroke-width', 2)
+    .attr('fill', '#333')
 
   // stats area
   //
@@ -447,14 +272,16 @@ const drawGraph = item => {
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
-    .attr('fill','#222')
-    .attr('font-family', 'sans-serif')
-
+    .attr('fill', '#222')
+    //.attr('font-family', 'sans-serif')
 
   textG
     .append('text')
     .text(
-      d => `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(2)} ]`
+      d =>
+        `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(
+          2
+        )} ]`
     )
     .attr('x', -innerLeftMargin * 0.5)
     .attr('y', d => yScale(d.id))
@@ -471,14 +298,14 @@ const drawGraph = item => {
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
 
-  plotG
-    .append('text')
-    .attr('x', xScale(1))
-    .attr('y', statOffset)
-    .attr('dy', '0.32em')
-    .attr('text-anchor', 'end')
-    .attr('font-size', '0.9em')
-    .html('&#8592; Favors Mask Usage')
+ // plotG
+   // .append('text')
+    //.attr('x', xScale(1))
+    //.attr('y', statOffset)
+    //.attr('dy', '0.32em')
+    //.attr('text-anchor', 'end')
+    //.attr('font-size', '0.9em')
+    //.html('&#8592; Favors Mask Usage')
 
   //
   // stat label
@@ -488,7 +315,7 @@ const drawGraph = item => {
   plotG
     .append('text')
     .text(` [95% CI]`)
-    .attr('x', -innerLeftMargin * 0.6)
+    .attr('x', -innerLeftMargin * 0.5)
     .attr('y', statOffset)
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
@@ -509,9 +336,13 @@ const drawGraph = item => {
   //
   const xAxis = plotG.append('g')
 
-  const xTicks = [0.1, 0.5, 0.8, 1, 5, 10].filter(t => xScale(t) > 0)
+  //const xTicks = [0.1, 0.5, 0.8, 1, 5, 10].filter(t => xScale(t) > 0)
+  const min = Math.round(xScale.domain()[0]*100)/100
+  const max = Math.round(xScale.domain()[1]*100)/100
 
-  xAxis
+  const xTicks = [min,0,max]
+
+xAxis
     .selectAll('text')
     .data(xTicks)
     .enter()
@@ -537,15 +368,7 @@ const drawGraph = item => {
     .attr('stroke', '#555')
     .attr('stroke-width', '2')
 
-  //
-  // y axis line
-  //
-  plotG
-    .append('line')
-    .attr('transform', `translate(${xScale(1)},0)`)
-    .attr('y2', innerHeight)
-    .attr('stroke', '#555')
-    .attr('stroke-width', 2)
+
 
   //
   // pooled
@@ -585,9 +408,12 @@ const drawGraph = item => {
   pooledGSub
     .append('text')
     .text(
-      d => `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(2)} ]`
+      d =>
+        `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(
+          2
+        )} ]`
     )
-    .attr('x', -innerLeftMargin*0.5)
+    .attr('x', -innerLeftMargin * 0.5)
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
 
@@ -632,9 +458,3 @@ const drawGraph = item => {
         data[data.length - 1].yi.toFixed(2)
     )
 }
-drawGraph([...inputData])
-//drawGraph(await sql`SELECT * FROM masks LIMIT 2`)
-//drawGraph([...queryResults2])
-//drawGraph(sql`SELECT * FROM axfors2021`)
-```
-

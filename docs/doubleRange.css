@@ -5,7 +5,6 @@
     display: grid;
     grid-template-columns: 10cap 20cap 10cap;
     gap: 15px;
-        font-family: 'Times New Roman', Times, serif;
 
 
 }
@@ -52,11 +51,9 @@ font: 13px/1.2 var(--sans-serif);
 }
 
 input {
-    font-family: 'Times New Roman', Times, serif;
     font-size: 12px;
 
 }
 label{
-    font-family: 'Times New Roman', Times, serif;
     font-size: 12px;
 }

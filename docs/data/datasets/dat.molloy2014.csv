@@ -1,0 +1,17 @@
+id,authors,year,ni,yi,controls,design,a_measure,c_measure,meanage,quality,vi
+"Axelsson et al., 2009",Axelsson et al.,2009,109,0.187,none,cross-sectional,self-report,other,22,1,0.009174312
+"Axelsson et al., 2011",Axelsson et al.,2011,749,0.162,none,cross-sectional,self-report,NEO,53.59,1,0.001335113
+"Bruce et al., 2010",Bruce et al.,2010,55,0.34,none,prospective,other,NEO,43.36,2,0.018181818
+"Christensen et al., 1999",Christensen et al.,1999,107,0.32,none,cross-sectional,self-report,other,41.7,1,0.009345794
+"Christensen & Smith, 1995",Christensen & Smith,1995,72,0.27,none,prospective,other,NEO,46.39,2,0.013888889
+"Cohen et al., 2004",Cohen et al.,2004,65,0,none,prospective,other,NEO,41.2,2,0.015384615
+"Dobbels et al., 2005",Dobbels et al.,2005,174,0.175,none,cross-sectional,self-report,NEO,52.3,1,0.005747126
+"Ediger et al., 2007",Ediger et al.,2007,326,0.05,multiple,prospective,self-report,NEO,41,3,0.003067485
+"Insel et al., 2006",Insel et al.,2006,58,0.26,none,prospective,other,other,77,2,0.017241379
+"Jerant et al., 2011",Jerant et al.,2011,771,0.01,multiple,prospective,other,NEO,78.6,3,0.001297017
+"Moran et al., 1997",Moran et al.,1997,56,-0.09,multiple,prospective,other,NEO,57.2,2,0.017857143
+"Oleirigh et al., 2007",Oleirigh et al.,2007,91,0.37,none,prospective,self-report,NEO,37.9,2,0.010989011
+"Penedo et al., 2003",Penedo et al.,2003,116,0,none,cross-sectional,self-report,NEO,39.2,1,0.00862069
+"Quine et al., 2012",Quine et al.,2012,537,0.15,none,prospective,self-report,other,69,2,0.001862197
+"Stilley et al., 2004",Stilley et al.,2004,158,0.24,none,prospective,other,NEO,46.2,3,0.006329114
+"Wiebe & Christensen, 1997",Wiebe & Christensen,1997,65,0.04,none,prospective,other,NEO,56,1,0.015384615

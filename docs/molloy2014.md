@@ -2,7 +2,7 @@
 title: Mortality Outcomes with Hydroxychloroquine and Chloroquine in COVID-19 from an International Collaborative Meta-Analysis of Randomized Trials
 toc: false
 theme: [light, wide]
-keywords: hydroxychloroquine, chloroquine, covid, covid-19, randomized, medical
+
 ---
 
 <link rel="stylesheet" href="styles/styles.css">
@@ -14,9 +14,9 @@ import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
 import { sliderBottom } from 'npm:d3-simple-slider'
 import { doubleRange } from './createDoubleRange.js'
-
 import { isArrayNumeric, getMValue,arrayToObjectOfArrays } from './utils.js'
 import { drawGraph } from "./fplot.js"
+
 ```
 
 <link
@@ -27,17 +27,18 @@ import { drawGraph } from "./fplot.js"
 />
 <link rel="stylesheet" href="doubleRange.css">
 
+
 ```js
 // attach database to page -> will need to pass this as input, not possible to have dynamic arguments!
 const db = await DuckDBClient.of({
-  axfors2021: FileAttachment('./data/datasets/dat.axfors2021.csv')
+  bakdkash2021: FileAttachment('./data/datasets/dat.molloy2014.csv')
 })
 
 
-let metaData = await FileAttachment("./data/descriptions/dat.axfors2021.json").json()
+let metaData = await FileAttachment("./data/descriptions/dat.molloy2014.json").json()
 
 // load additional filter description data
-let filterDescription = await FileAttachment("./data/filters/dat.axfors2021.json").json()
+let filterDescription = await FileAttachment("./data/filters/dat.molloy2014.json").json()
 
 // transpose data
 filterDescription = arrayToObjectOfArrays(filterDescription)
@@ -50,7 +51,7 @@ const inputData = await db.query("select * FROM "+tableName)
 
 
 // define column names that should be skipped
-const irrelevantColumns =['id','column00', 'acronym','yi','vi'] 
+const irrelevantColumns =['id','column00', 'acronym','yi','vi','authors'] 
 
 // get all column Names
 const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=${tableName}`
@@ -313,7 +314,6 @@ const filteredData = await db.query(sqlFilter)
 
 
 ```js
-
 drawGraph([...filteredData])
 ```
 <h3>  Data </h3>
@@ -322,3 +322,4 @@ drawGraph([...filteredData])
 
 view(Inputs.table([...filteredData]))
 ```
+

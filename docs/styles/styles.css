@@ -6,25 +6,15 @@
   margin-left: 20%;
 }
 
-h1, h2, h3, h4 {
+h1, h2, h3, h4,p {
   max-width: none;
 
 }
-main {
-  font-family:'Times New Roman', Times, serif
-}
 
-
-a {
-  font-family:'Times New Roman', Times, serif;
-  border-bottom:1px dashed black;
-  text-decoration: none;
-
-}
 /* unvisited link */
 a:link {
-color: black;
-  text-decoration: none;
+  color: black;
+  border-bottom:1px dashed black;
 
 }
 
@@ -44,6 +34,86 @@ text-decoration: none!important;
 a:active {
 color: #067;
 text-decoration: none!important;
+}
+
+text {
+  fill: #222;
+}
+
+.mark {
+  fill: #333;
+}
+
+line.mark {
+  stroke: #333;
+  stroke-width: 2;
+}
+
+.heterogeneity-band {
+	fill: #067;
+	mix-blend-mode: multiply;
+}
+svg {
+}
+
+rect.overlay {
+	stroke: black;
+}
+
+rect.selection {
+	stroke: none;
+  fill: steelblue;
+  fill-opacity: 0.6;
+}
+
+#labelleft, #labelright {
+	dominant-baseline: hanging;
+  font-size: 12px;
+}
+
+#labelleft {
+	text-anchor: end;
+}
+
+#labelright {
+	text-anchor: start;
+}
+
+.ttip{
+  position:relative; /*  making the .tooltip span a container for the tooltip text */
+  border-bottom:1px dashed black; /* little indicater to indicate it's hoverable */
+
+}
+.ttip:before {
+  content: attr(data-text); /* here's the magic */
+  position:absolute;
+    /* reset defaults */
+  left:initial;
+  margin:initial;
+  /* vertically center */
+  top:50%;
+  transform:translateY(-50%);
+  /* set new values */
+  right:100%;
+  margin-right:15px;
+
+  /* basic styles */
+  width:200px;
+  padding:8px;
+  border-radius:10px;
+  background:white;
+  color: black;
+  text-align:right;
+
+  display:none; /* hide by default */
+}
+
+.ttip:hover:before {
+  display:block;
+}
+
+input[type="checkbox"]:checked {
+  accent-color: #067;
 }
 
 

@@ -1,0 +1,32 @@
+{
+  "id": [
+    "dat.viechtbauer2021"
+  ],
+  "title": [
+    "Studies to Illustrate Model Checking Methods"
+  ],
+  "display_title": [
+    ""
+  ],
+  "description": [
+    "Results from 20 hypothetical randomized clinical trials examining the effectiveness of a medication for treating some disease."
+  ],
+  "details": [
+    "The dataset was constructed for the purposes of illustrating themodel checking and diagnostic methods described in Viechtbauer(2021). The code below provides the results for many of theanalyses and plots discussed in the book chapter."
+  ],
+  "concepts": [
+    "medicine",
+    " odds ratios",
+    " outliers",
+    " model checks"
+  ],
+  "note": [
+    ""
+  ],
+  "source": [
+    "Viechtbauer, W. (2021). Model checking in meta-analysis. In C. H.Schmid, T. Stijnen, & I. R. White (Eds.), _Handbook ofmeta-analysis_ (pp. 219-254). Boca Raton, FL: CRC Press.https://doi.org/10.1201/9781315119403"
+  ],
+  "references": [
+    "NaN"
+  ]
+}

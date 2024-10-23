@@ -1,14 +1,161 @@
----
-title: Mortality Outcomes with Hydroxychloroquine and Chloroquine in COVID-19 from an International Collaborative Meta-Analysis of Randomized Trials
-toc: false
-theme: [light, wide]
-keywords: hydroxychloroquine, chloroquine, covid, covid-19, randomized, medical
----
+
+<style>
+    .hiddenFirst{
+    visibility: hidden;
+    display: none;
+    }
+
+    
+</style>
+
+
+<link
+  rel="stylesheet"
+  href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
+  integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
+  crossorigin="anonymous"
+/>
+<link rel="stylesheet" href="styles/styles.css">
+
+
+# Upload a meta-study dataset
+
+Here you can upload file containing meta-study information and easily plot it as an interactive forest plot.
+For this to work, the file needs to have the following format:
+- You need one row per study
+- You need a column named **id** that contains a unique identifier for each study
+- You need a column named **yi** that contains the estimated effect size for each study
+- You need a column named **vi** that contains the estimated effect size variance for each study
+
+After uplaoding, you will be able to select which columns to inlcude as filters in your plot.
+Click **Continue** once you have selected all relevant variables.
+
+
+
+```js
+const file = view(Inputs.file({label: "CSV file", accept: ".csv", required: true}));
+
+
+```
+```js
+// load data
+const data = await file.csv({typed: true})
+
+// create database
+const db = await DuckDBClient.of({
+  input: data
+})
+// load data from database
+const inputData = await db.query("select * FROM input")
+//let metaData = await FileAttachment(file).csv({typed: true})
+
+// transpose data
+//filterDescription = arrayToObjectOfArrays(filterDescription)
+//const tables = await db.sql`show tables`
+// get table name
+//const tableName = [...tables][0]['name']
+
+// load all data from table
+//const inputData = await db.query("select * FROM "+tableName)
+
+```
+
+```js
+// select columns to include in the analysis
+let relCols = view(Inputs.checkbox(data.columns, {label: "Columns to include", value: data.columns}));
+
+
+```
+
+```js
+let nonrelCols = data.columns.filter(element => !relCols.includes(element));
+
+// filter data to relevant columns
+//let subset = await db.query("select "+relCols.filter(item=>item).join(", ")+" from input")
+let subset = db.query("alter table input drop column" + nonrelCols.join(", "))
+```
+
+```js
+let idCol = null;
+if (!relCols.includes('id')){
+    idCol= view(Inputs.radio(relCols, {label: "ID Column"}));
+}
+
+
+let yiCol = null;
+
+if (!relCols.includes('yi')){
+    yiCol= view(Inputs.radio(relCols, {label: "Outcome column"}));
+
+}
+
+let viCol = null;
+if (!relCols.includes('vi')){
+viCol= view(Inputs.radio(relCols, {label: "Variance Column"}));
+}
+```
+
+```js
+let relColsNew = relCols
+try { if (idCol !== null){
+// rename id colum
+let renameID = await db.query("alter table input rename column "+ idCol + " to id")
+
+
+}} catch(error){}
+
+try { if (yiCol !== null){
+// rename yi colum
+
+let renameyi = await db.query("alter table input rename column "+ yiCol + " to yi")
+
+}} catch(error){}
+
+try {
+if (viCol !== null){
+// rename id colum
+let renamevi = await db.query("alter table input rename column "+ viCol + " to vi")
+
+}} catch(error){}
+
+if (idCol !== null && !relColsNew.includes('id')){
+    relColsNew = relColsNew.filter(item => item !== idCol);
+    relColsNew.push("id")
+}
+
+if (yiCol !== null && !relColsNew.includes('yi')){
+    relColsNew = relColsNew.filter(item => item !== yiCol);
+    relColsNew.push("yi")
+}
+
+if (viCol !== null && !relColsNew.includes('vi')){
+    relColsNew = relColsNew.filter(item => item !== viCol);
+    relColsNew.push("vi")
+}
+
+relColsNew = relColsNew.filter(item => item !=='');
+let sub = await db.query("select "+relColsNew.filter(item=>item).join(", ")+" from input")
+
+
+const confirm = await view(Inputs.button("OK", {label: "Continue?",value: 0}));
+//let subset = await db.query("alter table input rename column "+ idCol + " to id")
+//db.query("DROP TABLE IF EXISTS inputs")
+//const subSQL = db.query("create table subset as select "+relColsNew.filter(item=>item).join(", ")+" from input")
+//view(...subSQL)
+// rename column
+//console.log("alter table input rename column "+ idCol + " to id")
+//let subset = await db.query("select * from subset")
+let input = await db.query("select * from input")
+
+view(Inputs.table([...sub]))
+
+```
 
 <link rel="stylesheet" href="styles/styles.css">
 
 
 ```js
+
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
@@ -27,11 +174,10 @@ import { drawGraph } from "./fplot.js"
 />
 <link rel="stylesheet" href="doubleRange.css">
 
+
+
+
 ```js
-// attach database to page -> will need to pass this as input, not possible to have dynamic arguments!
-const db = await DuckDBClient.of({
-  axfors2021: FileAttachment('./data/datasets/dat.axfors2021.csv')
-})
 
 
 let metaData = await FileAttachment("./data/descriptions/dat.axfors2021.json").json()
@@ -43,14 +189,18 @@ let filterDescription = await FileAttachment("./data/filters/dat.axfors2021.json
 filterDescription = arrayToObjectOfArrays(filterDescription)
 const tables = await db.sql`show tables`
 // get table name
-const tableName = [...tables][0]['name']
+
+console.log([...tables][1])
+//const tableName = [...tables][0]['name']
+const tableName = 'input'
+console.log('tabname', tableName)
 
 // load all data from table
 const inputData = await db.query("select * FROM "+tableName)
 
 
 // define column names that should be skipped
-const irrelevantColumns =['id','column00', 'acronym','yi','vi'] 
+const irrelevantColumns =['id','yi','vi'] 
 
 // get all column Names
 const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=${tableName}`
@@ -59,16 +209,16 @@ const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLU
 
   // vector to collect selectors
 const selectors =  {}
+let relevantColumns = relColsNew
+relevantColumns = [...relevantColumns].filter(item => !irrelevantColumns.includes(item));
 
-const relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
 // for each columnn in the dataset
 const numCols =[...relevantColumns].length
 
 // loop through columns to create selectors
 for (let i = 0; i < numCols; i++) {
   // get column
-  const thisColumn = [...relevantColumns][i].column_name
-
+  const thisColumn = relevantColumns[i]
   // check if we want to display the column
   //if (!irrelevantColumns.includes(thisColumn)){
   // SQL query to get distinct values present in this column
@@ -206,28 +356,23 @@ if (distinctValuesCopy.some(value => value.includes(','))){
   }
 
 }
+
 ```
 
-<h1> ${metaData['title'][0]} </h1>
-<h4> ${metaData['description'][0]} </h4>
-<p> ${metaData['details'][0]} </p>
-<p> <i> ${metaData['source'][0]} </i> </p>
-
-<h3> Filters </h3>
-
 ```js
-const options =  view(Inputs.form(selectors))
+let options = null;
+if (confirm >0){
+ options =  view(Inputs.form(selectors))
+}
 ```
 
-
 ```js
-
 let sqlFilter = 'SELECT * FROM ' + tableName + ' WHERE '
-
-// create SQL query for filtering the database according to selected options
+if (confirm >0){
+//create SQL query for filtering the database according to selected options
 for (let i = 0; i < numCols; i++) {
   // get relevant column to filter on
-  let relevantColumn = [...relevantColumns][i].column_name    
+  let relevantColumn = relColsNew[i]
 
 
   // if its not the first column add an AND
@@ -300,25 +445,28 @@ if (options[relevantColumn].length >0){
 }
 }
 // execute SQL query for filtering
-const filteredData = await db.query(sqlFilter)
-
-
+}
+console.log(confirm)
+console.log(sqlFilter)
+let filteredData = []
+if (confirm >0){
+    filteredData = await db.query(sqlFilter)
+}
 ```
-<h3> Forest plot </h3>
 
+<div id='plot' class='hiddenFirst'>
+<h3> Forest plot </h3>
+</div>
 
 <!-- Define Area to display chart -->
  <div id="chartArea"></div>
 
 
-
 ```js
 
+if (confirm >0){
 drawGraph([...filteredData])
-```
-<h3>  Data </h3>
+//document.getElementById('plot').remove('hiddenFirst')
 
-```js
-
-view(Inputs.table([...filteredData]))
+}
 ```

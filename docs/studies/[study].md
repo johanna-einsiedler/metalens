@@ -1,11 +1,6 @@
----
-title: Mortality Outcomes with Hydroxychloroquine and Chloroquine in COVID-19 from an International Collaborative Meta-Analysis of Randomized Trials
-toc: false
-theme: [light, wide]
-keywords: hydroxychloroquine, chloroquine, covid, covid-19, randomized, medical
----
 
-<link rel="stylesheet" href="styles/styles.css">
+
+<link rel="stylesheet" href="../styles/styles.css">
 
 
 ```js
@@ -13,10 +8,10 @@ import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
 import { sliderBottom } from 'npm:d3-simple-slider'
-import { doubleRange } from './createDoubleRange.js'
+import { doubleRange } from '../createDoubleRange.js'
 
-import { isArrayNumeric, getMValue,arrayToObjectOfArrays } from './utils.js'
-import { drawGraph } from "./fplot.js"
+import { isArrayNumeric, getMValue,arrayToObjectOfArrays } from '../utils.js'
+import { drawGraph } from "../fplot.js"
 ```
 
 <link
@@ -25,23 +20,25 @@ import { drawGraph } from "./fplot.js"
   integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
   crossorigin="anonymous"
 />
-<link rel="stylesheet" href="doubleRange.css">
+<link rel="stylesheet" href="../doubleRange.css">
+
 
 ```js
 // attach database to page -> will need to pass this as input, not possible to have dynamic arguments!
 const db = await DuckDBClient.of({
-  axfors2021: FileAttachment('./data/datasets/dat.axfors2021.csv')
+  axfors2021: FileAttachment(`../data/datasets/${observable.params.study}.csv`)
 })
 
 
-let metaData = await FileAttachment("./data/descriptions/dat.axfors2021.json").json()
+let metaData = await FileAttachment(`../data/descriptions/${observable.params.study}.json`).json()
 
 // load additional filter description data
-let filterDescription = await FileAttachment("./data/filters/dat.axfors2021.json").json()
+let filterDescription = await FileAttachment(`../data/filters/${observable.params.study}.json`).json()
 
 // transpose data
 filterDescription = arrayToObjectOfArrays(filterDescription)
 const tables = await db.sql`show tables`
+
 // get table name
 const tableName = [...tables][0]['name']
 
@@ -322,3 +319,4 @@ drawGraph([...filteredData])
 
 view(Inputs.table([...filteredData]))
 ```
+
