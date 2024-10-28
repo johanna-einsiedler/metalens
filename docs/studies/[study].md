@@ -27,7 +27,7 @@ import { drawGraph } from "../fplot.js"
 // attach database to page -> will need to pass this as input, not possible to have dynamic arguments!
 const db = await DuckDBClient.of({
   axfors2021: FileAttachment(`../data/datasets/${observable.params.study}.csv`)
-})
+});
 
 
 let metaData = await FileAttachment(`../data/descriptions/${observable.params.study}.json`).json()
@@ -45,6 +45,13 @@ const tableName = [...tables][0]['name']
 // load all data from table
 const inputData = await db.query("select * FROM "+tableName)
 
+//const createTable1 = await db.query("DROP TABLE IF EXISTS test; CREATE TABLE test AS SELECT * FROM " + tableName)
+
+//let queryCount = db.query("select patient_setting, count(*) from test group by patient_setting");
+```
+```js
+
+//let studyCount = [...queryCount][0]['count_star()']
 
 // define column names that should be skipped
 const irrelevantColumns =['id','column00', 'acronym','yi','vi'] 
@@ -58,6 +65,7 @@ const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLU
 const selectors =  {}
 
 const relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
+
 // for each columnn in the dataset
 const numCols =[...relevantColumns].length
 
@@ -102,16 +110,22 @@ while (++j < [...ColumnValues].length) {
     // check if any of the inputs contains multiple inputs 
     for (let j = 0; j < distinctValues.length; j++){
       
-      // check for multiple argumentes separated by commas
-      if (distinctValues[j].includes(',')){
-            // split string
-            let splitEntry = distinctValues[j].split(',')
-            // remove from distinctValues
-            distinctValues = distinctValues.filter(item => item != distinctValues[j])
-            // add to options
-            distinctValues = [...distinctValues, ...splitEntry]  
 
-      }
+
+
+      // check for multiple argumentes separated by commas
+    //  if (!isNaN(distinctValues[j]) && distinctValues){
+      //  console.log(distinctValues[j])
+        //if ( distinctValues[j].includes(',')){
+            // split string
+          //  let splitEntry = distinctValues[j].split(',')
+            // remove from distinctValues
+            //distinctValues = distinctValues.filter(item => item != distinctValues[j])
+            // add to options
+            //distinctValues = [...distinctValues, ...splitEntry]  
+
+      //}
+      //}
       if ((displayValues !== undefined) && (displayValues.length > 0)){
       if (displayValues[j].includes(',')){
          // split string
@@ -136,11 +150,12 @@ while (++j < [...ColumnValues].length) {
     
     }
   // remove spaces at end or beginning
-  distinctValues = distinctValues.map(entry => entry.trim());
+  //distinctValues = distinctValues.map(entry => entry.trim());
   // always capitalize first letter
  // distinctValues = distinctValues.map(entry => 
    // entry.charAt(0).toUpperCase() + entry.slice(1)
 //);
+
 
 // remove potential duplicates
 //distinctValues = [...new Set(distinctValues)];
@@ -160,7 +175,7 @@ if (distinctValuesCopy.some(value => value.includes(','))){
   defaultValues = []
 }
 
-    const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] : name,
+    const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] :name, 
       label: description.length > 0 ? html`
       <span  data-text="${description}"class="ttip" >${label}</span>` : label,
       unique: true,
@@ -277,28 +292,55 @@ const defaultCheck = Array.from(selectors[relevantColumn]).every(radio => radio.
 //   console.log('exclusive filter', [...filterTest].length)
 //   console.log(exclusiveFilter)
 if (options[relevantColumn].length >0){
-  sqlFilter = sqlFilter + " ("
- for (let k=0; k < options[relevantColumn].length; k++){
+
+  //sqlFilter = sqlFilter + " ("
+ //for (let k=0; k < options[relevantColumn].length; k++){
+  //if (k === 0){
+    //sqlFilter = sqlFilter + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
+  //} else {   
+     if (!defaultCheck){
+for (let k=0; k < options[relevantColumn].length; k++){
+
   if (k === 0){
     sqlFilter = sqlFilter + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-  } else {   
-      if (defaultCheck){
-
-    sqlFilter = sqlFilter  + " OR LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
+    }
+    else{
+    sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
+  }
+  } 
   } else {
-   sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-  }
-  }
- }
-  sqlFilter =sqlFilter + " )"
 
+      sqlFilter =sqlFilter + " LOWER("  + relevantColumn + ") IN (LOWER('" + options[relevantColumn].join("'),LOWER('")+"'))"
+   //sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
+  //}
+  //}
+ }
+  //sqlFilter =sqlFilter + " )"
+
+//}
 }
 }
 }
 }
+
+
+console.log(sqlFilter)
 // execute SQL query for filtering
 const filteredData = await db.query(sqlFilter)
 
+
+// failed attempt at creating study counts preview
+//const createTable = await db.query("DROP TABLE IF EXISTS test; CREATE TABLE test AS " + sqlFilter)
+//const newTable = await db.query("select * FROM test")
+//view([... newTable])
+//studyCount = 20;
+
+
+
+```
+
+
+```js
 
 ```
 <h3> Forest plot </h3>

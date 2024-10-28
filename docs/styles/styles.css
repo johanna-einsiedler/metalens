@@ -3,11 +3,12 @@
 #observablehq-footer 
 {
   max-width: none;
-  margin-left: 20%;
+  margin-left: 15vw;
 }
 
 h1, h2, h3, h4,p {
   max-width: none;
+  font-family: sans-serif
 
 }
 
@@ -53,7 +54,10 @@ line.mark {
 	fill: #067;
 	mix-blend-mode: multiply;
 }
-svg {
+
+svg{
+  font-family: sans-serif;
+  font-size: 0.9rem
 }
 
 rect.overlay {
@@ -98,7 +102,7 @@ rect.selection {
   margin-right:15px;
 
   /* basic styles */
-  width:200px;
+  width: 15vw;
   padding:8px;
   border-radius:10px;
   background:white;

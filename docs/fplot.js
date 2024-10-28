@@ -4,14 +4,13 @@ import * as d3 from 'npm:d3'
 export const drawGraph = item => {
   // parse proxy item
   let data = JSON.parse(JSON.stringify(item))
-console.log('datalen', data.length)
   //delete existing viz
   d3.select('#chartArea').selectAll('*').remove()
 
   // set dimensions
   let width = document.getElementById('chartArea').clientWidth
 
-  let height = width+ width*data.length/60
+  let height = width+ width*data.length/80
   const margin = { top: 80, right: 20, bottom: 100, left: 400 }
   const innerWidth = width - margin.right - margin.left
   const innerHeight = height - margin.top - margin.bottom
@@ -32,7 +31,6 @@ console.log('datalen', data.length)
   })
   const xMax = d3.max(data, d => d.ci_upper)
   const xMin = d3.min(data, d => d.ci_lower)
-
   // check if adjusted odds ratios provided, if so take these
   // let i = 0
   //for (let i = 0; i < data.length; i++) {
@@ -135,12 +133,12 @@ console.log('datalen', data.length)
       ci_upper: RF + Math.sqrt(RF_VI)
     }
   })
-
+console.log(xMax)
   const xScale = d3
     .scaleLinear()
     .domain([
-      xMin > 1 ? 1 - (xMax - xMin) : xMin,
-      xMax < 1 ? 1 + (xMax - xMin) : xMax
+      xMin,//> 1 ? 1 - (xMax - xMin) : xMin,
+      xMax //< 1 ? 1 + (xMax - xMin) : xMax
       // 0,10
     ])
     .range([0, innerWidth])

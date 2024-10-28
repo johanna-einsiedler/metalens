@@ -31,6 +31,24 @@
   },
   {
     "id": [
+      "authors"
+    ],
+    "description": [
+      ""
+    ],
+    "display_name": ["Authors"],
+    "type": [
+    ],
+    "values": [
+
+    ],
+    "display_values": [],
+    "display": [
+      "false"
+    ]
+  },
+  {
+    "id": [
       "ni"
     ],
     "description": [

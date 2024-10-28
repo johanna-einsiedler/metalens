@@ -14,6 +14,10 @@ export default {
       {name: "Hydroxchloroquine", path: '/studies/dat.axfors2021'},
       {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
         {name: "Conscientiousness & Medication adherence", path: "studies/dat.molloy2014"},
+        //{name: "Writing-to-Learn Interventions", path: "studies/dat.bangertdrowns2004"},
+        //{name: "Conscientiousness & Medication adherence", path: "studies/dat.bakdash2021"},
+        //{name: "Conscientiousness & Medication adherence", path: "studies/dat.assink2016"},
+
     ]},
     {name: "Upload your own data",
     pages: [
@@ -36,7 +40,13 @@ export default {
   dynamicPaths: [
         "/studies/dat.axfors2021",
     "/studies/dat.aloe2013",
-    "/studies/dat.molloy2014"
+    "/studies/dat.molloy2014",
+    "/studies/dat.bangertdrowns2004",
+    "/studies/dat.bakdash2021",
+    "/studies/dat.assink2016"
+
+
+
   ],
 
   // Some additional configuration options and their defaults:

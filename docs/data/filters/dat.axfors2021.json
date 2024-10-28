@@ -145,18 +145,10 @@
       "character"
     ],
     "values": [
-      "None",
-      "Participant, Caregiver",
-      "Investigator",
-      "Participant",
-      "none"
+
     ],
     "display_values": [
-        "None",
-        "Participant, Caregiver",
-        "Investigator",
-        "Participant",
-        "None"
+
       ],
     "display": [
       "false"

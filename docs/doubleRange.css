@@ -9,7 +9,7 @@
 
 }
 .double {
-font: 13px/1.2 var(--sans-serif);
+  font: 13px/1.2 var(--sans-serif);
   position: absolute;
   background: none;
   width: 30% !important;
