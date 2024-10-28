@@ -44,9 +44,9 @@ export function createDoubleRange({
 const maxString = max.toString().length;
 const minString = min.toString().length
 const longerString = maxString > minString ? maxString : minString;
-let numLenLower = String(Math.max(min.toString().length*10+20, 30))+'px'
+let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
 //let numLenLower = min.toString().length
-let numLenUpper = String(Math.max(max.toString().length*10+20, 30))+'px'
+let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
 
 const number = html`<input  style="width: ${numLenLower}"; type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
 const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
@@ -141,7 +141,7 @@ if (isFinite(v)) {
         value = [v, numberUpper.valueAsNumber];
         // adjust input box size
         numLenLower = String(Math.max(v.toString().length*10 +10, 22))+'px'
-        number.style['width'] = numLenLower
+        //number.style['width'] = numLenLower
         return;
       }
     }
@@ -154,7 +154,7 @@ if (isFinite(v)) {
         value = [number.valueAsNumber,v];
         // adjust input box size
         numLenUpper = String(Math.max(v.toString().length*10+10, 22))+'px'
-        numberUpper.style['width'] = numLenUpper
+        //numberUpper.style['width'] = numLenUpper
         return;
       }
     }
