@@ -2,20 +2,28 @@
 export function isArrayNumeric(arr) {
   return (
     Array.isArray(arr) &&
-    arr.every(item => typeof item === 'number' && !isNaN(item))
-  )
+    arr.every(item => item === null || typeof item === 'number')
+  );
 }
 
 // function to get Max / Min value of array
 export function getMValue(arr, type) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+
+  // Filter out NaN values
+  const filteredArr = arr.filter(item => typeof item === 'number' && !isNaN(item));
+
+  if (filteredArr.length === 0) return null; // Return null if all items are NaN
+
   if (type === 'Max') {
-    return Array.isArray(arr) && arr.length > 0 ? Math.max(...arr) : null
+    return Math.max(...filteredArr);
   }
-  if (type == 'Min') {
-    return Array.isArray(arr) && arr.length > 0 ? Math.min(...arr) : null
-  } else {
-    return null
+  
+  if (type === 'Min') {
+    return Math.min(...filteredArr);
   }
+  
+  return null; // Return null for invalid type
 }
 
 // function to transpose array 

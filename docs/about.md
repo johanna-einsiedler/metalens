@@ -27,6 +27,6 @@ Answering questions based on science has become a search problem. Since 1996 mor
 
 Metalens aims to provide a service that makes it easy to find scientific answers to your questions.
 
-Metalens is a project developed by Linas & Johanna.  It has been our  joint course project as students at the International Transformation University in Linz. It is currently in its prototype stage and we are very happy to for any kind of input. You can reach us at [johanna.einsiedler@sodas.ku.dk](mailto:einsiedler@sodas.ku.dk)
+Metalens is a project developed by Linas & Johanna.  It has been our  joint course project as students at the International Transformation University in Linz. It is currently in its prototype stage and we are very happy to for any kind of input. You can reach us at [johanna.einsiedler@sodas.ku.dk](mailto:einsiedler@sodas.ku.dk) and [lv222kc@student.lnu.se](mailto:lv222kc@student.lnu.se).
 All the studies currently displayed on Metalens are taking from  the ‘metadat’ dataset:
  Thomas White, Daniel Noble, Alistair Senior, W. Kyle Hamilton and Wolfgang Viechtbauer (2022). metadat: Meta-Analysis Datasets. R package version 1.2-0. https://CRAN.R-project.org/package=metadat

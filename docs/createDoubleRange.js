@@ -40,7 +40,8 @@ export function createDoubleRange({
   if (min > max) [min, max] = [max, min], transform === undefined && (transform = negate);
   if (step !== undefined) step = +step;
   //if (inputRange !== undefined) {
-
+console.log(min)
+console.log(max)
 const maxString = max.toString().length;
 const minString = min.toString().length
 const longerString = maxString > minString ? maxString : minString;

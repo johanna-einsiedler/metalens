@@ -1,49 +1,49 @@
 ,id,year,grade,length,minutes,wic,feedback,info,pers,imag,meta,subject,ni,yi,vi
-1,Ashworth,1992,College,15,,1,1,1,1,0,1,Nursing,60,0.65,0.07
-2,Ayers,1993,Middle,10,,1,NA,1,1,1,0,Earth Science,34,-0.75,0.126
-3,Baisch,1990,Middle,2,,1,0,1,1,0,1,Math,95,-0.21,0.042
-4,Baker,1994,College,9,10,1,1,1,0,0,0,Algebra,209,-0.04,0.019
-5,Bauman,1992,Elementary,14,10,1,1,1,1,0,1,Math,182,0.23,0.022
-6,Becker,1996,College,1,20,1,0,0,1,0,0,Literature,462,0.03,0.009
-7,Bell & Bell,1985,High-school,4,,1,1,1,1,0,1,Math,38,0.26,0.106
-8,Brodney,1994,Elementary,15,,1,1,1,1,0,1,Math,542,0.06,0.007
-9,Burton,1986,College,4,,0,1,1,0,0,0,Math,99,0.06,0.04
-10,"Davis, BH",1990,Elementary,9,10,1,0,1,1,0,0,Social Studies,77,0.12,0.052
-11,"Davis, JJ",1996,College,15,,0,1,1,0,0,0,Statistics,40,0.77,0.107
-12,Day,1994,College,15,,0,1,1,1,0,1,Sociology,190,0,0.021
-13,Dipillo,1994,Elementary,8,6,1,1,1,1,0,1,Math,113,0.52,0.037
-14,Ganguli,1989,College,4,4,1,0,1,0,0,0,Math,50,0.54,0.083
-15,Giovinazzo,1996,College,14,,0,1,1,0,0,0,Algebra,47,0.2,0.086
-16,Goss,1998,College,15,10,1,1,1,0,0,0,Calculus,44,0.2,0.091
-17,Greene et al.,1991,College,4,10,1,1,1,1,0,0,Comp Science and Chemistry,24,-0.16,0.167
-18,Guckin,1992,College,10,8,1,1,NA,NA,0,NA,Algebra,78,0.42,0.052
-19,Guckin,1992,College,10,8,1,1,NA,NA,0,NA,Algebra,46,0.6,0.091
-20,Horton et al.,1985,College,3,,0,1,1,0,0,0,Chemistry,64,0.51,0.065
-21,Hyser,1992,Elementary,24,10,1,0,1,1,1,0,Social Studies,57,0.58,0.073
-22,"Johnson, LA",1991,High-school,19,,0,1,1,0,0,0,Algebra,68,0.54,0.061
-23,"Johnson, VM",1998,Elementary,4,15,1,0,1,0,0,0,Math,40,0.09,0.1
-24,Kasparek,1993,High-school,12,,1,1,1,1,0,1,Algebra,68,0.37,0.06
-25,Konopack et al.,1990,Middle,1,,1,0,1,0,0,0,World History,48,-0.01,0.083
-26,Langer & Applebee 1,1987,High-school,1,35,1,0,1,0,0,0,Social Studies,107,-0.13,0.037
-27,Langer & Applebee 2,1987,High-school,1,20,1,0,1,0,0,0,Social Studies,58,0.18,0.069
-28,Licata,1993,High-school,1,15,1,1,1,0,0,0,Math in Science,225,0.27,0.018
-29,Lodholz,1980,Elementary,14,15,1,1,1,0,0,0,Math,446,-0.02,0.009
-30,Madden,1993,Elementary,20,8,1,0,1,1,0,1,Math,77,0.33,0.053
-31,Millican,1994,Elementary,10,,1,1,1,1,1,1,Math,243,0.59,0.017
-32,Moynihan,1994,Elementary,7,10,1,1,1,1,0,1,Math,39,0.84,0.112
-33,Mulvaney,1991,College,11,,1,1,1,0,0,0,Management,67,-0.32,0.06
-34,Nieswandt,1997,High-school,NA,,0,1,1,0,0,0,Chemistry,91,0.12,0.044
-35,Radmacher,1995,College,NA,,0,1,1,0,0,1,Psychology,36,1.12,0.129
-36,Reaves,1991,High-school,1,,1,0,1,0,0,0,Natural Resources,177,-0.12,0.023
-37,Rivard,1996,Middle,6,55,1,0,1,0,0,0,Science,20,-0.44,0.205
-38,Rodgers,1996,College,15,,0,1,1,0,0,0,Algebra,120,-0.07,0.033
-39,Ross & Faucette,1994,College,15,,0,1,1,0,0,0,Algebra,16,0.7,0.265
-40,Sharp,1987,College,2,15,1,0,0,1,0,1,Biology,105,0.49,0.039
-41,Shepard,1992,Middle,4,,0,1,1,0,0,0,Math,195,0.2,0.021
-42,Stewart,1992,High-school,24,5,1,1,1,1,0,1,Algebra,62,0.58,0.067
-43,Ullrich,1926,College,11,,0,1,1,0,0,0,Educational Psychology,289,0.15,0.014
-44,Weiss & Walters,1980,College,15,3,1,0,1,0,0,0,Statistics,25,0.63,0.168
-45,Wells,1986,Elementary,8,15,1,0,1,1,0,1,Math,250,0.04,0.016
-46,Willey 1 ,1988,High-school,15,,NA,0,1,1,0,1,Biology,51,1.46,0.099
-47,Willey 2,1988,Middle,15,,NA,0,1,1,0,1,Social Studies,46,0.04,0.087
-48,Youngberg,1989,College,15,10,1,1,1,0,0,0,Algebra,56,0.25,0.072
+1,Ashworth,1992,College,15,,Yes,Yes,Yes,Yes,No,Yes,Nursing,60,0.65,0.07
+2,Ayers,1993,Middle,10,,Yes,Unknown,Yes,Yes,Yes,No,Earth Science,34,-0.75,0.126
+3,Baisch,1990,Middle,2,,Yes,No,Yes,Yes,No,Yes,Math,95,-0.21,0.042
+4,Baker,1994,College,9,10,Yes,Yes,Yes,No,No,No,Algebra,209,-0.04,0.019
+5,Bauman,1992,Elementary,14,10,Yes,Yes,Yes,Yes,No,Yes,Math,182,0.23,0.022
+6,Becker,1996,College,1,20,Yes,No,No,Yes,No,No,Literature,462,0.03,0.009
+7,Bell & Bell,1985,High-school,4,,Yes,Yes,Yes,Yes,No,Yes,Math,38,0.26,0.106
+8,Brodney,1994,Elementary,15,,Yes,Yes,Yes,Yes,No,Yes,Math,542,0.06,0.007
+9,Burton,1986,College,4,,No,Yes,Yes,No,No,No,Math,99,0.06,0.04
+10,"Davis, BH",1990,Elementary,9,10,Yes,No,Yes,Yes,No,No,Social Studies,77,0.12,0.052
+11,"Davis, JJ",1996,College,15,,No,Yes,Yes,No,No,No,Statistics,40,0.77,0.107
+12,Day,1994,College,15,,No,Yes,Yes,Yes,No,Yes,Sociology,190,0,0.021
+13,Dipillo,1994,Elementary,8,6,Yes,Yes,Yes,Yes,No,Yes,Math,113,0.52,0.037
+14,Ganguli,1989,College,4,4,Yes,No,Yes,No,No,No,Math,50,0.54,0.083
+15,Giovinazzo,1996,College,14,,No,Yes,Yes,No,No,No,Algebra,47,0.2,0.086
+16,Goss,1998,College,15,10,Yes,Yes,Yes,No,No,No,Calculus,44,0.2,0.091
+17,Greene et al.,1991,College,4,10,Yes,Yes,Yes,Yes,No,No,Comp Science and Chemistry,24,-0.16,0.167
+18,Guckin 1,1992,College,10,8,Yes,Yes,Unknown,Unknown,No,Unknown,Algebra,78,0.42,0.052
+19,Guckin 2,1992,College,10,8,Yes,Yes,Unknown,Unknown,No,Unknown,Algebra,46,0.6,0.091
+20,Horton et al.,1985,College,3,,No,Yes,Yes,No,No,No,Chemistry,64,0.51,0.065
+21,Hyser,1992,Elementary,24,10,Yes,No,Yes,Yes,Yes,No,Social Studies,57,0.58,0.073
+22,"Johnson, LA",1991,High-school,19,,No,Yes,Yes,No,No,No,Algebra,68,0.54,0.061
+23,"Johnson, VM",1998,Elementary,4,15,Yes,No,Yes,No,No,No,Math,40,0.09,0.1
+24,Kasparek,1993,High-school,12,,Yes,Yes,Yes,Yes,No,Yes,Algebra,68,0.37,0.06
+25,Konopack et al.,1990,Middle,1,,Yes,No,Yes,No,No,No,World History,48,-0.01,0.083
+26,Langer & Applebee 1,1987,High-school,1,35,Yes,No,Yes,No,No,No,Social Studies,107,-0.13,0.037
+27,Langer & Applebee 2,1987,High-school,1,20,Yes,No,Yes,No,No,No,Social Studies,58,0.18,0.069
+28,Licata,1993,High-school,1,15,Yes,Yes,Yes,No,No,No,Math in Science,225,0.27,0.018
+29,Lodholz,1980,Elementary,14,15,Yes,Yes,Yes,No,No,No,Math,446,-0.02,0.009
+30,Madden,1993,Elementary,20,8,Yes,No,Yes,Yes,No,Yes,Math,77,0.33,0.053
+31,Millican,1994,Elementary,10,,Yes,Yes,Yes,Yes,Yes,Yes,Math,243,0.59,0.017
+32,Moynihan,1994,Elementary,7,10,Yes,Yes,Yes,Yes,No,Yes,Math,39,0.84,0.112
+33,Mulvaney,1991,College,11,,Yes,Yes,Yes,No,No,No,Management,67,-0.32,0.06
+34,Nieswandt,1997,High-school,,,No,Yes,Yes,No,No,No,Chemistry,91,0.12,0.044
+35,Radmacher,1995,College,,,No,Yes,Yes,No,No,Yes,Psychology,36,1.12,0.129
+36,Reaves,1991,High-school,1,,Yes,No,Yes,No,No,No,Natural Resources,177,-0.12,0.023
+37,Rivard,1996,Middle,6,55,Yes,No,Yes,No,No,No,Science,20,-0.44,0.205
+38,Rodgers,1996,College,15,,No,Yes,Yes,No,No,No,Algebra,120,-0.07,0.033
+39,Ross & Faucette,1994,College,15,,No,Yes,Yes,No,No,No,Algebra,16,0.7,0.265
+40,Sharp,1987,College,2,15,Yes,No,No,Yes,No,Yes,Biology,105,0.49,0.039
+41,Shepard,1992,Middle,4,,No,Yes,Yes,No,No,No,Math,195,0.2,0.021
+42,Stewart,1992,High-school,24,5,Yes,Yes,Yes,Yes,No,Yes,Algebra,62,0.58,0.067
+43,Ullrich,1926,College,11,,No,Yes,Yes,No,No,No,Educational Psychology,289,0.15,0.014
+44,Weiss & Walters,1980,College,15,3,Yes,No,Yes,No,No,No,Statistics,25,0.63,0.168
+45,Wells,1986,Elementary,8,15,Yes,No,Yes,Yes,No,Yes,Math,250,0.04,0.016
+46,Willey 1,1988,High-school,15,,Unknown,No,Yes,Yes,No,Yes,Biology,51,1.46,0.099
+47,Willey 2,1988,Middle,15,,Unknown,No,Yes,Yes,No,Yes,Social Studies,46,0.04,0.087
+48,Youngberg,1989,College,15,10,Yes,Yes,Yes,No,No,No,Algebra,56,0.25,0.072

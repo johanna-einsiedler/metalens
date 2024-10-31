@@ -20,22 +20,42 @@ import { drawGraph } from "../fplot.js"
   crossorigin="anonymous"
 />
 <link rel="stylesheet" href="../styles/doubleRange.css">
-
 <link rel="stylesheet" href="../styles/styles.css">
 
+<style>
+
+  #observablehq-main,
+#observablehq-header,
+#observablehq-footer 
+{
+  max-width: none;
+  margin-left: 15vw;
+}
+
+h1 {
+  font-size: 1.8rem !important;
+  margin-bottom: 1rem;
+};
+
+ h4 {
+  font-size: .5rem;
+  margin-bottom: .5rem;
+}
+</style>
+
 ```js
-// attach database to page -> will need to pass this as input, not possible to have dynamic arguments!
+// attach database to page i.e .read in actual data
 const db = await DuckDBClient.of({
   axfors2021: FileAttachment(`../data/datasets/${observable.params.study}.csv`)
 });
 
-
+// get additional information about dta
 let metaData = await FileAttachment(`../data/descriptions/${observable.params.study}.json`).json()
 
 // load additional filter description data
 let filterDescription = await FileAttachment(`../data/filters/${observable.params.study}.json`).json()
 
-// transpose data
+// transpose filter data
 filterDescription = arrayToObjectOfArrays(filterDescription)
 const tables = await db.sql`show tables`
 
@@ -45,13 +65,8 @@ const tableName = [...tables][0]['name']
 // load all data from table
 const inputData = await db.query("select * FROM "+tableName)
 
-//const createTable1 = await db.query("DROP TABLE IF EXISTS test; CREATE TABLE test AS SELECT * FROM " + tableName)
-
-//let queryCount = db.query("select patient_setting, count(*) from test group by patient_setting");
 ```
 ```js
-
-//let studyCount = [...queryCount][0]['count_star()']
 
 // define column names that should be skipped
 const irrelevantColumns =['id','column00', 'acronym','yi','vi'] 
@@ -59,11 +74,10 @@ const irrelevantColumns =['id','column00', 'acronym','yi','vi']
 // get all column Names
 const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=${tableName}`
 
-//const test = await FileAttachment('./data/filters/dat.axfors2021.json').json()
-
-  // vector to collect selectors
+// vector to collect selectors
 const selectors =  {}
 
+// exclude irrelevant columns
 const relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
 
 // for each columnn in the dataset
@@ -75,35 +89,36 @@ for (let i = 0; i < numCols; i++) {
   const thisColumn = [...relevantColumns][i].column_name
 
   // check if we want to display the column
-  //if (!irrelevantColumns.includes(thisColumn)){
+  if (!irrelevantColumns.includes(thisColumn)){
   // SQL query to get distinct values present in this column
   const sqlColumnValues = 'SELECT DISTINCT ' + thisColumn + ' FROM ' + tableName
   const ColumnValues = await db.query(sqlColumnValues)
 
-  // collect distinct values present in the column
+// collect distinct values present in the column
   let distinctValues = []
   let j = -1
 
   // get alternative label for filter description (if available)
   let index = filterDescription['id'].findIndex(element => element[0] === thisColumn)
   let displayLabel = filterDescription['display_name'][index]
-  let label = (displayLabel !== undefined && displayLabel.length >0) ? displayLabel : thisColumn
-
-
+  let label = (displayLabel !== undefined && displayLabel.length >0) ? displayLabel : thisColumn;
 
 // get potential information to display
 let description = filterDescription['description'][index] === undefined ? "" : filterDescription['description'][index][0]
 
-
 // get alternative values if they exist and create a dictionary based on them
-  let displayValues = filterDescription['display_values'][index]
+let displayValues = filterDescription['display_values'][index]
+console.log(thisColumn)
+console.log('display', displayValues)
 
-
-
+// for each value in the column
 while (++j < [...ColumnValues].length) {
     distinctValues[j] = [...ColumnValues][j][thisColumn]
   }
   let distinctValuesCopy = distinctValues
+  console.log('all distinct', distinctValues)
+  console.log('numeric?', isArrayNumeric(distinctValues))
+
   // check whether all the values are numeric
   if (!isArrayNumeric(distinctValues)) {
   //let defaultValues = distinctValues
@@ -111,21 +126,7 @@ while (++j < [...ColumnValues].length) {
     for (let j = 0; j < distinctValues.length; j++){
       
 
-
-
-      // check for multiple argumentes separated by commas
-    //  if (!isNaN(distinctValues[j]) && distinctValues){
-      //  console.log(distinctValues[j])
-        //if ( distinctValues[j].includes(',')){
-            // split string
-          //  let splitEntry = distinctValues[j].split(',')
-            // remove from distinctValues
-            //distinctValues = distinctValues.filter(item => item != distinctValues[j])
-            // add to options
-            //distinctValues = [...distinctValues, ...splitEntry]  
-
-      //}
-      //}
+  // check if some values are in fact multiple values separated by commas
       if ((displayValues !== undefined) && (displayValues.length > 0)){
       if (displayValues[j].includes(',')){
          // split string
@@ -137,28 +138,9 @@ while (++j < [...ColumnValues].length) {
 
       }
          }
-
-      // check if any inputs contaisn multuple inputs separated by and
-      // if (distinctValues[j].includes(' and')){
-      //       // split string
-      //       let splitEntry = distinctValues[j].split('and')
-      //       // remove from distinctValues
-      //       distinctValues = distinctValues.filter(item => item != distinctValues[j])
-      //       // add to options
-      //       distinctValues = [...distinctValues, ...splitEntry]  
-      // }
-    
     }
-  // remove spaces at end or beginning
-  //distinctValues = distinctValues.map(entry => entry.trim());
-  // always capitalize first letter
- // distinctValues = distinctValues.map(entry => 
-   // entry.charAt(0).toUpperCase() + entry.slice(1)
-//);
-
-
 // remove potential duplicates
-//distinctValues = [...new Set(distinctValues)];
+distinctValues = [...new Set(distinctValues)];
   let obj = [];
   if (distinctValues!== undefined && displayValues !== undefined){
     if (displayValues.length > 0){
@@ -170,54 +152,64 @@ while (++j < [...ColumnValues].length) {
   }
   }
 
+// set default value to all checkboxes checked
+// except if  we have some values that were in fact two values separated by a comma
+// then set the default option to empty 
 let defaultValues = distinctValues
 if (distinctValuesCopy.some(value => value.includes(','))){
   defaultValues = []
 }
 
-    const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] :name, 
-      label: description.length > 0 ? html`
-      <span  data-text="${description}"class="ttip" >${label}</span>` : label,
-      unique: true,
-      //<span title="this is displayed on hover"> ${label} </span>`,
-      //, 
-      value: defaultValues
-    })
+// create checkbox selector
+const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] :name, 
+    label: description.length > 0 ? html`
+    <span  data-text="${description}"class="ttip" >${label}</span>` : label,
+    unique: true,
 
-    selectors[thisColumn] = myInput
+    value: defaultValues
+  })
+// save selector in list of selectors
+  selectors[thisColumn] = myInput
+// else i.e. if data is numeric -> create range slider
+} else {
+  // get max value
+  let maxVal = getMValue(distinctValues, 'Max')
+  let minVal = getMValue(distinctValues, 'Min')
+  console.log('distinctmin',minVal)
+  // get difference between min and max
+  const diff = maxVal - minVal
+
+  // define step sizes for range slider -> this is a pretty random heuristic
+  let step = 1
+  if (diff < 1) {
+    minVal = Math.floor(minVal * 1000) / 1000
+    maxVal = Math.ceil(maxVal * 1000) / 1000
+
+    step = 0.001
+  } else if (diff < 10) {
+    minVal = Math.floor(minVal * 10) / 10
+    maxVal = Math.ceil(maxVal * 10) / 10
+    step = 0.1
   } else {
-    // get max value
-    let maxVal = getMValue(distinctValues, 'Max')
-    let minVal = getMValue(distinctValues, 'Min')
-
-    // get difference between min and max
-    const diff = maxVal - minVal
-
-    let step = 1
-    if (diff < 1) {
-      minVal = Math.floor(minVal * 1000) / 1000
-      maxVal = Math.ceil(maxVal * 1000) / 1000
-
-      step = 0.001
-    } else if (diff < 10) {
-      minVal = Math.floor(minVal * 10) / 10
-      maxVal = Math.ceil(maxVal * 10) / 10
-      step = 0.1
-    } else {
-      minVal = Math.floor(minVal)
-      maxVal = Math.ceil(maxVal)
-    }
-    const myInput = doubleRange([minVal, maxVal], {
-      label: description.length > 0 ? html`
-      <span style="position:relative">
-      <span  data-text="${description}"class="ttip" >${label}</span> </span>` : label,
-      step: step
-    })
-
-    selectors[thisColumn] = myInput
+    minVal = Math.floor(minVal)
+    maxVal = Math.ceil(maxVal)
   }
 
+  // create double range slider
+  const myInput = doubleRange([minVal, maxVal], {
+    label: description.length > 0 ? html`
+    <span style="position:relative">
+    <span  data-text="${description}"class="ttip" >${label}</span> </span>` : label,
+    step: step
+  })
+  // add to list of selectors
+  selectors[thisColumn] = myInput
 }
+
+}
+}
+
+
 ```
 
 <h1> ${metaData['title'][0]} </h1>
@@ -228,12 +220,14 @@ if (distinctValuesCopy.some(value => value.includes(','))){
 <h3> Filters </h3>
 
 ```js
+// display filters
 const options =  view(Inputs.form(selectors))
 ```
 
 
 ```js
 
+// base for sql filter query
 let sqlFilter = 'SELECT * FROM ' + tableName + ' WHERE '
 
 // create SQL query for filtering the database according to selected options
@@ -263,68 +257,38 @@ for (let i = 0; i < numCols; i++) {
       String(options[relevantColumn][1])
   } 
   else {
-
-// let defaultOptions = [];
-// for (let j=0; j< selectors[relevantColumn].length; j++){
-//   console.log(selectors[relevantColumn][j].closest('label'))
-//   const label = selectors[relevantColumn][j].closest('label').textContent.trim();
-//   defaultOptions.push(label)
-
-// }  
+// if not numeric and options undefined don't filter on this column
 if (options[relevantColumn] !== undefined){
 const defaultCheck = Array.from(selectors[relevantColumn]).every(radio => radio.defaultChecked)
-  ///+ relevantColumn + " IN ('" + options[relevantColumn].join("','") +"')"
- 
-    //if filterTest.length == 
 
-//  for (let k=0; k < options[relevantColumn].length; k++){
-//   if (k === 0){
-//     exclusiveFilter = exclusiveFilter  + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-//   } else { 
-//      exclusiveFilter = exclusiveFilter  + " OR LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-//   }
-//   }
-
-
-
-// let exclusiveFilter = "SELECT * FROM " + tableName + " WHERE LOWER("  + relevantColumn + ") IN (LOWER('" + defaultOptions.join("'),LOWER('")+"'))"
-//   const filterTest = await db.query(exclusiveFilter)
-//   console.log('exclusive filter', [...filterTest].length)
-//   console.log(exclusiveFilter)
+// if we have some options selected
 if (options[relevantColumn].length >0){
 
-  //sqlFilter = sqlFilter + " ("
- //for (let k=0; k < options[relevantColumn].length; k++){
-  //if (k === 0){
-    //sqlFilter = sqlFilter + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-  //} else {   
+// if its not a column where the default is to have all unselected
      if (!defaultCheck){
-for (let k=0; k < options[relevantColumn].length; k++){
+  // add each selected option
+  for (let k=0; k < options[relevantColumn].length; k++){
 
+// syntax for first selected option
   if (k === 0){
     sqlFilter = sqlFilter + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
     }
+// syntax for remaining selected optoins
     else{
     sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
   }
   } 
   } else {
-
+// syntax if default is nothing selected
       sqlFilter =sqlFilter + " LOWER("  + relevantColumn + ") IN (LOWER('" + options[relevantColumn].join("'),LOWER('")+"'))"
-   //sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-  //}
-  //}
+
  }
-  //sqlFilter =sqlFilter + " )"
 
-//}
 }
 }
 }
 }
 
-
-console.log(sqlFilter)
 // execute SQL query for filtering
 const filteredData = await db.query(sqlFilter)
 

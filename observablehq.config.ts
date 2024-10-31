@@ -13,8 +13,8 @@ export default {
     pages: [
       {name: "Hydroxchloroquine", path: '/studies/dat.axfors2021'},
       {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
-        {name: "Conscientiousness & Medication adherence", path: "studies/dat.molloy2014"},
-        //{name: "Writing-to-Learn Interventions", path: "studies/dat.bangertdrowns2004"},
+      {name: "Conscientiousness & Medication adherence", path: "studies/dat.molloy2014"},
+      {name: "Writing-to-Learn Interventions", path: "studies/dat.bangertdrowns2004"},
         //{name: "Conscientiousness & Medication adherence", path: "studies/dat.bakdash2021"},
         //{name: "Conscientiousness & Medication adherence", path: "studies/dat.assink2016"},
 
