@@ -23,24 +23,6 @@ import { drawGraph } from "../fplot.js"
 <link rel="stylesheet" href="../styles/styles.css">
 
 <style>
-
-  #observablehq-main,
-#observablehq-header,
-#observablehq-footer 
-{
-  max-width: none;
-  margin-left: 15vw;
-}
-
-h1 {
-  font-size: 1.8rem !important;
-  margin-bottom: 1rem;
-};
-
- h4 {
-  font-size: .5rem;
-  margin-bottom: .5rem;
-}
 </style>
 
 ```js
@@ -108,16 +90,16 @@ let description = filterDescription['description'][index] === undefined ? "" : f
 
 // get alternative values if they exist and create a dictionary based on them
 let displayValues = filterDescription['display_values'][index]
-console.log(thisColumn)
-console.log('display', displayValues)
+// console.log(thisColumn)
+// console.log('display', displayValues)
 
 // for each value in the column
 while (++j < [...ColumnValues].length) {
     distinctValues[j] = [...ColumnValues][j][thisColumn]
   }
   let distinctValuesCopy = distinctValues
-  console.log('all distinct', distinctValues)
-  console.log('numeric?', isArrayNumeric(distinctValues))
+  // console.log('all distinct', distinctValues)
+  // console.log('numeric?', isArrayNumeric(distinctValues))
 
   // check whether all the values are numeric
   if (!isArrayNumeric(distinctValues)) {
@@ -175,7 +157,7 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
   // get max value
   let maxVal = getMValue(distinctValues, 'Max')
   let minVal = getMValue(distinctValues, 'Min')
-  console.log('distinctmin',minVal)
+  // console.log('distinctmin',minVal)
   // get difference between min and max
   const diff = maxVal - minVal
 
@@ -211,13 +193,15 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
 
 
 ```
+<section class="description">
+<h2> ${metaData['title'][0]} </h2>
+<h4 class="studyDescription"> ${metaData['description'][0]}</h4>
+<p> ${metaData['details'][0]}</p>
+<p class="studySource"> <i> ${metaData['source'][0]} </i> </p>
+</section>
 
-<h1> ${metaData['title'][0]} </h1>
-<h4> ${metaData['description'][0]} </h4>
-<p> ${metaData['details'][0]} </p>
-<p> <i> ${metaData['source'][0]} </i> </p>
-
-<h3> Filters </h3>
+<section class="analysis">
+<h3>Filters</h3>
 
 ```js
 // display filters
@@ -300,7 +284,6 @@ const filteredData = await db.query(sqlFilter)
 //studyCount = 20;
 
 
-
 ```
 
 
@@ -325,4 +308,4 @@ drawGraph([...filteredData])
 
 view(Inputs.table([...filteredData]))
 ```
-
+</section>
