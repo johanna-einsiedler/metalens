@@ -133,7 +133,7 @@ export const drawGraph = item => {
       ci_upper: RF + Math.sqrt(RF_VI)
     }
   })
-console.log(xMax)
+// console.log(xMax)
   const xScale = d3
     .scaleLinear()
     .domain([

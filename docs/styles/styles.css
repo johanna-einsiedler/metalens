@@ -9,7 +9,6 @@
 h1, h2, h3, h4,p {
   max-width: none;
   font-family: sans-serif
-
 };
 
 
@@ -126,7 +125,79 @@ input[type="checkbox"]:checked {
 
   --theme-foreground-focus:   #067;
 
-
 }
 
 
+#observablehq-main,
+#observablehq-header,
+#observablehq-footer 
+{
+  max-width: none;
+  margin-left: 15vw;
+}
+
+.studyDescription {
+  color: #6c757d;
+}
+
+.studySource {
+  color: #9ca1a5;
+  font-size: 0.8rem;
+}
+
+.analysis{
+  margin-top: 3rem;
+}
+
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+
+/* Base font size for the body */
+body {
+  font-size: 18px; /* Base size */
+  line-height: 1.6; /* Comfortable reading */
+  margin: 0;
+  padding: 0;
+}
+
+/* Headings */
+h1, h2, h3, h4 {
+  font-weight: 700; /* Bold for emphasis */
+  line-height: 1.2; /* Tighter for headings */
+  margin: 1em 0 0.5em; /* Space above and below */
+}
+
+  h1 {
+    font-size: 2.5rem; /* Adjust heading sizes for smaller screens */
+  }
+
+  h2 {
+    font-size: 1.8rem;
+  }
+
+  h3 {
+    font-size: 1.4rem;
+  }
+
+  h4 {
+    font-size: 1.2rem;
+  }
+
+  p {
+    font-size: 0.9rem; /* Slightly smaller for paragraphs */
+    line-height: 1.6; /* Adjust for readability on smaller screens */
+  }
+
+   /* Shorten and make more central */
+  .description, .analysis {
+    margin: auto;
+    max-width: 96%;
+  }
+
+     /* Decrease the gap between range filters on mobile */
+  .double-range {
+    gap: 0px;
+  }
+
+}
