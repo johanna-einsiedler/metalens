@@ -19,6 +19,23 @@ import { drawGraph } from "../fplot.js"
 <link rel="stylesheet" href="../styles/styles.css">
 
 <style>
+  @media (max-width: 600px) {
+  .mobile-block-range {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 1em;
+  }
+  .double-range {
+    display: block !important;
+    width: 100% !important;
+  }
+}
+
+#chartArea {
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+}
 </style>
 
 ```js
@@ -202,8 +219,9 @@ const myInput = Inputs.checkbox(distinctValues, {
   // create double range slider
   const myInput = doubleRange([minVal, maxVal], {
     label: description.length > 0 ? html`
-    <span style="position:relative">
-    <span  data-text="${description}"class="ttip" >${label}</span> </span>` : label,
+    <span class="mobile-block-range" style="position:relative">
+      <span data-text="${description}" class="ttip">${label}</span>
+    </span>` : label,
     step: step
   })
   // add to list of selectors
@@ -325,6 +343,15 @@ const filteredData = await db.query(sqlFilter)
 
 ```js
 
+let container = document.getElementById('chartArea');
+let width = container ? container.clientWidth : 600;
+let isMobile = window.innerWidth < 600;
+let height = isMobile
+  ? width + width * filteredData.length / 10   // much taller for mobile
+  : width + width * filteredData.length / 80;  // original for desktop
+if (container) {
+  container.style.height = height + 'px';
+}
 drawGraph([...filteredData])
 ```
 <h3>  Data </h3>
