@@ -1,7 +1,3 @@
-
-
-
-
 ```js
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
@@ -90,16 +86,14 @@ let description = filterDescription['description'][index] === undefined ? "" : f
 
 // get alternative values if they exist and create a dictionary based on them
 let displayValues = filterDescription['display_values'][index]
-// console.log(thisColumn)
-// console.log('display', displayValues)
+
 
 // for each value in the column
 while (++j < [...ColumnValues].length) {
     distinctValues[j] = [...ColumnValues][j][thisColumn]
   }
   let distinctValuesCopy = distinctValues
-  // console.log('all distinct', distinctValues)
-  // console.log('numeric?', isArrayNumeric(distinctValues))
+
 
   // check whether all the values are numeric
   if (!isArrayNumeric(distinctValues)) {
@@ -134,6 +128,31 @@ distinctValues = [...new Set(distinctValues)];
   }
   }
 
+// Compute counts for each check-box filter value
+let valueCounts = {};
+const isNumeric = isArrayNumeric(distinctValues);
+
+for (let val of distinctValues) {
+  let countQuery;
+  if (isNumeric) {
+    //countQuery = `SELECT * FROM ${tableName}`;
+    countQuery = `SELECT id FROM ${tableName} WHERE ${thisColumn} = ${val}`;
+
+  } else {
+    // Escape single quotes in val
+    let safeVal = String(val).replace(/'/g, "''");
+    countQuery = `SELECT id FROM ${tableName} WHERE LOWER(${thisColumn}) = LOWER('${safeVal}')`;
+
+  }
+  let result = await db.query(countQuery);
+
+  // Get array of unique IDs from result
+  const resultArray = result.toArray();
+  let count = resultArray ? new Set(resultArray.map(r => r.id)).size : 0;
+
+  valueCounts[val] = count;
+}
+
 // set default value to all checkboxes checked
 // except if  we have some values that were in fact two values separated by a comma
 // then set the default option to empty 
@@ -143,13 +162,17 @@ if (distinctValuesCopy.some(value => value.includes(','))){
 }
 
 // create checkbox selector
-const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] :name, 
-    label: description.length > 0 ? html`
+const myInput = Inputs.checkbox(distinctValues, { 
+  format: (name) => {
+    let labelText = Object.keys(obj).length > 0 ? obj[name] : name;
+    let count = valueCounts[name] !== undefined ? ` (${valueCounts[name]})` : '';
+    return labelText + count;
+  },
+  label: description.length > 0 ? html`
     <span  data-text="${description}"class="ttip" >${label}</span>` : label,
-    unique: true,
-
-    value: defaultValues
-  })
+  unique: true,
+  value: defaultValues
+})
 // save selector in list of selectors
   selectors[thisColumn] = myInput
 // else i.e. if data is numeric -> create range slider
@@ -157,8 +180,7 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
   // get max value
   let maxVal = getMValue(distinctValues, 'Max')
   let minVal = getMValue(distinctValues, 'Min')
-  // console.log('distinctmin',minVal)
-  // get difference between min and max
+
   const diff = maxVal - minVal
 
   // define step sizes for range slider -> this is a pretty random heuristic
