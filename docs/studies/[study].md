@@ -292,6 +292,9 @@ const filteredData = await db.query(sqlFilter)
 ```
 <h3> Forest plot </h3>
 
+<p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation</a></p>
+
+
 
 <!-- Define Area to display chart -->
  <div id="chartArea"></div>
