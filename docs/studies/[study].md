@@ -35,6 +35,10 @@ import { drawGraph } from "../fplot.js"
   min-height: 0 !important;
   max-height: none !important;
   height: auto !important;
+  overflow-x: auto;
+  overflow-y: visible;
+  width: 100%;
+  min-width: 400px;
 }
 </style>
 
@@ -240,6 +244,7 @@ const myInput = Inputs.checkbox(distinctValues, {
 <p class="studySource"> <i> ${metaData['source'][0]} </i> </p>
 </section>
 
+
 <section class="analysis">
 <h3>Filters</h3>
 
@@ -332,12 +337,25 @@ const filteredData = await db.query(sqlFilter)
 ```
 <h3> Forest plot </h3>
 
-<p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation</a></p>
-
+<p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
 
 
 <!-- Define Area to display chart -->
+<div id="mobile-scroll-notice" style="display: none; color: #6c757d; margin-bottom: 1rem;">
+  <p>⟷ Note: The plot below can be scrolled horizontally.</p>
+</div>
+
+```js
+// Show scroll notice only on mobile
+if (window.innerWidth <= 600) {
+  document.getElementById('mobile-scroll-notice').style.display = 'block';
+}
+```
+
+
  <div id="chartArea"></div>
+
+
 
 
 
