@@ -160,6 +160,44 @@ input[type="checkbox"]:checked {
   margin-top: 3rem;
 }
 
+.study-hero {
+  max-width: 960px;
+  padding: 2rem 0 1.5rem;
+}
+
+.study-title {
+  font-family: var(--sans-serif, sans-serif);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: #1d2730;
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.25rem, 1.1rem + 0.9vw, 2.2rem);
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.study-subtitle {
+  margin: 0 0 0.75rem;
+  color: #6c757d;
+  font-size: clamp(0.9rem, 0.85rem + 0.4vw, 1.2rem);
+}
+
+.study-lead {
+  margin: 0 0 0.75rem;
+  color: #2f3a43;
+  max-width: 70ch;
+  font-size: clamp(0.95rem, 0.9rem + 0.3vw, 1.1rem);
+}
+
+.study-source {
+  margin-top: 0.75rem;
+  color: #9ca1a5;
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
@@ -206,9 +244,12 @@ h1, h2, h3, h4 {
     max-width: 96%;
   }
 
+  .study-hero {
+    padding: 1.25rem 0 1rem;
+  }
+
      /* Decrease the gap between range filters on mobile */
   .double-range {
     gap: 0px;
   }
-
 }

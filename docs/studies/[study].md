@@ -237,11 +237,18 @@ const myInput = Inputs.checkbox(distinctValues, {
 
 
 ```
-<section class="description">
-<h2> ${metaData['title'][0]} </h2>
-<h4 class="studyDescription"> ${metaData['description'][0]}</h4>
-<p> ${metaData['details'][0]}</p>
-<p class="studySource"> <i> ${metaData['source'][0]} </i> </p>
+<section class="description study-hero">
+  <span class="study-eyebrow">Meta-analysis</span>
+  <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
+  <p class="study-subtitle">${metaData['description'][0]}</p>
+  <details class="study-overview">
+    <summary>Overview</summary>
+    <p class="study-lead">${metaData['details'][0]}</p>
+  </details>
+  <details class="study-citation">
+    <summary>Source and citation</summary>
+    <p class="study-source">${metaData['source'][0]}</p>
+  </details>
 </section>
 
 
