@@ -49,8 +49,8 @@ let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
 //let numLenLower = min.toString().length
 let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
 
-const number = html`<input  style="width: ${numLenLower}"; type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
-const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
+const number = html`<input  type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
+const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
 // console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
