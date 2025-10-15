@@ -131,8 +131,11 @@ const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) 
       }
     }
 
-    if (currentValue && typeof liveCountCallback === 'function') {
-      liveCountCallback(currentValue);
+    if (currentValue) {
+      if (typeof liveCountCallback === 'function') {
+        liveCountCallback(currentValue);
+      }
+      form.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
     if (event) event.stopPropagation();
@@ -160,8 +163,11 @@ const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) 
       }
     }
 
-    if (currentValue && typeof liveCountCallback === 'function') {
-      liveCountCallback(currentValue);
+    if (currentValue) {
+      if (typeof liveCountCallback === 'function') {
+        liveCountCallback(currentValue);
+      }
+      form.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
     if (event) event.stopPropagation();
