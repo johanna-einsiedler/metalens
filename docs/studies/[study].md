@@ -281,73 +281,35 @@ const options =  view(Inputs.form(selectors))
 
 
 ```js
-
-// base for sql filter query
-let sqlFilter = 'SELECT * FROM ' + tableName + ' WHERE '
-
-// create SQL query for filtering the database according to selected options
-for (let i = 0; i < numCols; i++) {
-  // get relevant column to filter on
-  let relevantColumn = [...relevantColumns][i].column_name    
-
-
-  // if its not the first column add an AND
-  if (!sqlFilter.endsWith(' ') && i < numCols ) {
-    sqlFilter = sqlFilter + ' AND '
-  }
-
-// check if empty
-//if (options[relevantColumn].length > 0){
-  // check if numeric
-  if ((isArrayNumeric(options[relevantColumn])) && (options[relevantColumn].length >0)) {
-
-    sqlFilter =
-      sqlFilter +
-      relevantColumn +
-      '>= ' +
-      String(options[relevantColumn][0]) +
-      ' AND ' +
-      relevantColumn +
-      '<=' +
-      String(options[relevantColumn][1])
-  } 
-  else {
-// if not numeric and options undefined don't filter on this column
-if (options[relevantColumn] !== undefined){
-const defaultCheck = Array.from(selectors[relevantColumn]).every(radio => radio.defaultChecked)
-
-// if we have some options selected
-if (options[relevantColumn].length >0){
-
-// if its not a column where the default is to have all unselected
-     if (!defaultCheck){
-  // add each selected option
-  for (let k=0; k < options[relevantColumn].length; k++){
-
-// syntax for first selected option
-  if (k === 0){
-    sqlFilter = sqlFilter + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
+const conditions = [];
+for (const key in options) {
+  const value = options[key];
+  if (value && value.length > 0) {
+    if (Array.isArray(value) && typeof value[0] === 'number' && value.length === 2) {
+      // Handle range sliders
+      conditions.push(`${key} >= ${value[0]} AND ${key} <= ${value[1]}`);
+    } else {
+      // Handle checkboxes
+      const inValues = value.map(v => `LOWER('${String(v).replace(/'/g, "''")}')`).join(',');
+      conditions.push(`LOWER(${key}) IN (${inValues})`);
     }
-// syntax for remaining selected optoins
-    else{
-    sqlFilter = sqlFilter  + " AND LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
   }
-  } 
-  } else {
-// syntax if default is nothing selected
-      sqlFilter =sqlFilter + " LOWER("  + relevantColumn + ") IN (LOWER('" + options[relevantColumn].join("'),LOWER('")+"'))"
+}
 
- }
-
-}
-}
-}
+let sqlFilter;
+if (conditions.length > 0) {
+  sqlFilter = `SELECT * FROM ${tableName} WHERE ${conditions.join(' AND ')}`;
+} else {
+  sqlFilter = `SELECT * FROM ${tableName}`;
 }
 
 // execute SQL query for filtering
-const filteredData = await db.query(sqlFilter)
+const filteredData = (async () => {
+  const data = await db.query(sqlFilter);
+  return data.toArray(); // Convert to a standard JavaScript array
+})()
 
-// This global update is removed to prevent overwriting the specific counts
+// This logic is no longer needed
 
 
 ```
@@ -374,6 +336,10 @@ if (window.innerWidth <= 600) {
 ```
 
 
+<div id="no-data-message" style="display: none; color: #6c757d; margin: 2rem 0;">
+  <p>No studies match the selected criteria.</p>
+</div>
+
  <div id="chartArea"></div>
 
 
@@ -381,22 +347,47 @@ if (window.innerWidth <= 600) {
 
 
 ```js
+const data = await filteredData;
 
-let container = document.getElementById('chartArea');
-let width = container ? container.clientWidth : 600;
-let isMobile = window.innerWidth < 600;
-let height = isMobile
-  ? width + width * filteredData.length / 10   // much taller for mobile
-  : width + width * filteredData.length / 80;  // original for desktop
-if (container) {
-  container.style.height = height + 'px';
+// Only draw the graph if there is data to display
+if (data && data.length > 0) {
+  // Clear any 'no data' message
+  const noDataMessage = document.getElementById('no-data-message');
+  if (noDataMessage) noDataMessage.style.display = 'none';
+
+  // Ensure the plot and data containers are visible
+  const chartContainer = document.getElementById('chartArea');
+  if (chartContainer) chartContainer.style.display = 'block';
+  const dataContainer = document.getElementById('data-section');
+  if (dataContainer) dataContainer.style.display = 'block';
+
+  // Calculate dimensions and draw the graph
+  let container = document.getElementById('chartArea');
+  let width = container ? container.clientWidth : 600;
+  let isMobile = window.innerWidth < 600;
+  let height = isMobile
+    ? width + width * data.length / 10   // much taller for mobile
+    : width + width * data.length / 80;  // original for desktop
+  if (container) {
+    container.style.height = height + 'px';
+  }
+  drawGraph([...data]);
+} else {
+  // If there is no data, hide the plot and show the 'no data' message
+  const chartContainer = document.getElementById('chartArea');
+  if (chartContainer) chartContainer.style.display = 'none';
+  const dataContainer = document.getElementById('data-section');
+  if (dataContainer) dataContainer.style.display = 'none';
+  const noDataMessage = document.getElementById('no-data-message');
+  if (noDataMessage) noDataMessage.style.display = 'block';
 }
-drawGraph([...filteredData])
 ```
+<div id="data-section">
 <h3>  Data </h3>
 
 ```js
 
-view(Inputs.table([...filteredData]))
+view(Inputs.table([...data]))
 ```
+</div>
 </section>
