@@ -31,7 +31,8 @@ export function createDoubleRange({
   disabled,
   placeholder,
   validate = checkValidity,
-  width
+  width,
+  liveCountCallback // Re-introducing the callback
 } = {}) {
   let value;
   if (typeof format !== "function") throw new TypeError("format is not a function");
@@ -79,9 +80,10 @@ const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) 
 
 // const span = html`<span  class="range_track" id="range_track"></span>`
   const dRange = " double-range"
+  const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> matching studies for this filter</div>`;
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
    <div class=__ns__-input${dRange}>  <div style="font-size:12px"><p>${label}</p></div> <div>
-   ${number} - ${numberUpper} </div> <div> ${range}${range2} </div>
+   ${number} - ${numberUpper} </div> <div> ${range}${range2} </div> ${countDisplay}
     </div>
   </form>`;
   form.addEventListener("submit", preventDefault);
@@ -106,61 +108,63 @@ const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) 
 
 
   function onrange(event) {
- if (event.target.id ==='fromSlider'){
-    const v = coerce(invert(range.valueAsNumber),'from');
-    if (isFinite(v)) {
-      number.valueAsNumber = Math.max(min, Math.min(numberUpper.valueAsNumber, v));
-      if (validate(number)) {
-        value = [number.valueAsNumber, numberUpper.valueAsNumber]
-        number.value = format(value[0])
-        return;
+    let currentValue;
+    if (event.target.id === 'fromSlider') {
+      const v = coerce(invert(range.valueAsNumber), 'from');
+      if (isFinite(v)) {
+        number.valueAsNumber = Math.max(min, Math.min(numberUpper.valueAsNumber, v));
+        if (validate(number)) {
+          value = [number.valueAsNumber, numberUpper.valueAsNumber];
+          number.value = format(value[0]);
+          currentValue = value;
+        }
+      }
+    } else {
+      const v = coerce(invert(range2.valueAsNumber), 'to');
+      if (isFinite(v)) {
+        numberUpper.valueAsNumber = Math.max(number.valueAsNumber, Math.min(max, v));
+        if (validate(numberUpper)) {
+          value = [number.valueAsNumber, numberUpper.valueAsNumber];
+          numberUpper.value = format(value[1]);
+          currentValue = value;
+        }
       }
     }
-    if (event) event.stopPropagation();
-  }
-  else {
-        const v = coerce(invert(range2.valueAsNumber),'to');
 
-if (isFinite(v)) {
-      numberUpper.valueAsNumber = Math.max(number.valueAsNumber, Math.min(max, v));
-      if (validate(numberUpper)) {
-        value = [number.valueAsNumber,numberUpper.valueAsNumber];
-        numberUpper.value = format(value[1]);
-        return;
-      }
+    if (currentValue && typeof liveCountCallback === 'function') {
+      liveCountCallback(currentValue);
     }
-     if (event) event.stopPropagation();
+
+    if (event) event.stopPropagation();
   }
-    }
   
-  function onnumber(event) {        
-    if (event.target.id ==='numberLower'){
-    const v = coerce(number.valueAsNumber,'from');
-    if (isFinite(v)) {
-      if (range) range.valueAsNumber = transform(v);
-      if (validate(number)) {
-        value = [v, numberUpper.valueAsNumber];
-        // adjust input box size
-        numLenLower = String(Math.max(v.toString().length*10 +10, 22))+'px'
-        //number.style['width'] = numLenLower
-        return;
+  function onnumber(event) {
+    let currentValue;
+    if (event.target.id === 'numberLower') {
+      const v = coerce(number.valueAsNumber, 'from');
+      if (isFinite(v)) {
+        if (range) range.valueAsNumber = transform(v);
+        if (validate(number)) {
+          value = [v, numberUpper.valueAsNumber];
+          currentValue = value;
+        }
+      }
+    } else {
+      const v = coerce(numberUpper.valueAsNumber, 'to');
+      if (isFinite(v)) {
+        if (range2) range2.valueAsNumber = transform(v);
+        if (validate(numberUpper)) {
+          value = [number.valueAsNumber, v];
+          currentValue = value;
+        }
       }
     }
-    if (event) event.stopPropagation();
-  } else {
-    const v = coerce(numberUpper.valueAsNumber,'to');
-    if (isFinite(v)) {
-      if (range2) range2.valueAsNumber = transform(v);
-      if (validate(numberUpper)) {
-        value = [number.valueAsNumber,v];
-        // adjust input box size
-        numLenUpper = String(Math.max(v.toString().length*10+10, 22))+'px'
-        //numberUpper.style['width'] = numLenUpper
-        return;
-      }
+
+    if (currentValue && typeof liveCountCallback === 'function') {
+      liveCountCallback(currentValue);
     }
+
     if (event) event.stopPropagation();
-  }
   }
 
 
@@ -188,6 +192,18 @@ if (isFinite(v)) {
       }
     }
   });
+  
+  // Expose count display for external updates
+  form.countDisplay = countDisplay;
+
+  form.updateCount = (count) => {
+    const countSpan = countDisplay.querySelector('.count-number');
+    if (countSpan) {
+      countSpan.textContent = count;
+      countDisplay.style.display = 'block';
+    }
+  };
+  
   if (initialValue === undefined && irange) initialValue = [min,max]
   numberUpper.valueAsNumber = max;
   number.valueAsNumber = min;

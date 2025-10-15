@@ -129,6 +129,24 @@
 }
 .double-range input[type="number"]:focus{ outline: none; border-color:#067; box-shadow: 0 0 0 3px rgba(0,102,119,.12) }
 
+.study-count-badge {
+  text-align: center;
+  padding: 8px 12px;
+  margin-top: 8px;
+  background-color: #e8f4f8;
+  border: 1px solid #b3d9e6;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #2f3a43;
+}
+
+.study-count-badge .count-number {
+  font-weight: 700;
+  color: #067;
+  font-size: 15px;
+}
+
 @media (max-width: 768px){
   .double-range{
     margin: 16px auto 22px;

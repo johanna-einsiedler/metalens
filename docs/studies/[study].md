@@ -220,21 +220,40 @@ const myInput = Inputs.checkbox(distinctValues, {
     maxVal = Math.ceil(maxVal)
   }
 
-  // create double range slider
+  // create double range slider with live count update
   const myInput = doubleRange([minVal, maxVal], {
     label: description.length > 0 ? html`
-    <span class="mobile-block-range" style="position:relative">
-      <span data-text="${description}" class="ttip">${label}</span>
-    </span>` : label,
-    step: step
+      <span class="mobile-block-range" style="position:relative">
+        <span data-text="${description}" class="ttip">${label}</span>
+      </span>` : label,
+    step: step,
+    liveCountCallback: async (range) => {
+      const res = await db.query('SELECT COUNT(*) as n FROM ' + tableName + ' WHERE ' + thisColumn + ' >= ' + range[0] + ' AND ' + thisColumn + ' <= ' + range[1]);
+      const count = res.batches[0].data.children[0].values[0] ?? 0;
+      myInput.updateCount(count);
+    }
   })
   // add to list of selectors
   selectors[thisColumn] = myInput
+
+      // No initial trigger here anymore
 }
 
 }
 }
 
+// After creating all selectors, trigger their initial counts
+setTimeout(() => {
+  Promise.all(Object.keys(selectors).map(async (columnName) => {
+    const selector = selectors[columnName];
+    if (selector.updateCount && selector.value) {
+      const initialRange = selector.value;
+      const res = await db.query(`SELECT COUNT(*) as n FROM ${tableName} WHERE ${columnName} >= ${initialRange[0]} AND ${columnName} <= ${initialRange[1]}`);
+      const count = res.batches[0].data.children[0].values[0] ?? 0;
+      selector.updateCount(count);
+    }
+  }));
+}, 0);
 
 ```
 <section class="description study-hero">
@@ -328,12 +347,7 @@ if (options[relevantColumn].length >0){
 // execute SQL query for filtering
 const filteredData = await db.query(sqlFilter)
 
-
-// failed attempt at creating study counts preview
-//const createTable = await db.query("DROP TABLE IF EXISTS test; CREATE TABLE test AS " + sqlFilter)
-//const newTable = await db.query("select * FROM test")
-//view([... newTable])
-//studyCount = 20;
+// This global update is removed to prevent overwriting the specific counts
 
 
 ```
