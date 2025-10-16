@@ -8,9 +8,17 @@ export const drawGraph = item => {
   d3.select('#chartArea').selectAll('*').remove()
 
   // set dimensions
-  let width = document.getElementById('chartArea').clientWidth
+  let width = Math.max(document.getElementById('chartArea').clientWidth, 600)
 
-  let height = width+ width*data.length/80
+ 
+
+  // Calculate height based on width and number of data points
+  // Example: If width=600 and data.length=20:
+  // height = 600 + (600 * 20/80) = 600 + 150 = 750
+  // HOWEVER, on mobile, the width needs to be boosted, hence I add some math to boost it
+  let boost_constant = 200000;
+  let p = 1.2;
+  let height = width + width*data.length/80  + (boost_constant / Math.pow(width, p));
   const margin = { top: 80, right: 20, bottom: 100, left: 400 }
   const innerWidth = width - margin.right - margin.left
   const innerHeight = height - margin.top - margin.bottom
@@ -133,7 +141,7 @@ export const drawGraph = item => {
       ci_upper: RF + Math.sqrt(RF_VI)
     }
   })
-console.log(xMax)
+// console.log(xMax)
   const xScale = d3
     .scaleLinear()
     .domain([

@@ -190,10 +190,10 @@ filterDescription = arrayToObjectOfArrays(filterDescription)
 const tables = await db.sql`show tables`
 // get table name
 
-console.log([...tables][1])
+//console.log([...tables][1])
 //const tableName = [...tables][0]['name']
 const tableName = 'input'
-console.log('tabname', tableName)
+//console.log('tabname', tableName)
 
 // load all data from table
 const inputData = await db.query("select * FROM "+tableName)
@@ -255,7 +255,7 @@ while (++j < [...ColumnValues].length) {
     // check if any of the inputs contains multiple inputs 
     for (let j = 0; j < distinctValues.length; j++){
       
-      // check for multiple argumentes separated by commas
+      // check for multiple arguments separated by commas
       if (distinctValues[j].includes(',')){
             // split string
             let splitEntry = distinctValues[j].split(',')
@@ -446,8 +446,8 @@ if (options[relevantColumn].length >0){
 }
 // execute SQL query for filtering
 }
-console.log(confirm)
-console.log(sqlFilter)
+// console.log(confirm)
+// console.log(sqlFilter)
 let filteredData = []
 if (confirm >0){
     filteredData = await db.query(sqlFilter)
@@ -455,7 +455,8 @@ if (confirm >0){
 ```
 
 <div id='plot' class='hiddenFirst'>
-<h3> Forest plot </h3>
+<h3> Forest plot</h3>
+
 </div>
 
 <!-- Define Area to display chart -->

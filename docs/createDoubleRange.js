@@ -40,8 +40,8 @@ export function createDoubleRange({
   if (min > max) [min, max] = [max, min], transform === undefined && (transform = negate);
   if (step !== undefined) step = +step;
   //if (inputRange !== undefined) {
-console.log(min)
-console.log(max)
+// console.log(min)
+// console.log(max)
 const maxString = max.toString().length;
 const minString = min.toString().length
 const longerString = maxString > minString ? maxString : minString;
@@ -51,7 +51,7 @@ let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
 
 const number = html`<input  style="width: ${numLenLower}"; type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
 const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
-console.log('exists?2', window.hasOwnProperty('number'))
+// console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
   let range2;

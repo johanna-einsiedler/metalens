@@ -1,7 +1,3 @@
-
-
-
-
 ```js
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
@@ -23,23 +19,26 @@ import { drawGraph } from "../fplot.js"
 <link rel="stylesheet" href="../styles/styles.css">
 
 <style>
-
-  #observablehq-main,
-#observablehq-header,
-#observablehq-footer 
-{
-  max-width: none;
-  margin-left: 15vw;
+  @media (max-width: 600px) {
+  .mobile-block-range {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 1em;
+  }
+  .double-range {
+    display: block !important;
+    width: 100% !important;
+  }
 }
 
-h1 {
-  font-size: 1.8rem !important;
-  margin-bottom: 1rem;
-};
-
- h4 {
-  font-size: .5rem;
-  margin-bottom: .5rem;
+#chartArea {
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  overflow-x: auto;
+  overflow-y: visible;
+  width: 100%;
+  min-width: 400px;
 }
 </style>
 
@@ -108,16 +107,14 @@ let description = filterDescription['description'][index] === undefined ? "" : f
 
 // get alternative values if they exist and create a dictionary based on them
 let displayValues = filterDescription['display_values'][index]
-console.log(thisColumn)
-console.log('display', displayValues)
+
 
 // for each value in the column
 while (++j < [...ColumnValues].length) {
     distinctValues[j] = [...ColumnValues][j][thisColumn]
   }
   let distinctValuesCopy = distinctValues
-  console.log('all distinct', distinctValues)
-  console.log('numeric?', isArrayNumeric(distinctValues))
+
 
   // check whether all the values are numeric
   if (!isArrayNumeric(distinctValues)) {
@@ -152,6 +149,31 @@ distinctValues = [...new Set(distinctValues)];
   }
   }
 
+// Compute counts for each check-box filter value
+let valueCounts = {};
+const isNumeric = isArrayNumeric(distinctValues);
+
+for (let val of distinctValues) {
+  let countQuery;
+  if (isNumeric) {
+    //countQuery = `SELECT * FROM ${tableName}`;
+    countQuery = `SELECT id FROM ${tableName} WHERE ${thisColumn} = ${val}`;
+
+  } else {
+    // Escape single quotes in val
+    let safeVal = String(val).replace(/'/g, "''");
+    countQuery = `SELECT id FROM ${tableName} WHERE LOWER(${thisColumn}) = LOWER('${safeVal}')`;
+
+  }
+  let result = await db.query(countQuery);
+
+  // Get array of unique IDs from result
+  const resultArray = result.toArray();
+  let count = resultArray ? new Set(resultArray.map(r => r.id)).size : 0;
+
+  valueCounts[val] = count;
+}
+
 // set default value to all checkboxes checked
 // except if  we have some values that were in fact two values separated by a comma
 // then set the default option to empty 
@@ -161,13 +183,17 @@ if (distinctValuesCopy.some(value => value.includes(','))){
 }
 
 // create checkbox selector
-const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys(obj).length > 0 ? obj[name] :name, 
-    label: description.length > 0 ? html`
+const myInput = Inputs.checkbox(distinctValues, { 
+  format: (name) => {
+    let labelText = Object.keys(obj).length > 0 ? obj[name] : name;
+    let count = valueCounts[name] !== undefined ? ` (${valueCounts[name]})` : '';
+    return labelText + count;
+  },
+  label: description.length > 0 ? html`
     <span  data-text="${description}"class="ttip" >${label}</span>` : label,
-    unique: true,
-
-    value: defaultValues
-  })
+  unique: true,
+  value: defaultValues
+})
 // save selector in list of selectors
   selectors[thisColumn] = myInput
 // else i.e. if data is numeric -> create range slider
@@ -175,8 +201,7 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
   // get max value
   let maxVal = getMValue(distinctValues, 'Max')
   let minVal = getMValue(distinctValues, 'Min')
-  console.log('distinctmin',minVal)
-  // get difference between min and max
+
   const diff = maxVal - minVal
 
   // define step sizes for range slider -> this is a pretty random heuristic
@@ -198,8 +223,9 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
   // create double range slider
   const myInput = doubleRange([minVal, maxVal], {
     label: description.length > 0 ? html`
-    <span style="position:relative">
-    <span  data-text="${description}"class="ttip" >${label}</span> </span>` : label,
+    <span class="mobile-block-range" style="position:relative">
+      <span data-text="${description}" class="ttip">${label}</span>
+    </span>` : label,
     step: step
   })
   // add to list of selectors
@@ -211,13 +237,16 @@ const myInput = Inputs.checkbox(distinctValues, { format: (name) =>  Object.keys
 
 
 ```
+<section class="description">
+<h2> ${metaData['title'][0]} </h2>
+<h4 class="studyDescription"> ${metaData['description'][0]}</h4>
+<p> ${metaData['details'][0]}</p>
+<p class="studySource"> <i> ${metaData['source'][0]} </i> </p>
+</section>
 
-<h1> ${metaData['title'][0]} </h1>
-<h4> ${metaData['description'][0]} </h4>
-<p> ${metaData['details'][0]} </p>
-<p> <i> ${metaData['source'][0]} </i> </p>
 
-<h3> Filters </h3>
+<section class="analysis">
+<h3>Filters</h3>
 
 ```js
 // display filters
@@ -300,7 +329,6 @@ const filteredData = await db.query(sqlFilter)
 //studyCount = 20;
 
 
-
 ```
 
 
@@ -309,14 +337,39 @@ const filteredData = await db.query(sqlFilter)
 ```
 <h3> Forest plot </h3>
 
+<p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
+
 
 <!-- Define Area to display chart -->
+<div id="mobile-scroll-notice" style="display: none; color: #6c757d; margin-bottom: 1rem;">
+  <p>⟷ Note: The plot below can be scrolled horizontally.</p>
+</div>
+
+```js
+// Show scroll notice only on mobile
+if (window.innerWidth <= 600) {
+  document.getElementById('mobile-scroll-notice').style.display = 'block';
+}
+```
+
+
  <div id="chartArea"></div>
+
+
 
 
 
 ```js
 
+let container = document.getElementById('chartArea');
+let width = container ? container.clientWidth : 600;
+let isMobile = window.innerWidth < 600;
+let height = isMobile
+  ? width + width * filteredData.length / 10   // much taller for mobile
+  : width + width * filteredData.length / 80;  // original for desktop
+if (container) {
+  container.style.height = height + 'px';
+}
 drawGraph([...filteredData])
 ```
 <h3>  Data </h3>
@@ -325,4 +378,4 @@ drawGraph([...filteredData])
 
 view(Inputs.table([...filteredData]))
 ```
-
+</section>
