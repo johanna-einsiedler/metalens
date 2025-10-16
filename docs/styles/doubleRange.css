@@ -32,7 +32,7 @@
   padding: 10px 0;
 }
 
-/* Remove all the old layout styles */
+/* The old layout styles have been removed. */
 
 .double {
   position: absolute;
@@ -146,5 +146,38 @@
     height: 32px;
     font-size: 12px;
     min-width: 100px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Stack elements vertically */
+  .filter-container {
+    display: block;
+  }
+
+  /* Center the label text */
+  .filter-label {
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  /* Center the number inputs within their container */
+  .filter-inputs {
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+
+  /* Center the slider block */
+  .filter-slider {
+    display: flex;
+    justify-content: center;
+    width: auto;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  /* Center the study count text */
+  .study-count-badge {
+    text-align: center;
   }
 }
