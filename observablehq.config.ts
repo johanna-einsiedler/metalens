@@ -27,7 +27,8 @@ export default {
     {name: "About",
       pages: [
         {name: "About the project", path: "/about"},
-        {name: "Methodology", path:"/methodology"}
+        {name: "Methodology", path:"/methodology"},
+        {name: "Simple explanation", path:"/eli5"},
       ]},
 
 

@@ -6,6 +6,17 @@
   margin-left: 15vw;
 }
 
+@media only screen and (max-width: 800px) {
+  #observablehq-main,
+  #observablehq-header,
+  #observablehq-footer {
+    margin-left: 0vw!important;
+    margin-right: 0vw!important;
+
+  }
+}
+
+
 h1, h2, h3, h4,p {
   max-width: none;
   font-family: sans-serif
