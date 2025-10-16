@@ -80,7 +80,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
 
 // const span = html`<span  class="range_track" id="range_track"></span>`
   const dRange = " double-range"
-  const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> matching studies for this filter</div>`;
+  const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> studies matched</div>`;
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
     <div class="filter-container">
       <div class="filter-label">${label}</div>
