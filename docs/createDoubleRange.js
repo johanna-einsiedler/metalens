@@ -50,8 +50,8 @@ let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
 //let numLenLower = min.toString().length
 let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
 
-const number = html`<input  type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
-const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
+const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 60px;">`;
+const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 60px;">`;
 // console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
@@ -82,11 +82,17 @@ const numberUpper = html`<input  type=number id=numberUpper min=${isFinite(min) 
   const dRange = " double-range"
   const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> matching studies for this filter</div>`;
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
-   <div class=__ns__-input${dRange}>  <div style="font-size:12px"><p>${label}</p></div> <div>
-   ${number} - ${numberUpper} </div> <div> ${range}${range2} </div> ${countDisplay}
+    <div class="filter-container">
+      <div class="filter-label">${label}</div>
+      <div class="filter-inputs">${number} - ${numberUpper}</div>
+      <div class="filter-slider">${range}${range2}</div>
     </div>
+    ${countDisplay}
   </form>`;
   form.addEventListener("submit", preventDefault);
+
+  // The tooltip logic has been moved to the main [study].md page to handle all tooltips globally.
+
   // If range, use an untransformed range to round to the nearest valid value.
   function coerce(v, slidertype) {
     if (slidertype === 'from'){

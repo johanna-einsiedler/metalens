@@ -242,8 +242,9 @@ const myInput = Inputs.checkbox(distinctValues, {
 }
 }
 
-// After creating all selectors, trigger their initial counts
+// After creating all selectors, trigger their initial counts and set up tooltips
 setTimeout(() => {
+  // Initial counts for range sliders
   Promise.all(Object.keys(selectors).map(async (columnName) => {
     const selector = selectors[columnName];
     if (selector.updateCount && selector.value) {
@@ -253,6 +254,31 @@ setTimeout(() => {
       selector.updateCount(count);
     }
   }));
+
+  // Global tooltip handler
+  document.querySelectorAll('.ttip').forEach(tooltipTrigger => {
+    tooltipTrigger.addEventListener('mouseenter', (event) => {
+      const text = event.target.getAttribute('data-text');
+      if (text) {
+        const tooltip = document.createElement('div');
+        tooltip.className = 'dynamic-tooltip';
+        tooltip.textContent = text;
+        document.body.appendChild(tooltip);
+
+        const onMouseMove = (e) => {
+          tooltip.style.left = `${e.pageX + 15}px`;
+          tooltip.style.top = `${e.pageY + 15}px`;
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        event.target.addEventListener('mouseleave', () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          tooltip.remove();
+        }, { once: true });
+      }
+    });
+  });
 }, 0);
 
 ```

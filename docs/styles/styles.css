@@ -97,34 +97,18 @@ rect.selection {
 .ttip{
   position:relative; /*  making the .tooltip span a container for the tooltip text */
   border-bottom:1px dashed black; /* little indicater to indicate it's hoverable */
-
-}
-.ttip:before {
-  content: attr(data-text); /* here's the magic */
-  position:absolute;
-    /* reset defaults */
-  left:initial;
-  margin:initial;
-  /* vertically center */
-  top:50%;
-  transform:translateY(-50%);
-  /* set new values */
-  right:100%;
-  margin-right:15px;
-
-  /* basic styles */
-  width: 15vw;
-  padding:8px;
-  border-radius:10px;
-  background:white;
-  color: black;
-  text-align:right;
-
-  display:none; /* hide by default */
 }
 
-.ttip:hover:before {
-  display:block;
+.dynamic-tooltip {
+  position: absolute;
+  background-color: white;
+  border: 1px solid #ccc;
+  padding: 8px;
+  border-radius: 4px;
+  pointer-events: none; /* So it doesn't interfere with mouse events */
+  z-index: 10000; /* A very high z-index */
+  max-width: 250px;
+  font-size: 12px;
 }
 
 input[type="checkbox"]:checked {
@@ -253,3 +237,5 @@ h1, h2, h3, h4 {
     gap: 0px;
   }
 }
+
+/* The override was moved to createDoubleRange.js */

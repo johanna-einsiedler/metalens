@@ -1,42 +1,38 @@
 .double-range{
   position: relative;
   width: min(600px, 100%);
-  margin: 20px auto 28px; /* centered */
+  margin: 0 auto 16px; /* Add margin-bottom */
   padding: 12px 16px 20px;
   border: 1px solid #eef2f5;
   border-radius: 12px;
   background: #fafbfc;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: stretch;
 }
 
-.double-range > div:first-child {
-  font-weight: 600;
-  color: #2f3a43;
-  text-align: center;
-  padding: 8px 0;
+.filter-container {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 16px;
 }
 
-.double-range > div:nth-child(2) {
+.filter-label {
+  font-size: 13px; /* Reduce font size */
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.filter-inputs {
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: center;
-  padding: 8px 0;
 }
 
-.double-range > div:nth-child(3) {
+.filter-slider {
   position: relative;
-  padding: 20px 0;
-  height: 60px;
-  width: 85%;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 10px 0;
 }
+
+/* Remove all the old layout styles */
 
 .double {
   position: absolute;
@@ -116,29 +112,23 @@
   z-index: 1000;
 }
 
-.double-range input[type="number"]{
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid #d7dde2;
-  border-radius: 8px;
-  font: 500 13px/1.2 var(--sans-serif);
-  color: #1d2730;
-  background: #fff;
-  flex: 1;
-  min-width: 120px;
+.double-range input[type="number"] {
+  font-size: 13px; /* Match label font size */
 }
+
+/* The width is now set via inline style in createDoubleRange.js */
 .double-range input[type="number"]:focus{ outline: none; border-color:#067; box-shadow: 0 0 0 3px rgba(0,102,119,.12) }
 
 .study-count-badge {
-  text-align: center;
-  padding: 8px 12px;
-  margin-top: 8px;
-  background-color: #e8f4f8;
-  border: 1px solid #b3d9e6;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #2f3a43;
+  text-align: left;
+  padding: 4px 0;
+  margin-top: 4px;
+  margin-bottom: 8px; /* Add bottom margin */
+  background-color: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: #6c757d;
 }
 
 .study-count-badge .count-number {
