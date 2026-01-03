@@ -3,8 +3,9 @@
 #observablehq-footer 
 {
   max-width: none;
-  margin-left: calc(var(--ml-sidebar-width) + (var(--ml-sidebar-gap) * 2));
+  margin-left: var(--ml-sidebar-width);
   background: #f4f4f4;
+  width: calc(100vw - var(--ml-sidebar-width));
 }
 
 html,
@@ -16,7 +17,7 @@ body {
 #observablehq-sidebar {
   background: #fff;
   width: var(--ml-sidebar-width);
-  margin: var(--ml-sidebar-gap) 0;
+  margin: 0;
   padding: 0;
   border-radius: var(--ml-sidebar-radius);
   overflow: hidden;
@@ -76,6 +77,8 @@ body {
   text-transform: uppercase;
   color: var(--ml-accent-strong, var(--theme-foreground-focus, #067));
   background: #fff;
+  border-bottom: 0;
+  text-decoration: none;
 }
 
 #observablehq-sidebar > ol:first-child > li > a::before {
@@ -194,8 +197,8 @@ input[type="checkbox"]:checked {
 
   --theme-foreground-focus:   #067;
   --ml-sidebar-width: clamp(15rem, 18vw, 20rem);
-  --ml-sidebar-gap: 1.75rem;
-  --ml-sidebar-radius: 28px;
+  --ml-sidebar-gap: 0;
+  --ml-sidebar-radius: 0;
 
 }
 
@@ -205,7 +208,7 @@ input[type="checkbox"]:checked {
 #observablehq-footer 
 {
   max-width: none;
-  margin-left: calc(var(--ml-sidebar-width) + (var(--ml-sidebar-gap) * 2));
+  margin-left: calc(var(--ml-sidebar-width) + var(--ml-sidebar-gap));
   background: #f4f4f4;
 }
 
@@ -223,8 +226,65 @@ input[type="checkbox"]:checked {
 }
 
 .study-hero {
-  max-width: 960px;
-  padding: 2rem 0 1.5rem;
+  width: 70vw;
+  max-width: none;
+  margin: 0;
+  padding: 2rem 1.5rem 1.5rem;
+}
+
+.main-content {
+  width: 70vw;
+  max-width: none;
+  margin: 0;
+  padding: 0 1.5rem;
+}
+
+.summary-box {
+  background: #f5f5e8;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.summary-heading {
+  font-family: var(--sans-serif, sans-serif);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #111827;
+  margin: 0 0 1rem 0;
+}
+
+.summary-text {
+  margin: 0 0 1rem;
+  color: #1f2937;
+  font-size: 1rem;
+  line-height: 1.625;
+}
+
+.study-details {
+  margin-top: 0.75rem;
+}
+
+.study-details summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.details-text {
+  margin: 0.5rem 0 0 0;
+  color: #1f2937;
+  font-size: 1rem;
+  line-height: 1.625;
+}
+
+.source-text {
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 0.9rem;
 }
 
 .study-title {
@@ -307,7 +367,17 @@ h1, h2, h3, h4 {
   }
 
   .study-hero {
-    padding: 1.25rem 0 1rem;
+    width: 100%;
+    padding: 1.25rem 1rem 1rem;
+  }
+
+  .main-content {
+    width: 100%;
+    padding: 0 1rem;
+  }
+
+  .summary-box {
+    padding: 1.5rem;
   }
 
      /* Decrease the gap between range filters on mobile */

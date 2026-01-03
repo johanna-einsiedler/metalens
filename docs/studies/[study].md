@@ -285,15 +285,20 @@ setTimeout(() => {
 <section class="description study-hero">
   <span class="study-eyebrow">Meta-analysis</span>
   <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
-  <p class="study-subtitle">${metaData['description'][0]}</p>
-  <details class="study-overview">
-    <summary>Overview</summary>
-    <p class="study-lead">${metaData['details'][0]}</p>
-  </details>
-  <details class="study-citation">
-    <summary>Source and citation</summary>
-    <p class="study-source">${metaData['source'][0]}</p>
-  </details>
+  <div class="main-content">
+    <div class="summary-box">
+      <h3 class="summary-heading">Summary:</h3>
+      <p class="summary-text">${metaData['description'][0]}</p>
+      <details class="study-details study-overview">
+        <summary>Overview</summary>
+        <p class="details-text">${metaData['details'][0]}</p>
+      </details>
+      <details class="study-details study-citation">
+        <summary>Source and citation</summary>
+        <p class="details-text source-text">${metaData['source'][0]}</p>
+      </details>
+    </div>
+  </div>
 </section>
 
 
