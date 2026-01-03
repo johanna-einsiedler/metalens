@@ -3,7 +3,53 @@
 #observablehq-footer 
 {
   max-width: none;
-  margin-left: 15vw;
+  margin-left: calc(var(--ml-sidebar-width) + (var(--ml-sidebar-gap) * 2));
+  background: #f4f4f4;
+}
+
+html,
+body {
+  background: #f4f4f4;
+  margin: 0;
+}
+
+#observablehq-sidebar {
+  background: #fff;
+  width: var(--ml-sidebar-width);
+  margin: var(--ml-sidebar-gap) 0 var(--ml-sidebar-gap) var(--ml-sidebar-gap);
+  padding: 0;
+  border-radius: var(--ml-sidebar-radius);
+  overflow: hidden;
+}
+
+#observablehq-sidebar > ol:first-child {
+  margin: 0;
+  padding: 0;
+  background: #fff;
+}
+
+#observablehq-sidebar > ol:first-child > li {
+  margin: 0;
+  padding: 0;
+  background: #fff;
+}
+
+#observablehq-sidebar hr {
+  display: none;
+}
+
+#observablehq-sidebar form,
+#observablehq-sidebar form[role="search"],
+#observablehq-sidebar .observablehq-search {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+  background: #fff;
+  box-shadow: none;
+}
+
+#observablehq-sidebar input[type="search"] {
+  background: #fff;
 }
 
 @media only screen and (max-width: 800px) {
@@ -14,6 +60,34 @@
     margin-right: 0vw!important;
 
   }
+}
+
+
+#observablehq-sidebar > ol:first-child > li > a {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  box-sizing: border-box;
+  line-height: 1;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ml-accent-strong, var(--theme-foreground-focus, #067));
+  background: #fff;
+}
+
+#observablehq-sidebar > ol:first-child > li > a::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 0.5rem;
+  align-self: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2b6074, #78a9bc);
+  box-shadow: 0 0 0 3px rgba(43, 96, 116, 0.18);
 }
 
 
@@ -119,6 +193,9 @@ input[type="checkbox"]:checked {
 :root {
 
   --theme-foreground-focus:   #067;
+  --ml-sidebar-width: clamp(15rem, 18vw, 20rem);
+  --ml-sidebar-gap: 1.75rem;
+  --ml-sidebar-radius: 28px;
 
 }
 
@@ -128,7 +205,7 @@ input[type="checkbox"]:checked {
 #observablehq-footer 
 {
   max-width: none;
-  margin-left: 15vw;
+  margin-left: calc(var(--ml-sidebar-width) + (var(--ml-sidebar-gap) * 2));
 }
 
 .studyDescription {
