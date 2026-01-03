@@ -16,7 +16,7 @@ body {
 #observablehq-sidebar {
   background: #fff;
   width: var(--ml-sidebar-width);
-  margin: var(--ml-sidebar-gap) 0 var(--ml-sidebar-gap) var(--ml-sidebar-gap);
+  margin: var(--ml-sidebar-gap) 0;
   padding: 0;
   border-radius: var(--ml-sidebar-radius);
   overflow: hidden;
@@ -62,12 +62,12 @@ body {
   }
 }
 
-
 #observablehq-sidebar > ol:first-child > li > a {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 1.75rem 1.5rem;
+  padding: 1.25rem 1.5rem;
+  justify-content: center;
   box-sizing: border-box;
   line-height: 1;
   font-size: 1.05rem;
@@ -206,6 +206,7 @@ input[type="checkbox"]:checked {
 {
   max-width: none;
   margin-left: calc(var(--ml-sidebar-width) + (var(--ml-sidebar-gap) * 2));
+  background: #f4f4f4;
 }
 
 .studyDescription {
