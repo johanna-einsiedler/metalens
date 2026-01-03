@@ -8,6 +8,15 @@
   width: calc(100vw - var(--ml-sidebar-width));
 }
 
+@media (min-width: 801px) {
+  body:has(#observablehq-sidebar-toggle:not(:checked)) #observablehq-main,
+  body:has(#observablehq-sidebar-toggle:not(:checked)) #observablehq-header,
+  body:has(#observablehq-sidebar-toggle:not(:checked)) #observablehq-footer {
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
 html,
 body {
   background: #f4f4f4;
@@ -18,7 +27,7 @@ body {
   background: #fff;
   width: var(--ml-sidebar-width);
   margin: 0;
-  padding: 0;
+  padding: 0.75rem 1.25rem 1rem;
   border-radius: var(--ml-sidebar-radius);
   overflow: hidden;
 }
@@ -67,7 +76,7 @@ body {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 1.25rem 1.5rem;
+  padding: 1.25rem 0;
   justify-content: center;
   box-sizing: border-box;
   line-height: 1;
@@ -247,7 +256,7 @@ input[type="checkbox"]:checked {
 }
 
 .summary-box {
-  background: #f5f5e8;
+  background: #e7ece4;
   padding: 1.5rem;
   border-radius: 0.5rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
