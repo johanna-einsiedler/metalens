@@ -303,13 +303,17 @@ setTimeout(() => {
 
 
 <section class="analysis">
-<h3>Filters</h3>
+<div class="main-content">
+  <div class="summary-box filters-box">
+    <h3 class="summary-heading">Filters</h3>
 
 ```js
 // display filters
 const options =  view(Inputs.form(selectors))
 ```
 
+  </div>
+</div>
 
 ```js
 const conditions = [];
