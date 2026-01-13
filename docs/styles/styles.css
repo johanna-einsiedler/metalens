@@ -29,6 +29,8 @@ body {
   margin: 0;
   padding: 0.75rem 1.25rem 1rem;
   border-radius: var(--ml-sidebar-radius);
+  border-right: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -42,6 +44,13 @@ body {
   margin: 0;
   padding: 0;
   background: #fff;
+}
+
+#observablehq-sidebar > ol:first-child > label,
+#observablehq-sidebar-close {
+  background: #fff;
+  border: 0;
+  box-shadow: none;
 }
 
 #observablehq-sidebar hr {

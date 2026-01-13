@@ -4,6 +4,8 @@ pager: false
 
 ---
 
+<link rel="stylesheet" href="styles/styles.css">
+
 <style>
 
 .hero {
@@ -84,5 +86,4 @@ a:active {
   <a class ='indexLink' href="/studies/dat.axfors2021" target="_self">Get started<span style="display: inline-block; margin-left: 0.25rem; 
 ">↗︎</span></a>
 </div>
-
 
