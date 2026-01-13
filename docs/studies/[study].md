@@ -352,23 +352,25 @@ const filteredData = (async () => {
 })()
 
 // This logic is no longer needed
-
-
 ```
 
 
-```js
+<div class="main-content" id="plotContent">
 
-```
-<h3> Forest plot </h3>
-
+  <div class="summary-box forest-box">
+    <h3 class="summary-heading">Forest plot</h3>
+  
 <p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
+
+
 
 
 <!-- Define Area to display chart -->
 <div id="mobile-scroll-notice" style="display: none; color: #6c757d; margin-bottom: 1rem;">
   <p>⟷ Note: The plot below can be scrolled horizontally.</p>
 </div>
+
+
 
 ```js
 // Show scroll notice only on mobile
@@ -384,6 +386,9 @@ if (window.innerWidth <= 600) {
 
  <div id="chartArea"></div>
 
+</div>
+
+</div>
 
 
 
