@@ -100,6 +100,25 @@ body {
   text-decoration: none;
 }
 
+#observablehq-sidebar > ol:first-child > li > a {
+  justify-content: center;
+}
+
+#observablehq-sidebar .sidebar-logo {
+  display: block;
+  height: 78px;
+  width: auto;
+  margin: 0.25rem auto 1.75rem;
+}
+
+#observablehq-sidebar > ol:first-child > li:first-child > a {
+  padding: 0.5rem 0 1rem;
+}
+
+#observablehq-sidebar > ol:first-child > li:first-child > a::before {
+  content: none;
+}
+/* 
 #observablehq-sidebar > ol:first-child > li > a::before {
   content: "";
   display: inline-block;
@@ -110,7 +129,7 @@ body {
   border-radius: 50%;
   background: linear-gradient(135deg, #2b6074, #78a9bc);
   box-shadow: 0 0 0 3px rgba(43, 96, 116, 0.18);
-}
+} */
 
 
 h1, h2, h3, h4,p {
