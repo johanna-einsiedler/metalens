@@ -387,7 +387,6 @@ if (window.innerWidth <= 600) {
  <div id="chartArea"></div>
 
 </div>
-
 </div>
 
 
@@ -429,12 +428,19 @@ if (data && data.length > 0) {
   if (noDataMessage) noDataMessage.style.display = 'block';
 }
 ```
+
 <div id="data-section">
-<h3>  Data </h3>
+<div class="main-content">
+  <div class="summary-box forest-box">
+    <h3 class="summary-heading">Data</h3>
+    <p>Below is the plot data you can browse through. You can also download it.</p>
+
+
 
 ```js
 
 view(Inputs.table([...data]))
 ```
 </div>
+</div></div>
 </section>

@@ -246,7 +246,7 @@ input[type="checkbox"]:checked {
   margin-top: 1rem;
 }
 
-#plotContent {
+#plotContent,#data-section {
   margin-top: 1rem;
 }
 
