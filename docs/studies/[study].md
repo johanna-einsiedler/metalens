@@ -15,6 +15,9 @@ import { drawGraph } from "../fplot.js"
   integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
   crossorigin="anonymous"
 />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@100..800&family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../styles/doubleRange.css">
 <link rel="stylesheet" href="../styles/styles.css">
 
@@ -283,8 +286,12 @@ setTimeout(() => {
 
 ```
 <section class="description study-hero">
-  <span class="study-eyebrow">Meta-analysis</span>
-  <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
+  <div class="study-hero-header">
+    <div class="study-hero-content">
+      <!-- <span class="study-eyebrow">Meta-analysis</span> -->
+      <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
+    </div>
+  </div>
   <div class="main-content">
     <div class="summary-box">
       <h3 class="summary-heading">Summary:</h3>

@@ -4,6 +4,7 @@
 {
   max-width: none;
   margin-left: var(--ml-sidebar-width);
+  margin-right: 0;
   background: #f4f4f4;
   width: calc(100vw - var(--ml-sidebar-width));
 }
@@ -227,6 +228,8 @@ input[type="checkbox"]:checked {
 {
   max-width: none;
   margin-left: calc(var(--ml-sidebar-width) + var(--ml-sidebar-gap));
+  margin-right: 0;
+  width: calc(100vw - var(--ml-sidebar-width));
   background: #f4f4f4;
 }
 
@@ -244,17 +247,51 @@ input[type="checkbox"]:checked {
 }
 
 .study-hero {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0 0 1.5rem;
+}
+
+.study-hero-header {
   width: 70vw;
   max-width: none;
   margin: 0;
-  padding: 2rem 0 1.5rem;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.35)),
+    url("../data/images/hero.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  padding: 12rem 1.5rem 11rem;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 0.5rem;
+  overflow: hidden;
 }
 
-.study-hero > .study-eyebrow,
-.study-hero > .study-title,
-.study-hero > .study-subtitle {
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
+.study-hero-content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.study-hero .main-content {
+  margin-top: 1.5rem;
+}
+
+.study-hero-header .study-eyebrow,
+.study-hero-header .study-title,
+.study-hero-header .study-subtitle {
+  color: rgb(18, 39, 64);
+  text-shadow: none;
+  font-family: "Space Grotesk", "Martian Mono", var(--sans-serif, sans-serif);
 }
 
 .main-content {
@@ -265,7 +302,7 @@ input[type="checkbox"]:checked {
 }
 
 .summary-box {
-  background: #e7ece4;
+  background: #bac9ce;
   padding: 1.5rem;
   border-radius: 0.5rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -323,7 +360,7 @@ input[type="checkbox"]:checked {
   line-height: 1.1;
   color: #1d2730;
   margin: 0 0 0.75rem;
-  font-size: clamp(1.25rem, 1.1rem + 0.9vw, 2.2rem);
+  font-size: clamp(1.3rem, 1.1rem + 0.8vw, 1.64rem);
   display: -webkit-box;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -397,14 +434,17 @@ h1, h2, h3, h4 {
 
   .study-hero {
     width: 100%;
-    padding: 1.25rem 0 1rem;
+    padding: 0 0 1rem;
   }
 
-  .study-hero > .study-eyebrow,
-  .study-hero > .study-title,
-  .study-hero > .study-subtitle {
-    padding-left: 1rem;
-    padding-right: 1rem;
+  .study-hero-header {
+    width: 100%;
+    padding: 7.5rem 1rem 7rem;
+  }
+
+  .study-hero-content {
+    width: 100%;
+    padding: 0 1rem;
   }
 
   .main-content {
