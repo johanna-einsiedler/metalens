@@ -308,7 +308,7 @@ const studyAlias = studyAliases[observable.params.study] ?? "";
     <div class="study-hero-content">
       <!-- <span class="study-eyebrow">Meta-analysis</span> -->
       <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
-      ${studyAlias ? `<span class="visually-hidden">${studyAlias}</span>` : ""}
+      <!-- ${studyAlias ? `<span class="visually-hidden">${studyAlias}</span>` : ""} -->
     </div>
   </div>
   <div class="main-content">
