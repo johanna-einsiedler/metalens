@@ -285,6 +285,13 @@ setTimeout(() => {
 }, 0);
 
 ```
+```js
+const overviewText = String(metaData?.details?.[0] ?? "");
+const overviewPreviewLimit = 320;
+const overviewPreview = overviewText.slice(0, overviewPreviewLimit);
+const overviewRest = overviewText.slice(overviewPreviewLimit);
+const overviewHasMore = overviewRest.trim().length > 0;
+```
 <section class="description study-hero">
   <div class="study-hero-header">
     <div class="study-hero-content">
@@ -293,21 +300,97 @@ setTimeout(() => {
     </div>
   </div>
   <div class="main-content">
-    <div class="summary-box">
-      <h3 class="summary-heading">Summary:</h3>
-      <p class="summary-text">${metaData['description'][0]}</p>
-      <details class="study-details study-overview">
-        <summary>Overview</summary>
-        <p class="details-text">${metaData['details'][0]}</p>
-      </details>
-      <details class="study-details study-citation">
-        <summary>Source and citation</summary>
-        <p class="details-text source-text">${metaData['source'][0]}</p>
-      </details>
+    <div class="summary-grid">
+      <div class="summary-box">
+        <h3 class="summary-heading">Summary</h3>
+        <p class="summary-text">${metaData['description'][0]}</p>
+        <div class="overview-block">
+          <p class="details-text overview-text">
+            <span class="overview-preview">${overviewPreview}</span><span class="overview-ellipsis"${overviewHasMore ? "" : " hidden"}>...</span><span class="overview-rest" hidden>${overviewRest}</span>
+            ${overviewHasMore ? `
+            <button
+              class="overview-toggle"
+              type="button"
+              data-has-more="true"
+              aria-expanded="false"
+              onclick="const block=this.closest('.overview-block'); const rest=block?.querySelector('.overview-rest'); const ellipsis=block?.querySelector('.overview-ellipsis'); if(!rest) return; const isHidden=rest.hasAttribute('hidden'); if(isHidden){rest.removeAttribute('hidden'); if(ellipsis) ellipsis.setAttribute('hidden',''); this.textContent='Read less'; this.setAttribute('aria-expanded','true');} else {rest.setAttribute('hidden',''); if(ellipsis) ellipsis.removeAttribute('hidden'); this.textContent='Read more'; this.setAttribute('aria-expanded','false');}">
+              Read more
+            </button>
+            ` : ''}
+          </p>
+        </div>
+      </div>
+      <div class="summary-box">
+        <h3 class="summary-heading">Citation</h3>
+        <p class="details-text citation-text">
+          ${metaData['source'][0]}
+          <button
+            class="citation-copy"
+            type="button"
+            aria-label="Copy citation"
+            title="Copy citation"
+          >
+            <svg class="citation-copy-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 8h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm-2 4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </p>
+      </div>
     </div>
   </div>
 </section>
 
+```js
+const getCitationText = (button) => {
+  const block = button.closest('.citation-text');
+  if (!block) return '';
+  const clone = block.cloneNode(true);
+  const copyButton = clone.querySelector('.citation-copy');
+  if (copyButton) copyButton.remove();
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+};
+
+document.querySelectorAll('.citation-copy').forEach((button) => {
+  const citationText = getCitationText(button);
+  if (citationText) {
+    button.dataset.citation = citationText;
+  }
+});
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('.citation-copy');
+  if (!button) return;
+
+  const citationText = button.dataset.citation || getCitationText(button);
+  if (!citationText) return;
+
+  const fallbackCopy = (text) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  };
+
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(citationText);
+    } else {
+      fallbackCopy(citationText);
+    }
+    button.dataset.state = 'copied';
+    setTimeout(() => {
+      delete button.dataset.state;
+    }, 1400);
+  } catch {
+    fallbackCopy(citationText);
+  }
+});
+```
 
 <section class="analysis">
 <div class="main-content">

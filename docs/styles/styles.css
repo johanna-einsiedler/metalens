@@ -98,7 +98,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ml-accent-strong, var(--theme-foreground-focus, #067));
+  color: #162c43;
   background: #fff;
   border-bottom: 0;
   text-decoration: none;
@@ -338,6 +338,12 @@ input[type="checkbox"]:checked {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
 .filters-box {
   margin-top: 0.75rem;
 }
@@ -375,6 +381,82 @@ input[type="checkbox"]:checked {
   color: #1f2937;
   font-size: 1rem;
   line-height: 1.625;
+}
+
+.citation-text {
+  font-family: "Source Serif 4", "Times New Roman", serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.citation-copy {
+  border: 1px solid #d7dde2;
+  background: #fff;
+  color: rgb(18, 39, 64);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-left: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  cursor: pointer;
+  pointer-events: auto;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  position: relative;
+}
+
+.citation-copy:hover {
+  color: #0a2a43;
+  background: #f8fafc;
+}
+
+.citation-copy-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.citation-copy[data-state="copied"]::after {
+  content: "Copied";
+  position: absolute;
+  top: -1.8rem;
+  right: 50%;
+  transform: translateX(50%);
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+}
+
+.overview-text {
+  margin-top: 0.5rem;
+}
+
+.overview-toggle {
+  margin-left: 0.35rem;
+  border: 0;
+  background: none;
+  color: rgb(18, 39, 64);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  cursor: pointer;
+  padding: 0;
+  display: inline;
+}
+
+.overview-toggle:hover {
+  text-decoration: underline;
+}
+
+.overview-toggle[data-has-more="false"] {
+  display: none;
 }
 
 .source-text {
@@ -484,6 +566,10 @@ h1, h2, h3, h4 {
 
   .summary-box {
     padding: 1.5rem;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
   }
 
      /* Decrease the gap between range filters on mobile */
