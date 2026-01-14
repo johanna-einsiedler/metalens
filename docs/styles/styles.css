@@ -441,6 +441,11 @@ input[type="checkbox"]:checked {
   margin-top: 0.75rem;
 }
 
+.filters-box form[class^="inputs-"] > label,
+.filters-box form[class*=" inputs-"] > label {
+  font-weight: 700;
+}
+
 .summary-heading {
   font-family: var(--sans-serif, sans-serif);
   font-weight: 700;
