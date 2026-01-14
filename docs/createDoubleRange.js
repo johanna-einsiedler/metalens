@@ -84,10 +84,10 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
     <div class="filter-container">
       <div class="filter-label">${label}</div>
-    <div class="filter-inputs">${number}<span class="filter-separator" aria-hidden="true"></span>${numberUpper}</div>
+      <div class="filter-inputs">${number}<span class="filter-separator" aria-hidden="true"></span>${numberUpper}</div>
       <div class="filter-slider">${range}${range2}</div>
+      ${countDisplay}
     </div>
-    ${countDisplay}
   </form>`;
   form.addEventListener("submit", preventDefault);
 

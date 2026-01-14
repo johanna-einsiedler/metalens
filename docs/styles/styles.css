@@ -439,6 +439,7 @@ input[type="checkbox"]:checked {
 
 .filters-box {
   margin-top: 0.75rem;
+  --filter-indent: 2.4rem;
 }
 
 .filters-box form[class^="inputs-"] > label,
@@ -453,6 +454,18 @@ input[type="checkbox"]:checked {
   border-radius: 999px !important;
   border: 1px solid #d6dde1;
   padding: 4px 10px;
+}
+
+.filters-box div[class^="inputs-"][class$="-input"],
+.filters-box form[class^="inputs-"][class*="-checkbox"] > div,
+.filters-box form[class^="inputs-"][class*="-table"] > table,
+.filters-box form[class^="inputs-"][class*="-textarea"] > div {
+  margin-left: var(--filter-indent);
+}
+
+.filters-box .study-count-badge {
+  padding-left: var(--filter-indent);
+  margin-left: 0;
 }
 
 .summary-heading {

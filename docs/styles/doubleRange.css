@@ -146,6 +146,10 @@
   color: #6c757d;
 }
 
+.filter-container .study-count-badge {
+  grid-column: 2 / -1;
+}
+
 .study-count-badge .count-number {
   font-weight: 700;
   color: #067;
