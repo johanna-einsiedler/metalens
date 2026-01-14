@@ -22,6 +22,7 @@ html,
 body {
   background: #f4f4f4;
   margin: 0;
+  font-family: var(--sans-serif, sans-serif);
 }
 
 #observablehq-sidebar {
@@ -33,6 +34,11 @@ body {
   border-right: 0;
   box-shadow: none;
   overflow: hidden;
+  font-family: sans-serif;
+}
+
+#observablehq-sidebar * {
+  font-family: inherit;
 }
 
 #observablehq-sidebar > ol:first-child {
@@ -104,6 +110,14 @@ body {
   text-decoration: none;
 }
 
+#observablehq-sidebar a,
+#observablehq-sidebar a:visited,
+#observablehq-sidebar a:link {
+  color: #162c43;
+  text-decoration: none;
+  border-bottom: 0;
+}
+
 #observablehq-sidebar > ol:first-child > li > a {
   justify-content: center;
 }
@@ -139,10 +153,14 @@ body {
 } */
 
 
-h1, h2, h3, h4,p {
+h1,
+h2,
+h3,
+h4,
+p {
   max-width: none;
-  font-family: sans-serif
-};
+  font-family: var(--sans-serif, sans-serif);
+}
 
 
 /* unvisited link */
@@ -189,7 +207,7 @@ line.mark {
 }
 
 svg{
-  font-family: sans-serif;
+  font-family: var(--sans-serif, sans-serif);
   font-size: 0.9rem
 }
 
@@ -244,6 +262,7 @@ input[type="checkbox"]:checked {
   --ml-sidebar-width: clamp(15rem, 18vw, 20rem);
   --ml-sidebar-gap: 0;
   --ml-sidebar-radius: 0;
+  --sans-serif: "Space Grotesk", "Martian Mono", sans-serif;
 
 }
 
@@ -384,7 +403,7 @@ input[type="checkbox"]:checked {
 }
 
 .citation-text {
-  font-family: "Source Serif 4", "Times New Roman", serif;
+  font-family: var(--sans-serif, sans-serif);
   font-size: 0.9rem;
   line-height: 1.5;
 }
