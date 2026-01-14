@@ -213,29 +213,25 @@ body {
 #observablehq-sidebar a[href$="/about"]::before,
 #observablehq-sidebar a[href$="./about"]::before,
 #observablehq-sidebar a[href$="about"]::before {
-  background-image: url("/_file/data/images/icon-about.svg"),
-    url("../data/images/icon-about.svg");
+  background-image: url("https://res.cloudinary.com/djvpwwzmp/image/upload/v1768404998/icon-about_j2a61k.svg");
 }
 
 #observablehq-sidebar a[href$="/input"]::before,
 #observablehq-sidebar a[href$="./input"]::before,
 #observablehq-sidebar a[href$="input"]::before {
-  background-image: url("/_file/data/images/icon-upload.svg"),
-    url("../data/images/icon-upload.svg");
+  background-image: url("https://res.cloudinary.com/djvpwwzmp/image/upload/v1768404998/icon-upload_iky74e.svg");
 }
 
 #observablehq-sidebar a[href$="/methodology"]::before,
 #observablehq-sidebar a[href$="./methodology"]::before,
 #observablehq-sidebar a[href$="methodology"]::before {
-  background-image: url("/_file/data/images/icon-methodology.svg"),
-    url("../data/images/icon-methodology.svg");
+  background-image: url("https://res.cloudinary.com/djvpwwzmp/image/upload/v1768404998/icon-methodology_edlpwf.svg");
 }
 
 #observablehq-sidebar a[href$="/eli5"]::before,
 #observablehq-sidebar a[href$="./eli5"]::before,
 #observablehq-sidebar a[href$="eli5"]::before {
-  background-image: url("/_file/data/images/icon-simple.svg"),
-    url("../data/images/icon-simple.svg");
+  background-image: url("https://res.cloudinary.com/djvpwwzmp/image/upload/v1768404998/icon-simple_v7l3dj.svg");
 }
 
 
