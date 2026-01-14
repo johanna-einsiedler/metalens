@@ -52,5 +52,32 @@ export default {
   //pager: true, // whether to show previous & next links in the footer
   // root: "docs", // path to the source root for preview
   // output: "dist", // path to the output root for build
-  search: true, // activate search
+  search: {
+    async *index() {
+      yield {
+        path: "/studies/dat.axfors2021",
+        title: "Hydroxchloroquine",
+        text: "Hydroxychloroquine and chloroquine survival in COVID-19 meta-study",
+        keywords: "hydroxychloroquine, chloroquine, covid-19"
+      };
+      yield {
+        path: "/studies/dat.aloe2013",
+        title: "Supervision Quality",
+        text: "Supervision Quality meta-study",
+        keywords: "supervision"
+      };
+      yield {
+        path: "/studies/dat.molloy2014",
+        title: "Conscientiousness & Medication adherence",
+        text: "Conscientiousness & Medication adherence meta-study",
+        keywords: "conscientiousness, medication adherence"
+      };
+      yield {
+        path: "/studies/dat.bangertdrowns2004",
+        title: "Writing-to-Learn Interventions",
+        text: "Writing-to-Learn Interventions meta-study",
+        keywords: "writing to learn"
+      };
+    }
+  }, // activate search
 };
