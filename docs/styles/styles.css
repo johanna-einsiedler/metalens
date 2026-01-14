@@ -37,7 +37,11 @@ body {
 
 #observablehq-sidebar > ol:first-child {
   margin: 0;
-  padding: 0;
+  padding: 0 0 0.5rem;
+  background: #fff;
+}
+
+#observablehq-sidebar > ol:first-child::before {
   background: #fff;
 }
 
@@ -106,13 +110,16 @@ body {
 
 #observablehq-sidebar .sidebar-logo {
   display: block;
-  height: 78px;
+  height: 58px;
   width: auto;
-  margin: 0.25rem auto 1.75rem;
+  margin: 0.5rem auto 0.75rem;
 }
 
 #observablehq-sidebar > ol:first-child > li:first-child > a {
-  padding: 0.5rem 0 1rem;
+  height: auto;
+  min-height: 0;
+  padding: 0.75rem 0 1rem;
+  line-height: 0;
 }
 
 #observablehq-sidebar > ol:first-child > li:first-child > a::before {
