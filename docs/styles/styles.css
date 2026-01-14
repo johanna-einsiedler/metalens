@@ -446,6 +446,15 @@ input[type="checkbox"]:checked {
   font-weight: 700;
 }
 
+.filters-box input[type="text"],
+.filters-box input[type="number"],
+.filters-box select {
+  background: #e9eef0;
+  border-radius: 999px !important;
+  border: 1px solid #d6dde1;
+  padding: 4px 10px;
+}
+
 .summary-heading {
   font-family: var(--sans-serif, sans-serif);
   font-weight: 700;

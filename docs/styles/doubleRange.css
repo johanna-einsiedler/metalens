@@ -27,6 +27,15 @@
   gap: 8px;
 }
 
+.filter-separator {
+  display: inline-block;
+  width: 36px;
+  height: 2px;
+  background: #067;
+  border-radius: 999px;
+  margin: 0 6px;
+}
+
 .filter-slider {
   position: relative;
   padding: 10px 0;
@@ -116,6 +125,10 @@
 
 .double-range input[type="number"] {
   font-size: 13px; /* Match label font size */
+  background: #e9eef0;
+  border-radius: 999px !important;
+  border: 1px solid #d6dde1;
+  padding: 4px 10px;
 }
 
 /* The width is now set via inline style in createDoubleRange.js */

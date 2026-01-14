@@ -50,8 +50,8 @@ let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
 //let numLenLower = min.toString().length
 let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
 
-const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 60px;">`;
-const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 60px;">`;
+const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 72px;">`;
+const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 72px;">`;
 // console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
@@ -84,7 +84,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
     <div class="filter-container">
       <div class="filter-label">${label}</div>
-      <div class="filter-inputs">${number} - ${numberUpper}</div>
+    <div class="filter-inputs">${number}<span class="filter-separator" aria-hidden="true"></span>${numberUpper}</div>
       <div class="filter-slider">${range}${range2}</div>
     </div>
     ${countDisplay}
@@ -257,4 +257,3 @@ function solve(f, y, x) {
   } while (steps-- > 0 && Math.abs(delta) > epsilon);
   return steps < 0 ? NaN : x;
 }
-
