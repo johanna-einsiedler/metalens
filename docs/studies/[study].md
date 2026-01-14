@@ -307,16 +307,6 @@ const overviewHasMore = overviewRest.trim().length > 0;
         <div class="overview-block">
           <p class="details-text overview-text">
             <span class="overview-preview">${overviewPreview}</span><span class="overview-ellipsis"${overviewHasMore ? "" : " hidden"}>...</span><span class="overview-rest" hidden>${overviewRest}</span>
-            ${overviewHasMore ? `
-            <button
-              class="overview-toggle"
-              type="button"
-              data-has-more="true"
-              aria-expanded="false"
-              onclick="const block=this.closest('.overview-block'); const rest=block?.querySelector('.overview-rest'); const ellipsis=block?.querySelector('.overview-ellipsis'); if(!rest) return; const isHidden=rest.hasAttribute('hidden'); if(isHidden){rest.removeAttribute('hidden'); if(ellipsis) ellipsis.setAttribute('hidden',''); this.textContent='Read less'; this.setAttribute('aria-expanded','true');} else {rest.setAttribute('hidden',''); if(ellipsis) ellipsis.removeAttribute('hidden'); this.textContent='Read more'; this.setAttribute('aria-expanded','false');}">
-              Read more
-            </button>
-            ` : ''}
           </p>
         </div>
       </div>
@@ -341,55 +331,109 @@ const overviewHasMore = overviewRest.trim().length > 0;
 </section>
 
 ```js
-const getCitationText = (button) => {
-  const block = button.closest('.citation-text');
-  if (!block) return '';
-  const clone = block.cloneNode(true);
-  const copyButton = clone.querySelector('.citation-copy');
-  if (copyButton) copyButton.remove();
-  return clone.textContent.replace(/\s+/g, ' ').trim();
-};
+// Ensure DOM exists (helps in Observable Framework / notebooks)
+await new Promise(requestAnimationFrame);
 
-document.querySelectorAll('.citation-copy').forEach((button) => {
-  const citationText = getCitationText(button);
-  if (citationText) {
-    button.dataset.citation = citationText;
+// Use the LAST one in case the page has multiple study-hero sections (safer)
+const root = [...document.querySelectorAll("section.description.study-hero")].at(-1);
+
+if (!root) {
+  console.warn("study-hero root not found.");
+} else {
+  // ---------- OVERVIEW: populate + toggle ----------
+  const block = root.querySelector(".overview-block");
+  const previewEl = block?.querySelector(".overview-preview");
+  const ellipsisEl = block?.querySelector(".overview-ellipsis");
+  const restEl = block?.querySelector(".overview-rest");
+  const textRow = block?.querySelector(".overview-text");
+
+  if (!block || !previewEl || !restEl || !textRow) {
+    console.warn("Overview elements missing (overview-block/preview/rest/text).");
+  } else {
+    // Inject the actual strings (because Markdown HTML doesn't evaluate ${...})
+    previewEl.textContent = overviewPreview ?? "";
+    restEl.textContent = overviewRest ?? "";
+
+    // Set correct initial visibility
+    const hasMore = !!(overviewRest && overviewRest.trim().length > 0);
+    if (hasMore) {
+      ellipsisEl?.removeAttribute("hidden");
+      restEl.setAttribute("hidden", "");
+    } else {
+      ellipsisEl?.setAttribute("hidden", "");
+      restEl.setAttribute("hidden", "");
+    }
+
+    // Create button only if there's more text
+    if (hasMore) {
+      let btn = block.querySelector(".overview-toggle");
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.className = "overview-toggle";
+        btn.type = "button";
+        btn.textContent = "Read more";
+        btn.setAttribute("aria-expanded", "false");
+        textRow.appendChild(btn);
+      }
+
+      btn.addEventListener("click", () => {
+        const isHidden = restEl.hasAttribute("hidden");
+        if (isHidden) {
+          restEl.removeAttribute("hidden");
+          ellipsisEl?.setAttribute("hidden", "");
+          btn.textContent = "Read less";
+          btn.setAttribute("aria-expanded", "true");
+        } else {
+          restEl.setAttribute("hidden", "");
+          ellipsisEl?.removeAttribute("hidden");
+          btn.textContent = "Read more";
+          btn.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
   }
-});
 
-document.addEventListener('click', async (event) => {
-  const button = event.target.closest('.citation-copy');
-  if (!button) return;
-
-  const citationText = button.dataset.citation || getCitationText(button);
-  if (!citationText) return;
-
-  const fallbackCopy = (text) => {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'absolute';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
+  // ---------- CITATION COPY ----------
+  const getCitationText = (button) => {
+    const block = button.closest(".citation-text");
+    if (!block) return "";
+    const clone = block.cloneNode(true);
+    clone.querySelector(".citation-copy")?.remove();
+    return clone.textContent.replace(/\s+/g, " ").trim();
   };
 
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(citationText);
-    } else {
-      fallbackCopy(citationText);
-    }
-    button.dataset.state = 'copied';
-    setTimeout(() => {
-      delete button.dataset.state;
-    }, 1400);
-  } catch {
-    fallbackCopy(citationText);
-  }
-});
+  root.querySelectorAll(".citation-copy").forEach((button) => {
+    const citationText = getCitationText(button);
+    if (citationText) button.dataset.citation = citationText;
+
+    button.addEventListener("click", async () => {
+      const text = button.dataset.citation || getCitationText(button);
+      if (!text) return;
+
+      const fallbackCopy = (t) => {
+        const ta = document.createElement("textarea");
+        ta.value = t;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      };
+
+      try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else fallbackCopy(text);
+        button.dataset.state = "copied";
+        setTimeout(() => delete button.dataset.state, 1200);
+      } catch {
+        fallbackCopy(text);
+      }
+    });
+  });
+}
+
 ```
 
 <section class="analysis">

@@ -9,36 +9,24 @@ export default {
   // all pages will be listed in alphabetical order. Listing pages explicitly
   // lets you organize them into sections and have unlisted pages.
   pages: [
-  {
-    name: "Examples",
-    pages: [
-      {name: "Hydroxchloroquine", path: '/studies/dat.axfors2021'},
-      {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
-      {name: "Conscientiousness & Medication adherence", path: "studies/dat.molloy2014"},
-      {name: "Writing-to-Learn Interventions", path: "studies/dat.bangertdrowns2004"},
-        //{name: "Conscientiousness & Medication adherence", path: "studies/dat.bakdash2021"},
-        //{name: "Conscientiousness & Medication adherence", path: "studies/dat.assink2016"},
-
-    ]},
-    {name: "Upload your own data",
-    pages: [
-      {name: "Input", path: "/input"}
-    ]},
-
-    {name: "About",
+    { name: "What is Metalens?", path: "/about" },
+    {
+      name: "Metastudies",
       pages: [
-        {name: "About the project", path: "/about"},
-        {name: "Methodology", path:"/methodology"},
-        {name: "Simple explanation", path:"/eli5"},
-      ]},
-
-
-
-
-        //{name: 'test', path: '/test'}
- //       {name: "Report", path: "/example-report"}
-    
- ],
+        {name: "Hydroxchloroquine", path: "/studies/dat.axfors2021"},
+        {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
+        {name: "Conscientiousness & Medication adherence", path: "/studies/dat.molloy2014"},
+        {name: "Writing-to-Learn Interventions", path: "/studies/dat.bangertdrowns2004"},
+        //{name: "Conscientiousness & Medication adherence", path: "/studies/dat.bakdash2021"},
+        //{name: "Conscientiousness & Medication adherence", path: "/studies/dat.assink2016"},
+      ]
+    },
+    { name: "Upload data", path: "/input" },
+    { name: "Methodogy", path: "/methodology" },
+    { name: "Simple explanation", path: "/eli5" },
+    //{name: 'test', path: '/test'}
+    //{name: "Report", path: "/example-report"}
+  ],
   dynamicPaths: [
         "/studies/dat.axfors2021",
     "/studies/dat.aloe2013",

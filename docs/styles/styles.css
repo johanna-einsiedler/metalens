@@ -23,6 +23,7 @@ body {
   background: #f4f4f4;
   margin: 0;
   font-family: var(--sans-serif, sans-serif);
+  overflow-x: hidden;
 }
 
 #observablehq-sidebar {
@@ -136,21 +137,92 @@ body {
   line-height: 0;
 }
 
-#observablehq-sidebar > ol:first-child > li:first-child > a::before {
-  content: none;
-}
-/* 
-#observablehq-sidebar > ol:first-child > li > a::before {
+#observablehq-sidebar > ol > li > a::before,
+#observablehq-sidebar > ol > li > span::before,
+#observablehq-sidebar > ol > li > strong::before {
   content: "";
   display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 0.5rem;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 0.45rem;
   align-self: center;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2b6074, #78a9bc);
-  box-shadow: 0 0 0 3px rgba(43, 96, 116, 0.18);
-} */
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  flex: 0 0 auto;
+}
+
+#observablehq-sidebar > ol:first-of-type > li:first-child > a::before,
+#observablehq-sidebar > ol:first-of-type > li:first-child > span::before,
+#observablehq-sidebar > ol:first-of-type > li:first-child > strong::before {
+  content: none;
+}
+
+#observablehq-sidebar ol ol > li > a::before,
+#observablehq-sidebar ol ol > li > span::before,
+#observablehq-sidebar ol ol > li > strong::before {
+  content: none;
+}
+
+#observablehq-sidebar section {
+  background: #b9d7d5;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem 0.75rem 0;
+  margin: 0.5rem 0 0.75rem;
+}
+
+#observablehq-sidebar section > summary {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.5rem 1rem 0.25rem 1.5rem;
+  margin-left: -0.5rem;
+}
+
+#observablehq-sidebar section > ol {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+}
+
+#observablehq-sidebar section > ol > li > a {
+  justify-content: flex-start;
+}
+
+#observablehq-sidebar summary::before {
+  content: none;
+}
+
+#observablehq-sidebar section > ol > li.observablehq-link-active > a {
+  background: transparent;
+}
+
+#observablehq-sidebar a[href$="/about"]::before,
+#observablehq-sidebar a[href$="./about"]::before,
+#observablehq-sidebar a[href$="about"]::before {
+  background-image: url("/_file/data/images/icon-about.svg"),
+    url("../data/images/icon-about.svg");
+}
+
+#observablehq-sidebar a[href$="/input"]::before,
+#observablehq-sidebar a[href$="./input"]::before,
+#observablehq-sidebar a[href$="input"]::before {
+  background-image: url("/_file/data/images/icon-upload.svg"),
+    url("../data/images/icon-upload.svg");
+}
+
+#observablehq-sidebar a[href$="/methodology"]::before,
+#observablehq-sidebar a[href$="./methodology"]::before,
+#observablehq-sidebar a[href$="methodology"]::before {
+  background-image: url("/_file/data/images/icon-methodology.svg"),
+    url("../data/images/icon-methodology.svg");
+}
+
+#observablehq-sidebar a[href$="/eli5"]::before,
+#observablehq-sidebar a[href$="./eli5"]::before,
+#observablehq-sidebar a[href$="eli5"]::before {
+  background-image: url("/_file/data/images/icon-simple.svg"),
+    url("../data/images/icon-simple.svg");
+}
 
 
 h1,
@@ -291,8 +363,10 @@ input[type="checkbox"]:checked {
   margin-top: 1rem;
 }
 
-#plotContent,#data-section {
+#plotContent,
+#data-section {
   margin-top: 1rem;
+  overflow-x: auto;
 }
 
 .study-hero {
