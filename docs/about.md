@@ -11,16 +11,6 @@ toc: false
 />
 <link rel="stylesheet" href="styles/styles.css">
 
-
-<style>
-    #observablehq-main,
-#observablehq-header,
-#observablehq-footer 
-{
-  max-width: clamp(640px, 70vw, 1100px);
-}
-</style>
-
 ## About
 
 Answering questions based on science has become a search problem. Since 1996 more than 45 million articles have been published in scientific and technical journals and every year over 2.5 million new ones are added. For example, if you wanted to know what science says about the best treatment for curing a cold, the challenge is not to find an existing study on this topic. The challenge is to make sense of the hundreds of published studies .
