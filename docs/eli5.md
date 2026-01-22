@@ -6,14 +6,7 @@
   integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
   crossorigin="anonymous"
 /><link rel="stylesheet" href="styles/styles.css">
-<style>
-    #observablehq-main,
-#observablehq-header,
-#observablehq-footer 
-{
-  max-width: 700px;
-}
-</style>
+
 
 
 # Simple explanation
@@ -26,19 +19,19 @@ Let's take an example - our [hydroxychloroquine study](studies/dat.axfors2021). 
 
 ### What each part means
 
-- **Each line with a ■** : That's like one doctor's experiment.
-  - The little ■ tells us what that one doctor found
-  - If the ■ is on the **left side** of the middle line |, that doctor thought the medicine helped
-  - If the ■ is on the **right side** of |, that doctor thought the medicine didn't help, or maybe even made things a tiny bit worse
+- **Each line with a ■** : That's like one experiment.
+  - The little ■ tells us what that one experiment found
+  - If the ■ is on the **left side** of the middle line |, that experimentors found the medicine helped
+  - If the ■ is on the **right side** of |, that experiment found the medicine didn't help, or maybe even made things a tiny bit worse
   - So you can think of the horizontal line | as the "maybe line": whether something is to the left or right of it determines if it helped or not.
-  - The **bigger the ■**, the more patients were in that doctor's experiment, so we trust that doctor's finding a bit more
+  - The **bigger the ■**, the more patients were in that experiment (study), so we trust that finding a bit more
 
-- **The line through the square** ─: This shows how sure the doctor is
-  - If the line is really long, the doctor isn't super sure about their finding
-  - If the line is short, they are more sure
-  - If a doctor's square and/or its vertical line ─ cross this horizontal line in the middle |, it means that doctor's experiment wasn't big enough or clear enough to say for sure if the medicine helped or not
+- **The line through the square** ─: This shows how certain the experiment result is
+  - If the line is really long, the experiment isn't very certain about their finding
+  - If the line is short, they are more certain
+  - If an experiment square and/or its vertical line ─ cross this horizontal line in the middle |, it means that experiment wasn't big enough or clear enough to say for sure if the medicine helped or not
 
-- **The diamond at the bottom (the fixed effects model)** ◆: This is the big summary of what everyone found
+- **The diamond at the bottom (the fixed effects model)** ◆: This is the big summary of what all the studies found
   - If the diamond ◆ is on the **left side** of the "maybe line," it means when you look at all the experiments together, the medicine seems to help
   - If the diamond ◆ is on the **right side**, it means putting all the experiments together suggests the medicine doesn't help, or might even be a little bit bad
   - If the diamond ◆ crosses the horizontal "maybe line," | even with all the experiments together, we still can't say for sure if the medicine helps or not
@@ -54,5 +47,3 @@ This picture is a way to see, all in one place, what lots of different studies f
 Looking at the picture, the diamond ◆ at the bottom seems to be mostly or entirely on the right side of the middle line, or crossing it but leaning right (at least in the fixed effects model). This suggests that when scientists put together all the studies, the results don't show that hydroxychloroquine helps people with COVID, and might even suggest it could be slightly harmful, or at best, it doesn't make a clear positive difference.
 
 Hopefully this makes sense! This basic structure of the plot works for all the studies on the website, no matter the question. 
-
-
