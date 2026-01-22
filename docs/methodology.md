@@ -11,7 +11,7 @@
 #observablehq-header,
 #observablehq-footer 
 {
-  max-width: 700px;
+  max-width: clamp(640px, 70vw, 1100px);
 }
 </style>
 
@@ -60,5 +60,3 @@ W_i =\frac{1}{(T^2 + SE_i^2)}
 ```
 You can find information on how to calculate \(T^2 \) in: Borenstein, M.; Hedges, L.; Higgins, J.; Rothstein, H (2009): <a href="https://www.meta-analysis.com/downloads/Intro_Models.pdf">A basic introduction to fixed-effect and
     random-effects models for meta-analysis</a>
-
-

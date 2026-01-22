@@ -17,7 +17,7 @@ toc: false
 #observablehq-header,
 #observablehq-footer 
 {
-  max-width: 600px;
+  max-width: clamp(640px, 70vw, 1100px);
 }
 </style>
 
