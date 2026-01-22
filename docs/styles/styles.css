@@ -31,6 +31,30 @@
   }
 }
 
+@media (min-width: 1024px) {
+  body:not(:has(#observablehq-main .study-hero)) #observablehq-main,
+  body:not(:has(#observablehq-main .study-hero)) #observablehq-header,
+  body:not(:has(#observablehq-main .study-hero)) #observablehq-footer {
+    max-width: 80vw;
+    margin-left: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
+    margin-right: auto;
+    padding-left: var(--ml-content-gutter);
+    padding-right: var(--ml-content-gutter);
+  }
+
+  body:has(#observablehq-sidebar-toggle:not(:checked)):not(:has(#observablehq-main .study-hero)) #observablehq-main,
+  body:has(#observablehq-sidebar-toggle:not(:checked)):not(:has(#observablehq-main .study-hero)) #observablehq-header,
+  body:has(#observablehq-sidebar-toggle:not(:checked)):not(:has(#observablehq-main .study-hero)) #observablehq-footer {
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-main > :not(style):not(link):not(script) {
+  max-width: none;
+  width: 100%;
+}
+
 html,
 body {
   background: #f4f4f4;
