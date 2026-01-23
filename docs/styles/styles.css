@@ -467,7 +467,8 @@ body.study-hero-page .study-hero-header {
      and expand it so it spans from the sidebar edge to the right edge. */
   position: relative;
   left: calc(-1 * (var(--ml-sidebar-width) + var(--ml-content-gutter))) !important;
-  width: calc(100% + var(--ml-sidebar-width) + var(--ml-content-gutter)) !important;
+  /* extend width a bit further to cover the right-side content gutter */
+  width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2)) !important;
   margin-left: 0 !important;
   margin-right: 0 !important;
   padding-left: 0 !important;
@@ -518,6 +519,12 @@ body.study-hero-page #observablehq-footer nav a {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
+}
+
+/* Give the "Built with" line a small bottom margin on study pages */
+body:has(#observablehq-main .study-hero) #observablehq-footer > div,
+body.study-hero-page #observablehq-footer > div {
+  margin-bottom: 0.75rem !important;
 }
 
 .study-hero-content {
