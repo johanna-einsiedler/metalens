@@ -574,8 +574,19 @@ if (data && data.length > 0) {
 <div class="main-content">
   <div class="summary-box forest-box">
     <h3 class="summary-heading">Data</h3>
-    <p>Below is the plot data you can browse through. You can also download it.</p>
+    <p>Below is the plot data you can browse through. You can also <a id="plot-data-download" href="#">download it</a>.</p>
 
+```js
+const csv = d3.csvFormat(data);
+const blob = new Blob([csv], {type: "text/csv;charset=utf-8"});
+const url = URL.createObjectURL(blob);
+invalidation.then(() => URL.revokeObjectURL(url));
+const link = document.getElementById("plot-data-download");
+if (link) {
+  link.href = url;
+  link.download = `${observable.params.study}-plot-data.csv`;
+}
+```
 
 
 ```js
