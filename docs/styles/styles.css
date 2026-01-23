@@ -491,6 +491,35 @@ body.study-hero-page .study-hero-content {
   text-align: center !important;
 }
 
+/* Add vertical spacing after the data section on study pages so footer
+   prev/next links have breathing room. */
+body:has(#observablehq-main .study-hero) #data-section,
+body.study-hero-page #data-section {
+  margin-bottom: 3rem !important;
+}
+
+/* On study pages center the footer nav and the "Built with" line. Keep
+   this scoped so other pages keep the original layout. */
+body:has(#observablehq-main .study-hero) #observablehq-footer,
+body.study-hero-page #observablehq-footer {
+  text-align: center !important;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-footer nav,
+body.study-hero-page #observablehq-footer nav {
+  display: flex !important;
+  justify-content: center !important;
+  gap: 1rem !important;
+  max-width: none !important;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-footer nav a,
+body.study-hero-page #observablehq-footer nav a {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
 .study-hero-content {
   width: 100%;
   max-width: none;
