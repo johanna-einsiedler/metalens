@@ -453,21 +453,37 @@ body:has(#observablehq-main .study-hero) #observablehq-toc ~ #observablehq-main 
   padding-right: 0;
 }
 
-body:has(#observablehq-main .study-hero) #observablehq-main {
-  margin: 0;
-  width: 100%;
-  padding: 0;
-}
-
-body:has(#observablehq-main .study-hero) #observablehq-center {
-  padding-right: 0 !important;
-  margin: 0;
-}
-
 body:has(#observablehq-main .study-hero) {
   max-width: none !important;
   margin: 0;
   width: 100%;
+}
+
+/* Only affect the hero header/content — leave the main layout (padding
+   reserved for the sidebar) untouched for normal content. */
+body:has(#observablehq-main .study-hero) .study-hero-header,
+body.study-hero-page .study-hero-header {
+  /* shift the hero left by the content padding (sidebar + gutter)
+     and expand it so it spans from the sidebar edge to the right edge. */
+  position: relative;
+  left: calc(-1 * (var(--ml-sidebar-width) + var(--ml-content-gutter))) !important;
+  width: calc(100% + var(--ml-sidebar-width) + var(--ml-content-gutter)) !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  max-width: none !important;
+  box-sizing: border-box;
+}
+
+body:has(#observablehq-main .study-hero) .study-hero-content,
+body.study-hero-page .study-hero-content {
+  width: 100% !important;
+  max-width: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 .study-hero-content {

@@ -352,6 +352,8 @@ const root = [...document.querySelectorAll("section.description.study-hero")].at
 if (!root) {
   console.warn("study-hero root not found.");
 } else {
+  // Mark the page so the CSS fallback can apply when :has() isn't supported.
+  try { document.body.classList.add("study-hero-page"); } catch (e) { /* ignore */ }
   // ---------- OVERVIEW: populate + toggle ----------
   const block = root.querySelector(".overview-block");
   const previewEl = block?.querySelector(".overview-preview");
