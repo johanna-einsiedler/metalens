@@ -439,8 +439,8 @@ input[type="checkbox"]:checked {
 }
 
 body:has(#observablehq-main .study-hero) .study-hero-header {
-  width: calc(100% + (2 * var(--ml-content-gutter)));
-  margin-left: calc(-1 * var(--ml-content-gutter));
+  width: 100%;
+  margin-left: 0;
   margin-right: 0;
   max-width: none;
 }
@@ -450,7 +450,24 @@ body:has(#observablehq-main .study-hero) #observablehq-toc {
 }
 
 body:has(#observablehq-main .study-hero) #observablehq-toc ~ #observablehq-main {
-  padding-right: var(--ml-content-gutter);
+  padding-right: 0;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-main {
+  margin: 0;
+  width: 100%;
+  padding: 0;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-center {
+  padding-right: 0 !important;
+  margin: 0;
+}
+
+body:has(#observablehq-main .study-hero) {
+  max-width: none !important;
+  margin: 0;
+  width: 100%;
 }
 
 .study-hero-content {
