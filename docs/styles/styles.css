@@ -480,10 +480,15 @@ body.study-hero-page .study-hero-header {
 
 body:has(#observablehq-main .study-hero) .study-hero-content,
 body.study-hero-page .study-hero-content {
-  width: 100% !important;
-  max-width: none !important;
+  /* Align the inner hero content with the main content column and
+     center the text. Keep max-width consistent with main content. */
+  width: min(100%, var(--ml-content-max)) !important;
+  max-width: var(--ml-content-max) !important;
+  margin-left: calc(var(--ml-sidebar-width) + var(--ml-content-gutter)) !important;
+  margin-right: auto !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
+  text-align: center !important;
 }
 
 .study-hero-content {
