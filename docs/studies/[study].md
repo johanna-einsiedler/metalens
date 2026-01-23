@@ -82,6 +82,7 @@ const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLU
 
 // vector to collect selectors
 const selectors =  {}
+const filterMeta = {}
 
 // exclude irrelevant columns
 const relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
@@ -201,6 +202,7 @@ const myInput = Inputs.checkbox(distinctValues, {
   unique: true,
   value: defaultValues
 })
+  filterMeta[thisColumn] = { type: "categorical", values: distinctValues }
 // save selector in list of selectors
   selectors[thisColumn] = myInput
 // else i.e. if data is numeric -> create range slider
@@ -240,6 +242,7 @@ const myInput = Inputs.checkbox(distinctValues, {
       myInput.updateCount(count);
     }
   })
+  filterMeta[thisColumn] = { type: "range", min: minVal, max: maxVal }
   // add to list of selectors
   selectors[thisColumn] = myInput
 
@@ -470,9 +473,20 @@ for (const key in options) {
   if (value && value.length > 0) {
     if (Array.isArray(value) && typeof value[0] === 'number' && value.length === 2) {
       // Handle range sliders
+      const meta = filterMeta[key];
+      if (meta && meta.type === "range" && value[0] <= meta.min && value[1] >= meta.max) {
+        continue;
+      }
       conditions.push(`${key} >= ${value[0]} AND ${key} <= ${value[1]}`);
     } else {
       // Handle checkboxes
+      const meta = filterMeta[key];
+      if (meta && meta.type === "categorical") {
+        const metaValues = meta.values.filter(v => v !== null && v !== undefined);
+        if (value.length >= metaValues.length) {
+          continue;
+        }
+      }
       const inValues = value.map(v => `LOWER('${String(v).replace(/'/g, "''")}')`).join(',');
       conditions.push(`LOWER(${key}) IN (${inValues})`);
     }
@@ -574,7 +588,7 @@ if (data && data.length > 0) {
 <div class="main-content">
   <div class="summary-box forest-box">
     <h3 class="summary-heading">Data</h3>
-    <p>Below is the plot data you can browse through. You can also <a id="plot-data-download" href="#">download it</a>.</p>
+    <p>Below is the plot data you can browse through. <span id="filtered-count"></span> You can also <a id="plot-data-download" href="#">download it</a>.</p>
 
 ```js
 const csv = d3.csvFormat(data);
@@ -585,6 +599,16 @@ const link = document.getElementById("plot-data-download");
 if (link) {
   link.href = url;
   link.download = `${observable.params.study}-plot-data.csv`;
+}
+const countResult = await db.query(`select count(*) as count from ${tableName}`);
+const totalCount = countResult.toArray()[0]?.count ?? (Array.isArray(data) ? data.length : 0);
+const shownCount = Array.isArray(data) ? data.length : 0;
+const countEl = document.getElementById("filtered-count");
+if (countEl) {
+  const isFull = shownCount >= totalCount;
+  countEl.textContent = isFull
+    ? `This is the full data: ${shownCount} studies.`
+    : `This is the filtered data after applying your selections: ${shownCount} of ${totalCount} studies.`;
 }
 ```
 
