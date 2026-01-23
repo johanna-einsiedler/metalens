@@ -438,6 +438,21 @@ input[type="checkbox"]:checked {
   overflow: hidden;
 }
 
+body:has(#observablehq-main .study-hero) .study-hero-header {
+  width: calc(100% + (2 * var(--ml-content-gutter)));
+  margin-left: calc(-1 * var(--ml-content-gutter));
+  margin-right: 0;
+  max-width: none;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-toc {
+  display: none !important;
+}
+
+body:has(#observablehq-main .study-hero) #observablehq-toc ~ #observablehq-main {
+  padding-right: var(--ml-content-gutter);
+}
+
 .study-hero-content {
   width: 100%;
   max-width: none;
