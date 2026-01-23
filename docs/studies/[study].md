@@ -515,7 +515,7 @@ const filteredData = (async () => {
   <div class="summary-box forest-box">
     <h3 class="summary-heading">Forest plot</h3>
   
-<p>How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
+<p><span id="plot-count"></span> How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
 
 
 
@@ -549,6 +549,11 @@ if (window.innerWidth <= 600) {
 
 ```js
 const data = await filteredData;
+const plotCountEl = document.getElementById('plot-count');
+if (plotCountEl) {
+  const shownCount = Array.isArray(data) ? data.length : 0;
+  plotCountEl.textContent = `Showing ${shownCount} studies after applying your filters.`;
+}
 
 // Only draw the graph if there is data to display
 if (data && data.length > 0) {
