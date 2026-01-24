@@ -562,8 +562,13 @@ if (window.innerWidth <= 600) {
 const data = await filteredData;
 const plotCountEl = document.getElementById('plot-count');
 if (plotCountEl) {
+  const countResult = await db.query(`select count(*) as count from ${tableName}`);
+  const totalCount = countResult.toArray()[0]?.count ?? (Array.isArray(data) ? data.length : 0);
   const shownCount = Array.isArray(data) ? data.length : 0;
-  plotCountEl.textContent = `Showing ${shownCount} studies after applying your filters.`;
+  const isFull = shownCount >= totalCount;
+  plotCountEl.textContent = isFull
+    ? `Showing all ${shownCount} studies.`
+    : `Showing ${shownCount} out of ${totalCount} studies after applying your filters.`;
 }
 
 // Only draw the graph if there is data to display
