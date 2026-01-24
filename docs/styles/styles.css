@@ -710,19 +710,34 @@ body.study-hero-page #observablehq-footer > div {
   font-family: var(--sans-serif, sans-serif);
   font-size: 0.9rem;
   line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.citation-body {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.citation-doi {
+  font-family: "Martian Mono", var(--sans-serif, sans-serif);
+  font-size: 0.85em;
+  letter-spacing: 0.01em;
+  word-break: break-word;
 }
 
 .citation-copy {
   border: 1px solid #d7dde2;
   background: var(--ml-color-0);
   color: var(--ml-color-900);
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  margin-left: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  margin-left: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   vertical-align: middle;
   cursor: pointer;
   pointer-events: auto;
@@ -739,6 +754,12 @@ body.study-hero-page #observablehq-footer > div {
 .citation-copy-icon {
   width: 14px;
   height: 14px;
+}
+
+.citation-copy-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .citation-copy[data-state="copied"]::after {

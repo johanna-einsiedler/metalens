@@ -328,7 +328,7 @@ const studyAlias = studyAliases[observable.params.study] ?? "";
       <div class="summary-box">
         <h3 class="summary-heading">Citation</h3>
         <p class="details-text citation-text">
-          ${metaData['source'][0]}
+          <span class="citation-body">${metaData['source'][0]}</span>
           <button
             class="citation-copy"
             type="button"
@@ -338,6 +338,7 @@ const studyAlias = studyAliases[observable.params.study] ?? "";
             <svg class="citation-copy-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 8h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm-2 4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
+            <span class="citation-copy-label">Copy citation</span>
           </button>
         </p>
       </div>
@@ -429,6 +430,31 @@ if (!root) {
     clone.querySelector(".citation-copy")?.remove();
     return clone.textContent.replace(/\s+/g, " ").trim();
   };
+
+  const highlightCitationDoi = () => {
+    root.querySelectorAll(".citation-body").forEach((body) => {
+      if (!body || body.dataset.doiProcessed) return;
+      const text = body.textContent || "";
+      const doiRegex = /(https?:\/\/(?:dx\.)?doi\.org\/\\S+|10\\.\\d{4,9}\\/[^\\s]+)/i;
+      const match = text.match(doiRegex);
+      if (!match) return;
+      const doi = match[0];
+      const start = match.index ?? 0;
+      const before = text.slice(0, start);
+      const after = text.slice(start + doi.length);
+
+      body.textContent = "";
+      if (before) body.append(document.createTextNode(before));
+      const doiSpan = document.createElement("span");
+      doiSpan.className = "citation-doi";
+      doiSpan.textContent = doi;
+      body.append(doiSpan);
+      if (after) body.append(document.createTextNode(after));
+      body.dataset.doiProcessed = "true";
+    });
+  };
+
+  highlightCitationDoi();
 
   root.querySelectorAll(".citation-copy").forEach((button) => {
     const citationText = getCitationText(button);
