@@ -56,6 +56,23 @@ body:has(#observablehq-main .study-hero) #observablehq-main > :not(style):not(li
   width: 100%;
 }
 
+body:not(:has(#observablehq-main .study-hero)) #observablehq-main {
+  padding-top: 2rem;
+}
+
+body:not(:has(#observablehq-main .study-hero)) #observablehq-footer nav {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  max-width: none;
+}
+
+body:not(:has(#observablehq-main .study-hero)) #observablehq-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 html,
 body {
   background: var(--ml-color-0);
