@@ -1,4 +1,4 @@
-.double-range{
+.double-range {
   position: relative;
   width: min(600px, 100%);
   margin: 0 auto 16px; /* Add margin-bottom */
@@ -40,8 +40,6 @@
   position: relative;
   padding: 10px 0;
 }
-
-/* The old layout styles have been removed. */
 
 .double {
   position: absolute;
@@ -97,8 +95,7 @@
   width: 16px;
   border-radius: 50%;
   background-color: #067;
-  /* border: 2px solid #fff; */
-    border: 2px solid #067;
+  border: 2px solid #067;
   box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -webkit-appearance: none;
   cursor: pointer;
@@ -113,7 +110,6 @@
   width: 16px;
   border-radius: 50%;
   background-color: #067;
-  /* border: 2px solid #fff; */
   border: 2px solid #067;
   box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -moz-appearance: none;
@@ -132,7 +128,11 @@
 }
 
 /* The width is now set via inline style in createDoubleRange.js */
-.double-range input[type="number"]:focus{ outline: none; border-color:#067; box-shadow: 0 0 0 3px rgba(0,102,119,.12) }
+.double-range input[type="number"]:focus {
+  outline: none;
+  border-color: #067;
+  box-shadow: 0 0 0 3px rgba(0,102,119,.12);
+}
 
 .study-count-badge {
   text-align: left;
@@ -156,12 +156,12 @@
   font-size: 15px;
 }
 
-@media (max-width: 768px){
-  .double-range{
+@media (max-width: 768px) {
+  .double-range {
     margin: 16px auto 22px;
     padding: 10px 12px 16px;
   }
-  .double-range input[type="number"]{
+  .double-range input[type="number"] {
     height: 32px;
     font-size: 12px;
     min-width: 100px;

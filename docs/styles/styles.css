@@ -175,10 +175,6 @@ body {
   border-bottom: 0;
 }
 
-#observablehq-sidebar > ol:first-child > li > a {
-  justify-content: center;
-}
-
 #observablehq-sidebar .sidebar-logo {
   display: block;
   height: 58px;
@@ -393,15 +389,6 @@ input[type="checkbox"]:checked {
 }
 
 
-.studyDescription {
-  color: #6c757d;
-}
-
-.studySource {
-  color: #9ca1a5;
-  font-size: 0.8rem;
-}
-
 .analysis{
   margin-top: 1rem;
 }
@@ -416,8 +403,6 @@ input[type="checkbox"]:checked {
   width: 100%;
   max-width: none;
   margin: 0;
-  margin-left: 0;
-  margin-right: 0;
   padding: 0 0 1.5rem;
 }
 
@@ -436,13 +421,6 @@ input[type="checkbox"]:checked {
   box-sizing: border-box;
   border-radius: 0.5rem;
   overflow: hidden;
-}
-
-body:has(#observablehq-main .study-hero) .study-hero-header {
-  width: 100%;
-  margin-left: 0;
-  margin-right: 0;
-  max-width: none;
 }
 
 body:has(#observablehq-main .study-hero) #observablehq-toc {
