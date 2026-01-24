@@ -357,6 +357,17 @@ if (!root) {
 } else {
   // Mark the page so the CSS fallback can apply when :has() isn't supported.
   try { document.body.classList.add("study-hero-page"); } catch (e) { /* ignore */ }
+  // ---------- HERO IMAGE: randomize per load ----------
+  const heroHeader = root.querySelector(".study-hero-header");
+  if (heroHeader) {
+    const heroImages = [
+      "../data/images/heros/hero1.webp",
+      "../data/images/heros/hero2.webp",
+      "../data/images/heros/hero3.webp"
+    ];
+    const heroPick = heroImages[Math.floor(Math.random() * heroImages.length)];
+    heroHeader.style.setProperty("--ml-hero-image", `url("${heroPick}")`);
+  }
   // ---------- OVERVIEW: populate + toggle ----------
   const block = root.querySelector(".overview-block");
   const previewEl = block?.querySelector(".overview-preview");

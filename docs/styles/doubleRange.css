@@ -3,9 +3,9 @@
   width: min(600px, 100%);
   margin: 0 auto 16px; /* Add margin-bottom */
   padding: 12px 16px 20px;
-  border: 1px solid #eef2f5;
+  border: 1px solid var(--ml-color-200);
   border-radius: 12px;
-  background: #fafbfc;
+  background: var(--ml-color-100);
 }
 
 .filter-container {
@@ -31,7 +31,7 @@
   display: inline-block;
   width: 36px;
   height: 2px;
-  background: #067;
+  background: var(--ml-color-700);
   border-radius: 999px;
   margin: 0 6px;
 }
@@ -68,7 +68,7 @@
 .double::-webkit-slider-runnable-track {
   width: 100%;
   height: 8px;
-  background-color: #067;
+  background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
 }
@@ -76,7 +76,7 @@
 .double::-moz-range-track {
   width: 100%;
   height: 8px;
-  background-color: #067;
+  background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
 }
@@ -94,8 +94,8 @@
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  background-color: #067;
-  border: 2px solid #067;
+  background-color: var(--ml-color-700);
+  border: 2px solid var(--ml-color-700);
   box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -webkit-appearance: none;
   cursor: pointer;
@@ -109,8 +109,8 @@
   height: 16px;
   width: 16px;
   border-radius: 50%;
-  background-color: #067;
-  border: 2px solid #067;
+  background-color: var(--ml-color-700);
+  border: 2px solid var(--ml-color-700);
   box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -moz-appearance: none;
   cursor: pointer;
@@ -121,7 +121,7 @@
 
 .double-range input[type="number"] {
   font-size: 13px; /* Match label font size */
-  background: #e9eef0;
+  background: var(--ml-color-0);
   border-radius: 999px !important;
   border: 1px solid #d6dde1;
   padding: 4px 10px;
@@ -130,7 +130,7 @@
 /* The width is now set via inline style in createDoubleRange.js */
 .double-range input[type="number"]:focus {
   outline: none;
-  border-color: #067;
+  border-color: var(--ml-color-700);
   box-shadow: 0 0 0 3px rgba(0,102,119,.12);
 }
 
@@ -143,7 +143,7 @@
   border: none;
   font-size: 12px;
   font-weight: 400;
-  color: #6c757d;
+  color: var(--ml-color-800);
 }
 
 .filter-container .study-count-badge {
@@ -152,7 +152,7 @@
 
 .study-count-badge .count-number {
   font-weight: 700;
-  color: #067;
+  color: var(--ml-color-700);
   font-size: 15px;
 }
 

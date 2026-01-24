@@ -9,10 +9,11 @@
 {
   max-width: none;
   margin: 0;
-  background: #f4f4f4;
+  background: var(--ml-color-0);
   width: 100%;
   padding-left: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
   padding-right: var(--ml-content-gutter);
+  padding-bottom: 1.5rem;
   box-sizing: border-box;
 }
 
@@ -57,7 +58,7 @@ body:has(#observablehq-main .study-hero) #observablehq-main > :not(style):not(li
 
 html,
 body {
-  background: #f4f4f4;
+  background: var(--ml-color-0);
   margin: 0;
   font-family: var(--sans-serif, sans-serif);
   overflow-x: hidden;
@@ -75,7 +76,7 @@ body {
 }
 
 #observablehq-sidebar {
-  background: #fff;
+  background: var(--ml-color-0);
   width: var(--ml-sidebar-width);
   margin: 0;
   padding: 0.75rem 1.25rem 1rem;
@@ -93,22 +94,22 @@ body {
 #observablehq-sidebar > ol:first-child {
   margin: 0;
   padding: 0 0 0.5rem;
-  background: #fff;
+  background: var(--ml-color-0);
 }
 
 #observablehq-sidebar > ol:first-child::before {
-  background: #fff;
+  background: var(--ml-color-0);
 }
 
 #observablehq-sidebar > ol:first-child > li {
   margin: 0;
   padding: 0;
-  background: #fff;
+  background: var(--ml-color-0);
 }
 
 #observablehq-sidebar > ol:first-child > label,
 #observablehq-sidebar-close {
-  background: #fff;
+  background: var(--ml-color-0);
   border: 0;
   box-shadow: none;
 }
@@ -123,12 +124,12 @@ body {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
-  background: #fff;
+  background: var(--ml-color-0);
   box-shadow: none;
 }
 
 #observablehq-sidebar input[type="search"] {
-  background: #fff;
+  background: var(--ml-color-0);
   border: 1px solid #d7dde2;
   border-radius: 999px;
   padding: 6px 10px 6px 2.4em;
@@ -161,8 +162,8 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #162c43;
-  background: #fff;
+  color: var(--ml-color-900);
+  background: var(--ml-color-0);
   border-bottom: 0;
   text-decoration: none;
 }
@@ -170,7 +171,7 @@ body {
 #observablehq-sidebar a,
 #observablehq-sidebar a:visited,
 #observablehq-sidebar a:link {
-  color: #162c43;
+  color: var(--ml-color-900);
   text-decoration: none;
   border-bottom: 0;
 }
@@ -285,27 +286,27 @@ p {
 
 /* unvisited link */
 a:link {
-  color: black;
-  border-bottom:1px dashed black;
+  color: var(--ml-color-900);
+  border-bottom: 1px dashed var(--ml-color-900);
 
 }
 
 /* visited link */
 a:visited {
-color: black;
+  color: var(--ml-color-900);
   text-decoration: none;
 }
 
 /* mouse over link */
 a:hover {
-color: #067;
-text-decoration: none!important;
+  color: var(--ml-color-700);
+  text-decoration: none!important;
 }
 
 /* selected link */
 a:active {
-color: #067;
-text-decoration: none!important;
+  color: var(--ml-color-700);
+  text-decoration: none!important;
 }
 
 text {
@@ -322,7 +323,7 @@ line.mark {
 }
 
 .heterogeneity-band {
-	fill: #067;
+	fill: var(--ml-color-700);
 	mix-blend-mode: multiply;
 }
 
@@ -361,7 +362,7 @@ rect.selection {
 
 .dynamic-tooltip {
   position: absolute;
-  background-color: white;
+  background-color: var(--ml-color-0);
   border: 1px solid #ccc;
   padding: 8px;
   border-radius: 4px;
@@ -372,19 +373,26 @@ rect.selection {
 }
 
 input[type="checkbox"]:checked {
-  accent-color: #067;
+  accent-color: var(--ml-color-800);
 }
 
 
 :root {
 
-  --theme-foreground-focus:   #067;
+  --theme-foreground-focus: var(--ml-color-800);
   --ml-sidebar-width: clamp(15rem, 18vw, 20rem);
   --ml-sidebar-gap: 0;
   --ml-sidebar-radius: 0;
   --ml-content-max: clamp(720px, 72vw, 1200px);
   --ml-content-gutter: clamp(16px, 3vw, 32px);
   --sans-serif: "Space Grotesk", "Martian Mono", sans-serif;
+  --ml-color-900: #122740;
+  --ml-color-800: #1b485e;
+  --ml-color-700: #367380;
+  --ml-color-200: #c6dde1;
+  --ml-color-150: #c7ddd1;
+  --ml-color-100: #e9f4e7;
+  --ml-color-0: #ffffff;
 
 }
 
@@ -411,7 +419,7 @@ input[type="checkbox"]:checked {
   max-width: none;
   margin: 0 auto;
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.35)),
-    url("https://res.cloudinary.com/djvpwwzmp/image/upload/hero_zzfatd.png");
+    var(--ml-hero-image, url("../data/images/heros/hero1.webp"));
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -463,10 +471,10 @@ body.study-hero-page .study-hero-content {
      center the text. Keep max-width consistent with main content. */
   width: min(100%, var(--ml-content-max)) !important;
   max-width: var(--ml-content-max) !important;
-  margin-left: calc(var(--ml-sidebar-width) + var(--ml-content-gutter)) !important;
+  margin-left: auto !important;
   margin-right: auto !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
+  padding-left: calc(var(--ml-content-gutter) + 10rem) !important;
+  padding-right: var(--ml-content-gutter) !important;
   text-align: center !important;
 }
 
@@ -522,7 +530,7 @@ body.study-hero-page #observablehq-footer > div {
 .study-hero-header .study-eyebrow,
 .study-hero-header .study-title,
 .study-hero-header .study-subtitle {
-  color: rgb(18, 39, 64);
+  color: var(--ml-color-900);
   text-shadow: none;
   font-family: "Space Grotesk", "Martian Mono", var(--sans-serif, sans-serif);
 }
@@ -552,7 +560,7 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .summary-box {
-  background: #bac9ce;
+  background: var(--ml-color-200);
   padding: 1.5rem;
   border-radius: 0.5rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -577,7 +585,7 @@ body.study-hero-page #observablehq-footer > div {
 .filters-box input[type="text"],
 .filters-box input[type="number"],
 .filters-box select {
-  background: #e9eef0;
+  background: var(--ml-color-0);
   border-radius: 999px !important;
   border: 1px solid #d6dde1;
   padding: 4px 10px;
@@ -601,13 +609,13 @@ body.study-hero-page #observablehq-footer > div {
   font-size: 1.125rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #111827;
+  color: var(--ml-color-900);
   margin: 0 0 1rem 0;
 }
 
 .summary-text {
   margin: 0 0 1rem;
-  color: #1f2937;
+  color: var(--ml-color-900);
   font-size: 1rem;
   line-height: 1.625;
 }
@@ -619,13 +627,13 @@ body.study-hero-page #observablehq-footer > div {
 .study-details summary {
   cursor: pointer;
   font-weight: 500;
-  color: #374151;
+  color: var(--ml-color-800);
   margin-bottom: 0.5rem;
 }
 
 .details-text {
   margin: 0.5rem 0 0 0;
-  color: #1f2937;
+  color: var(--ml-color-900);
   font-size: 1rem;
   line-height: 1.625;
 }
@@ -638,8 +646,8 @@ body.study-hero-page #observablehq-footer > div {
 
 .citation-copy {
   border: 1px solid #d7dde2;
-  background: #fff;
-  color: rgb(18, 39, 64);
+  background: var(--ml-color-0);
+  color: var(--ml-color-900);
   width: 26px;
   height: 26px;
   padding: 0;
@@ -656,8 +664,8 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .citation-copy:hover {
-  color: #0a2a43;
-  background: #f8fafc;
+  color: var(--ml-color-900);
+  background: var(--ml-color-100);
 }
 
 .citation-copy-icon {
@@ -671,7 +679,7 @@ body.study-hero-page #observablehq-footer > div {
   top: -1.8rem;
   right: 50%;
   transform: translateX(50%);
-  background: #0f172a;
+  background: var(--ml-color-900);
   color: #fff;
   font-size: 0.65rem;
   padding: 0.15rem 0.45rem;
@@ -688,7 +696,7 @@ body.study-hero-page #observablehq-footer > div {
   margin-left: 0.35rem;
   border: 0;
   background: none;
-  color: rgb(18, 39, 64);
+  color: var(--ml-color-900);
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -707,7 +715,7 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .source-text {
-  color: #9ca3af;
+  color: var(--ml-color-700);
   font-style: italic;
   font-size: 0.9rem;
 }
@@ -717,7 +725,7 @@ body.study-hero-page #observablehq-footer > div {
   font-weight: 800;
   letter-spacing: -0.01em;
   line-height: 1.1;
-  color: #1d2730;
+  color: var(--ml-color-900);
   margin: 0 0 0.75rem;
   font-size: clamp(1.3rem, 1.1rem + 0.8vw, 1.64rem);
   display: -webkit-box;
@@ -727,13 +735,13 @@ body.study-hero-page #observablehq-footer > div {
 
 .study-subtitle {
   margin: 0 0 0.75rem;
-  color: #6c757d;
+  color: var(--ml-color-800);
   font-size: clamp(0.9rem, 0.85rem + 0.4vw, 1.2rem);
 }
 
 .study-lead {
   margin: 0 0 0.75rem;
-  color: #2f3a43;
+  color: var(--ml-color-800);
   max-width: 70ch;
   font-size: clamp(0.95rem, 0.9rem + 0.3vw, 1.1rem);
 }
