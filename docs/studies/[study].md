@@ -202,7 +202,7 @@ const myInput = Inputs.checkbox(distinctValues, {
   unique: true,
   value: defaultValues
 })
-  filterMeta[thisColumn] = { type: "categorical", values: distinctValues }
+  filterMeta[thisColumn] = { type: "categorical", values: distinctValues, defaultValues }
 // save selector in list of selectors
   selectors[thisColumn] = myInput
 // else i.e. if data is numeric -> create range slider
@@ -242,7 +242,7 @@ const myInput = Inputs.checkbox(distinctValues, {
       myInput.updateCount(count);
     }
   })
-  filterMeta[thisColumn] = { type: "range", min: minVal, max: maxVal }
+  filterMeta[thisColumn] = { type: "range", min: minVal, max: maxVal, defaultValues: [minVal, maxVal] }
   // add to list of selectors
   selectors[thisColumn] = myInput
 
@@ -569,6 +569,35 @@ if (plotCountEl) {
   plotCountEl.textContent = isFull
     ? `Showing all ${shownCount} studies.`
     : `Showing ${shownCount} out of ${totalCount} studies after applying your filters.`;
+
+  const fab = document.getElementById("filter-fab");
+  if (fab) {
+    if (isFull) {
+      fab.style.display = "none";
+    } else {
+      fab.style.display = "flex";
+      fab.innerHTML = `
+        <span class="filter-fab-count">Showing ${shownCount} out of ${totalCount} studies</span>
+        <span class="filter-fab-action">Reset filters</span>
+      `;
+    }
+    if (!fab.dataset.bound) {
+      fab.dataset.bound = "true";
+      fab.addEventListener("click", () => {
+        Object.keys(selectors).forEach((key) => {
+          const selector = selectors[key];
+          const meta = filterMeta[key];
+          if (!selector || !meta) return;
+          if (meta.type === "range") {
+            selector.value = meta.defaultValues ?? [meta.min, meta.max];
+          } else if (meta.type === "categorical") {
+            selector.value = meta.defaultValues ?? meta.values;
+          }
+          selector.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      });
+    }
+  }
 }
 
 // Only draw the graph if there is data to display
@@ -641,3 +670,5 @@ view(Inputs.table([...data]))
 </div>
 </div></div>
 </section>
+
+<button id="filter-fab" class="filter-fab" type="button" aria-label="Reset filters"></button>
