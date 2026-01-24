@@ -308,6 +308,7 @@ const studyAlias = studyAliases[observable.params.study] ?? "";
 ```
 <section class="description study-hero">
   <div class="study-hero-header">
+    <span class="study-hero-image" aria-hidden="true"></span>
     <div class="study-hero-content">
       <!-- <span class="study-eyebrow">Meta-analysis</span> -->
       <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
@@ -435,7 +436,7 @@ if (!root) {
     root.querySelectorAll(".citation-body").forEach((body) => {
       if (!body || body.dataset.doiProcessed) return;
       const text = body.textContent || "";
-      const doiRegex = /(https?:\/\/(?:dx\.)?doi\.org\/\\S+|10\\.\\d{4,9}\\/[^\\s]+)/i;
+      const doiRegex = /(https?:\/\/(?:dx\.)?doi\.org\/\S+|10\.\d{4,9}\/[^\s]+)/i;
       const match = text.match(doiRegex);
       if (!match) return;
       const doi = match[0];

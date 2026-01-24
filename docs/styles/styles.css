@@ -193,6 +193,15 @@ body {
   border-bottom: 0;
 }
 
+#observablehq-sidebar > ol:not(:first-child) > li > a,
+#observablehq-sidebar section > ol > li > a {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
 #observablehq-sidebar .sidebar-logo {
   display: block;
   height: 58px;
@@ -245,8 +254,9 @@ body {
   display: flex;
   align-items: center;
   margin: 0;
-  padding: 0.5rem 1rem 0.25rem 1.5rem;
+  padding: 0.6rem 1rem 0.4rem 1.5rem;
   margin-left: -0.5rem;
+  min-height: 40px;
 }
 
 #observablehq-sidebar section > ol {
@@ -437,11 +447,7 @@ input[type="checkbox"]:checked {
   width: min(100%, var(--ml-content-max));
   max-width: none;
   margin: 0 auto;
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.35)),
-    var(--ml-hero-image, url("../data/images/heros/hero1.webp"));
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background: var(--ml-color-0);
   padding: 12rem 1.5rem 11rem;
   display: flex;
   justify-content: center;
@@ -451,12 +457,24 @@ input[type="checkbox"]:checked {
   position: relative;
 }
 
+.study-hero-image {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0.35)),
+    var(--ml-hero-image, url("../data/images/heros/hero1.webp"));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
 .study-hero-header::before {
   content: "";
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.08);
   pointer-events: none;
+  z-index: 1;
 }
 
 body:has(#observablehq-main .study-hero) #observablehq-toc {
@@ -550,7 +568,7 @@ body.study-hero-page #observablehq-footer > div {
   flex-direction: column;
   align-items: center;
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 .study-hero .main-content {
