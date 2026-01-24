@@ -10,20 +10,24 @@
 
 .filter-container {
   display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
-  gap: 16px;
+  grid-template-columns: var(--filter-label-width, 10rem) max-content minmax(0, 1fr);
+  align-items: start;
+  column-gap: 16px;
+  row-gap: 6px;
 }
 
 .filter-label {
   font-size: 13px; /* Reduce font size */
   font-weight: 700;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .filter-inputs {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -39,6 +43,8 @@
 .filter-slider {
   position: relative;
   padding: 10px 0;
+  min-width: 0;
+  align-self: center;
 }
 
 .double {
@@ -171,32 +177,31 @@
 @media (max-width: 600px) {
   /* Stack elements vertically */
   .filter-container {
-    display: block;
+    grid-template-columns: 1fr;
   }
 
-  /* Center the label text */
+  /* Keep alignment tidy on small screens */
   .filter-label {
-    text-align: center;
-    margin-bottom: 8px;
+    text-align: left;
+    margin-bottom: 4px;
   }
 
-  /* Center the number inputs within their container */
   .filter-inputs {
-    justify-content: center;
-    margin-bottom: 8px;
+    justify-content: flex-start;
+    margin-bottom: 6px;
   }
 
-  /* Center the slider block */
   .filter-slider {
-    display: flex;
-    justify-content: center;
     width: auto;
     margin: 0 auto;
     padding: 0;
   }
 
-  /* Center the study count text */
   .study-count-badge {
-    text-align: center;
+    text-align: left;
+  }
+
+  .filter-container .study-count-badge {
+    grid-column: 1;
   }
 }

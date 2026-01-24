@@ -629,6 +629,7 @@ body.study-hero-page #observablehq-footer > div {
 .filters-box {
   margin-top: 0.75rem;
   --filter-indent: 2.4rem;
+  --filter-label-width: clamp(8.5rem, 22vw, 12rem);
 }
 
 .filters-box form[class^="inputs-"] > label,
