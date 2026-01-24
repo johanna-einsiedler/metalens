@@ -235,7 +235,7 @@ body {
 }
 
 #observablehq-sidebar section {
-  background: #b9d7d5;
+  background: var(--ml-color-100);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem 0.75rem 0;
   margin: 0.5rem 0 0.75rem;
@@ -263,7 +263,9 @@ body {
 }
 
 #observablehq-sidebar section > ol > li.observablehq-link-active > a {
-  background: transparent;
+  background: var(--ml-color-0);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 0 rgba(18, 39, 64, 0.08);
 }
 
 #observablehq-sidebar a[href$="/about"]::before,
