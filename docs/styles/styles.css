@@ -446,6 +446,15 @@ input[type="checkbox"]:checked {
   box-sizing: border-box;
   border-radius: 0.5rem;
   overflow: hidden;
+  position: relative;
+}
+
+.study-hero-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.08);
+  pointer-events: none;
 }
 
 body:has(#observablehq-main .study-hero) #observablehq-toc {
@@ -538,6 +547,8 @@ body.study-hero-page #observablehq-footer > div {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .study-hero .main-content {
