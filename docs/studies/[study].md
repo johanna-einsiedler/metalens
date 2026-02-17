@@ -840,6 +840,9 @@ if (countEl) {
 }
 ```
 
+<div id="mobile-data-actions" class="mobile-data-actions">
+  <button id="mobile-data-toggle" class="mobile-data-toggle" type="button">Expand all</button>
+</div>
 <div id="mobile-data-cards" class="mobile-data-cards" aria-live="polite"></div>
 
 
@@ -848,12 +851,33 @@ if (countEl) {
 await new Promise(requestAnimationFrame);
 
 const mobileCardsContainer = document.getElementById("mobile-data-cards");
+const mobileActionsContainer = document.getElementById("mobile-data-actions");
+const mobileToggleButton = document.getElementById("mobile-data-toggle");
 const mobileDataQuery = window.matchMedia("(max-width: 768px)");
 
 const formatCardValue = (value) => {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString();
   return String(value);
+};
+
+const getMobileCards = () =>
+  mobileCardsContainer ? Array.from(mobileCardsContainer.querySelectorAll(".mobile-data-card")) : [];
+
+const updateMobileToggleState = () => {
+  const cards = getMobileCards();
+  const hasCards = cards.length > 0;
+  const isMobile = mobileDataQuery.matches;
+  if (mobileActionsContainer) mobileActionsContainer.style.display = isMobile && hasCards ? "flex" : "none";
+  if (!mobileToggleButton) return;
+  if (!hasCards) {
+    mobileToggleButton.textContent = "Expand all";
+    mobileToggleButton.disabled = true;
+    return;
+  }
+  mobileToggleButton.disabled = !isMobile;
+  const allOpen = cards.every((card) => card.open);
+  mobileToggleButton.textContent = allOpen ? "Collapse all" : "Expand all";
 };
 
 const buildMobileDataCards = () => {
@@ -890,8 +914,10 @@ const buildMobileDataCards = () => {
       list.appendChild(rowEl);
     }
     card.appendChild(list);
+    card.addEventListener("toggle", updateMobileToggleState);
     mobileCardsContainer.appendChild(card);
   }
+  updateMobileToggleState();
 };
 
 const syncDataPresentation = () => {
@@ -900,7 +926,18 @@ const syncDataPresentation = () => {
   if (desktopTableContainer) desktopTableContainer.style.display = mobile ? "none" : "";
   if (mobileCardsContainer) mobileCardsContainer.style.display = mobile ? "grid" : "none";
   if (mobile) buildMobileDataCards();
+  updateMobileToggleState();
 };
+
+const onMobileToggleClick = () => {
+  const cards = getMobileCards();
+  if (cards.length === 0) return;
+  const shouldExpand = cards.some((card) => !card.open);
+  for (const card of cards) card.open = shouldExpand;
+  updateMobileToggleState();
+};
+
+if (mobileToggleButton) mobileToggleButton.addEventListener("click", onMobileToggleClick);
 
 syncDataPresentation();
 if (mobileDataQuery.addEventListener) {
@@ -915,6 +952,7 @@ invalidation.then(() => {
   } else {
     mobileDataQuery.removeListener(syncDataPresentation);
   }
+  if (mobileToggleButton) mobileToggleButton.removeEventListener("click", onMobileToggleClick);
 });
 
 ```

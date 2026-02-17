@@ -480,6 +480,38 @@ input[type="checkbox"]:checked {
   margin-top: 1rem;
 }
 
+.mobile-data-actions {
+  display: none;
+  margin-top: 0.75rem;
+}
+
+.mobile-data-toggle {
+  appearance: none;
+  border: 1px solid var(--ml-color-700);
+  background: var(--ml-color-0);
+  color: var(--ml-color-900);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.mobile-data-toggle:hover {
+  background: var(--ml-color-100);
+}
+
+.mobile-data-toggle:focus-visible {
+  outline: 2px solid var(--ml-color-700);
+  outline-offset: 2px;
+}
+
+.mobile-data-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .mobile-data-card {
   border: 1px solid #d6dde1;
   background: var(--ml-color-0);
@@ -1059,6 +1091,17 @@ h1, h2, h3, h4 {
   .description, .analysis {
     margin: auto;
     max-width: 96%;
+  }
+
+  /* Keep the study hero image full-bleed on mobile. Override the generic
+     #observablehq-main child sizing rule (ID specificity) with !important. */
+  #observablehq-main > .description.study-hero,
+  body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero,
+  body.study-hero-page #observablehq-main > .description.study-hero {
+    width: calc(100% + (var(--ml-content-gutter) * 2)) !important;
+    max-width: none !important;
+    margin-left: calc(-1 * var(--ml-content-gutter)) !important;
+    margin-right: calc(-1 * var(--ml-content-gutter)) !important;
   }
 
   .study-hero {
