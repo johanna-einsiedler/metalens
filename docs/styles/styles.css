@@ -486,7 +486,11 @@ input[type="checkbox"]:checked {
   margin-top: 1rem;
 }
 
-#plotContent,
+#plotContent {
+  margin-top: 1rem;
+  overflow-x: auto;
+}
+
 #data-section {
   margin-top: 1rem;
   overflow-x: auto;
@@ -900,7 +904,7 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .filters-box .study-count-badge {
-  padding-left: var(--filter-indent);
+  padding-left: 0;
   margin-left: 0;
 }
 

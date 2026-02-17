@@ -578,16 +578,14 @@ if (!root) {
 <div class="main-content">
   <div class="summary-box filters-box">
     <h3 class="summary-heading">
-      <button id="filters-toggle-button" class="filters-toggle" type="button" aria-expanded="true" aria-controls="filters-content">Filters</button>
+      <button id="filters-toggle-button" class="filters-toggle" type="button" aria-expanded="true">Filters</button>
     </h3>
-    <div id="filters-content">
     <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
 
 ```js
 // display filters
 const options =  view(Inputs.form(selectors))
 ```
-    </div>
 
   </div>
 </div>
@@ -659,13 +657,16 @@ const filteredData = (async () => {
 // Make filters section collapsible; start collapsed on mobile
 {
   const box = document.querySelector(".filters-box");
+  const heading = box?.querySelector(".summary-heading");
   const toggleButton = box?.querySelector("#filters-toggle-button");
-  const content = box?.querySelector("#filters-content");
-  if (box && toggleButton && content) {
+  if (box && heading && toggleButton) {
+    const collapsibleItems = Array.from(box.children).filter((el) => el !== heading);
 
     const setExpanded = (expanded) => {
       toggleButton.setAttribute("aria-expanded", String(expanded));
-      content.hidden = !expanded;
+      for (const el of collapsibleItems) {
+        el.style.display = expanded ? "" : "none";
+      }
     };
 
     if (!toggleButton.dataset.toggleBound) {
