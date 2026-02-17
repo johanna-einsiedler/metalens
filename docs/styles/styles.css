@@ -436,6 +436,7 @@ rect.selection {
   z-index: 10000; /* A very high z-index */
   max-width: 250px;
   font-size: 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
 }
 
 input[type="checkbox"]:checked {
@@ -471,6 +472,49 @@ input[type="checkbox"]:checked {
 #data-section {
   margin-top: 1rem;
   overflow-x: auto;
+}
+
+.mobile-data-cards {
+  display: none;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.mobile-data-card {
+  border: 1px solid #d6dde1;
+  background: var(--ml-color-0);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.mobile-data-card summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--ml-color-900);
+}
+
+.mobile-data-card-list {
+  margin: 0.6rem 0 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.mobile-data-card-row {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 42%) minmax(0, 1fr);
+  gap: 0.5rem;
+  font-size: 0.84rem;
+}
+
+.mobile-data-card-key {
+  color: var(--ml-color-700);
+  font-weight: 600;
+}
+
+.mobile-data-card-value {
+  color: var(--ml-color-900);
+  overflow-wrap: anywhere;
 }
 
 .study-hero {
@@ -556,9 +600,20 @@ body.study-hero-page .study-hero-content {
   max-width: var(--ml-content-max) !important;
   margin-left: auto !important;
   margin-right: auto !important;
-  padding-left: calc(var(--ml-content-gutter) + 10rem) !important;
+  padding-left: var(--ml-content-gutter) !important;
   padding-right: var(--ml-content-gutter) !important;
   text-align: center !important;
+}
+
+@media (max-width: 1024px) {
+  body:has(#observablehq-main .study-hero) .study-hero-header,
+  body.study-hero-page .study-hero-header {
+    left: 0 !important;
+    width: 100% !important;
+    border-radius: 0.5rem !important;
+    padding-left: var(--ml-content-gutter) !important;
+    padding-right: var(--ml-content-gutter) !important;
+  }
 }
 
 /* Add vertical spacing after the data section on study pages so footer
@@ -672,8 +727,8 @@ body.study-hero-page #observablehq-footer > div {
 
 .filter-fab {
   position: fixed;
-  right: 1.5rem;
-  bottom: 1.5rem;
+  right: max(1rem, calc(env(safe-area-inset-right, 0px) + 0.75rem));
+  bottom: max(1rem, calc(env(safe-area-inset-bottom, 0px) + 0.75rem));
   z-index: 1000;
   background: var(--ml-color-200);
   color: var(--ml-color-900);
@@ -688,6 +743,7 @@ body.study-hero-page #observablehq-footer > div {
   box-shadow: 0 10px 24px rgba(18, 39, 64, 0.12);
   cursor: pointer;
   text-align: left;
+  max-width: min(92vw, 320px);
 }
 
 .filter-fab:hover {
@@ -1042,8 +1098,8 @@ h1, h2, h3, h4 {
   }
 
   .filter-fab {
-    right: 0.75rem;
-    bottom: 0.75rem;
+    right: max(0.65rem, calc(env(safe-area-inset-right, 0px) + 0.5rem));
+    bottom: max(0.65rem, calc(env(safe-area-inset-bottom, 0px) + 0.5rem));
     padding: 0.7rem 0.95rem;
   }
 
@@ -1067,6 +1123,23 @@ h1, h2, h3, h4 {
     pointer-events: none;
     background: linear-gradient(to right, transparent, var(--ml-color-200));
     border-radius: 0 0.5rem 0.5rem 0;
+  }
+
+  .mobile-data-cards {
+    display: grid;
+  }
+
+  .data-table-desktop {
+    display: none;
+  }
+
+  .inputs-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .inputs-table table {
+    min-width: 560px;
   }
 }
 

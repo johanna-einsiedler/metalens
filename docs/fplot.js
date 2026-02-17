@@ -1,136 +1,113 @@
 import * as d3 from 'npm:d3'
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function truncateLabel(label, maxChars) {
+  const text = String(label ?? "");
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+
 // function to draw the Graph
 export const drawGraph = item => {
-  // parse proxy item
-  let data = JSON.parse(JSON.stringify(item))
-  //delete existing viz
-  d3.select('#chartArea').selectAll('*').remove()
+  let data = JSON.parse(JSON.stringify(item));
+  d3.select('#chartArea').selectAll('*').remove();
 
-  // set dimensions
-  let width = Math.max(document.getElementById('chartArea').clientWidth, 600)
-
- 
-
-  // Calculate height based on width and number of data points
-  // Example: If width=600 and data.length=20:
-  // height = 600 + (600 * 20/80) = 600 + 150 = 750
-  // HOWEVER, on mobile, the width needs to be boosted, hence I add some math to boost it
-  let boost_constant = 200000;
-  let p = 1.2;
-  let height = width + width*data.length/80  + (boost_constant / Math.pow(width, p));
-  const margin = { top: 80, right: 20, bottom: 100, left: 400 }
-  const innerWidth = width - margin.right - margin.left
-  const innerHeight = height - margin.top - margin.bottom
-  const innerLeftMargin = margin.left - margin.left * 0.05
-
-  const statOffset = -20
-  const titleOffset = -100
-  const subtitleOffset = -70
-
-  if (data && data.length > 0) {
-    data.sort((a, b) => a.yi - b.yi)
+  if (!Array.isArray(data) || data.length === 0) {
+    return {width: 0, height: 0};
   }
-  // calculate lower and upper
+
+  const chartArea = document.getElementById('chartArea');
+  const availableWidth = chartArea ? chartArea.clientWidth : 600;
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+
+  const studyLabelColumn = isMobile
+    ? clamp(Math.round(availableWidth * 0.34), 140, 220)
+    : 230;
+  const statsColumn = isMobile
+    ? clamp(Math.round(availableWidth * 0.24), 110, 170)
+    : 160;
+
+  const margin = {
+    top: isMobile ? 64 : 80,
+    right: 20,
+    bottom: isMobile ? 90 : 100,
+    left: studyLabelColumn + statsColumn + (isMobile ? 28 : 20)
+  };
+
+  const minPlotAreaWidth = isMobile ? 320 : 460;
+  const width = Math.max(availableWidth, margin.left + margin.right + minPlotAreaWidth);
+
+  const rowHeight = isMobile ? 30 : 22;
+  const minHeight = isMobile ? 540 : 520;
+  const height = Math.max(minHeight, margin.top + margin.bottom + (data.length + 3) * rowHeight);
+
+  const innerWidth = width - margin.right - margin.left;
+  const innerHeight = height - margin.top - margin.bottom;
+  const studyLabelX = -margin.left + 8;
+  const statsLabelX = -margin.left + studyLabelColumn + 8;
+
+  data.sort((a, b) => a.yi - b.yi);
+
   data.forEach(obj => {
-    obj.ci_lower = obj.yi - Math.sqrt(obj.vi) // Calculate lower ci boundary
-    obj.ci_upper = obj.yi + Math.sqrt(obj.vi) //calcualte upper ci boundary
-    obj.n = 5 // for now set square size to  5 -> potentially make it adjust to sample size in the future
-  })
-  const xMax = d3.max(data, d => d.ci_upper)
-  const xMin = d3.min(data, d => d.ci_lower)
-  // check if adjusted odds ratios provided, if so take these
-  // let i = 0
-  //for (let i = 0; i < data.length; i++) {
-  //if (data[i].a_point) {
-  //console.log(data[i].a_point)
-  //console.log(data[i].name)
-  //data[i].point = data[i].a_point
-  //data[i].lo = data[i].a_lo
-  //data[i].hi = data[i].a_hi
-  //data[i].lpoint = data[i].a_lpoint
-  //data[i].se_lpoint = data[i].a_se_lpoint
-  //}
-  //}
-  let svg = d3
-    .select('#chartArea')
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height)
-    //.attr("preserveAspectRatio", "xMinYMin meet")
-    //.attr("viewBox", "0 0 300 300")
-    //.classed("svg-content", true)
-    .style('align', 'center')
+    obj.ci_lower = obj.yi - Math.sqrt(obj.vi);
+    obj.ci_upper = obj.yi + Math.sqrt(obj.vi);
+    obj.n = 5;
+  });
 
-  svg
-    .append('g')
-    .attr('transform', 'translate(' + margin.left + ',' + margin.top + ')')
+  const xMaxRaw = d3.max(data, d => d.ci_upper);
+  const xMinRaw = d3.min(data, d => d.ci_lower);
+  const domainPad = xMaxRaw === xMinRaw ? Math.max(0.1, Math.abs(xMaxRaw || 0) * 0.1) : 0;
+  const xMax = xMaxRaw + domainPad;
+  const xMin = xMinRaw - domainPad;
 
-  // https://www.meta-analysis.com/downloads/Intro_Models.pdf
-  // calculate fixed effects meta estimate
-  let i = 0
-  let nom = 0
-  let denom = 0
-  let M = 0
-  let WY = 0
-  let WY2 = 0
-  let W = 0
-  let W2 = 0
+  let i = 0;
+  let nom = 0;
+  let denom = 0;
+  let WY = 0;
+  let WY2 = 0;
+  let W = 0;
+  let W2 = 0;
+
   while (i < data.length) {
-    //nom =nom + data[i].lpoint*(1/Math.pow(data[i].se_lpoint,2))
-    //denom = denom + 1/Math.pow(data[i].se_lpoint,2)
-    //WY = WY + data[i].lpoint * (1/Math.pow(data[i].se_lpoint,2))
-    //WY2 = WY2 + Math.pow(data[i].lpoint,2) * (1/Math.pow(data[i].se_lpoint,2))
-    //W = W+  (1/Math.pow(data[i].se_lpoint,2))
-    //W2 =W2 +Math.pow((1/Math.pow(data[i].se_lpoint,2)),2)
-    //i++;
-
-    // calculate variance
-
-    WY = WY + data[i].yi * (1 / data[i].vi) //multiply estimate of the study_names with inverse of it's variance i.e. weighting
-    W = W + 1 / data[i].vi //add up the total weights
-    WY2 = WY2 + Math.pow(data[i].yi, 2) * (1 / data[i].vi)
-    //WY2 = WY2 + Math.pow(data[i].lpoint,2) * (1/Math.pow(data[i].se_lpoint,2))
-    //W2 =W2 +Math.pow((1/Math.pow(data[i].se_lpoint,2)),2)
-    //no_mask_risk.push(data[i].c/data[i].n2)
-    i++
+    WY = WY + data[i].yi * (1 / data[i].vi);
+    W = W + 1 / data[i].vi;
+    WY2 = WY2 + Math.pow(data[i].yi, 2) * (1 / data[i].vi);
+    i++;
   }
-  // fixed effects model
-  let k = data.length //number of studies
-  let FF = WY / W // calculate joint estiamte by dividing the sum of the weighted estimates by the sum of the weights
-  let FF_VI = 1 / W // calculate the variance by taking the inverse of the sum of the weights
+
+  const k = data.length;
+  const FF = WY / W;
+  const FF_VI = 1 / W;
 
   Object.assign(data, {
     [k]: {
       id: 'Fixed effects model',
       yi: FF,
-      //point: Math.exp(FF_LOR),
       vi: FF_VI,
       ci_lower: FF - Math.sqrt(FF_VI),
       ci_upper: FF + Math.sqrt(FF_VI)
     }
-  })
+  });
 
-  // calculate random effects meta estimate
-  let df = k - 1
+  const df = k - 1;
+  const Q = WY2 - Math.pow(WY, 2) / W;
+  const C = W - W2 / W;
+  const T2 = (Q - df) / C;
 
-  let Q = WY2 - Math.pow(WY, 2) / W
-  let C = W - W2 / W
-  let T2 = (Q - df) / C
-
-  nom = 0
-  denom = 0
-  i = 0
+  nom = 0;
+  denom = 0;
+  i = 0;
   while (i < data.length) {
-    //nom = nom + data[i].lpoint * (1 / (Math.pow(data[i].se_lpoint, 2) + T2))
-    //denom = denom + 1 / (Math.pow(data[i].se_lpoint, 2) + T2)
-    //i++
-    nom = nom + data[i].yi * (1 / (data[i].vi + T2))
-    denom = denom + 1 / (data[i].vi + T2)
-    i++
+    nom = nom + data[i].yi * (1 / (data[i].vi + T2));
+    denom = denom + 1 / (data[i].vi + T2);
+    i++;
   }
-  let RF = nom / denom
-  let RF_VI = Math.sqrt(1 / denom)
+
+  const RF = nom / denom;
+  const RF_VI = Math.sqrt(1 / denom);
 
   data = Object.assign(data, {
     [k + 1]: {
@@ -140,215 +117,146 @@ export const drawGraph = item => {
       ci_lower: RF - Math.sqrt(RF_VI),
       ci_upper: RF + Math.sqrt(RF_VI)
     }
-  })
-// console.log(xMax)
+  });
+
   const xScale = d3
     .scaleLinear()
-    .domain([
-      xMin,//> 1 ? 1 - (xMax - xMin) : xMin,
-      xMax //< 1 ? 1 + (xMax - xMin) : xMax
-      // 0,10
-    ])
-    .range([0, innerWidth])
+    .domain([xMin, xMax])
+    .range([0, innerWidth]);
 
   const yScale = d3
     .scalePoint()
     .domain(data.map(d => d.id))
     .range([0, innerHeight])
-    .padding(1)
+    .padding(0.9);
 
   const widthScale = d3
     .scaleLinear()
     .domain(d3.extent(data, d => d.n))
-    .range([10, 17])
+    .range(isMobile ? [8, 12] : [10, 17]);
+
+  const svg = d3
+    .select('#chartArea')
+    .append('svg')
+    .attr('width', width)
+    .attr('height', height)
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .style('align', 'center');
 
   const plotG = svg
     .attr('id', 'pG')
     .append('g')
-    .attr('transform', `translate(${margin.left},${margin.top})`)
+    .attr('transform', `translate(${margin.left},${margin.top})`);
 
-  //
-  // title
-  //
-  // plotG
-  // .append('text')
-  //.attr('x', -innerLeftMargin)
-  //.attr('y', titleOffset)
-  //.attr('font-size', '1.5em')
-  //.attr('font-weight', 'bold')
-  //.text('Wearing Masks vs. Not Wearing Masks')
-
-  //
-  // subtitle
-  //
-  //plotG
-  //.append('text')
-  //.attr('x', -innerLeftMargin)
-  //.attr('y', subtitleOffset)
-  //.attr('font-size', '1.1em')
-  //.text('Responder analysis - patients with controlled systolic blood pressure at 1 year')
-
-  //plotG
-  //.append('text')
-  //.attr('x', -innerLeftMargin)
-  //.attr('y', subtitleOffset)
-  //.attr('dy', '1.2em')
-  //.attr('font-size', '1.1em')
-  //.html('(&le; 120 mmHg)')
-
-  //
-  // upper line
-  //
   plotG
     .append('line')
-    .attr('x1', -innerLeftMargin)
+    .attr('x1', studyLabelX)
     .attr('x2', innerWidth)
     .attr('stroke', '#555')
-    .attr('stroke-width', 2)
+    .attr('stroke-width', 2);
 
-      // y axis line
-  //
-  plotG
-    .append('line')
-    .attr('transform', `translate(${xScale(0)},0)`)
-    .attr('y2', innerHeight)
-    .attr('stroke', '#555')
-    .attr('stroke-width', 2)
+  if (xMin <= 0 && xMax >= 0) {
+    plotG
+      .append('line')
+      .attr('transform', `translate(${xScale(0)},0)`)
+      .attr('y2', innerHeight)
+      .attr('stroke', '#555')
+      .attr('stroke-width', 2);
+  }
 
-  // heterogeneity bands
-  //
   plotG
     .selectAll('rect')
-    .data(data.filter((_, i) => i < data.length - 2))
-    .join(enter => {
-      return enter
-        .append('rect')
-        .classed('heterogeneity-band', true)
-        .attr('id', d => d.id)
-        .attr('x', d => xScale(d.ci_lower))
-        .attr('width', d => xScale(d.ci_upper) - xScale(d.ci_lower))
-        .attr('height', innerHeight)
-        .attr('opacity', 0.01 + 1 / data.length)
-        .attr('fill', '#067')
-        .attr('mix-blend-mode', 'multiply')
-    })
+    .data(data.filter((_, idx) => idx < data.length - 2))
+    .join(enter => enter
+      .append('rect')
+      .classed('heterogeneity-band', true)
+      .attr('id', d => d.id)
+      .attr('x', d => xScale(d.ci_lower))
+      .attr('width', d => xScale(d.ci_upper) - xScale(d.ci_lower))
+      .attr('height', innerHeight)
+      .attr('opacity', 0.01 + 1 / data.length)
+      .attr('fill', '#067')
+      .attr('mix-blend-mode', 'multiply')
+    );
 
   const gSub = plotG
     .selectAll('g')
-    .data(data.filter((_, i) => i < data.length - 2))
+    .data(data.filter((_, idx) => idx < data.length - 2))
     .enter()
-    .append('g')
+    .append('g');
 
-      //
-
-  //
-  //
-  // study rectangle
-  //
   gSub
     .append('rect')
     .attr('x', d => xScale(d.yi) - widthScale(d.n) / 2)
     .attr('y', d => yScale(d.id) - widthScale(d.n) / 2)
     .attr('width', d => widthScale(d.n))
     .attr('height', d => widthScale(d.n))
-    .attr('fill', '#333')
-  //.classed('mark', true)
+    .attr('fill', '#333');
 
-  // confint
-  //
   gSub
     .append('line')
-    //.classed('mark', true)
     .attr('transform', d => `translate(0,${yScale(d.id)})`)
-    // .attr('x1', d => xScale(d.ci_lower))
     .attr('x1', d => xScale(d.ci_lower))
     .attr('x2', d => xScale(d.ci_upper))
     .attr('stroke', '#333')
     .attr('stroke-width', 2)
-    .attr('fill', '#333')
+    .attr('fill', '#333');
 
-  // stats area
-  //
-  const textG = gSub.append('g')
+  const textG = gSub.append('g');
 
   textG
     .append('text')
-    .text(d => d.id)
-    .attr('x', -innerLeftMargin)
+    .text(d => truncateLabel(d.id, isMobile ? 18 : 42))
+    .attr('x', studyLabelX)
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
     .attr('fill', '#222')
-    //.attr('font-family', 'sans-serif')
+    .attr('font-size', isMobile ? '0.72rem' : '0.84rem');
 
   textG
     .append('text')
     .text(
-      d =>
-        `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(
-          2
-        )} ]`
+      d => `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(2)} ]`
     )
-    .attr('x', -innerLeftMargin * 0.5)
+    .attr('x', statsLabelX)
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
+    .attr('font-size', isMobile ? '0.7rem' : '0.82rem');
 
-  //
-  // ID label
-  //
+  const statOffset = -20;
+
   plotG
     .append('text')
     .text('Study ID')
-    .attr('x', -innerLeftMargin)
+    .attr('x', studyLabelX)
     .attr('y', statOffset)
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
-
- // plotG
-   // .append('text')
-    //.attr('x', xScale(1))
-    //.attr('y', statOffset)
-    //.attr('dy', '0.32em')
-    //.attr('text-anchor', 'end')
-    //.attr('font-size', '0.9em')
-    //.html('&#8592; Favors Mask Usage')
-
-  //
-  // stat label
-  //
-  const smDict = { OR: 'Odds ratio', RR: 'Risk ratio' }
+    .attr('font-size', isMobile ? '0.75rem' : '0.85rem');
 
   plotG
     .append('text')
-    .text(` [95% CI]`)
-    .attr('x', -innerLeftMargin * 0.5)
+    .text('[95% CI]')
+    .attr('x', statsLabelX)
     .attr('y', statOffset)
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
+    .attr('font-size', isMobile ? '0.75rem' : '0.85rem');
 
-  //
-  // x axis line
-  //
   plotG
     .append('line')
     .attr('transform', `translate(0,${innerHeight})`)
-    .attr('x1', -innerLeftMargin)
+    .attr('x1', studyLabelX)
     .attr('x2', innerWidth)
     .attr('stroke', '#555')
-    .attr('stroke-width', 2)
+    .attr('stroke-width', 2);
 
-  //
-  // x axis text
-  //
-  const xAxis = plotG.append('g')
+  const xAxis = plotG.append('g');
+  const xTicks = d3.ticks(xScale.domain()[0], xScale.domain()[1], isMobile ? 4 : 6);
+  const tickFormat = d3.format('.2f');
 
-  //const xTicks = [0.1, 0.5, 0.8, 1, 5, 10].filter(t => xScale(t) > 0)
-  const min = Math.round(xScale.domain()[0]*100)/100
-  const max = Math.round(xScale.domain()[1]*100)/100
-
-  const xTicks = [min,0,max]
-
-xAxis
+  xAxis
     .selectAll('text')
     .data(xTicks)
     .enter()
@@ -357,13 +265,9 @@ xAxis
     .attr('y', innerHeight + 15)
     .attr('dy', '0.32em')
     .attr('text-anchor', 'middle')
-    .attr('font-size', '0.8em')
-    //.attr("transform", d =>`rotate(-65)`)
-    .text(d => d)
+    .attr('font-size', isMobile ? '0.68rem' : '0.8rem')
+    .text(d => tickFormat(d));
 
-  //
-  // x axis ticks
-  //
   xAxis
     .selectAll('line')
     .data(xTicks)
@@ -372,26 +276,20 @@ xAxis
     .attr('transform', d => `translate(${xScale(d)},${innerHeight - 5})`)
     .attr('y2', 10)
     .attr('stroke', '#555')
-    .attr('stroke-width', '2')
+    .attr('stroke-width', '2');
 
-
-
-  //
-  // pooled
-  //
   const pooledG = plotG
     .append('g')
-    .attr('transform', `translate(0,${yScale.step() / 4})`)
+    .attr('transform', `translate(0,${yScale.step() / 4})`);
 
   const pooledGSub = pooledG
     .selectAll('g')
-    .data(data.filter((_, i) => i >= data.length - 2))
+    .data(data.filter((_, idx) => idx >= data.length - 2))
     .enter()
-    .append('g')
+    .append('g');
 
   pooledGSub
     .append('polygon')
-    //.classed('mark', true)
     .attr(
       'points',
       d => `
@@ -401,66 +299,46 @@ xAxis
       ${xScale(d.yi)}, ${yScale(d.id) - yScale.step() / 4}
     `
     )
-    .attr('fill', '#333')
+    .attr('fill', '#333');
 
   pooledGSub
     .append('text')
-    .text(d => d.id)
-    .attr('x', -innerLeftMargin)
+    .text(d => truncateLabel(d.id, isMobile ? 18 : 42))
+    .attr('x', studyLabelX)
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
     .attr('text-anchor', 'start')
+    .attr('font-size', isMobile ? '0.72rem' : '0.84rem');
 
   pooledGSub
     .append('text')
     .text(
-      d =>
-        `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(
-          2
-        )} ]`
+      d => `${d.yi.toFixed(2)} [ ${d.ci_lower.toFixed(2)} - ${d.ci_upper.toFixed(2)} ]`
     )
-    .attr('x', -innerLeftMargin * 0.5)
+    .attr('x', statsLabelX)
     .attr('y', d => yScale(d.id))
     .attr('dy', '0.32em')
+    .attr('font-size', isMobile ? '0.7rem' : '0.82rem');
 
-  //let odds_estimate= document.getElementById('odds_estimate');
-  //odds_estimate.innerHTML =data[data.length-2].point.toFixed(2)
-
-  // let odds_estimate_perc= document.getElementById('odds_estimate_perc');
-  //odds_estimate_perc.innerHTML =((1-data[data.length-2].point)*100).toFixed(0)
-
-  //let odds_estimate_opposite= document.getElementById('odds_estimate_opposite');
-  // odds_estimate_opposite.innerHTML = (1/data[data.length-2].point).toFixed(2)
-
-  //let ci_lower= document.getElementById('ci_lower');
-  //ci_lower.innerHTML = (data[data.length-2].lo).toFixed(2)
-
-  //let ci_upper= document.getElementById('ci_upper');
-  //ci_upper.innerHTML = (data[data.length-2].hi).toFixed(2)
-
-  // hypermean
   plotG
     .append('text')
-    .attr('x', -innerLeftMargin)
+    .attr('x', studyLabelX)
     .attr('y', innerHeight)
     .attr('dy', '2em')
-    .attr('font-size', '1em')
-    //.attr('font-weight', 'bold')
+    .attr('font-size', isMobile ? '0.75rem' : '1em')
     .text(
-      'Estimated Hypermean (Fixed Effects Model): ' +
-        data[data.length - 2].yi.toFixed(2)
-    )
+      `${isMobile ? 'Fixed effect' : 'Estimated Hypermean (Fixed Effects Model)'}: ${data[data.length - 2].yi.toFixed(2)}`
+    );
 
-  // hypermean
   plotG
     .append('text')
-    .attr('x', -innerLeftMargin)
+    .attr('x', studyLabelX)
     .attr('y', innerHeight)
-    .attr('dy', '3em')
-    .attr('font-size', '1em')
-    //.attr('font-weight', 'bold')
+    .attr('dy', '3.2em')
+    .attr('font-size', isMobile ? '0.75rem' : '1em')
     .text(
-      'Estimated Hypermean (Random Effects Model): ' +
-        data[data.length - 1].yi.toFixed(2)
-    )
+      `${isMobile ? 'Random effect' : 'Estimated Hypermean (Random Effects Model)'}: ${data[data.length - 1].yi.toFixed(2)}`
+    );
+
+  return {width, height};
 }

@@ -43,15 +43,8 @@ export function createDoubleRange({
   //if (inputRange !== undefined) {
 // console.log(min)
 // console.log(max)
-const maxString = max.toString().length;
-const minString = min.toString().length
-const longerString = maxString > minString ? maxString : minString;
-let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
-//let numLenLower = min.toString().length
-let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
-
-const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 84px;">`;
-const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 84px;">`;
+const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
+const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
 // console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
@@ -90,6 +83,16 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
     </div>
   </form>`;
   form.addEventListener("submit", preventDefault);
+  let liveCountTimer = null;
+  const triggerLiveCount = (nextValue) => {
+    if (typeof liveCountCallback !== "function") return;
+    if (liveCountTimer !== null) clearTimeout(liveCountTimer);
+    const snapshot = [nextValue[0], nextValue[1]];
+    liveCountTimer = setTimeout(() => {
+      liveCountTimer = null;
+      liveCountCallback(snapshot);
+    }, 140);
+  };
 
   // The tooltip logic has been moved to the main [study].md page to handle all tooltips globally.
 
@@ -138,9 +141,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
     }
 
     if (currentValue) {
-      if (typeof liveCountCallback === 'function') {
-        liveCountCallback(currentValue);
-      }
+      triggerLiveCount(currentValue);
       form.dispatchEvent(new Event("input", {bubbles: true}));
     }
 
@@ -170,9 +171,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
     }
 
     if (currentValue) {
-      if (typeof liveCountCallback === 'function') {
-        liveCountCallback(currentValue);
-      }
+      triggerLiveCount(currentValue);
       form.dispatchEvent(new Event("input", {bubbles: true}));
     }
 

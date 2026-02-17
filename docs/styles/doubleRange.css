@@ -43,6 +43,7 @@
 .filter-slider {
   position: relative;
   padding: 10px 0;
+  min-height: 32px;
   min-width: 0;
   align-self: center;
 }
@@ -52,7 +53,7 @@
   top: 50%;
   transform: translateY(-50%);
   width: 100%;
-  height: 8px;
+  height: 12px;
   background: transparent;
   border-radius: 999px;
   outline: none;
@@ -73,7 +74,7 @@
 /* Style the actual slider tracks to be visible */
 .double::-webkit-slider-runnable-track {
   width: 100%;
-  height: 8px;
+  height: 10px;
   background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
@@ -81,7 +82,7 @@
 
 .double::-moz-range-track {
   width: 100%;
-  height: 8px;
+  height: 10px;
   background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
@@ -97,8 +98,8 @@
 }
 
 .double::-webkit-slider-thumb {
-  height: 16px;
-  width: 16px;
+  height: 26px;
+  width: 26px;
   border-radius: 50%;
   background-color: var(--ml-color-700);
   border: 2px solid var(--ml-color-700);
@@ -108,12 +109,12 @@
   pointer-events: auto;
   position: relative;
   z-index: 1000;
-  margin-top: -4px;
+  margin-top: -8px;
 }
 
 .double::-moz-range-thumb {
-  height: 16px;
-  width: 16px;
+  height: 26px;
+  width: 26px;
   border-radius: 50%;
   background-color: var(--ml-color-700);
   border: 2px solid var(--ml-color-700);
@@ -130,7 +131,8 @@
   background: var(--ml-color-0);
   border-radius: 999px !important;
   border: 1px solid #d6dde1;
-  padding: 4px 10px;
+  min-height: 40px;
+  padding: 8px 12px;
 }
 
 /* The width is now set via inline style in createDoubleRange.js */
@@ -168,9 +170,9 @@
     padding: 10px 12px 16px;
   }
   .double-range input[type="number"] {
-    height: 32px;
+    height: 44px;
     font-size: 12px;
-    min-width: 100px;
+    min-width: 112px;
   }
 }
 

@@ -258,29 +258,103 @@ setTimeout(() => {
     }
   }));
 
-  // Global tooltip handler
-  document.querySelectorAll('.ttip').forEach(tooltipTrigger => {
+  const activeTooltips = new Map();
+  const prefersHover = window.matchMedia('(hover: hover)').matches;
+
+  const placeTooltip = (tooltip, trigger, event) => {
+    if (event && typeof event.pageX === 'number' && typeof event.pageY === 'number') {
+      tooltip.style.left = `${event.pageX + 14}px`;
+      tooltip.style.top = `${event.pageY + 14}px`;
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const scrollX = window.scrollX || window.pageXOffset;
+    const scrollY = window.scrollY || window.pageYOffset;
+    const maxLeft = scrollX + window.innerWidth - 280;
+    const left = Math.min(maxLeft, rect.left + scrollX);
+    const top = rect.bottom + scrollY + 10;
+    tooltip.style.left = `${Math.max(scrollX + 8, left)}px`;
+    tooltip.style.top = `${top}px`;
+  };
+
+  const hideTooltip = (trigger) => {
+    const tooltip = activeTooltips.get(trigger);
+    if (!tooltip) return;
+    tooltip.remove();
+    activeTooltips.delete(trigger);
+    trigger.setAttribute('aria-expanded', 'false');
+  };
+
+  const hideAllTooltips = (exceptTrigger = null) => {
+    for (const trigger of Array.from(activeTooltips.keys())) {
+      if (trigger !== exceptTrigger) hideTooltip(trigger);
+    }
+  };
+
+  const showTooltip = (trigger, event = null) => {
+    const text = trigger.getAttribute('data-text');
+    if (!text) return;
+    hideAllTooltips(trigger);
+    let tooltip = activeTooltips.get(trigger);
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.className = 'dynamic-tooltip';
+      tooltip.textContent = text;
+      document.body.appendChild(tooltip);
+      activeTooltips.set(trigger, tooltip);
+    }
+    trigger.setAttribute('aria-expanded', 'true');
+    placeTooltip(tooltip, trigger, event);
+  };
+
+  const outsideClickHandler = (event) => {
+    if (event.target.closest('.ttip') || event.target.closest('.dynamic-tooltip')) return;
+    hideAllTooltips();
+  };
+
+  document.querySelectorAll('.ttip').forEach((tooltipTrigger, idx) => {
+    if (!tooltipTrigger.id) tooltipTrigger.id = `ttip-${idx + 1}`;
+    tooltipTrigger.setAttribute('tabindex', '0');
+    tooltipTrigger.setAttribute('role', 'button');
+    tooltipTrigger.setAttribute('aria-expanded', 'false');
+    tooltipTrigger.setAttribute('aria-haspopup', 'dialog');
+
     tooltipTrigger.addEventListener('mouseenter', (event) => {
-      const text = event.target.getAttribute('data-text');
-      if (text) {
-        const tooltip = document.createElement('div');
-        tooltip.className = 'dynamic-tooltip';
-        tooltip.textContent = text;
-        document.body.appendChild(tooltip);
+      if (!prefersHover) return;
+      showTooltip(tooltipTrigger, event);
+    });
+    tooltipTrigger.addEventListener('mousemove', (event) => {
+      const tooltip = activeTooltips.get(tooltipTrigger);
+      if (!tooltip) return;
+      placeTooltip(tooltip, tooltipTrigger, event);
+    });
+    tooltipTrigger.addEventListener('mouseleave', () => hideTooltip(tooltipTrigger));
 
-        const onMouseMove = (e) => {
-          tooltip.style.left = `${e.pageX + 15}px`;
-          tooltip.style.top = `${e.pageY + 15}px`;
-        };
+    tooltipTrigger.addEventListener('focus', () => showTooltip(tooltipTrigger));
+    tooltipTrigger.addEventListener('blur', () => hideTooltip(tooltipTrigger));
 
-        document.addEventListener('mousemove', onMouseMove);
+    tooltipTrigger.addEventListener('click', (event) => {
+      if (prefersHover) return;
+      if (activeTooltips.has(tooltipTrigger)) hideTooltip(tooltipTrigger);
+      else showTooltip(tooltipTrigger);
+    });
 
-        event.target.addEventListener('mouseleave', () => {
-          document.removeEventListener('mousemove', onMouseMove);
-          tooltip.remove();
-        }, { once: true });
+    tooltipTrigger.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (activeTooltips.has(tooltipTrigger)) hideTooltip(tooltipTrigger);
+        else showTooltip(tooltipTrigger);
+      } else if (event.key === 'Escape') {
+        hideTooltip(tooltipTrigger);
       }
     });
+  });
+
+  document.addEventListener('click', outsideClickHandler);
+  invalidation.then(() => {
+    document.removeEventListener('click', outsideClickHandler);
+    hideAllTooltips();
   });
 }, 0);
 
@@ -552,6 +626,10 @@ const filteredData = (async () => {
   New to forest plots? See our <a href="/eli5">beginner guide</a> or read the <a href="/methodology">detailed methodology</a>.
 </div>
 
+<div id="mobile-scroll-notice" style="display: none; color: #6c757d; margin-bottom: 1rem;">
+  <p>Swipe sideways to see the full forest plot.</p>
+</div>
+
 
 
 
@@ -616,78 +694,122 @@ const filteredData = (async () => {
 
 ```js
 const data = await filteredData;
+const chartContainer = document.getElementById('chartArea');
+const noDataMessage = document.getElementById('no-data-message');
+const dataContainer = document.getElementById('data-section');
+const scrollNotice = document.getElementById('mobile-scroll-notice');
 const plotCountEl = document.getElementById('plot-count');
+const fab = document.getElementById("filter-fab");
+
+const totalCountResult = await db.query(`select count(*) as count from ${tableName}`);
+const totalCount = totalCountResult.toArray()[0]?.count ?? (Array.isArray(data) ? data.length : 0);
+const shownCount = Array.isArray(data) ? data.length : 0;
+const isFull = shownCount >= totalCount;
+
 if (plotCountEl) {
-  const countResult = await db.query(`select count(*) as count from ${tableName}`);
-  const totalCount = countResult.toArray()[0]?.count ?? (Array.isArray(data) ? data.length : 0);
-  const shownCount = Array.isArray(data) ? data.length : 0;
-  const isFull = shownCount >= totalCount;
   plotCountEl.textContent = isFull
     ? `Showing all ${shownCount} studies.`
     : `Showing ${shownCount} out of ${totalCount} studies after applying your filters.`;
+}
 
-  const fab = document.getElementById("filter-fab");
-  if (fab) {
-    if (isFull) {
-      fab.style.display = "none";
-    } else {
-      fab.style.display = "flex";
-      fab.innerHTML = `
-        <span class="filter-fab-count">Showing ${shownCount} out of ${totalCount} studies</span>
-        <span class="filter-fab-action">Reset filters</span>
-      `;
-    }
-    if (!fab.dataset.bound) {
-      fab.dataset.bound = "true";
-      fab.addEventListener("click", () => {
-        Object.keys(selectors).forEach((key) => {
-          const selector = selectors[key];
-          const meta = filterMeta[key];
-          if (!selector || !meta) return;
-          if (meta.type === "range") {
-            selector.value = meta.defaultValues ?? [meta.min, meta.max];
-          } else if (meta.type === "categorical") {
-            selector.value = meta.defaultValues ?? meta.values;
-          }
-          selector.dispatchEvent(new Event("input", { bubbles: true }));
-        });
+if (fab) {
+  if (isFull) {
+    fab.style.display = "none";
+  } else {
+    fab.style.display = "flex";
+    fab.innerHTML = `
+      <span class="filter-fab-count">Showing ${shownCount} out of ${totalCount} studies</span>
+      <span class="filter-fab-action">Reset filters</span>
+    `;
+  }
+  if (!fab.dataset.bound) {
+    fab.dataset.bound = "true";
+    fab.addEventListener("click", () => {
+      Object.keys(selectors).forEach((key) => {
+        const selector = selectors[key];
+        const meta = filterMeta[key];
+        if (!selector || !meta) return;
+        if (meta.type === "range") {
+          selector.value = meta.defaultValues ?? [meta.min, meta.max];
+        } else if (meta.type === "categorical") {
+          selector.value = meta.defaultValues ?? meta.values;
+        }
+        selector.dispatchEvent(new Event("input", { bubbles: true }));
       });
-    }
+    });
   }
 }
 
-// Only draw the graph if there is data to display
+const updateScrollNotice = () => {
+  if (!chartContainer || !scrollNotice) return;
+  const isSmallScreen = window.matchMedia('(max-width: 768px)').matches;
+  const isScrollable = chartContainer.scrollWidth > chartContainer.clientWidth + 8;
+  scrollNotice.style.display = isSmallScreen && isScrollable ? 'block' : 'none';
+};
+
+const syncFabViewport = () => {
+  if (!fab) return;
+  const vv = window.visualViewport;
+  if (!vv) {
+    fab.style.opacity = "1";
+    fab.style.pointerEvents = "auto";
+    return;
+  }
+  const keyboardOpen = (window.innerHeight - vv.height) > 140;
+  fab.style.opacity = keyboardOpen ? "0" : "1";
+  fab.style.pointerEvents = keyboardOpen ? "none" : "auto";
+};
+
+let resizeObserver = null;
+let renderFrame = null;
+const schedulePlotRender = () => {
+  if (renderFrame !== null) return;
+  renderFrame = requestAnimationFrame(() => {
+    renderFrame = null;
+    if (!Array.isArray(data) || data.length === 0) return;
+    drawGraph([...data]);
+    updateScrollNotice();
+  });
+};
+
 if (data && data.length > 0) {
-  // Clear any 'no data' message
-  const noDataMessage = document.getElementById('no-data-message');
   if (noDataMessage) noDataMessage.style.display = 'none';
-
-  // Ensure the plot and data containers are visible
-  const chartContainer = document.getElementById('chartArea');
   if (chartContainer) chartContainer.style.display = 'block';
-  const dataContainer = document.getElementById('data-section');
   if (dataContainer) dataContainer.style.display = 'block';
+  schedulePlotRender();
 
-  // Calculate dimensions and draw the graph
-  let container = document.getElementById('chartArea');
-  let width = container ? container.clientWidth : 600;
-  let isMobile = window.innerWidth < 600;
-  let height = isMobile
-    ? width + width * data.length / 10   // much taller for mobile
-    : width + width * data.length / 80;  // original for desktop
-  if (container) {
-    container.style.height = height + 'px';
+  if (chartContainer) {
+    const resizeTarget = chartContainer.parentElement ?? chartContainer;
+    resizeObserver = new ResizeObserver(() => schedulePlotRender());
+    resizeObserver.observe(resizeTarget);
+    chartContainer.addEventListener('scroll', updateScrollNotice, {passive: true});
   }
-  drawGraph([...data]);
+
+  window.addEventListener('resize', schedulePlotRender, {passive: true});
+  window.addEventListener('orientationchange', schedulePlotRender, {passive: true});
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncFabViewport, {passive: true});
+    window.visualViewport.addEventListener('scroll', syncFabViewport, {passive: true});
+  }
+  syncFabViewport();
 } else {
-  // If there is no data, hide the plot and show the 'no data' message
-  const chartContainer = document.getElementById('chartArea');
   if (chartContainer) chartContainer.style.display = 'none';
-  const dataContainer = document.getElementById('data-section');
   if (dataContainer) dataContainer.style.display = 'none';
-  const noDataMessage = document.getElementById('no-data-message');
   if (noDataMessage) noDataMessage.style.display = 'block';
+  if (scrollNotice) scrollNotice.style.display = 'none';
 }
+
+invalidation.then(() => {
+  if (resizeObserver) resizeObserver.disconnect();
+  if (chartContainer) chartContainer.removeEventListener('scroll', updateScrollNotice);
+  window.removeEventListener('resize', schedulePlotRender);
+  window.removeEventListener('orientationchange', schedulePlotRender);
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncFabViewport);
+    window.visualViewport.removeEventListener('scroll', syncFabViewport);
+  }
+  if (renderFrame !== null) cancelAnimationFrame(renderFrame);
+});
 ```
 
 <div id="data-section">
@@ -718,10 +840,94 @@ if (countEl) {
 }
 ```
 
+<div id="mobile-data-cards" class="mobile-data-cards" aria-live="polite"></div>
+
 
 ```js
 
-view(Inputs.table([...data]))
+await new Promise(requestAnimationFrame);
+
+const mobileCardsContainer = document.getElementById("mobile-data-cards");
+const mobileDataQuery = window.matchMedia("(max-width: 768px)");
+
+const formatCardValue = (value) => {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString();
+  return String(value);
+};
+
+const buildMobileDataCards = () => {
+  if (!mobileCardsContainer) return;
+  mobileCardsContainer.innerHTML = "";
+  if (!Array.isArray(data) || data.length === 0) return;
+
+  const keys = Object.keys(data[0]);
+  const primaryKey = keys.includes("id") ? "id" : keys[0];
+  const secondaryKey = keys.includes("yi") ? "yi" : keys.find((k) => k !== primaryKey);
+
+  for (const row of data) {
+    const card = document.createElement("details");
+    card.className = "mobile-data-card";
+
+    const summary = document.createElement("summary");
+    const primaryText = formatCardValue(row[primaryKey]);
+    const secondaryText = secondaryKey ? ` | ${secondaryKey}: ${formatCardValue(row[secondaryKey])}` : "";
+    summary.textContent = `${primaryKey}: ${primaryText}${secondaryText}`;
+    card.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "mobile-data-card-list";
+    for (const key of keys) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "mobile-data-card-row";
+      const keyEl = document.createElement("span");
+      keyEl.className = "mobile-data-card-key";
+      keyEl.textContent = key;
+      const valueEl = document.createElement("span");
+      valueEl.className = "mobile-data-card-value";
+      valueEl.textContent = formatCardValue(row[key]);
+      rowEl.append(keyEl, valueEl);
+      list.appendChild(rowEl);
+    }
+    card.appendChild(list);
+    mobileCardsContainer.appendChild(card);
+  }
+};
+
+const syncDataPresentation = () => {
+  const mobile = mobileDataQuery.matches;
+  const desktopTableContainer = document.getElementById("desktop-data-table");
+  if (desktopTableContainer) desktopTableContainer.style.display = mobile ? "none" : "";
+  if (mobileCardsContainer) mobileCardsContainer.style.display = mobile ? "grid" : "none";
+  if (mobile) buildMobileDataCards();
+};
+
+syncDataPresentation();
+if (mobileDataQuery.addEventListener) {
+  mobileDataQuery.addEventListener("change", syncDataPresentation);
+} else {
+  mobileDataQuery.addListener(syncDataPresentation);
+}
+
+invalidation.then(() => {
+  if (mobileDataQuery.addEventListener) {
+    mobileDataQuery.removeEventListener("change", syncDataPresentation);
+  } else {
+    mobileDataQuery.removeListener(syncDataPresentation);
+  }
+});
+
+```
+
+```js
+view((() => {
+  const container = document.createElement("div");
+  container.id = "desktop-data-table";
+  container.className = "data-table-desktop";
+  container.append(Inputs.table([...data]));
+  syncDataPresentation();
+  return container;
+})())
 ```
 </div>
 </div></div>
