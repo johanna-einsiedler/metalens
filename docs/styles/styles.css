@@ -605,6 +605,16 @@ body.study-hero-page #observablehq-footer > div {
   max-width: none;
 }
 
+/* Observable wraps headings in self-link anchors. Disable this for page
+   titles/subtitles so h1/h2 behave like plain text. */
+#observablehq-main h1 > a.observablehq-header-anchor,
+#observablehq-main h2 > a.observablehq-header-anchor {
+  color: inherit !important;
+  text-decoration: none !important;
+  cursor: text !important;
+  pointer-events: none !important;
+}
+
 .summary-box {
   background-color: var(--ml-color-200);
   padding: 1.5rem;
