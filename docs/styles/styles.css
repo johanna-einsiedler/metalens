@@ -357,6 +357,24 @@ a:active {
   text-decoration: none!important;
 }
 
+.plot-data-download {
+  appearance: none;
+  border: 0;
+  border-bottom: 1px dashed var(--ml-color-900);
+  background: transparent;
+  color: var(--ml-color-900);
+  font: inherit;
+  line-height: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.plot-data-download:hover,
+.plot-data-download:active {
+  color: var(--ml-color-700);
+  border-bottom-color: var(--ml-color-700);
+}
+
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -604,47 +622,49 @@ body:has(#observablehq-main .study-hero) {
   width: 100%;
 }
 
+body.study-hero-page {
+  --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
+  --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
+}
+
 /* Only affect the hero header/content — leave the main layout (padding
    reserved for the sidebar) untouched for normal content. */
-body:has(#observablehq-main .study-hero) .study-hero-header,
 body.study-hero-page .study-hero-header {
   /* shift the hero left by the content padding (sidebar + gutter)
      and expand it so it spans from the sidebar edge to the right edge. */
   position: relative;
-  left: calc(-1 * (var(--ml-sidebar-width) + var(--ml-content-gutter))) !important;
+  left: calc(-1 * var(--ml-hero-horizontal-offset));
   /* extend width a bit further to cover the right-side content gutter */
-  width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2)) !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  border-top-left-radius: 0 !important;
-  border-bottom-left-radius: 0 !important;
-  max-width: none !important;
+  width: var(--ml-hero-full-width);
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  max-width: none;
   box-sizing: border-box;
 }
 
-body:has(#observablehq-main .study-hero) .study-hero-content,
 body.study-hero-page .study-hero-content {
   /* Align the inner hero content with the main content column and
      center the text. Keep max-width consistent with main content. */
-  width: min(100%, var(--ml-content-max)) !important;
-  max-width: var(--ml-content-max) !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  padding-left: var(--ml-content-gutter) !important;
-  padding-right: var(--ml-content-gutter) !important;
-  text-align: center !important;
+  width: min(100%, var(--ml-content-max));
+  max-width: var(--ml-content-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--ml-content-gutter);
+  padding-right: var(--ml-content-gutter);
+  text-align: center;
 }
 
 @media (max-width: 1024px) {
-  body:has(#observablehq-main .study-hero) .study-hero-header,
   body.study-hero-page .study-hero-header {
-    left: 0 !important;
-    width: 100% !important;
-    border-radius: 0.5rem !important;
-    padding-left: var(--ml-content-gutter) !important;
-    padding-right: var(--ml-content-gutter) !important;
+    left: 0;
+    width: 100%;
+    border-radius: 0.5rem;
+    padding-left: var(--ml-content-gutter);
+    padding-right: var(--ml-content-gutter);
   }
 }
 
@@ -796,6 +816,14 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .filters-toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
   cursor: pointer;
   user-select: none;
 }
@@ -1093,15 +1121,12 @@ h1, h2, h3, h4 {
     max-width: 96%;
   }
 
-  /* Keep the study hero image full-bleed on mobile. Override the generic
-     #observablehq-main child sizing rule (ID specificity) with !important. */
-  #observablehq-main > .description.study-hero,
-  body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero,
+  /* Keep the study hero image full-bleed on mobile. */
   body.study-hero-page #observablehq-main > .description.study-hero {
-    width: calc(100% + (var(--ml-content-gutter) * 2)) !important;
-    max-width: none !important;
-    margin-left: calc(-1 * var(--ml-content-gutter)) !important;
-    margin-right: calc(-1 * var(--ml-content-gutter)) !important;
+    width: calc(100% + (var(--ml-content-gutter) * 2));
+    max-width: none;
+    margin-left: calc(-1 * var(--ml-content-gutter));
+    margin-right: calc(-1 * var(--ml-content-gutter));
   }
 
   .study-hero {
@@ -1110,21 +1135,17 @@ h1, h2, h3, h4 {
   }
 
   /* Reset the desktop full-bleed hero offset — no sidebar on mobile */
-  .study-hero-header,
-  body:has(#observablehq-main .study-hero) .study-hero-header,
   body.study-hero-page .study-hero-header {
-    position: relative !important;
-    left: 0 !important;
-    width: 100% !important;
-    padding: 7.5rem 1rem 7rem !important;
-    border-radius: 0 !important;
+    position: relative;
+    left: 0;
+    width: 100%;
+    padding: 7.5rem 1rem 7rem;
+    border-radius: 0;
   }
 
-  .study-hero-content,
-  body:has(#observablehq-main .study-hero) .study-hero-content,
   body.study-hero-page .study-hero-content {
-    width: 100% !important;
-    padding: 0 1rem !important;
+    width: 100%;
+    padding: 0 1rem;
   }
 
   .main-content {

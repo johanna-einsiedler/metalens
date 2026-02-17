@@ -78,7 +78,22 @@ const selectors =  {}
 const filterMeta = {}
 
 // exclude irrelevant columns
-const relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
+let relevantColumns = [...columnNames].filter(item => !irrelevantColumns.includes(item.column_name));
+
+// sort by filter_order from study description metadata (if available)
+const filterOrder = metaData?.filter_order ?? [];
+if (filterOrder.length > 0) {
+  relevantColumns.sort((a, b) => {
+    const idxA = filterOrder.indexOf(a.column_name);
+    const idxB = filterOrder.indexOf(b.column_name);
+    // columns in filterOrder come first, in their specified order
+    // columns not in filterOrder go to the end, preserving original order
+    if (idxA === -1 && idxB === -1) return 0;
+    if (idxA === -1) return 1;
+    if (idxB === -1) return -1;
+    return idxA - idxB;
+  });
+}
 
 // for each columnn in the dataset
 const numCols =[...relevantColumns].length
@@ -107,7 +122,8 @@ for (let i = 0; i < numCols; i++) {
 let description = filterDescription['description'][index] === undefined ? "" : filterDescription['description'][index][0]
 
 // get alternative values if they exist and create a dictionary based on them
-let displayValues = filterDescription['display_values'][index]
+const rawDisplayValues = filterDescription['display_values'][index]
+let displayValues = Array.isArray(rawDisplayValues) ? [...rawDisplayValues] : []
 
 
 // for each value in the column
@@ -125,12 +141,13 @@ while (++j < [...ColumnValues].length) {
       
 
   // check if some values are in fact multiple values separated by commas
-      if ((displayValues !== undefined) && (displayValues.length > 0)){
-      if (displayValues[j].includes(',')){
+      if (displayValues.length > 0){
+      const displayValue = displayValues[j]
+      if (typeof displayValue === "string" && displayValue.includes(',')){
          // split string
-            let splitEntry = displayValues[j].split(',')
+            let splitEntry = displayValue.split(',')
             // remove from distinctValues
-            displayValues = displayValues.filter(item => item != displayValues[j])
+            displayValues = displayValues.filter(item => item != displayValue)
             // add to options
             displayValues = [...displayValues, ...splitEntry]  
 
@@ -139,15 +156,14 @@ while (++j < [...ColumnValues].length) {
     }
 // remove potential duplicates
 distinctValues = [...new Set(distinctValues)];
-  let obj = [];
-  if (distinctValues!== undefined && displayValues !== undefined){
-    if (displayValues.length > 0){
+  const obj = {};
+  if (displayValues.length > 0){
     distinctValues.forEach((element, index2) => {
-   // if(element !== undefined && filterDescription['display_values'][index] !== undefined){
-    obj[element] = displayValues[index2]
-   // }
-  })
-  }
+      const mappedLabel = displayValues[index2];
+      if (mappedLabel !== undefined && mappedLabel !== null && mappedLabel !== "") {
+        obj[element] = mappedLabel;
+      }
+    });
   }
 
 // Compute counts for each check-box filter value
@@ -179,7 +195,7 @@ for (let val of distinctValues) {
 // except if  we have some values that were in fact two values separated by a comma
 // then set the default option to empty 
 let defaultValues = distinctValues
-if (distinctValuesCopy.some(value => value.includes(','))){
+if (distinctValuesCopy.some(value => typeof value === "string" && value.includes(','))){
   defaultValues = []
 }
 
@@ -561,13 +577,17 @@ if (!root) {
 <section class="analysis">
 <div class="main-content">
   <div class="summary-box filters-box">
-    <h3 class="summary-heading">Filters</h3>
+    <h3 class="summary-heading">
+      <button id="filters-toggle-button" class="filters-toggle" type="button" aria-expanded="true" aria-controls="filters-content">Filters</button>
+    </h3>
+    <div id="filters-content">
     <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
 
 ```js
 // display filters
 const options =  view(Inputs.form(selectors))
 ```
+    </div>
 
   </div>
 </div>
@@ -639,21 +659,19 @@ const filteredData = (async () => {
 // Make filters section collapsible; start collapsed on mobile
 {
   const box = document.querySelector(".filters-box");
-  const heading = box?.querySelector(".summary-heading");
-  if (box && heading) {
-    heading.classList.add("filters-toggle");
+  const toggleButton = box?.querySelector("#filters-toggle-button");
+  const content = box?.querySelector("#filters-content");
+  if (box && toggleButton && content) {
 
     const setExpanded = (expanded) => {
-      heading.setAttribute("aria-expanded", String(expanded));
-      for (const el of box.children) {
-        if (el !== heading) el.style.display = expanded ? "" : "none";
-      }
+      toggleButton.setAttribute("aria-expanded", String(expanded));
+      content.hidden = !expanded;
     };
 
-    if (!heading.dataset.toggleBound) {
-      heading.dataset.toggleBound = "true";
-      heading.addEventListener("click", () => {
-        const expanded = heading.getAttribute("aria-expanded") === "true";
+    if (!toggleButton.dataset.toggleBound) {
+      toggleButton.dataset.toggleBound = "true";
+      toggleButton.addEventListener("click", () => {
+        const expanded = toggleButton.getAttribute("aria-expanded") === "true";
         setExpanded(!expanded);
       });
     }
@@ -816,17 +834,26 @@ invalidation.then(() => {
 <div class="main-content">
   <div class="summary-box forest-box">
     <h3 class="summary-heading">Data</h3>
-    <p>Below is the plot data you can browse through. <span id="filtered-count"></span> You can also <a id="plot-data-download" href="#">download it</a>.</p>
+    <p>Below is the plot data you can browse through. <span id="filtered-count"></span> You can also <button id="plot-data-download" class="plot-data-download" type="button">download it</button>.</p>
 
 ```js
 const csv = d3.csvFormat(data);
 const blob = new Blob([csv], {type: "text/csv;charset=utf-8"});
 const url = URL.createObjectURL(blob);
 invalidation.then(() => URL.revokeObjectURL(url));
-const link = document.getElementById("plot-data-download");
-if (link) {
-  link.href = url;
-  link.download = `${observable.params.study}-plot-data.csv`;
+const downloadButton = document.getElementById("plot-data-download");
+if (downloadButton) {
+  const fileName = `${observable.params.study}-plot-data.csv`;
+  const onDownloadClick = () => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  downloadButton.addEventListener("click", onDownloadClick);
+  invalidation.then(() => downloadButton.removeEventListener("click", onDownloadClick));
 }
 const countResult = await db.query(`select count(*) as count from ${tableName}`);
 const totalCount = countResult.toArray()[0]?.count ?? (Array.isArray(data) ? data.length : 0);

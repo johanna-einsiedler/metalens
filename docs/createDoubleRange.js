@@ -43,8 +43,8 @@ export function createDoubleRange({
   //if (inputRange !== undefined) {
 // console.log(min)
 // console.log(max)
-const number = html`<input type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
-const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
+const number = html`<input type=number class="double-range-number double-range-number-lower" data-bound="lower" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
+const numberUpper = html`<input type=number class="double-range-number double-range-number-upper" data-bound="upper" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
 // console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
@@ -59,8 +59,8 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
     if (typeof invert !== "function") throw new TypeError("invert is not a function");
     let tmin = +transform(min), tmax = +transform(max);
     if (tmin > tmax) [tmin, tmax] = [tmax, tmin];
-    range = html`<input  class=double id=fromSlider type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range oninput=${onrange} disabled=${disabled}>`;
-    range2 = html`<input  class=double type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range2 oninput=${onrange} disabled=${disabled}>`;
+    range = html`<input class="double double-lower" data-bound="lower" type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range oninput=${onrange} disabled=${disabled}>`;
+    range2 = html`<input class="double double-upper" data-bound="upper" type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range2 oninput=${onrange} disabled=${disabled}>`;
 
 
     irange = transform === identity ? range : html`<input type=range min=${min} max=${max} step=${step === undefined ? "any" : step} name=range disabled=${disabled}>`;
@@ -118,7 +118,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
 
   function onrange(event) {
     let currentValue;
-    if (event.target.id === 'fromSlider') {
+    if (event.target === range) {
       const v = coerce(invert(range.valueAsNumber), 'from');
       if (isFinite(v)) {
         number.valueAsNumber = Math.max(min, Math.min(numberUpper.valueAsNumber, v));
@@ -150,7 +150,7 @@ const numberUpper = html`<input type=number id=numberUpper min=${isFinite(min) ?
   
   function onnumber(event) {
     let currentValue;
-    if (event.target.id === 'numberLower') {
+    if (event.target === number) {
       const v = coerce(number.valueAsNumber, 'from');
       if (isFinite(v)) {
         if (range) range.valueAsNumber = transform(v);

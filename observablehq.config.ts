@@ -30,15 +30,10 @@ export default {
     //{name: "Report", path: "/example-report"}
   ],
   dynamicPaths: [
-        "/studies/dat.axfors2021",
+    "/studies/dat.axfors2021",
     "/studies/dat.aloe2013",
     "/studies/dat.molloy2014",
-    "/studies/dat.bangertdrowns2004",
-    "/studies/dat.bakdash2021",
-    "/studies/dat.assink2016"
-
-
-
+    "/studies/dat.bangertdrowns2004"
   ],
 
   // Some additional configuration options and their defaults:

@@ -63,11 +63,11 @@
   pointer-events: none;
 }
 
-#fromSlider {
+.double.double-lower {
   z-index: 100;
 }
 
-.double:not(#fromSlider) {
+.double.double-upper {
   z-index: 50;
 }
 
@@ -89,11 +89,11 @@
 }
 
 /* Make the track of the top slider transparent */
-#fromSlider::-webkit-slider-runnable-track {
+.double.double-lower::-webkit-slider-runnable-track {
   background: transparent;
 }
 
-#fromSlider::-moz-range-track {
+.double.double-lower::-moz-range-track {
   background: transparent;
 }
 
