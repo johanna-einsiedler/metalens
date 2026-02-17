@@ -627,8 +627,6 @@ body.study-hero-page #observablehq-toc ~ #observablehq-main {
 
 body:has(#observablehq-main .study-hero) {
   --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
-  --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
-  --ml-hero-sidebar-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
   max-width: none !important;
   margin: 0;
   width: 100%;
@@ -636,8 +634,6 @@ body:has(#observablehq-main .study-hero) {
 
 body.study-hero-page {
   --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
-  --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
-  --ml-hero-sidebar-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
 }
 
 /* When the sidebar is collapsed on desktop, use the collapsed main-padding
@@ -646,19 +642,14 @@ body.study-hero-page {
   body:has(#observablehq-sidebar-toggle:not(:checked)):has(#observablehq-main .study-hero),
   body.study-hero-page:has(#observablehq-sidebar-toggle:not(:checked)) {
     --ml-hero-horizontal-offset: var(--ml-content-gutter);
-    --ml-hero-full-width: calc(100% + (var(--ml-content-gutter) * 2));
   }
 }
 
-/* Only affect the hero header/content — leave the main layout (padding
-   reserved for the sidebar) untouched for normal content. */
+/* Keep header internals simple; section-level full-bleed is handled below. */
 body.study-hero-page .study-hero-header {
-  /* shift the hero left by the content padding (sidebar + gutter)
-     and expand it so it spans from the sidebar edge to the right edge. */
   position: relative;
-  left: calc(-1 * var(--ml-hero-horizontal-offset));
-  /* extend width a bit further to cover the right-side content gutter */
-  width: var(--ml-hero-full-width);
+  left: 0;
+  width: 100%;
   margin-left: 0;
   margin-right: 0;
   padding-left: 0;
@@ -672,8 +663,8 @@ body.study-hero-page .study-hero-header {
 /* Apply immediately in modern browsers so hero does not shift after JS class fallback. */
 body:has(#observablehq-main .study-hero) .study-hero-header {
   position: relative;
-  left: calc(-1 * var(--ml-hero-horizontal-offset));
-  width: var(--ml-hero-full-width);
+  left: 0;
+  width: 100%;
   margin-left: 0;
   margin-right: 0;
   padding-left: 0;
@@ -729,9 +720,11 @@ body:has(#observablehq-main .study-hero) .study-hero-content {
 @media (min-width: 1025px) {
   body.study-hero-page #observablehq-main > .description.study-hero,
   body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero {
-    width: calc(100% + var(--ml-content-gutter) + var(--ml-hero-sidebar-extra));
+    /* Extra inset between sidebar width and Observable's center inset. */
+    --ml-hero-left-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
+    width: calc(100% + var(--ml-hero-horizontal-offset) + var(--ml-hero-left-extra) + var(--observablehq-inset-right, 0px));
     max-width: none;
-    margin-left: calc(-1 * (var(--ml-content-gutter) + var(--ml-hero-sidebar-extra)));
+    margin-left: calc(-1 * (var(--ml-hero-horizontal-offset) + var(--ml-hero-left-extra)));
     margin-right: 0;
   }
 
