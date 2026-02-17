@@ -431,17 +431,21 @@ const studyAlias = studyAliases[observable.params.study] ?? "";
 </section>
 
 ```js
-// Ensure DOM exists (helps in Observable Framework / notebooks)
-await new Promise(requestAnimationFrame);
+// Apply fallback class immediately to avoid first-paint hero width shifts.
+try { document.body.classList.add("study-hero-page"); } catch (e) { /* ignore */ }
 
-// Use the LAST one in case the page has multiple study-hero sections (safer)
-const root = [...document.querySelectorAll("section.description.study-hero")].at(-1);
+const getStudyHeroRoot = () => [...document.querySelectorAll("section.description.study-hero")].at(-1);
+let root = getStudyHeroRoot();
+
+// Small fallback if the hero markup is not yet attached.
+if (!root) {
+  await new Promise(requestAnimationFrame);
+  root = getStudyHeroRoot();
+}
 
 if (!root) {
   console.warn("study-hero root not found.");
 } else {
-  // Mark the page so the CSS fallback can apply when :has() isn't supported.
-  try { document.body.classList.add("study-hero-page"); } catch (e) { /* ignore */ }
   // ---------- HERO IMAGE: randomize per load ----------
   const heroHeader = root.querySelector(".study-hero-header");
   if (heroHeader) {

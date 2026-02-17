@@ -621,6 +621,8 @@ body:has(#observablehq-main .study-hero) #observablehq-toc ~ #observablehq-main 
 }
 
 body:has(#observablehq-main .study-hero) {
+  --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
+  --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
   max-width: none !important;
   margin: 0;
   width: 100%;
@@ -629,6 +631,16 @@ body:has(#observablehq-main .study-hero) {
 body.study-hero-page {
   --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
   --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
+}
+
+/* When the sidebar is collapsed on desktop, use the collapsed main-padding
+   geometry so the hero and its centered title do not drift horizontally. */
+@media (min-width: 801px) {
+  body:has(#observablehq-sidebar-toggle:not(:checked)):has(#observablehq-main .study-hero),
+  body.study-hero-page:has(#observablehq-sidebar-toggle:not(:checked)) {
+    --ml-hero-horizontal-offset: var(--ml-content-gutter);
+    --ml-hero-full-width: calc(100% + (var(--ml-content-gutter) * 2));
+  }
 }
 
 /* Only affect the hero header/content — leave the main layout (padding
@@ -650,10 +662,35 @@ body.study-hero-page .study-hero-header {
   box-sizing: border-box;
 }
 
+/* Apply immediately in modern browsers so hero does not shift after JS class fallback. */
+body:has(#observablehq-main .study-hero) .study-hero-header {
+  position: relative;
+  left: calc(-1 * var(--ml-hero-horizontal-offset));
+  width: var(--ml-hero-full-width);
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  max-width: none;
+  box-sizing: border-box;
+}
+
 body.study-hero-page .study-hero-content {
   /* Align the inner hero content with the main content column and
      center the text. Keep max-width consistent with main content. */
-  width: min(100%, var(--ml-content-max));
+  width: 100%;
+  max-width: var(--ml-content-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--ml-content-gutter);
+  padding-right: var(--ml-content-gutter);
+  text-align: center;
+}
+
+body:has(#observablehq-main .study-hero) .study-hero-content {
+  width: 100%;
   max-width: var(--ml-content-max);
   margin-left: auto;
   margin-right: auto;
@@ -670,6 +707,22 @@ body.study-hero-page .study-hero-content {
     padding-left: var(--ml-content-gutter);
     padding-right: var(--ml-content-gutter);
   }
+
+  body:has(#observablehq-main .study-hero) .study-hero-header {
+    left: 0;
+    width: 100%;
+    border-radius: 0.5rem;
+    padding-left: var(--ml-content-gutter);
+    padding-right: var(--ml-content-gutter);
+  }
+}
+
+/* Keep the hero flush with the sidebar edge (or viewport edge when the
+   sidebar is collapsed) without requiring a post-load class/layout shift. */
+body.study-hero-page .study-hero-header,
+body:has(#observablehq-main .study-hero) .study-hero-header {
+  left: calc(-1 * var(--ml-content-gutter));
+  width: calc(100% + var(--ml-content-gutter));
 }
 
 /* Add vertical spacing after the data section on study pages so footer
@@ -1052,11 +1105,21 @@ body.study-hero-page #observablehq-footer > div {
   letter-spacing: -0.01em;
   line-height: 1.1;
   color: var(--ml-color-900);
-  margin: 0 0 0.75rem;
+  margin: 0 auto 0.75rem;
   font-size: clamp(1.3rem, 1.1rem + 0.8vw, 1.64rem);
-  display: -webkit-box;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: block;
+  width: 100%;
+  max-width: 40ch;
+  text-align: center;
+  text-wrap: balance;
+}
+
+body.study-hero-page .study-hero-header .study-title,
+body:has(#observablehq-main .study-hero) .study-hero-header .study-title {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  max-width: min(40ch, calc(100% - 2rem));
 }
 
 .study-subtitle {
@@ -1133,6 +1196,13 @@ h1, h2, h3, h4 {
     margin-right: calc(-1 * var(--ml-content-gutter));
   }
 
+  body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero {
+    width: calc(100% + (var(--ml-content-gutter) * 2));
+    max-width: none;
+    margin-left: calc(-1 * var(--ml-content-gutter));
+    margin-right: calc(-1 * var(--ml-content-gutter));
+  }
+
   .study-hero {
     width: 100%;
     padding: 0 0 1rem;
@@ -1147,7 +1217,20 @@ h1, h2, h3, h4 {
     border-radius: 0;
   }
 
+  body:has(#observablehq-main .study-hero) .study-hero-header {
+    position: relative;
+    left: 0;
+    width: 100%;
+    padding: 7.5rem 1rem 7rem;
+    border-radius: 0;
+  }
+
   body.study-hero-page .study-hero-content {
+    width: 100%;
+    padding: 0 1rem;
+  }
+
+  body:has(#observablehq-main .study-hero) .study-hero-content {
     width: 100%;
     padding: 0 1rem;
   }
