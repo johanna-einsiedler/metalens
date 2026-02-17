@@ -161,9 +161,10 @@ body {
   #observablehq-main,
   #observablehq-header,
   #observablehq-footer {
-    padding-left: var(--ml-content-gutter);
-    padding-right: var(--ml-content-gutter);
+    padding-left: var(--ml-content-gutter) !important;
+    padding-right: var(--ml-content-gutter) !important;
     width: 100%;
+    box-sizing: border-box;
   }
 }
 
@@ -586,6 +587,7 @@ body.study-hero-page #observablehq-footer > div {
   max-width: none;
   margin: 0 auto;
   padding: 0 var(--ml-content-gutter);
+  box-sizing: border-box;
 }
 
 #observablehq-main p,
@@ -620,6 +622,8 @@ body.study-hero-page #observablehq-footer > div {
   padding: 1.5rem;
   border-radius: 0.5rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .summary-grid {
@@ -968,14 +972,22 @@ h1, h2, h3, h4 {
     padding: 0 0 1rem;
   }
 
-  .study-hero-header {
-    width: 100%;
-    padding: 7.5rem 1rem 7rem;
+  /* Reset the desktop full-bleed hero offset — no sidebar on mobile */
+  .study-hero-header,
+  body:has(#observablehq-main .study-hero) .study-hero-header,
+  body.study-hero-page .study-hero-header {
+    position: relative !important;
+    left: 0 !important;
+    width: 100% !important;
+    padding: 7.5rem 1rem 7rem !important;
+    border-radius: 0 !important;
   }
 
-  .study-hero-content {
-    width: 100%;
-    padding: 0 1rem;
+  .study-hero-content,
+  body:has(#observablehq-main .study-hero) .study-hero-content,
+  body.study-hero-page .study-hero-content {
+    width: 100% !important;
+    padding: 0 1rem !important;
   }
 
   .main-content {

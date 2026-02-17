@@ -39,7 +39,6 @@ import { drawGraph } from "../fplot.js"
   overflow-x: auto;
   overflow-y: visible;
   width: 100%;
-  min-width: 400px;
 }
 </style>
 
