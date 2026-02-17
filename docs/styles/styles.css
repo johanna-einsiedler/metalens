@@ -665,36 +665,26 @@ body.study-hero-page #observablehq-footer > div {
   color: var(--ml-color-800);
 }
 
-.filters-collapse {
-  border: none;
-}
-
-.filters-collapse > summary {
-  list-style: none;
+.filters-toggle {
   cursor: pointer;
-  display: flex;
-  align-items: center;
-}
-
-.filters-collapse > summary::-webkit-details-marker {
-  display: none;
+  user-select: none;
 }
 
 .filters-toggle::after {
   content: "";
   display: inline-block;
-  width: 0.5em;
-  height: 0.5em;
+  width: 0.45em;
+  height: 0.45em;
   border-right: 2px solid var(--ml-color-800);
   border-bottom: 2px solid var(--ml-color-800);
-  transform: rotate(45deg);
+  transform: rotate(-135deg);
   margin-left: 0.6rem;
   transition: transform 0.15s;
-  flex-shrink: 0;
+  vertical-align: middle;
 }
 
-.filters-collapse[open] > .filters-toggle::after {
-  transform: rotate(-135deg);
+.filters-toggle[aria-expanded="false"]::after {
+  transform: rotate(45deg);
 }
 
 .filters-hint {
@@ -1012,21 +1002,21 @@ h1, h2, h3, h4 {
     gap: 0px;
   }
 
-  /* Scroll fade on chart to hint horizontal scrolling */
-  #chartArea {
+  /* Fade on right edge of chart area to hint horizontal scroll */
+  .forest-box {
     position: relative;
   }
 
-  #chartArea::after {
+  .forest-box::after {
     content: "";
-    position: sticky;
+    position: absolute;
     top: 0;
     right: 0;
-    float: right;
     width: 2rem;
     height: 100%;
     pointer-events: none;
-    background: linear-gradient(to right, transparent, var(--ml-color-0));
+    background: linear-gradient(to right, transparent, var(--ml-color-200));
+    border-radius: 0 0.5rem 0.5rem 0;
   }
 }
 

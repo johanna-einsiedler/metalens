@@ -488,16 +488,14 @@ if (!root) {
 <section class="analysis">
 <div class="main-content">
   <div class="summary-box filters-box">
-    <details class="filters-collapse" open>
-      <summary class="summary-heading filters-toggle">Filters</summary>
-      <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
+    <h3 class="summary-heading">Filters</h3>
+    <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
 
 ```js
 // display filters
 const options =  view(Inputs.form(selectors))
 ```
 
-    </details>
   </div>
 </div>
 
@@ -561,10 +559,27 @@ const filteredData = (async () => {
 <!-- Define Area to display chart -->
 
 ```js
-// Collapse filters by default on mobile so users see the plot sooner
-if (window.matchMedia("(max-width: 768px)").matches) {
-  const details = document.querySelector(".filters-collapse");
-  if (details) details.removeAttribute("open");
+// Make filters section collapsible; start collapsed on mobile
+{
+  const box = document.querySelector(".filters-box");
+  const heading = box?.querySelector(".summary-heading");
+  if (box && heading) {
+    heading.classList.add("filters-toggle");
+    heading.setAttribute("aria-expanded", "true");
+    heading.addEventListener("click", () => {
+      const expanded = heading.getAttribute("aria-expanded") === "true";
+      heading.setAttribute("aria-expanded", String(!expanded));
+      for (const el of box.children) {
+        if (el !== heading) el.style.display = expanded ? "none" : "";
+      }
+    });
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      heading.setAttribute("aria-expanded", "false");
+      for (const el of box.children) {
+        if (el !== heading) el.style.display = "none";
+      }
+    }
+  }
 }
 ```
 
