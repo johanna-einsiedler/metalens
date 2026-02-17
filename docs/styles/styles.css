@@ -655,6 +655,33 @@ body.study-hero-page #observablehq-footer > div {
   color: var(--ml-color-800);
 }
 
+.filters-hint {
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ml-color-800);
+  margin: 0 0 1rem;
+}
+
+.plot-help-banner {
+  background: var(--ml-color-100);
+  border-radius: 0.4rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ml-color-900);
+  margin-bottom: 1rem;
+}
+
+.plot-help-banner a {
+  color: var(--ml-color-800);
+  font-weight: 600;
+  border-bottom: 1px solid var(--ml-color-700);
+}
+
+.plot-help-banner a:hover {
+  color: var(--ml-color-700);
+}
+
 .filters-box {
   margin-top: 0.75rem;
   --filter-indent: 2.4rem;

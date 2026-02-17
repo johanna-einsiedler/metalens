@@ -23,7 +23,7 @@ export default {
     },
     { name: "Upload data", path: "/input" },
     { name: "Methodology", path: "/methodology" },
-    { name: "Simple explanation", path: "/eli5" },
+    { name: "How to read the plots", path: "/eli5" },
     //{name: 'test', path: '/test'}
     //{name: "Report", path: "/example-report"}
   ],

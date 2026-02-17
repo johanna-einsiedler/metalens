@@ -251,7 +251,7 @@ a.study-card:visited {
     <div class="how-step">
       <div class="how-step-number">3</div>
       <div class="how-step-title">Understand</div>
-      <p class="how-step-desc">Read the interactive forest plot to see what the combined evidence shows.</p>
+      <p class="how-step-desc">Read the interactive forest plot to see what the combined evidence shows. Not sure how? See our <a href="/eli5">beginner guide</a>.</p>
     </div>
   </div>
 </div>

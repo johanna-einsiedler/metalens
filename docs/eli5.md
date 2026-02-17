@@ -1,4 +1,7 @@
-
+---
+title: How to read the plots
+toc: false
+---
 
 <link
   rel="stylesheet"
@@ -9,7 +12,7 @@
 
 
 
-# Simple explanation
+# How to read the plots
 
 ## Don't get our plots? Here's a simple guide…
 

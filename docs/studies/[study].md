@@ -495,6 +495,7 @@ if (!root) {
 <div class="main-content">
   <div class="summary-box filters-box">
     <h3 class="summary-heading">Filters</h3>
+    <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
 
 ```js
 // display filters
@@ -552,8 +553,11 @@ const filteredData = (async () => {
 
   <div class="summary-box forest-box">
     <h3 class="summary-heading">Forest plot</h3>
-  
-<p><span id="plot-count"></span> How does this forest plot work? See our <a href="/eli5" style="color: #0066cc">simple explanation</a> or <a href="/methodology" style="color: #0066cc">detailed methodology explanation.</a></p>
+
+<p><span id="plot-count"></span></p>
+<div class="plot-help-banner">
+  New to forest plots? See our <a href="/eli5">beginner guide</a> or read the <a href="/methodology">detailed methodology</a>.
+</div>
 
 
 
