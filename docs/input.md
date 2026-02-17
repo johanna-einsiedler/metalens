@@ -15,7 +15,7 @@ For this to work, the file needs to have the following format:
 - You need a column named **yi** that contains the estimated effect size for each study
 - You need a column named **vi** that contains the estimated effect size variance for each study
 
-After uplaoding, you will be able to select which columns to inlcude as filters in your plot.
+After uploading, you will be able to select which columns to include as filters in your plot.
 Click **Continue** once you have selected all relevant variables.
 
 

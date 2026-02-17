@@ -299,7 +299,7 @@ const overviewPreview = overviewText.slice(0, overviewPreviewLimit);
 const overviewRest = overviewText.slice(overviewPreviewLimit);
 const overviewHasMore = overviewRest.trim().length > 0;
 const studyAliases = {
-  "dat.axfors2021": "Hydroxchloroquine",
+  "dat.axfors2021": "Hydroxychloroquine",
   "dat.aloe2013": "Supervision Quality",
   "dat.molloy2014": "Conscientiousness & Medication adherence",
   "dat.bangertdrowns2004": "Writing-to-Learn Interventions"

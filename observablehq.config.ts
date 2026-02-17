@@ -13,7 +13,7 @@ export default {
     {
       name: "Metastudies",
       pages: [
-        {name: "Hydroxchloroquine", path: "/studies/dat.axfors2021"},
+        {name: "Hydroxychloroquine", path: "/studies/dat.axfors2021"},
         {name: "Supervision Quality", path: "/studies/dat.aloe2013"},
         {name: "Conscientiousness & Medication adherence", path: "/studies/dat.molloy2014"},
         {name: "Writing-to-Learn Interventions", path: "/studies/dat.bangertdrowns2004"},
@@ -22,7 +22,7 @@ export default {
       ]
     },
     { name: "Upload data", path: "/input" },
-    { name: "Methodogy", path: "/methodology" },
+    { name: "Methodology", path: "/methodology" },
     { name: "Simple explanation", path: "/eli5" },
     //{name: 'test', path: '/test'}
     //{name: "Report", path: "/example-report"}
@@ -56,7 +56,7 @@ export default {
     async *index() {
       yield {
         path: "/studies/dat.axfors2021",
-        title: "Hydroxchloroquine",
+        title: "Hydroxychloroquine",
         text: "Hydroxychloroquine and chloroquine survival in COVID-19 meta-study",
         keywords: "hydroxychloroquine, chloroquine, covid-19"
       };
