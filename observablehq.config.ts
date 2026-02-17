@@ -3,7 +3,7 @@ export default {
   // The project’s title; used in the sidebar and webpage titles.
   title: "Metalens",
  theme: 'air',
-  home: `<img class="sidebar-logo" src="https://res.cloudinary.com/djvpwwzmp/image/upload/v1768404847/logo-vat_vkuhkn.png" alt="Metalens logo">`,
+  home: `<img class="sidebar-logo" src="https://s6.imgcdn.dev/YB2KM0.png" alt="Metalens logo">`,
 
   // The pages and sections in the sidebar. If you don’t specify this option,
   // all pages will be listed in alphabetical order. Listing pages explicitly
