@@ -12,6 +12,7 @@ export default {
     { name: "What is Metalens?", path: "/about" },
     {
       name: "Metastudies",
+      open: true,
       pages: [
         {name: "Hydroxychloroquine", path: "/studies/dat.axfors2021"},
         {name: "Supervision Quality", path: "/studies/dat.aloe2013"},

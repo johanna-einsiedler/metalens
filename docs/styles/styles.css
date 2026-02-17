@@ -665,6 +665,38 @@ body.study-hero-page #observablehq-footer > div {
   color: var(--ml-color-800);
 }
 
+.filters-collapse {
+  border: none;
+}
+
+.filters-collapse > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.filters-collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.filters-toggle::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid var(--ml-color-800);
+  border-bottom: 2px solid var(--ml-color-800);
+  transform: rotate(45deg);
+  margin-left: 0.6rem;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.filters-collapse[open] > .filters-toggle::after {
+  transform: rotate(-135deg);
+}
+
 .filters-hint {
   font-size: 0.88rem;
   line-height: 1.5;
@@ -979,6 +1011,83 @@ h1, h2, h3, h4 {
   .double-range {
     gap: 0px;
   }
+
+  /* Scroll fade on chart to hint horizontal scrolling */
+  #chartArea {
+    position: relative;
+  }
+
+  #chartArea::after {
+    content: "";
+    position: sticky;
+    top: 0;
+    right: 0;
+    float: right;
+    width: 2rem;
+    height: 100%;
+    pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--ml-color-0));
+  }
+}
+
+/* Study cards (homepage + /studies landing) */
+.study-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 640px) {
+  .study-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.study-card {
+  background: var(--ml-color-200);
+  border-radius: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none !important;
+  border: 1px solid transparent;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.study-card:hover {
+  border-color: var(--ml-color-700);
+  background: var(--ml-color-150);
+}
+
+a.study-card,
+a.study-card:link,
+a.study-card:visited {
+  color: var(--ml-color-900);
+  text-decoration: none;
+  border-bottom: none;
+}
+
+.study-card-name {
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  color: var(--ml-color-900);
+}
+
+.study-card-desc {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--ml-color-800);
+  margin: 0 0 0.75rem;
+  flex: 1;
+}
+
+.study-card-meta {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--ml-color-700);
+  text-transform: uppercase;
+  font-weight: 600;
 }
 
 /* The override was moved to createDoubleRange.js */

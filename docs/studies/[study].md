@@ -488,14 +488,16 @@ if (!root) {
 <section class="analysis">
 <div class="main-content">
   <div class="summary-box filters-box">
-    <h3 class="summary-heading">Filters</h3>
-    <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
+    <details class="filters-collapse" open>
+      <summary class="summary-heading filters-toggle">Filters</summary>
+      <p class="filters-hint">Use the filters below to narrow which studies appear in the forest plot. Uncheck categories or adjust ranges to focus on the subset you care about.</p>
 
 ```js
 // display filters
 const options =  view(Inputs.form(selectors))
 ```
 
+    </details>
   </div>
 </div>
 
@@ -557,16 +559,12 @@ const filteredData = (async () => {
 
 
 <!-- Define Area to display chart -->
-<div id="mobile-scroll-notice" style="display: none; color: #6c757d; margin-bottom: 1rem;">
-  <p>⟷ Note: The plot below can be scrolled horizontally.</p>
-</div>
-
-
 
 ```js
-// Show scroll notice only on mobile
-if (window.innerWidth <= 600) {
-  document.getElementById('mobile-scroll-notice').style.display = 'block';
+// Collapse filters by default on mobile so users see the plot sooner
+if (window.matchMedia("(max-width: 768px)").matches) {
+  const details = document.querySelector(".filters-collapse");
+  if (details) details.removeAttribute("open");
 }
 ```
 

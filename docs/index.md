@@ -79,65 +79,6 @@ pager: false
   text-align: center;
 }
 
-.study-cards {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-}
-
-@media (max-width: 640px) {
-  .study-cards {
-    grid-template-columns: 1fr;
-  }
-}
-
-.study-card {
-  background: var(--ml-color-200);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  text-decoration: none !important;
-  border: 1px solid transparent;
-  transition: border-color 0.15s, background-color 0.15s;
-}
-
-.study-card:hover {
-  border-color: var(--ml-color-700);
-  background: var(--ml-color-150);
-}
-
-a.study-card,
-a.study-card:link,
-a.study-card:visited {
-  color: var(--ml-color-900);
-  text-decoration: none;
-  border-bottom: none;
-}
-
-.study-card-name {
-  font-weight: 700;
-  font-size: 1rem;
-  margin: 0 0 0.5rem;
-  color: var(--ml-color-900);
-}
-
-.study-card-desc {
-  font-size: 0.88rem;
-  line-height: 1.55;
-  color: var(--ml-color-800);
-  margin: 0 0 0.75rem;
-  flex: 1;
-}
-
-.study-card-meta {
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  color: var(--ml-color-700);
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
 .how-section {
   max-width: 740px;
   margin: 0 auto 4rem;
