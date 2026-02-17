@@ -6,7 +6,6 @@ index: false
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
-import { sliderBottom } from 'npm:d3-simple-slider'
 import { doubleRange } from '../createDoubleRange.js'
 
 import { isArrayNumeric, getMValue,arrayToObjectOfArrays } from '../utils.js'
@@ -381,21 +380,12 @@ const overviewPreviewLimit = 320;
 const overviewPreview = overviewText.slice(0, overviewPreviewLimit);
 const overviewRest = overviewText.slice(overviewPreviewLimit);
 const overviewHasMore = overviewRest.trim().length > 0;
-const studyAliases = {
-  "dat.axfors2021": "Hydroxychloroquine",
-  "dat.aloe2013": "Supervision Quality",
-  "dat.molloy2014": "Conscientiousness & Medication adherence",
-  "dat.bangertdrowns2004": "Writing-to-Learn Interventions"
-};
-const studyAlias = studyAliases[observable.params.study] ?? "";
 ```
 <section class="description study-hero">
   <div class="study-hero-header">
     <span class="study-hero-image" aria-hidden="true"></span>
     <div class="study-hero-content">
-      <!-- <span class="study-eyebrow">Meta-analysis</span> -->
       <h1 class="study-title" title="${metaData['title'][0]}">${metaData['title'][0]}</h1>
-      <!-- ${studyAlias ? `<span class="visually-hidden">${studyAlias}</span>` : ""} -->
     </div>
   </div>
   <div class="main-content">

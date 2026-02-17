@@ -10,8 +10,6 @@ import {maybeWidth} from "./css.js";
 import {checkValidity, preventDefault} from "./event.js";
 import {formatTrim} from "./format.js";
 import {identity} from "./identity.js";
-import {maybeLabel} from "./label.js";
-
 const epsilon = 1e-6;
 
 export function doubleRange(extent = [0, 1], options) {
@@ -40,17 +38,12 @@ export function createDoubleRange({
   if (max == null || isNaN(max = +max)) max = Infinity;
   if (min > max) [min, max] = [max, min], transform === undefined && (transform = negate);
   if (step !== undefined) step = +step;
-  //if (inputRange !== undefined) {
-// console.log(min)
-// console.log(max)
 const number = html`<input type=number class="double-range-number double-range-number-lower" data-bound="lower" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
 const numberUpper = html`<input type=number class="double-range-number double-range-number-upper" data-bound="upper" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
-// console.log('exists?2', window.hasOwnProperty('number'))
 
   let irange; // untransformed range for coercion
   let range2;
   let irange2;
-  let value1;
 
   if (range) {
     if (transform === undefined) transform = identity;
@@ -71,8 +64,6 @@ const numberUpper = html`<input type=number class="double-range-number double-ra
   }
 
 
-// const span = html`<span  class="range_track" id="range_track"></span>`
-  const dRange = " double-range"
   const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> studies matched</div>`;
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
     <div class="filter-container">
@@ -93,8 +84,6 @@ const numberUpper = html`<input type=number class="double-range-number double-ra
       liveCountCallback(snapshot);
     }, 140);
   };
-
-  // The tooltip logic has been moved to the main [study].md page to handle all tooltips globally.
 
   // If range, use an untransformed range to round to the nearest valid value.
   function coerce(v, slidertype) {
@@ -219,11 +208,7 @@ const numberUpper = html`<input type=number class="double-range-number double-ra
   numberUpper.valueAsNumber = max;
   number.valueAsNumber = min;
 
-  // irange.valueAsNumber/2; // (min + max) / 2
-  //if (initialValue === undefined && irange2) initialValue = irange2.valueAsNumber; // (min + max) / 2
-
   if (initialValue !== undefined) form.value = initialValue; // invoke setter
-  //if (initialValue !== undefined) form.value = initialValue; // invoke setter
 
   return form;
 }

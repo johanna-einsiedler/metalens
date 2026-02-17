@@ -620,9 +620,15 @@ body:has(#observablehq-main .study-hero) #observablehq-toc ~ #observablehq-main 
   padding-right: 0;
 }
 
+/* Fallback for browsers that don’t support :has() reliably in this selector. */
+body.study-hero-page #observablehq-toc ~ #observablehq-main {
+  padding-right: 0;
+}
+
 body:has(#observablehq-main .study-hero) {
   --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
   --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
+  --ml-hero-sidebar-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
   max-width: none !important;
   margin: 0;
   width: 100%;
@@ -631,6 +637,7 @@ body:has(#observablehq-main .study-hero) {
 body.study-hero-page {
   --ml-hero-horizontal-offset: calc(var(--ml-sidebar-width) + var(--ml-content-gutter));
   --ml-hero-full-width: calc(100% + var(--ml-sidebar-width) + (var(--ml-content-gutter) * 2));
+  --ml-hero-sidebar-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
 }
 
 /* When the sidebar is collapsed on desktop, use the collapsed main-padding
@@ -717,12 +724,22 @@ body:has(#observablehq-main .study-hero) .study-hero-content {
   }
 }
 
-/* Keep the hero flush with the sidebar edge (or viewport edge when the
-   sidebar is collapsed) without requiring a post-load class/layout shift. */
-body.study-hero-page .study-hero-header,
-body:has(#observablehq-main .study-hero) .study-hero-header {
-  left: calc(-1 * var(--ml-content-gutter));
-  width: calc(100% + var(--ml-content-gutter));
+/* Desktop full-bleed hero: stretch across all available main content width
+   (from sidebar edge to the right edge) while keeping text centered. */
+@media (min-width: 1025px) {
+  body.study-hero-page #observablehq-main > .description.study-hero,
+  body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero {
+    width: calc(100% + var(--ml-content-gutter) + var(--ml-hero-sidebar-extra));
+    max-width: none;
+    margin-left: calc(-1 * (var(--ml-content-gutter) + var(--ml-hero-sidebar-extra)));
+    margin-right: 0;
+  }
+
+  body.study-hero-page .study-hero-header,
+  body:has(#observablehq-main .study-hero) .study-hero-header {
+    left: 0;
+    width: 100%;
+  }
 }
 
 /* Add vertical spacing after the data section on study pages so footer
