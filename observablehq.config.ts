@@ -9,6 +9,7 @@ export default {
   // all pages will be listed in alphabetical order. Listing pages explicitly
   // lets you organize them into sections and have unlisted pages.
   pages: [
+    { name: "Home", path: "/" },
     { name: "What is Metalens?", path: "/about" },
     {
       name: "Metastudies",
@@ -43,6 +44,12 @@ export default {
   // Some additional configuration options and their defaults:
   // theme: "default", // try "light", "dark", "slate", etc.
   head: `
+    <script>
+      (function () {
+        const viewport = document.querySelector('meta[name="viewport"]');
+        if (viewport) viewport.setAttribute("content", "width=device-width, initial-scale=1");
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@100..800&family=Space+Grotesk:wght@300..700&display=swap" rel="stylesheet">

@@ -564,20 +564,39 @@ const filteredData = (async () => {
   const heading = box?.querySelector(".summary-heading");
   if (box && heading) {
     heading.classList.add("filters-toggle");
-    heading.setAttribute("aria-expanded", "true");
-    heading.addEventListener("click", () => {
-      const expanded = heading.getAttribute("aria-expanded") === "true";
-      heading.setAttribute("aria-expanded", String(!expanded));
+
+    const setExpanded = (expanded) => {
+      heading.setAttribute("aria-expanded", String(expanded));
       for (const el of box.children) {
-        if (el !== heading) el.style.display = expanded ? "none" : "";
+        if (el !== heading) el.style.display = expanded ? "" : "none";
+      }
+    };
+
+    if (!heading.dataset.toggleBound) {
+      heading.dataset.toggleBound = "true";
+      heading.addEventListener("click", () => {
+        const expanded = heading.getAttribute("aria-expanded") === "true";
+        setExpanded(!expanded);
+      });
+    }
+
+    const mobileQuery = window.matchMedia("(max-width: 768px)");
+    const applyResponsiveFiltersState = () => setExpanded(!mobileQuery.matches);
+
+    applyResponsiveFiltersState();
+    if (mobileQuery.addEventListener) {
+      mobileQuery.addEventListener("change", applyResponsiveFiltersState);
+    } else {
+      mobileQuery.addListener(applyResponsiveFiltersState);
+    }
+
+    invalidation.then(() => {
+      if (mobileQuery.addEventListener) {
+        mobileQuery.removeEventListener("change", applyResponsiveFiltersState);
+      } else {
+        mobileQuery.removeListener(applyResponsiveFiltersState);
       }
     });
-    if (window.matchMedia("(max-width: 768px)").matches) {
-      heading.setAttribute("aria-expanded", "false");
-      for (const el of box.children) {
-        if (el !== heading) el.style.display = "none";
-      }
-    }
   }
 }
 ```

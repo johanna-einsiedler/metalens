@@ -133,9 +133,6 @@ view(Inputs.table([...sub]))
 
 ```
 
-<link rel="stylesheet" href="styles/stylesZ.css">
-
-
 ```js
 
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
