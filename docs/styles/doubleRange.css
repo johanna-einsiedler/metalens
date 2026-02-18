@@ -1,59 +1,223 @@
-
-.double-range{
-    position: relative;
-    width: 350px;
-    display: grid;
-    grid-template-columns: 10cap 20cap 10cap;
-    gap: 15px;
-
-
+.double-range {
+  position: relative;
+  width: min(600px, 100%);
+  margin: 0 auto 12px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--ml-color-200);
+  border-radius: 12px;
+  background: var(--ml-color-100);
 }
+
+.filter-container {
+  display: grid;
+  grid-template-columns: var(--filter-label-width, 10rem) max-content minmax(0, 1fr);
+  grid-template-areas:
+    "label inputs slider"
+    ". count count";
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+}
+
+.filter-label {
+  grid-area: label;
+  font-size: 13px; /* Reduce font size */
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  align-self: center;
+}
+
+.filter-inputs {
+  grid-area: inputs;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.filter-separator {
+  display: inline-block;
+  width: 36px;
+  height: 2px;
+  background: var(--ml-color-700);
+  border-radius: 999px;
+  margin: 0 6px;
+}
+
+.filter-slider {
+  grid-area: slider;
+  position: relative;
+  padding: 0;
+  min-height: 32px;
+  min-width: 0;
+  align-self: center;
+}
+
 .double {
-  font: 13px/1.2 var(--sans-serif);
   position: absolute;
-  background: none;
-  width: 30% !important;
-  pointer-events: none;
-  -moz-appearance: none;
-  -webkit-appearance: none; 
-  appearance: none;
-  transform: translateY(-50%);
   top: 50%;
-  height: 7px;
-  background-color: #efefef;
-  border-radius: 10px;
+  transform: translateY(-50%);
+  width: 100%;
+  height: 12px;
+  background: transparent;
+  border-radius: 999px;
+  outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  pointer-events: none;
 }
 
+.double.double-lower {
+  z-index: 100;
+}
+
+.double.double-upper {
+  z-index: 50;
+}
+
+/* Style the actual slider tracks to be visible */
+.double::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 10px;
+  background-color: var(--ml-color-700);
+  border-radius: 999px;
+  border: none;
+}
+
+.double::-moz-range-track {
+  width: 100%;
+  height: 10px;
+  background-color: var(--ml-color-700);
+  border-radius: 999px;
+  border: none;
+}
+
+/* Make the track of the top slider transparent */
+.double.double-lower::-webkit-slider-runnable-track {
+  background: transparent;
+}
+
+.double.double-lower::-moz-range-track {
+  background: transparent;
+}
 
 .double::-webkit-slider-thumb {
-  height: 15px;
-  width: 15px;
+  height: 26px;
+  width: 26px;
   border-radius: 50%;
-    background-color: #067;
-  pointer-events: auto;
+  background-color: var(--ml-color-700);
+  border: 2px solid var(--ml-color-700);
+  box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -webkit-appearance: none;
   cursor: pointer;
-  margin-bottom: 1px;
-}
-.double::-moz-range-thumb {
-  height: 12px;
-  width: 12px;
-  border-radius: 50%;
-  background-color: #4269d0;
   pointer-events: auto;
+  position: relative;
+  z-index: 1000;
+  margin-top: -8px;
+}
+
+.double::-moz-range-thumb {
+  height: 26px;
+  width: 26px;
+  border-radius: 50%;
+  background-color: var(--ml-color-700);
+  border: 2px solid var(--ml-color-700);
+  box-shadow: 0 1px 2px rgba(0,0,0,.15);
   -moz-appearance: none;
   cursor: pointer;
-  margin-top: 30%;
-}
-#fromSlider {
-  height: 0;
-  z-index: 1;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1000;
 }
 
-input {
-    font-size: 12px;
-
+.double-range input[type="number"] {
+  font-size: 13px; /* Match label font size */
+  background: var(--ml-color-0);
+  border-radius: 999px !important;
+  border: 1px solid #d6dde1;
+  min-height: 40px;
+  padding: 8px 12px;
 }
-label{
+
+/* The width is now set via inline style in createDoubleRange.js */
+.double-range input[type="number"]:focus {
+  outline: none;
+  border-color: var(--ml-color-700);
+  box-shadow: 0 0 0 3px rgba(0,102,119,.12);
+}
+
+.study-count-badge {
+  text-align: left;
+  padding: 0;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  background-color: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ml-color-800);
+}
+
+.filter-container .study-count-badge {
+  grid-area: count;
+}
+
+.study-count-badge .count-number {
+  font-weight: 700;
+  color: var(--ml-color-700);
+  font-size: 15px;
+}
+
+@media (max-width: 768px) {
+  .double-range {
+    margin: 12px auto 14px;
+    padding: 10px 12px 12px;
+  }
+  .double-range input[type="number"] {
+    height: 44px;
     font-size: 12px;
+    min-width: 112px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Stack elements vertically */
+  .filter-container {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "label"
+      "inputs"
+      "slider"
+      "count";
+    row-gap: 8px;
+  }
+
+  /* Keep alignment tidy on small screens */
+  .filter-label {
+    text-align: left;
+    margin-bottom: 4px;
+  }
+
+  .filter-inputs {
+    justify-content: flex-start;
+    margin-bottom: 6px;
+  }
+
+  .filter-slider {
+    width: auto;
+    margin: 0 auto;
+    padding: 0;
+  }
+
+  .study-count-badge {
+    text-align: left;
+  }
+
+  .filter-container .study-count-badge {
+    grid-area: count;
+  }
 }

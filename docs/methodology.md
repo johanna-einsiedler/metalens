@@ -1,20 +1,4 @@
-
-
-<link
-  rel="stylesheet"
-  href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
-  integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
-  crossorigin="anonymous"
-/><link rel="stylesheet" href="styles/styles.css">
-<style>
-    #observablehq-main,
-#observablehq-header,
-#observablehq-footer 
-{
-  max-width: 700px;
-}
-</style>
-
+<link rel="stylesheet" href="styles/styles.css">
 
 # Methodology
 
@@ -60,5 +44,3 @@ W_i =\frac{1}{(T^2 + SE_i^2)}
 ```
 You can find information on how to calculate \(T^2 \) in: Borenstein, M.; Hedges, L.; Higgins, J.; Rothstein, H (2009): <a href="https://www.meta-analysis.com/downloads/Intro_Models.pdf">A basic introduction to fixed-effect and
     random-effects models for meta-analysis</a>
-
-

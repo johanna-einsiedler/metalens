@@ -10,8 +10,6 @@ import {maybeWidth} from "./css.js";
 import {checkValidity, preventDefault} from "./event.js";
 import {formatTrim} from "./format.js";
 import {identity} from "./identity.js";
-import {maybeLabel} from "./label.js";
-
 const epsilon = 1e-6;
 
 export function doubleRange(extent = [0, 1], options) {
@@ -31,7 +29,8 @@ export function createDoubleRange({
   disabled,
   placeholder,
   validate = checkValidity,
-  width
+  width,
+  liveCountCallback // Re-introducing the callback
 } = {}) {
   let value;
   if (typeof format !== "function") throw new TypeError("format is not a function");
@@ -39,24 +38,12 @@ export function createDoubleRange({
   if (max == null || isNaN(max = +max)) max = Infinity;
   if (min > max) [min, max] = [max, min], transform === undefined && (transform = negate);
   if (step !== undefined) step = +step;
-  //if (inputRange !== undefined) {
-// console.log(min)
-// console.log(max)
-const maxString = max.toString().length;
-const minString = min.toString().length
-const longerString = maxString > minString ? maxString : minString;
-let numLenLower = String(Math.max(min.toString().length*10+30, 40))+'px'
-//let numLenLower = min.toString().length
-let numLenUpper = String(Math.max(max.toString().length*10+30, 40))+'px'
-
-const number = html`<input  style="width: ${numLenLower}"; type=number id=numberLower min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
-const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=numberUpper min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled}>`;
-// console.log('exists?2', window.hasOwnProperty('number'))
+const number = html`<input type=number class="double-range-number double-range-number-lower" data-bound="lower" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
+const numberUpper = html`<input type=number class="double-range-number double-range-number-upper" data-bound="upper" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
 
   let irange; // untransformed range for coercion
   let range2;
   let irange2;
-  let value1;
 
   if (range) {
     if (transform === undefined) transform = identity;
@@ -65,8 +52,8 @@ const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=nu
     if (typeof invert !== "function") throw new TypeError("invert is not a function");
     let tmin = +transform(min), tmax = +transform(max);
     if (tmin > tmax) [tmin, tmax] = [tmax, tmin];
-    range = html`<input  class=double id=fromSlider type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range oninput=${onrange} disabled=${disabled}>`;
-    range2 = html`<input  class=double type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range2 oninput=${onrange} disabled=${disabled}>`;
+    range = html`<input class="double double-lower" data-bound="lower" type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range oninput=${onrange} disabled=${disabled}>`;
+    range2 = html`<input class="double double-upper" data-bound="upper" type=range min=${isFinite(tmin) ? tmin : null} max=${isFinite(tmax) ? tmax : null} step=${step === undefined || (transform !== identity && transform !== negate) ? "any" : step} name=range2 oninput=${onrange} disabled=${disabled}>`;
 
 
     irange = transform === identity ? range : html`<input type=range min=${min} max=${max} step=${step === undefined ? "any" : step} name=range disabled=${disabled}>`;
@@ -77,14 +64,27 @@ const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=nu
   }
 
 
-// const span = html`<span  class="range_track" id="range_track"></span>`
-  const dRange = " double-range"
+  const countDisplay = html`<div class="study-count-badge" style="display:none;"><span class="count-number">0</span> studies matched</div>`;
   const form = html`<form class=__ns__ style=${maybeWidth(width)}>
-   <div class=__ns__-input${dRange}>  <div style="font-size:12px"><p>${label}</p></div> <div>
-   ${number} - ${numberUpper} </div> <div> ${range}${range2} </div>
+    <div class="filter-container">
+      <div class="filter-label">${label}</div>
+      <div class="filter-inputs">${number}<span class="filter-separator" aria-hidden="true"></span>${numberUpper}</div>
+      <div class="filter-slider">${range}${range2}</div>
+      ${countDisplay}
     </div>
   </form>`;
   form.addEventListener("submit", preventDefault);
+  let liveCountTimer = null;
+  const triggerLiveCount = (nextValue) => {
+    if (typeof liveCountCallback !== "function") return;
+    if (liveCountTimer !== null) clearTimeout(liveCountTimer);
+    const snapshot = [nextValue[0], nextValue[1]];
+    liveCountTimer = setTimeout(() => {
+      liveCountTimer = null;
+      liveCountCallback(snapshot);
+    }, 140);
+  };
+
   // If range, use an untransformed range to round to the nearest valid value.
   function coerce(v, slidertype) {
     if (slidertype === 'from'){
@@ -106,61 +106,65 @@ const numberUpper = html`<input style="width: ${numLenUpper}"  type=number id=nu
 
 
   function onrange(event) {
- if (event.target.id ==='fromSlider'){
-    const v = coerce(invert(range.valueAsNumber),'from');
-    if (isFinite(v)) {
-      number.valueAsNumber = Math.max(min, Math.min(numberUpper.valueAsNumber, v));
-      if (validate(number)) {
-        value = [number.valueAsNumber, numberUpper.valueAsNumber]
-        number.value = format(value[0])
-        return;
+    let currentValue;
+    if (event.target === range) {
+      const v = coerce(invert(range.valueAsNumber), 'from');
+      if (isFinite(v)) {
+        number.valueAsNumber = Math.max(min, Math.min(numberUpper.valueAsNumber, v));
+        if (validate(number)) {
+          value = [number.valueAsNumber, numberUpper.valueAsNumber];
+          number.value = format(value[0]);
+          currentValue = value;
+        }
+      }
+    } else {
+      const v = coerce(invert(range2.valueAsNumber), 'to');
+      if (isFinite(v)) {
+        numberUpper.valueAsNumber = Math.max(number.valueAsNumber, Math.min(max, v));
+        if (validate(numberUpper)) {
+          value = [number.valueAsNumber, numberUpper.valueAsNumber];
+          numberUpper.value = format(value[1]);
+          currentValue = value;
+        }
       }
     }
-    if (event) event.stopPropagation();
-  }
-  else {
-        const v = coerce(invert(range2.valueAsNumber),'to');
 
-if (isFinite(v)) {
-      numberUpper.valueAsNumber = Math.max(number.valueAsNumber, Math.min(max, v));
-      if (validate(numberUpper)) {
-        value = [number.valueAsNumber,numberUpper.valueAsNumber];
-        numberUpper.value = format(value[1]);
-        return;
-      }
+    if (currentValue) {
+      triggerLiveCount(currentValue);
+      form.dispatchEvent(new Event("input", {bubbles: true}));
     }
-     if (event) event.stopPropagation();
+
+    if (event) event.stopPropagation();
   }
-    }
   
-  function onnumber(event) {        
-    if (event.target.id ==='numberLower'){
-    const v = coerce(number.valueAsNumber,'from');
-    if (isFinite(v)) {
-      if (range) range.valueAsNumber = transform(v);
-      if (validate(number)) {
-        value = [v, numberUpper.valueAsNumber];
-        // adjust input box size
-        numLenLower = String(Math.max(v.toString().length*10 +10, 22))+'px'
-        //number.style['width'] = numLenLower
-        return;
+  function onnumber(event) {
+    let currentValue;
+    if (event.target === number) {
+      const v = coerce(number.valueAsNumber, 'from');
+      if (isFinite(v)) {
+        if (range) range.valueAsNumber = transform(v);
+        if (validate(number)) {
+          value = [v, numberUpper.valueAsNumber];
+          currentValue = value;
+        }
+      }
+    } else {
+      const v = coerce(numberUpper.valueAsNumber, 'to');
+      if (isFinite(v)) {
+        if (range2) range2.valueAsNumber = transform(v);
+        if (validate(numberUpper)) {
+          value = [number.valueAsNumber, v];
+          currentValue = value;
+        }
       }
     }
-    if (event) event.stopPropagation();
-  } else {
-    const v = coerce(numberUpper.valueAsNumber,'to');
-    if (isFinite(v)) {
-      if (range2) range2.valueAsNumber = transform(v);
-      if (validate(numberUpper)) {
-        value = [number.valueAsNumber,v];
-        // adjust input box size
-        numLenUpper = String(Math.max(v.toString().length*10+10, 22))+'px'
-        //numberUpper.style['width'] = numLenUpper
-        return;
-      }
+
+    if (currentValue) {
+      triggerLiveCount(currentValue);
+      form.dispatchEvent(new Event("input", {bubbles: true}));
     }
+
     if (event) event.stopPropagation();
-  }
   }
 
 
@@ -188,15 +192,23 @@ if (isFinite(v)) {
       }
     }
   });
+  
+  // Expose count display for external updates
+  form.countDisplay = countDisplay;
+
+  form.updateCount = (count) => {
+    const countSpan = countDisplay.querySelector('.count-number');
+    if (countSpan) {
+      countSpan.textContent = count;
+      countDisplay.style.display = 'block';
+    }
+  };
+  
   if (initialValue === undefined && irange) initialValue = [min,max]
   numberUpper.valueAsNumber = max;
   number.valueAsNumber = min;
 
-  // irange.valueAsNumber/2; // (min + max) / 2
-  //if (initialValue === undefined && irange2) initialValue = irange2.valueAsNumber; // (min + max) / 2
-
   if (initialValue !== undefined) form.value = initialValue; // invoke setter
-  //if (initialValue !== undefined) form.value = initialValue; // invoke setter
 
   return form;
 }
@@ -229,4 +241,3 @@ function solve(f, y, x) {
   } while (steps-- > 0 && Math.abs(delta) > epsilon);
   return steps < 0 ? NaN : x;
 }
-
