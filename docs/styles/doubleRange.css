@@ -82,7 +82,7 @@
 /* Style the actual slider tracks to be visible */
 .double::-webkit-slider-runnable-track {
   width: 100%;
-  height: 10px;
+  height: 4px;
   background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
@@ -90,7 +90,7 @@
 
 .double::-moz-range-track {
   width: 100%;
-  height: 10px;
+  height: 4px;
   background-color: var(--ml-color-700);
   border-radius: 999px;
   border: none;
@@ -106,8 +106,8 @@
 }
 
 .double::-webkit-slider-thumb {
-  height: 26px;
-  width: 26px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
   background-color: var(--ml-color-700);
   border: 2px solid var(--ml-color-700);
@@ -117,12 +117,12 @@
   pointer-events: auto;
   position: relative;
   z-index: 1000;
-  margin-top: -8px;
+  margin-top: -6px;
 }
 
 .double::-moz-range-thumb {
-  height: 26px;
-  width: 26px;
+  height: 16px;
+  width: 16px;
   border-radius: 50%;
   background-color: var(--ml-color-700);
   border: 2px solid var(--ml-color-700);
@@ -202,14 +202,14 @@
     width: 100%;
     max-width: 100%;
     margin: 0;
-    padding: 0 13px;
+    padding: 0 8px;
     box-sizing: border-box;
     align-self: stretch;
   }
 
   .double {
-    left: 13px;
-    width: calc(100% - 26px);
+    left: 8px;
+    width: calc(100% - 16px);
   }
 
   .double-range input[type="number"] {
