@@ -1,9 +1,13 @@
+import {readFileSync} from "node:fs";
+
 // See https://observablehq.com/framework/config for documentation.
+const logoDataUrl = `data:image/png;base64,${readFileSync(new URL("./docs/data/images/logo-transparent.png", import.meta.url)).toString("base64")}`;
+
 export default {
   // The project’s title; used in the sidebar and webpage titles.
   title: "Metalens",
  theme: 'air',
-  home: `<img class="sidebar-logo" src="https://s6.imgcdn.dev/YB2KM0.png" alt="Metalens logo">`,
+  home: `<img class="sidebar-logo" src="${logoDataUrl}" alt="Metalens logo">`,
 
   // The pages and sections in the sidebar. If you don’t specify this option,
   // all pages will be listed in alphabetical order. Listing pages explicitly

@@ -728,6 +728,15 @@ body:has(#observablehq-main .study-hero) .study-hero-content {
     margin-right: 0;
   }
 
+  body.study-hero-page #observablehq-main > .analysis,
+  body:has(#observablehq-main .study-hero) #observablehq-main > .analysis {
+    --ml-hero-left-extra: max(0px, calc(var(--observablehq-inset-left, var(--ml-sidebar-width)) - var(--ml-sidebar-width)));
+    width: calc(100% + var(--ml-hero-horizontal-offset) + var(--ml-hero-left-extra) + var(--observablehq-inset-right, 0px));
+    max-width: none;
+    margin-left: calc(-1 * (var(--ml-hero-horizontal-offset) + var(--ml-hero-left-extra)));
+    margin-right: 0;
+  }
+
   body.study-hero-page .study-hero-header,
   body:has(#observablehq-main .study-hero) .study-hero-header {
     left: 0;
@@ -1207,6 +1216,14 @@ h1, h2, h3, h4 {
   }
 
   body:has(#observablehq-main .study-hero) #observablehq-main > .description.study-hero {
+    width: calc(100% + (var(--ml-content-gutter) * 2));
+    max-width: none;
+    margin-left: calc(-1 * var(--ml-content-gutter));
+    margin-right: calc(-1 * var(--ml-content-gutter));
+  }
+
+  body.study-hero-page #observablehq-main > .analysis,
+  body:has(#observablehq-main .study-hero) #observablehq-main > .analysis {
     width: calc(100% + (var(--ml-content-gutter) * 2));
     max-width: none;
     margin-left: calc(-1 * var(--ml-content-gutter));

@@ -35,7 +35,7 @@
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
-  min-height: 40px;
+  min-height: 36px;
 }
 
 .filter-separator {
@@ -139,8 +139,8 @@
   background: var(--ml-color-0);
   border-radius: 999px !important;
   border: 1px solid #d6dde1;
-  min-height: 40px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 6px 12px;
 }
 
 /* The width is now set via inline style in createDoubleRange.js */
@@ -177,15 +177,7 @@
     margin: 12px auto 14px;
     padding: 10px 12px 12px;
   }
-  .double-range input[type="number"] {
-    height: 44px;
-    font-size: 12px;
-    min-width: 112px;
-  }
-}
 
-@media (max-width: 600px) {
-  /* Stack elements vertically */
   .filter-container {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -196,7 +188,6 @@
     row-gap: 8px;
   }
 
-  /* Keep alignment tidy on small screens */
   .filter-label {
     text-align: left;
     margin-bottom: 4px;
@@ -208,9 +199,23 @@
   }
 
   .filter-slider {
-    width: auto;
-    margin: 0 auto;
-    padding: 0;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0 13px;
+    box-sizing: border-box;
+    align-self: stretch;
+  }
+
+  .double {
+    left: 13px;
+    width: calc(100% - 26px);
+  }
+
+  .double-range input[type="number"] {
+    font-size: 12px;
+    min-height: 34px;
+    min-width: 112px;
   }
 
   .study-count-badge {
