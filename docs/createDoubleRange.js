@@ -38,8 +38,8 @@ export function createDoubleRange({
   if (max == null || isNaN(max = +max)) max = Infinity;
   if (min > max) [min, max] = [max, min], transform === undefined && (transform = negate);
   if (step !== undefined) step = +step;
-const number = html`<input type=number class="double-range-number double-range-number-lower" data-bound="lower" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
-const numberUpper = html`<input type=number class="double-range-number double-range-number-upper" data-bound="upper" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 96px;">`;
+const number = html`<input type=number class="double-range-number double-range-number-lower" data-bound="lower" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberLower required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 42px;">`;
+const numberUpper = html`<input type=number class="double-range-number double-range-number-upper" data-bound="upper" min=${isFinite(min) ? min : null} max=${isFinite(max) ? max : null} step=${step == undefined ? "any" : step} name=numberUpper required placeholder=${placeholder} oninput=${onnumber} disabled=${disabled} style="width: 42px;">`;
 
   let irange; // untransformed range for coercion
   let range2;
