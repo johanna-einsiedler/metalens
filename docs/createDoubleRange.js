@@ -200,7 +200,7 @@ const numberUpper = html`<input type=number class="double-range-number double-ra
     const countSpan = countDisplay.querySelector('.count-number');
     if (countSpan) {
       countSpan.textContent = count;
-      countDisplay.style.display = 'block';
+      countDisplay.style.display = 'flex';
     }
   };
   

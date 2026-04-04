@@ -979,11 +979,6 @@ body.study-hero-page #observablehq-footer > div {
   margin-left: var(--filter-indent);
 }
 
-.filters-box .study-count-badge {
-  padding-left: 0;
-  margin-left: 0;
-}
-
 .summary-heading {
   font-family: var(--sans-serif, sans-serif);
   font-weight: 700;

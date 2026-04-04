@@ -10,10 +10,8 @@
 
 .filter-container {
   display: grid;
-  grid-template-columns: var(--filter-label-width, 10rem) max-content minmax(0, 1fr);
-  grid-template-areas:
-    "label inputs slider"
-    ". count count";
+  grid-template-columns: var(--filter-label-width, 10rem) max-content minmax(0, 1fr) max-content;
+  grid-template-areas: "label inputs slider count";
   align-items: center;
   column-gap: 16px;
   row-gap: 4px;
@@ -157,19 +155,39 @@
   margin-bottom: 2px;
   background-color: transparent;
   border: none;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 400;
-  color: var(--ml-color-800);
+  color: var(--ml-color-700);
+  white-space: nowrap;
 }
 
 .filter-container .study-count-badge {
   grid-area: count;
+  background: rgba(0, 0, 0, 0.07);
+  border: none;
+  border-radius: 999px;
+  padding: 4px 13px 4px 10px;
+  align-items: center;
+  gap: 5px;
+  color: var(--ml-color-700);
+  cursor: default;
+}
+
+.filter-container .study-count-badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ml-color-700);
+  opacity: 0.6;
+  flex-shrink: 0;
 }
 
 .study-count-badge .count-number {
   font-weight: 700;
   color: var(--ml-color-700);
-  font-size: 15px;
+  font-size: 11px;
 }
 
 @media (max-width: 768px) {
@@ -220,9 +238,16 @@
 
   .study-count-badge {
     text-align: left;
+    font-size: 12px;
+  }
+
+  .study-count-badge .count-number {
+    font-size: 15px;
   }
 
   .filter-container .study-count-badge {
     grid-area: count;
+    width: fit-content;
+    margin-bottom: 12px;
   }
 }
