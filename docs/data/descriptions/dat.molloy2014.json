@@ -27,5 +27,15 @@
   ],
   "references": [
     "John, O. P., & Srivastava, S. (1999). The Big Five Trait taxonomy:History, measurement, and theoretical perspectives. In L. A.Pervin & O. P. John (Eds.), _Handbook of personality: Theory andresearch_ (2nd ed., pp. 102-138). New York: Guilford Press."
+  ],
+  "filter_order": [
+    "design",
+    "a_measure",
+    "c_measure",
+    "controls",
+    "quality",
+    "ni",
+    "meanage",
+    "year"
   ]
 }

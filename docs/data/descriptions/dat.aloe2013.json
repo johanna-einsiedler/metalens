@@ -6,7 +6,7 @@
     "Studies on the Association Between Supervision Quality and Various Outcomes in Social, Mental Health, and Child Welfare Workers"
   ],
   "display_title": [
-    ""
+    "Link between supervision quality and various outcomes in social, mental health, and child welfare workers"
   ],
   "description": [
     "Results from 5 studies examining the association between various measures of supervision quality and various work-related outcomesin social, mental health, and child welfare workers."
@@ -27,5 +27,11 @@
   ],
   "references": [
     "Mor Barak, M. E., Travis, D. J., Pyun, H., & Xie, B. (2009). Theimpact of supervision on worker outcomåes: A meta-analysis. _SocialService Review_, *83*(1), 3-32. https://doi.org/10.1086/599028"
+  ],
+  "filter_order": [
+    "n",
+    "preds",
+    "R2",
+    "t-value"
   ]
 }

@@ -1,22 +1,4 @@
-
-<style>
-    .hiddenFirst{
-    visibility: hidden;
-    display: none;
-    }
-
-    
-</style>
-
-
-<link
-  rel="stylesheet"
-  href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
-  integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
-  crossorigin="anonymous"
-/>
 <link rel="stylesheet" href="styles/styles.css">
-
 
 # Upload a meta-study dataset
 
@@ -27,7 +9,7 @@ For this to work, the file needs to have the following format:
 - You need a column named **yi** that contains the estimated effect size for each study
 - You need a column named **vi** that contains the estimated effect size variance for each study
 
-After uplaoding, you will be able to select which columns to inlcude as filters in your plot.
+After uploading, you will be able to select which columns to include as filters in your plot.
 Click **Continue** once you have selected all relevant variables.
 
 
@@ -47,16 +29,6 @@ const db = await DuckDBClient.of({
 })
 // load data from database
 const inputData = await db.query("select * FROM input")
-//let metaData = await FileAttachment(file).csv({typed: true})
-
-// transpose data
-//filterDescription = arrayToObjectOfArrays(filterDescription)
-//const tables = await db.sql`show tables`
-// get table name
-//const tableName = [...tables][0]['name']
-
-// load all data from table
-//const inputData = await db.query("select * FROM "+tableName)
 
 ```
 
@@ -71,7 +43,6 @@ let relCols = view(Inputs.checkbox(data.columns, {label: "Columns to include", v
 let nonrelCols = data.columns.filter(element => !relCols.includes(element));
 
 // filter data to relevant columns
-//let subset = await db.query("select "+relCols.filter(item=>item).join(", ")+" from input")
 let subset = db.query("alter table input drop column" + nonrelCols.join(", "))
 ```
 
@@ -138,43 +109,35 @@ let sub = await db.query("select "+relColsNew.filter(item=>item).join(", ")+" fr
 
 
 const confirm = await view(Inputs.button("OK", {label: "Continue?",value: 0}));
-//let subset = await db.query("alter table input rename column "+ idCol + " to id")
-//db.query("DROP TABLE IF EXISTS inputs")
-//const subSQL = db.query("create table subset as select "+relColsNew.filter(item=>item).join(", ")+" from input")
-//view(...subSQL)
-// rename column
-//console.log("alter table input rename column "+ idCol + " to id")
-//let subset = await db.query("select * from subset")
 let input = await db.query("select * from input")
 
 view(Inputs.table([...sub]))
 
 ```
 
-<link rel="stylesheet" href="styles/styles.css">
-
-
 ```js
 
 import * as duckdb from 'npm:@duckdb/duckdb-wasm'
 import { DuckDBClient } from 'npm:@observablehq/duckdb'
 import * as d3 from 'npm:d3'
-import { sliderBottom } from 'npm:d3-simple-slider'
 import { doubleRange } from './createDoubleRange.js'
 
 import { isArrayNumeric, getMValue,arrayToObjectOfArrays } from './utils.js'
 import { drawGraph } from "./fplot.js"
 ```
 
-<link
-  rel="stylesheet"
-  href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
-  integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
-  crossorigin="anonymous"
-/>
+
 <link rel="stylesheet" href="styles/doubleRange.css">
 
 
+<style>
+    .hiddenFirst{
+    visibility: hidden;
+    display: none;
+    }
+
+    
+</style>
 
 
 ```js
@@ -188,12 +151,7 @@ let filterDescription = await FileAttachment("./data/filters/dat.axfors2021.json
 // transpose data
 filterDescription = arrayToObjectOfArrays(filterDescription)
 const tables = await db.sql`show tables`
-// get table name
-
-//console.log([...tables][1])
-//const tableName = [...tables][0]['name']
 const tableName = 'input'
-//console.log('tabname', tableName)
 
 // load all data from table
 const inputData = await db.query("select * FROM "+tableName)
@@ -204,8 +162,6 @@ const irrelevantColumns =['id','yi','vi']
 
 // get all column Names
 const columnNames = await db.sql`select column_name from INFORMATION_SCHEMA.COLUMNS where TABLE_NAME=${tableName}`
-
-//const test = await FileAttachment('./data/filters/dat.axfors2021.json').json()
 
   // vector to collect selectors
 const selectors =  {}
@@ -219,8 +175,6 @@ const numCols =[...relevantColumns].length
 for (let i = 0; i < numCols; i++) {
   // get column
   const thisColumn = relevantColumns[i]
-  // check if we want to display the column
-  //if (!irrelevantColumns.includes(thisColumn)){
   // SQL query to get distinct values present in this column
   const sqlColumnValues = 'SELECT DISTINCT ' + thisColumn + ' FROM ' + tableName
   const ColumnValues = await db.query(sqlColumnValues)
@@ -251,8 +205,7 @@ while (++j < [...ColumnValues].length) {
   let distinctValuesCopy = distinctValues
   // check whether all the values are numeric
   if (!isArrayNumeric(distinctValues)) {
-  //let defaultValues = distinctValues
-    // check if any of the inputs contains multiple inputs 
+    // check if any of the inputs contains multiple inputs
     for (let j = 0; j < distinctValues.length; j++){
       
       // check for multiple arguments separated by commas
@@ -277,33 +230,14 @@ while (++j < [...ColumnValues].length) {
       }
          }
 
-      // check if any inputs contaisn multuple inputs separated by and
-      // if (distinctValues[j].includes(' and')){
-      //       // split string
-      //       let splitEntry = distinctValues[j].split('and')
-      //       // remove from distinctValues
-      //       distinctValues = distinctValues.filter(item => item != distinctValues[j])
-      //       // add to options
-      //       distinctValues = [...distinctValues, ...splitEntry]  
-      // }
-    
     }
   // remove spaces at end or beginning
   distinctValues = distinctValues.map(entry => entry.trim());
-  // always capitalize first letter
- // distinctValues = distinctValues.map(entry => 
-   // entry.charAt(0).toUpperCase() + entry.slice(1)
-//);
-
-// remove potential duplicates
-//distinctValues = [...new Set(distinctValues)];
   let obj = [];
   if (distinctValues!== undefined && displayValues !== undefined){
     if (displayValues.length > 0){
     distinctValues.forEach((element, index2) => {
-   // if(element !== undefined && filterDescription['display_values'][index] !== undefined){
     obj[element] = displayValues[index2]
-   // }
   })
   }
   }
@@ -317,8 +251,6 @@ if (distinctValuesCopy.some(value => value.includes(','))){
       label: description.length > 0 ? html`
       <span  data-text="${description}"class="ttip" >${label}</span>` : label,
       unique: true,
-      //<span title="this is displayed on hover"> ${label} </span>`,
-      //, 
       value: defaultValues
     })
 
@@ -380,8 +312,6 @@ for (let i = 0; i < numCols; i++) {
     sqlFilter = sqlFilter + ' AND '
   }
 
-// check if empty
-//if (options[relevantColumn].length > 0){
   // check if numeric
   if ((isArrayNumeric(options[relevantColumn])) && (options[relevantColumn].length >0)) {
 
@@ -396,34 +326,8 @@ for (let i = 0; i < numCols; i++) {
       String(options[relevantColumn][1])
   } 
   else {
-
-// let defaultOptions = [];
-// for (let j=0; j< selectors[relevantColumn].length; j++){
-//   console.log(selectors[relevantColumn][j].closest('label'))
-//   const label = selectors[relevantColumn][j].closest('label').textContent.trim();
-//   defaultOptions.push(label)
-
-// }  
 if (options[relevantColumn] !== undefined){
 const defaultCheck = Array.from(selectors[relevantColumn]).every(radio => radio.defaultChecked)
-  ///+ relevantColumn + " IN ('" + options[relevantColumn].join("','") +"')"
- 
-    //if filterTest.length == 
-
-//  for (let k=0; k < options[relevantColumn].length; k++){
-//   if (k === 0){
-//     exclusiveFilter = exclusiveFilter  + "LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-//   } else { 
-//      exclusiveFilter = exclusiveFilter  + " OR LOWER(" + relevantColumn + ") LIKE LOWER('%" + options[relevantColumn][k] +"%')"
-//   }
-//   }
-
-
-
-// let exclusiveFilter = "SELECT * FROM " + tableName + " WHERE LOWER("  + relevantColumn + ") IN (LOWER('" + defaultOptions.join("'),LOWER('")+"'))"
-//   const filterTest = await db.query(exclusiveFilter)
-//   console.log('exclusive filter', [...filterTest].length)
-//   console.log(exclusiveFilter)
 if (options[relevantColumn].length >0){
   sqlFilter = sqlFilter + " ("
  for (let k=0; k < options[relevantColumn].length; k++){
@@ -444,10 +348,7 @@ if (options[relevantColumn].length >0){
 }
 }
 }
-// execute SQL query for filtering
 }
-// console.log(confirm)
-// console.log(sqlFilter)
 let filteredData = []
 if (confirm >0){
     filteredData = await db.query(sqlFilter)
@@ -467,7 +368,5 @@ if (confirm >0){
 
 if (confirm >0){
 drawGraph([...filteredData])
-//document.getElementById('plot').remove('hiddenFirst')
-
 }
 ```
