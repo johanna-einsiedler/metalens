@@ -165,6 +165,17 @@ distinctValues = [...new Set(distinctValues)];
     });
   }
 
+// Sort: Yes → No → Unknown, others alphabetically
+const yesNoUnknownOrder = { 'yes': 0, 'no': 1, 'unknown': 2 };
+distinctValues.sort((a, b) => {
+  const labelA = (obj[a] || String(a)).toLowerCase();
+  const labelB = (obj[b] || String(b)).toLowerCase();
+  const orderA = yesNoUnknownOrder[labelA] !== undefined ? yesNoUnknownOrder[labelA] : 3;
+  const orderB = yesNoUnknownOrder[labelB] !== undefined ? yesNoUnknownOrder[labelB] : 3;
+  if (orderA !== orderB) return orderA - orderB;
+  return labelA.localeCompare(labelB);
+});
+
 // Compute counts for each check-box filter value
 let valueCounts = {};
 const isNumeric = isArrayNumeric(distinctValues);

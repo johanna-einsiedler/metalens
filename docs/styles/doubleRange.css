@@ -215,7 +215,7 @@
   .double-range input[type="number"] {
     font-size: 12px;
     min-height: 34px;
-    min-width: 42px;
+    min-width: 45px;
   }
 
   .study-count-badge {
