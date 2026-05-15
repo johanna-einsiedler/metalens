@@ -199,7 +199,7 @@ body {
   align-items: center;
   min-height: 40px;
   padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
 }
 
 #observablehq-sidebar .sidebar-logo {
@@ -261,7 +261,7 @@ body {
 
 #observablehq-sidebar section {
   background: var(--ml-color-100);
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   padding: 0.5rem 0.75rem 0.75rem 0;
   margin: 0.5rem 0 0.75rem;
 }
@@ -289,7 +289,12 @@ body {
 }
 
 #observablehq-sidebar .observablehq-link-active > a {
+  /* Active link callout — pale mint background + navy text, mirroring
+     the MetaPaperLens accordion-step "is-active" treatment so the
+     selected page reads consistently across both products. */
   font-weight: 700;
+  background: var(--ml-color-100);
+  color: var(--ml-color-900);
 }
 
 #observablehq-sidebar a[href="/"]:not(:has(.sidebar-logo))::before,
@@ -1393,3 +1398,73 @@ a.study-card:visited {
 }
 
 /* The override was moved to createDoubleRange.js */
+
+
+/* ── Button system ──────────────────────────────────────────────
+   Sibling to the MetaPaperLens .btn-* classes so CTAs read the
+   same across both products.  Apply by adding ``class="btn btn-…"``
+   to any <a> or <button>. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 0.75rem;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+  text-decoration: none !important;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.btn-primary {
+  background: var(--ml-color-800);
+  color: #fff;
+}
+.btn-primary:link,
+.btn-primary:visited { color: #fff; }
+.btn-primary:hover {
+  background: var(--ml-color-900);
+  box-shadow: 0 2px 8px rgba(18, 39, 64, 0.18);
+  transform: translateY(-1px);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ml-color-700);
+}
+.btn-ghost:hover {
+  background: var(--ml-color-100);
+  color: var(--ml-color-900);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ml-color-800);
+  border-color: var(--ml-color-800);
+}
+.btn-outline:hover {
+  background: var(--ml-color-100);
+}
+
+.btn-success {
+  background: #4f8a6b;
+  color: #fff;
+}
+.btn-success:link,
+.btn-success:visited { color: #fff; }
+.btn-success:hover {
+  background: #3d7355;
+  box-shadow: 0 2px 8px rgba(63, 115, 85, 0.22);
+  transform: translateY(-1px);
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 13px;
+}

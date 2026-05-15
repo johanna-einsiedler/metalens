@@ -18,6 +18,17 @@ pager: false
   text-align: center;
 }
 
+.hero-logo {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto 1rem;
+}
+
+@media (max-width: 640px) {
+  .hero-logo { width: 130px; height: 130px; }
+}
+
 .hero a:link,
 .hero a:visited {
   color: var(--ml-color-900);
@@ -31,10 +42,14 @@ pager: false
 }
 
 .hero h1 {
-  margin: 2rem 0;
+  /* Smaller, denser heading scale to match the MetaPaperLens sibling
+     site — the giant 14vw / 90px display felt out of step with the
+     compact tile-based content below. */
+  margin: 1.25rem 0 0.75rem;
   max-width: none;
-  font-size: 14vw;
-  font-weight: 900;
+  font-size: 9vw;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1;
   color: var(--ml-color-700);
 }
@@ -42,16 +57,16 @@ pager: false
 .hero h2 {
   margin: 0;
   max-width: 34em;
-  font-size: 20px;
+  font-size: 18px;
   font-style: initial;
   font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--ml-color-900);
 }
 
 @media (min-width: 640px) {
   .hero h1 {
-    font-size: 90px;
+    font-size: 56px;
   }
 }
 
@@ -150,6 +165,7 @@ pager: false
 </style>
 
 <div class="hero">
+  <img src="data/images/logo-transparent.png" alt="" class="hero-logo" aria-hidden="true" />
   <h1>Metalens</h1>
   <h2>An interactive tool to explore scientific evidence</h2>
 </div>
