@@ -108,7 +108,15 @@ pager: false
 }
 
 .how-step {
-  padding: 1.25rem 1rem;
+  /* MetaPaperLens-style white tile to match the .study-card look —
+     each "how it works" step reads as a discrete card on the
+     off-white canvas. */
+  background: #ffffff;
+  border: 1px solid #d6dde2;
+  border-radius: 0.75rem;
+  padding: 1.5rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(18, 39, 64, 0.06),
+              0 1px 2px rgba(18, 39, 64, 0.04);
 }
 
 .how-step-number {
