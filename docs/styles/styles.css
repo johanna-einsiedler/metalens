@@ -470,7 +470,7 @@ input[type="checkbox"]:checked {
   --ml-sidebar-radius: 0;
   --ml-content-max: clamp(720px, 72vw, 1200px);
   --ml-content-gutter: clamp(16px, 3vw, 32px);
-  --sans-serif: "Space Grotesk", "Martian Mono", sans-serif;
+  --sans-serif: "DM Sans", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
   --ml-color-900: #122740;
   --ml-color-800: #1b485e;
   --ml-color-700: #367380;
@@ -800,7 +800,7 @@ body.study-hero-page #observablehq-footer > div {
 .study-hero-header .study-subtitle {
   color: var(--ml-color-900);
   text-shadow: none;
-  font-family: "Space Grotesk", "Martian Mono", var(--sans-serif, sans-serif);
+  font-family: var(--sans-serif, sans-serif);
 }
 
 .main-content {
@@ -1030,7 +1030,7 @@ body.study-hero-page #observablehq-footer > div {
 }
 
 .citation-doi {
-  font-family: "Martian Mono", var(--sans-serif, sans-serif);
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.85em;
   letter-spacing: 0.01em;
   word-break: break-word;
