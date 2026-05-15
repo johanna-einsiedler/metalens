@@ -1,8 +1,83 @@
 <link rel="stylesheet" href="styles/styles.css">
 
+<style>
+/* Two-card "where is your data?" fork at the top of the upload page.
+   Visually mirrors the .study-card tile look. */
+.upload-fork {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin: 1.25rem 0 2rem;
+}
+@media (max-width: 720px) {
+  .upload-fork { grid-template-columns: 1fr; }
+}
+.upload-fork-card {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #d6dde2;
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.25rem 1.2rem;
+  box-shadow: 0 1px 3px rgba(18, 39, 64, 0.06),
+              0 1px 2px rgba(18, 39, 64, 0.04);
+  text-decoration: none !important;
+  color: var(--ml-color-900);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.upload-fork-card:hover {
+  border-color: var(--ml-color-700);
+  background: var(--ml-color-100);
+  box-shadow: 0 4px 12px rgba(18, 39, 64, 0.08);
+  transform: translateY(-1px);
+}
+.upload-fork-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ml-color-700);
+  margin: 0 0 0.4rem;
+}
+.upload-fork-title {
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0 0 0.4rem;
+  color: var(--ml-color-900);
+}
+.upload-fork-desc {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ml-color-800);
+  margin: 0;
+}
+.upload-fork-arrow {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ml-color-700);
+}
+</style>
+
 # Upload a meta-study dataset
 
-Here you can upload file containing meta-study information and easily plot it as an interactive forest plot.
+There are two ways to bring data into Metalens:
+
+<div class="upload-fork">
+  <div class="upload-fork-card">
+    <div class="upload-fork-eyebrow">If you already have a CSV</div>
+    <div class="upload-fork-title">Upload below ↓</div>
+    <p class="upload-fork-desc">Drop a CSV with one row per study and the required <code>id</code> / <code>yi</code> / <code>vi</code> columns. Plot it interactively in seconds.</p>
+  </div>
+  <a class="upload-fork-card" href="https://paperlens.fly.dev/maseminer" target="_blank" rel="noopener">
+    <div class="upload-fork-eyebrow">If you only have PDFs</div>
+    <div class="upload-fork-title">Extract via MetaPaperLens →</div>
+    <p class="upload-fork-desc">LLM-assisted extraction of effect sizes, sample sizes, and study metadata straight from the source papers. Download the result and come back here.</p>
+    <div class="upload-fork-arrow">Open MetaPaperLens ↗</div>
+  </a>
+</div>
+
+Here you can upload a file containing meta-study information and easily plot it as an interactive forest plot.
 For this to work, the file needs to have the following format:
 - You need one row per study
 - You need a column named **id** that contains a unique identifier for each study

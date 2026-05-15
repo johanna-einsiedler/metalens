@@ -92,12 +92,15 @@ body {
 }
 
 #observablehq-sidebar {
-  background: var(--ml-color-0);
+  /* White sidebar on the off-white canvas, matching the MetaPaperLens
+     sibling treatment.  A faint navy-tinted right border separates it
+     from the main column without needing a shadow. */
+  background: #ffffff;
   width: var(--ml-sidebar-width);
   margin: 0;
   padding: 0.75rem 1.25rem 1rem;
   border-radius: var(--ml-sidebar-radius);
-  border-right: 0;
+  border-right: 1px solid #d6dde2;
   box-shadow: none;
   overflow: hidden;
   font-family: sans-serif;
