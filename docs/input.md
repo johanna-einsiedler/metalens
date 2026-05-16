@@ -69,10 +69,10 @@ There are two ways to bring data into Metalens:
     <div class="upload-fork-title">Upload below ↓</div>
     <p class="upload-fork-desc">Drop a CSV with one row per study and the required <code>id</code> / <code>yi</code> / <code>vi</code> columns. Plot it interactively in seconds.</p>
   </div>
-  <a class="upload-fork-card" href="https://paperlens.fly.dev/maseminer" target="_blank" rel="noopener">
+  <a class="upload-fork-card" href="https://paperlens.fly.dev/?preset=forestplot" target="_blank" rel="noopener">
     <div class="upload-fork-eyebrow">If you only have PDFs</div>
     <div class="upload-fork-title">Extract via MetaPaperLens →</div>
-    <p class="upload-fork-desc">LLM-assisted extraction of effect sizes, sample sizes, and study metadata straight from the source papers. Download the result and come back here.</p>
+    <p class="upload-fork-desc">Opens MetaPaperLens with the <em>Forest Plot Data</em> preset preloaded — extracts per-study <code>id</code>, <code>yi</code>, <code>vi</code> (and optional context columns) straight from the source paper. Download the CSV and come back here.</p>
     <div class="upload-fork-arrow">Open MetaPaperLens ↗</div>
   </a>
 </div>
