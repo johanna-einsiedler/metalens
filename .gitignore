@@ -22,11 +22,19 @@ dump.rdb
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 *.egg-info/
 dist/
 build/
+
+# Test / coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # uv
 uv.lock.bak
@@ -38,3 +46,6 @@ uv.lock.bak
 
 # the archived reference pipeline is read-only context, not part of this build
 _archive/
+
+# Claude Code — machine-specific local overrides (a shared .claude/settings.json is fine to commit)
+.claude/settings.local.json
