@@ -313,9 +313,10 @@ def document_view(document_id: str, db=Depends(get_db),
 @app.get("/api/documents/{document_id}/locate")
 def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
                  who: Principal = Depends(principal)) -> dict:
-    """Owner-only: find the exact numeric ``value`` on ``page`` of the source PDF so
-    the workspace can pinpoint-highlight it. `found=false` = not there verbatim (may
-    be transformed/rounded) — a soft signal, not an error."""
+    """Owner-only: find ``value`` in the source PDF so the workspace can pinpoint-
+    highlight it — tries an exact numeric match first, then a literal text search so a
+    non-numeric field the model didn't cite still highlights. `found=false` = not there
+    verbatim (may be transformed/rounded/paraphrased) — a soft signal, not an error."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
@@ -323,7 +324,10 @@ def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
     key = storage.pdf_key(document_id)
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
-    found_page, rects = pdf_utils.locate_value_rects_any(store.get(key), value, prefer_page=page)
+    pdf_bytes = store.get(key)
+    found_page, rects = pdf_utils.locate_value_rects_any(pdf_bytes, value, prefer_page=page)
+    if not rects:                       # not a number (or not found) → try literal text
+        found_page, rects = pdf_utils.locate_text_rects_any(pdf_bytes, value, prefer_page=page)
     return {"rects": rects, "found": bool(rects), "page": found_page}
 
 

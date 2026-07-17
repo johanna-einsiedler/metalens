@@ -291,6 +291,40 @@ def locate_value_rects_any(pdf_bytes: bytes, value, *, prefer_page: int | None =
         doc.close()
 
 
+def locate_text_rects_any(pdf_bytes: bytes, text: str, *, prefer_page: int | None = None,
+                          dpi: int = DISPLAY_DPI) -> tuple[int | None, list[list[float]]]:
+    """Find literal ``text`` ANYWHERE in the PDF — ``prefer_page`` first, then every page.
+    Powers click-to-highlight for the many fields the model doesn't cite as evidence.
+    Unlike ``locate_value_rects_any`` (numbers only) this matches text; it skips values
+    too short (<3 chars → noise) or too long (>120 → free-text, unlikely verbatim)."""
+    t = (text or "").strip()
+    if len(t) < 3 or len(t) > 120:
+        return None, []
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        n = len(doc)
+        scale = dpi / 72.0
+        _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
+        order = ([prefer_page] if prefer_page and 1 <= prefer_page <= n else []) \
+            + [p for p in range(1, n + 1) if p != prefer_page]
+        for p in order:
+            page = doc[p - 1]
+            rects = page.search_for(t)
+            if not rects:
+                try:
+                    rects = page.search_for(t, flags=_DEHY)
+                except Exception:
+                    rects = []
+            if rects:
+                return p, [[round(r.x0 * scale, 2), round(r.y0 * scale, 2),
+                            round((r.x1 - r.x0) * scale, 2), round((r.y1 - r.y0) * scale, 2)]
+                           for r in rects]
+        return None, []
+    finally:
+        doc.close()
+
+
 def pdf_to_images(pdf_bytes: bytes, dpi: int = EXTRACTION_DPI, fmt: str = "png") -> list[str]:
     """Convert PDF bytes to a list of base64-encoded images, one per page.
 

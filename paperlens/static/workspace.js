@@ -323,6 +323,21 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual finding">＋ Finding</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   renderStudyBlock(panel);              // study-level info once, above the entries
+  if (!DATA.records.length) {           // 0-record doc: clear empty state; Raw shows the raw output
+    const box = document.createElement("div");
+    box.className = "empty-records";
+    if (RAW) {
+      box.innerHTML = `<div class="rectitle">raw extraction output</div>`
+        + `<pre class="rawjson">${esc(JSON.stringify({ paper_metadata: DATA.paper_metadata, evidence: DATA.evidence }, null, 2))}</pre>`;
+    } else {
+      box.innerHTML = `<p class="muted" style="padding:8px 2px">No records were extracted from this document — nothing matched the `
+        + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
+        + `Use <b>＋ Finding</b> to add one manually, or re-process with a different preset.</p>`;
+    }
+    panel.appendChild(box);
+    wirePanelHead();
+    return;
+  }
   if (GRID) { renderGridInto(panel); wirePanelHead(); return; }
   DATA.records.forEach((rec) => {
     const card = document.createElement("div");
@@ -421,13 +436,18 @@ async function doDeleteRecord(rec) {
 // so its cells are immediately editable; edits route through the verify layer.
 async function doAddFinding() {
   const template = {};
-  const first = (DATA.records || [])[0];
-  if (first && first.field_values) {
-    for (const [k, v] of Object.entries(first.field_values)) {
-      if (k === "evidence" || k === "extraction_confidence") continue;
+  // Seed a COMPLETE blank form from the preset's entry setup: every field named across
+  // its sub-views, so a manual finding starts as a full blank form even on a fresh doc.
+  const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
+  views.forEach((v) => (v.include_keys || []).forEach((k) => { if (!(k in template)) template[k] = ""; }));
+  // Union with keys any existing record actually carries (covers presets without
+  // sub_views, and fields outside include_keys), preserving nested shape as empty.
+  (DATA.records || []).forEach((r) => {
+    for (const [k, v] of Object.entries(r.field_values || {})) {
+      if (k === "evidence" || k === "extraction_confidence" || (k in template)) continue;
       template[k] = (v && typeof v === "object") ? (Array.isArray(v) ? [] : {}) : "";
     }
-  }
+  });
   try { await api.addRecord(DATA.document_id, { field_values: template }); await reloadDoc(); }
   catch (e) { alert("add failed: " + e.message); }
 }
@@ -436,8 +456,17 @@ async function doAddFinding() {
 // Only offered outside a project (a project's docs are already in a dataset).
 async function doSave() {
   const b = $("#dlsave");
+  // A dataset is a set of RECORDS — a document with 0 records contributes nothing.
+  // Save only docs that have records, and say which (if any) were skipped, so an
+  // empty extraction doesn't look like "only the first paper was saved".
+  const source = DOCS.length ? DOCS
+    : [{ document_id: DATA.document_id, n_records: (DATA.records || []).length }];
+  const withRecs = source.filter((d) => (d.n_records || 0) > 0);
+  const skipped = source.length - withRecs.length;
+  if (!withRecs.length) { alert("Nothing to save yet — none of these documents have extracted records."); return; }
+  if (skipped && !confirm(`${skipped} document(s) have no extracted records and will be skipped.\nSave the ${withRecs.length} document(s) that have data?`)) return;
   b.disabled = true;
-  const ids = DOCS.length ? DOCS.map((d) => d.document_id) : [DATA.document_id];
+  const ids = withRecs.map((d) => d.document_id);
   try {
     // record the recipe (schema/preset + model) so re-opening the dataset can add
     // papers with the same preset without re-choosing it.
@@ -475,10 +504,19 @@ function wireCard(card, rec) {
       const orig = cell.dataset.orig, now = cell.textContent;
       if (now === orig) return;
       cell.classList.add("rv-edited");
+      const path = cell.dataset.path;
+      // keep numbers numeric so the exported JSON stays typed
+      const val = cell.classList.contains("rv-num") && now.trim() !== "" && !isNaN(Number(now)) ? Number(now) : now;
+      // Apply the correction to a copy of the entry's field_values and send it, so the
+      // change is written to the record — it then appears in the downloaded JSON and
+      // survives a reload, not just the audit trail. The diff still logs old→new.
+      const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+      setByPath(fv, path, val);
       api.verify(rec.id, {
         status: "verified",
-        diff: [{ field_path: cell.dataset.path, original_value: orig, final_value: now }],
-      }).then(() => { cell.dataset.orig = now; setStatus(card, "verified"); })
+        diff: [{ field_path: path, original_value: orig, final_value: now }],
+        field_values: fv,
+      }).then(() => { cell.dataset.orig = now; rec.field_values = fv; setStatus(card, "verified"); })
         .catch((e) => alert("save failed: " + e.message));
     });
   });
@@ -525,6 +563,21 @@ function stripCore(fp) {
   if (!fp) return "";
   return fp.replace(/^[a-zA-Z_][a-zA-Z0-9_]*\[\d+\]\.?/, "");
 }
+
+// Set a value at a record-relative data-path — "a", "a.b", "a[0].b", "a._table[0].c" —
+// creating intermediate objects/arrays as needed. Inverse of the paths grammar.js emits.
+function setByPath(obj, path, value) {
+  const toks = [];
+  String(path).replace(/[^.[\]]+|\[(\d+)\]/g, (m, idx) => (toks.push(idx !== undefined ? Number(idx) : m), ""));
+  if (!toks.length) return;
+  let cur = obj;
+  for (let k = 0; k < toks.length - 1; k++) {
+    const key = toks[k];
+    if (cur[key] == null || typeof cur[key] !== "object") cur[key] = typeof toks[k + 1] === "number" ? [] : {};
+    cur = cur[key];
+  }
+  cur[toks[toks.length - 1]] = value;
+}
 function linkValueCells(card, evs) {
   const linkable = evs.map(({ ev, i }) => ({ i, page: ev.page, path: stripCore(ev.field_path) }));
   card.querySelectorAll("[data-path]").forEach((cell) => {
@@ -534,32 +587,56 @@ function linkValueCells(card, evs) {
       const covers = x.path === "" || x.path === p || p.startsWith(x.path + ".") || p.startsWith(x.path + "[");
       if (covers && (!best || x.path.length > best.path.length)) best = x;
     }
-    if (!best) return;
-    cell.classList.add("rv-linked");
-    cell.addEventListener("mouseenter", () => showEvidence(best.i));
-    cell.addEventListener("mouseleave", () => hideEvidence(best.i));
-    cell.addEventListener("click", () => verifyAndJump(cell, best));
+    const editable = cell.classList.contains("rv-editable");
+    if (best) {
+      cell.addEventListener("mouseenter", () => showEvidence(best.i));
+      cell.addEventListener("mouseleave", () => hideEvidence(best.i));
+      // read-only cells get the "link" affordance; editable cells keep the text cursor
+      // + dashed underline so they still read as editable.
+      if (!editable) cell.classList.add("rv-linked");
+    } else if (!editable) {
+      cell.classList.add("rv-probe");    // read-only value with no cited evidence, still locatable on click
+    }
+    // EVERY value cell is clickable: jump to the model's cited evidence when we have it,
+    // otherwise search the PDF for the value itself and highlight it (most fields have no
+    // cited evidence). jumpToEvidence/flashRects only scroll — no focus steal — so an
+    // editable cell still places the caret to type on the same click.
+    cell.addEventListener("click", () => (best ? verifyAndJump(cell, best) : locateAndFlash(cell)));
   });
 }
 
-// Click a value → jump to its evidence; for NUMERIC values also locate the exact
-// number on the source page: found → pinpoint-highlight (green); not found verbatim
-// → a soft note (may be transformed/rounded — not an error).
+// A value with no model-cited evidence → best-effort: search the PDF for the value's
+// own text and flash wherever it appears. Silent when not found (long free-text often
+// won't match verbatim). Reused for the 40+ fields the model doesn't cite.
+async function locateAndFlash(cell) {
+  const txt = (cell.textContent || "").trim();
+  if (!txt || txt === "—" || txt.length > 120) return;   // matches the backend text-locate cap
+  try {
+    const r = await api.locateValue(DATA.document_id, txt.replace(/%$/, ""), 1);
+    if (r && r.found) flashRects(r.page, r.rects);
+  } catch { /* best-effort */ }
+}
+
+// Click a value with cited evidence. The universal rule (applies to every preset):
+//   (a) TEXT value    → jump to the cited evidence snippet and flash it.
+//   (b) NUMERIC value → search the exact number on the evidence page and highlight IT
+//       (numbers are what readers verify); fall back to the snippet if it isn't there
+//       verbatim (rounded / transformed / computed — a soft note, not an error).
 const NUM_RE = /^-?\d[\d,]*(\.\d+)?%?$/;
 async function verifyAndJump(cell, best) {
-  jumpToEvidence(best.page, best.i);
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();
   const txt = cell.textContent.trim();
-  if (!NUM_RE.test(txt)) return;
+  if (!NUM_RE.test(txt)) { jumpToEvidence(best.page, best.i); return; }   // (a) text → snippet
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   try {
-    const r = await api.locateValue(DATA.document_id, num, best.page);
-    if (r.no_pdf) return;
-    if (r.found) flashRects(r.page || best.page, r.rects);   // highlight wherever it actually is
-    else cell.insertAdjacentHTML("afterend",
-      `<span class="val-check" title="This exact number isn't in the source PDF text — it may be rounded, transformed, or computed from other values. Not necessarily wrong.">⚠ not found verbatim</span>`);
-  } catch { /* verification is best-effort */ }
+    const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) number → the page's number
+    if (r.no_pdf) { jumpToEvidence(best.page, best.i); return; }
+    if (r.found) { flashRects(r.page || best.page, r.rects); return; }    // highlight wherever it actually is
+  } catch { jumpToEvidence(best.page, best.i); return; }
+  jumpToEvidence(best.page, best.i);                 // number not verbatim → snippet + soft note
+  cell.insertAdjacentHTML("afterend",
+    `<span class="val-check" title="This exact number isn't in the source PDF text — it may be rounded, transformed, or computed from other values. Not necessarily wrong.">⚠ not found verbatim</span>`);
 }
 
 // ── download results (JSON / CSV) ───────────────────────────────────────────
@@ -571,8 +648,18 @@ function download(name, text, type) {
 }
 function baseName() { return (DATA.schema_id || "records").replace(/[^a-z0-9]+/gi, "_"); }
 function downloadJSON() {
-  const out = { schema_id: DATA.schema_id, paper: DATA.paper,
-                records: DATA.records.map((r) => r.field_values), evidence: DATA.evidence };
+  const out = {
+    schema_id: DATA.schema_id, paper: DATA.paper,
+    records: DATA.records.map((r) => r.field_values),
+    // provenance parallel to records[]: review status + any human corrections (original→final,
+    // who, when) so a consumer can tell model-extracted values from human-corrected ones.
+    provenance: DATA.records.map((r) => ({
+      entry_index: r.entry_index,
+      verification_status: r.verification_status,
+      corrections: r.corrections || [],
+    })),
+    evidence: DATA.evidence,
+  };
   download(`${baseName()}.json`, JSON.stringify(out, null, 2), "application/json");
 }
 function flattenRecord(fv) {
@@ -588,7 +675,12 @@ function flattenRecord(fv) {
   return out;
 }
 function downloadCSV() {
-  const rows = DATA.records.map((r) => flattenRecord(r.field_values));
+  const rows = DATA.records.map((r) => {
+    const flat = flattenRecord(r.field_values);
+    flat.verification_status = r.verification_status || "";        // provenance columns, appended last
+    flat.corrected_fields = (r.corrections || []).map((c) => c.field_path).join("; ");
+    return flat;
+  });
   const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   const q = (v) => { if (v == null) return ""; const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\n");

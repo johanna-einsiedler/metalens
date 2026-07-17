@@ -41,7 +41,7 @@ function render() {
     <div class="wf-field"><label>Tagline</label><input id="pe-tagline" value="${esc(p.tagline || "")}"/></div>
     <div class="wf-field"><label>Description</label><textarea id="pe-desc" rows="2">${esc(p.description || "")}</textarea></div>
     <div class="wf-field"><label>Extraction prompt</label>
-      <div class="sf-help">The exact prompt sent to the model. It must ask for ONE JSON object with a core array (<code>records</code>/<code>samples</code>) and an <code>evidence</code> array whose <code>field</code> is <code>records[i].&lt;Column&gt;</code>.</div>
+      <div class="sf-help">The exact prompt sent to the model. It must ask for ONE JSON object with a core array (<code>records</code>/<code>samples</code>) and an <code>evidence</code> array. Each evidence item is <code>{"field":"records[i].&lt;Column&gt;", "snippet":"verbatim text from the paper", "page": N}</code> — in Data&nbsp;review, clicking a <b>text</b> value jumps to its snippet, and clicking a <b>number</b> locates &amp; highlights that exact number on the evidence page. Cite evidence per field where you can; uncited values are still located best-effort on click.</div>
       <textarea id="pe-prompt" rows="16" class="sf-ta">${esc(p.prompt || "")}</textarea></div>
     <div class="wf-field"><label>Review tabs <span class="muted">(sub_views JSON — optional, advanced)</span></label>
       <div class="sf-help">Groups columns into tabs in Data review. A JSON array of <code>{"id","label","include_keys":[…]}</code>. Leave blank for one flat view.</div>

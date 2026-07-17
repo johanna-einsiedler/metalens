@@ -32,7 +32,8 @@ function renderObj(obj, path, opts) {
     .map(([k, val]) => {
       const child = path ? `${path}.${k}` : k;
       const nested = val && typeof val === "object";
-      return `<div class="rv-row"><div class="rv-key">${esc(formatKey(k))}</div>`
+      // nested values span the full width (rv-row-block); scalars pack into columns
+      return `<div class="rv-row${nested ? " rv-row-block" : ""}"><div class="rv-key">${esc(formatKey(k))}</div>`
         + `<div class="rv-val${nested ? " rv-nested" : ""}">${renderNode(val, child, opts)}</div></div>`;
     }).join("");
   return `<div class="rv-obj">${rows}</div>`;

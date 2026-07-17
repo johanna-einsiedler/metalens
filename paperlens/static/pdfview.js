@@ -47,29 +47,47 @@ export function renderPages(root, pages, evidence) {
 }
 
 export function jumpToEvidence(page, eid) {
-  const el = document.getElementById(`page-${page}`);
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   document.querySelectorAll("rect.hl.flash").forEach((r) => r.classList.remove("flash"));
-  document.querySelectorAll(`rect.hl[data-eid="${eid}"]`).forEach((r) => {
-    r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2000);
-  });
+  const rects = [...document.querySelectorAll(`rect.hl[data-eid="${eid}"]`)];
+  rects.forEach((r) => { r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2000); });
+  scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
 }
 
 // pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value) with
 // the SAME yellow evidence-flash marking — temporary overlay rects that fade out.
 export function flashRects(page, rects) {
   const wrap = document.getElementById(`page-${page}`);
-  if (wrap) wrap.scrollIntoView({ behavior: "smooth", block: "start" });
   const svg = wrap && wrap.querySelector("svg.overlay");
   if (!svg) return;
-  (rects || []).forEach(([x, y, w, h]) => {
+  const drawn = (rects || []).map(([x, y, w, h]) => {
     const r = document.createElementNS(SVGNS, "rect");
     r.setAttribute("x", x); r.setAttribute("y", y);
     r.setAttribute("width", w); r.setAttribute("height", h);
     r.setAttribute("class", "hl flash");
     svg.appendChild(r);
     setTimeout(() => r.remove(), 2500);
+    return r;
   });
+  scrollToRect(drawn[0], page);
+}
+
+// Scroll so a specific highlight rect sits in the CENTER of the scroll viewport — so
+// evidence low on a tall page is actually visible after the jump (not just the page top).
+// Uses on-screen geometry (getBoundingClientRect handles the SVG viewBox scaling), and
+// falls back to the page top when we have no rect.
+function scrollToRect(rectEl, page) {
+  const wrap = document.getElementById(`page-${page}`);
+  if (!rectEl) { if (wrap) wrap.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  let scroller = rectEl.parentElement;
+  while (scroller) {
+    const oy = getComputedStyle(scroller).overflowY;
+    if ((oy === "auto" || oy === "scroll") && scroller.scrollHeight > scroller.clientHeight) break;
+    scroller = scroller.parentElement;
+  }
+  if (!scroller) { rectEl.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  const rb = rectEl.getBoundingClientRect(), sb = scroller.getBoundingClientRect();
+  const top = scroller.scrollTop + (rb.top - sb.top) - scroller.clientHeight / 2 + rb.height / 2;
+  scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
 // hover preview — light up the rect(s) for an evidence id without scrolling

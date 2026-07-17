@@ -88,7 +88,24 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
     pdf_bytes = base64.b64decode(pdf_b64)
     if use_credits and not api_key:
         from . import credits, providers
-        api_key = credits.server_key_for(providers.get_provider(model, None)) or ""
+        provider = providers.get_provider(model, None)
+        api_key = credits.server_key_for(provider) or ""
+        if not api_key:
+            # Misconfiguration (the worker's env has no server key for this model's
+            # provider), not a transient error. Without this guard we'd send the
+            # providers.py "dummy-key" placeholder and get a misleading 401 against
+            # the wrong endpoint, three times over. Fail fast with a clear message;
+            # refund the consumed credit on the final attempt (mirrors the except
+            # block below so retries don't over-refund).
+            if credit_user_id and ctx.get("job_try", 1) >= _EXTRACT_MAX_TRIES:
+                rconn = records.connect()
+                try:
+                    credits.refund(rconn, credit_user_id, model=model)
+                finally:
+                    rconn.close()
+            raise RuntimeError(
+                f"Metalens credit run: no server API key configured for provider "
+                f"{provider!r} in the worker env (credit refunded on final attempt).")
     conn = records.connect()
     try:
         return extract.run_extraction(

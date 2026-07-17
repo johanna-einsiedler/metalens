@@ -451,9 +451,31 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
            FROM record WHERE document_id = %s ORDER BY entry_index""",
         (document_id,),
     ).fetchall()
+    # Per-record human corrections (value-changing verification diffs) for provenance in
+    # the review UI + the JSON/CSV export — original→final, who, when.
+    corrections_by_rec: dict[str, list[dict]] = {}
+    rec_ids = [str(rid) for (rid, *_r) in rec_rows]
+    if rec_ids:
+        for (rid, diff, email, kind, created) in conn.execute(
+            """SELECT e.record_id, e.diff, u.email, e.verifier_kind, e.created_at
+               FROM verification_event e LEFT JOIN users u ON u.id = e.verifier_user_id
+               WHERE e.record_id = ANY(%s::uuid[]) AND e.diff IS NOT NULL
+               ORDER BY e.created_at""",
+            (rec_ids,),
+        ).fetchall():
+            for d in (diff if isinstance(diff, list) else []):
+                if not isinstance(d, dict) or d.get("original_value") == d.get("final_value"):
+                    continue
+                corrections_by_rec.setdefault(str(rid), []).append({
+                    "field_path": d.get("field_path"),
+                    "original_value": d.get("original_value"),
+                    "final_value": d.get("final_value"),
+                    "editor": email or kind, "at": created.isoformat() if created else None,
+                })
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
-         "verification_status": vs, "extraction": _ex}
+         "verification_status": vs, "extraction": _ex,
+         "corrections": corrections_by_rec.get(str(rid), [])}
         for (rid, ei, fv, vs, _ex) in rec_rows
     ]
     n_pages = 0

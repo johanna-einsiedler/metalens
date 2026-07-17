@@ -2,13 +2,19 @@
  * confidence badges, editable cells, PDF highlight overlay. Tokens only. */
 
 .rv-root { font-size: 13px; }
-.rv-obj { display: grid; grid-template-columns: auto 1fr; width: 100%; }
-.rv-row { display: contents; }
-.rv-key { font-weight: 600; color: var(--text-muted); white-space: nowrap;
-  padding: 6px 14px 6px 0; border-bottom: 1px solid var(--border); }
-.rv-val { color: var(--text); padding: 6px 0; border-bottom: 1px solid var(--border);
-  line-height: 1.5; word-break: break-word; }
-.rv-val.rv-nested { padding: 4px 0; }
+/* fields flow horizontally as key→value pairs, wrapping into as many columns as fit
+   (min 260px each); collapses to a single column in narrow/nested containers. */
+.rv-obj { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 0 24px; width: 100%; align-items: start; }
+.rv-row { display: flex; gap: 14px; justify-content: space-between; align-items: baseline;
+  min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.rv-key { font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
+.rv-val { color: var(--text); line-height: 1.5; word-break: break-word; flex: 0 1 auto;
+  min-width: 0; text-align: left; }
+/* nested objects/tables take the full row width and stack the value under the key */
+.rv-row.rv-row-block { grid-column: 1 / -1; flex-direction: column; align-items: stretch; gap: 3px; }
+.rv-row.rv-row-block > .rv-val { text-align: left; }
+.rv-val.rv-nested { width: 100%; padding: 2px 0; }
 .rv-num { color: var(--accent-2); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .rv-null { color: var(--text-muted); font-style: italic; }
 
@@ -22,6 +28,9 @@
   transition: background .15s, border-color .15s; }
 .rv-editable:hover { background: var(--accent-wash); border-bottom-color: var(--accent); }
 .rv-editable:focus { outline: none; background: var(--accent-wash); box-shadow: 0 0 0 2px var(--accent-wash); }
+/* blank fields (e.g. a manually added finding) still need a clickable target */
+.rv-editable:empty { display: inline-block; min-width: 3.5em; min-height: 1.1em;
+  border-bottom-color: var(--accent); }
 .rv-edited { background: var(--override-bg); border-bottom: 2px solid var(--override-line); border-radius: 2px 2px 0 0; }
 
 /* confidence badges */
@@ -59,6 +68,9 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); s
 /* an extracted value that has linked evidence — hover previews, click jumps */
 .rv-linked { cursor: pointer; border-bottom: 1px dotted var(--accent-3); }
 .rv-linked:hover { background: var(--highlight); }
+/* read-only value with no cited evidence — still locatable in the PDF on click */
+.rv-probe { cursor: pointer; }
+.rv-probe:hover { background: var(--highlight); }
 
 /* per-record card (panel) */
 .record { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px;
