@@ -1,0 +1,40 @@
+# Secrets — never commit (the archive's lesson)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+PAPERLENS_*
+**/PAPERLENS_*
+
+# Local databases / dumps
+*.sqlite3
+*.sqlite3-*
+*.sql.dump
+*.dump
+*.rdb
+dump.rdb
+
+# Local object storage (page images / PDFs)
+.artifacts/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# uv
+uv.lock.bak
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# the archived reference pipeline is read-only context, not part of this build
+_archive/

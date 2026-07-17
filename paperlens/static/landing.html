@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — verifiable research data</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+
+  <div class="wrap">
+    <section class="hero-c">
+      <div class="eyebrow">Open, verifiable research data</div>
+      <h1>Turn research findings into structured data.</h1>
+      <p class="lede">Turn any paper into structured data. Extract, label, or summarise, verify each
+        value against its highlighted source, and build live dashboards that recompute as new papers arrive.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/extract">Turn a paper into data</a>
+        <span class="btn btn-ghost is-disabled" aria-disabled="true" title="Coming soon">Build a dashboard (coming soon)</span>
+      </div>
+    </section>
+
+    <!-- Capture (extract · label · summarise) → Verify → Visualize → Update continuously -->
+    <div class="pipeline">
+      <div class="pstep">
+        <div class="picon">⌖</div>
+        <div class="pname">Capture</div>
+        <div class="pdesc">Turn any PDF into structured data — every value tied to its evidence span.</div>
+        <div class="pmodes"><span class="pmode">Extract</span><span class="pmode">Label</span><span class="pmode">Summarise</span></div>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="picon">✓</div>
+        <div class="pname">Verify</div>
+        <div class="pdesc">Check every value against its highlighted source; track who verified what.</div>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="picon">▤</div>
+        <div class="pname">Visualize</div>
+        <div class="pdesc">Turn records into live dashboards.</div>
+      </div>
+      <div class="parrow">→</div>
+      <div class="pstep">
+        <div class="picon">↻</div>
+        <div class="pname">Stay current</div>
+        <div class="pdesc">As new papers are added, your dashboards keep pace with the latest scientific knowledge.</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

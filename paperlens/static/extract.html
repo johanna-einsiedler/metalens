@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — turn a paper into data</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+
+  <div class="wrap" style="max-width:1040px">
+    <div class="extract-layout">
+      <!-- left: step navigation -->
+      <aside class="wf-sidebar">
+        <div class="wf-step-nav active" data-step="1"><span class="wf-num">1</span> Choose task</div>
+        <div class="wf-step-nav" data-step="2"><span class="wf-num">2</span> AI model</div>
+        <div class="wf-step-nav" data-step="3"><span class="wf-num">3</span> Describe task</div>
+        <div class="wf-step-nav" data-step="4"><span class="wf-num">4</span> Review prompt</div>
+        <div class="wf-step-nav" data-step="5"><span class="wf-num">5</span> Upload &amp; extract</div>
+        <div class="wf-step-nav results" data-step="results"><span class="wf-num">▸</span> Results</div>
+      </aside>
+
+      <!-- right: the steps -->
+      <main>
+        <h2 style="margin:0 0 4px">Turn a paper into data</h2>
+        <p class="muted" style="margin:0 0 18px">Your model + API key are used in your browser and never stored on our servers.</p>
+
+        <div id="acc">
+          <!-- 1 · Choose a task -->
+          <section class="acc-step open" data-step="1">
+            <div class="acc-head"><span class="acc-num">1</span><span class="acc-title">Choose a task</span><span class="acc-sum"></span><span class="acc-chev">▾</span></div>
+            <div class="acc-body">
+              <div class="task-grid">
+                <div class="task-card" data-task="extract">
+                  <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></div>
+                  <div class="tt">Extract data</div>
+                  <div class="td">Pull structured information, statistics, or specific values from academic papers into a defined format.</div>
+                </div>
+                <div class="task-card" data-task="label">
+                  <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 12 22l-9-9V4a1 1 0 0 1 1-1h8z"/><circle cx="7.5" cy="7.5" r="1.4"/></svg></div>
+                  <div class="tt">Label a paper</div>
+                  <div class="td">Classify or categorize papers or their sections based on their content.</div>
+                </div>
+                <div class="task-card" data-task="summarise">
+                  <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14M5 9h10M5 13h14M5 17h8"/></svg></div>
+                  <div class="tt">Summarise a paper</div>
+                  <div class="td">Produce a structured per-section summary (background, methods, findings, limitations) with page-anchored quotes.</div>
+                </div>
+                <div class="task-card" data-task="workflow">
+                  <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></div>
+                  <div class="tt">Use a pre-built method</div>
+                  <div class="td">Tailored prompts for specific research methods (MASEMiner, ForestPlot, …) — skip the prompt-design step.</div>
+                </div>
+              </div>
+              <div id="taskdetail" class="task-detail"></div>
+            </div>
+          </section>
+
+          <!-- 2 · Configure your AI model -->
+          <section class="acc-step" data-step="2">
+            <div class="acc-head"><span class="acc-num">2</span><span class="acc-title">Configure your AI model</span><span class="acc-sum"></span><span class="acc-chev">▾</span></div>
+            <div class="acc-body">
+              <!-- shown only when logged in with a positive credit balance -->
+              <div id="credit-switch" class="credit-switch" hidden>
+                <label class="cs-opt"><input type="radio" name="keymode" value="credits" checked/>
+                  <span>Use my Metalens credits <b id="credit-left"></b> <span class="muted" id="credit-model"></span></span></label>
+                <label class="cs-opt"><input type="radio" name="keymode" value="own"/>
+                  <span>Use my own API key</span></label>
+              </div>
+              <div id="ownkey-block">
+                <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key.</p>
+                <div class="wf-field"><label>Provider</label><div class="select-wrap"><select id="provider"></select></div></div>
+                <div class="wf-field"><label>Model</label><div class="select-wrap"><select id="model"></select></div></div>
+                <div class="wf-field">
+                  <label id="keylabel">API key</label>
+                  <div class="key-row">
+                    <input id="apikey" type="password" placeholder="your API key" autocomplete="off"/>
+                    <button class="btn btn-ghost" id="testconn">Test connection</button>
+                  </div>
+                  <p class="muted" id="teststatus" style="font-size:12px;margin-top:6px">Your key is sent only to the selected provider and is never stored.</p>
+                </div>
+              </div>
+              <div class="wf-actions">
+                <button class="btn btn-ghost" data-back="1">Back</button>
+                <button class="btn btn-primary" id="next2">Continue</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 3 · Describe your task -->
+          <section class="acc-step" data-step="3">
+            <div class="acc-head"><span class="acc-num">3</span><span class="acc-title">Describe your task</span><span class="acc-sum"></span><span class="acc-chev">▾</span></div>
+            <div class="acc-body">
+              <div class="mode-switch">
+                <button type="button" class="mode-btn active" data-mode="simple">Guided</button>
+                <button type="button" class="mode-btn" data-mode="advanced">Advanced</button>
+                <button type="button" class="mode-btn" data-mode="own">Write your own</button>
+              </div>
+
+              <!-- MASEMiner guided builder (shown only for the MASEMiner preset) -->
+              <div id="masemBuilder" hidden>
+                <h3 style="margin:2px 0 12px">Configure your MASEMiner extraction</h3>
+                <div class="wf-field"><label>Task</label>
+                  <div class="masem-starters" id="masem-starters"></div></div>
+
+                <!-- Direct information: effect sizes + variables -->
+                <div id="masemFormDirect">
+                  <div class="wf-field"><label>Effect sizes <span class="muted">(one per line: <code>short_code: full name</code>)</span></label>
+                    <div class="sf-help">Which effect-size statistics should the model extract? Use short codes the literature recognises (<code>r</code> Pearson, <code>or</code> odds ratios, <code>smd</code> standardised mean differences…). The right of the colon is the label shown in the prompt.</div>
+                    <textarea id="masemEffectSizes" class="sf-ta" rows="4"></textarea></div>
+                  <div class="wf-field"><label>Variables <span class="muted">(one per line: <code>short_code: definition</code>)</span></label>
+                    <div class="sf-help">Canonical variables/constructs (the output's <code>var1</code>/<code>var2</code>). Short code + a definition that helps the model map paper-specific operationalisations. Add a third <code>::</code> chunk for synonyms.</div>
+                    <textarea id="masemVariables" class="sf-ta" rows="6"></textarea></div>
+                </div>
+
+                <!-- Indirect information: scale name + item count + item labels -->
+                <div id="masemFormIndirect" hidden>
+                  <div class="masem-scalar-row">
+                    <div class="wf-field masem-grow"><label>Scale name</label>
+                      <input id="masemScaleName" type="text" placeholder="e.g. Need for Cognition Scale (NCS-18)"/></div>
+                    <div class="wf-field masem-narrow"><label>Number of items</label>
+                      <input id="masemNItems" type="number" min="1" max="200" step="1" placeholder="e.g. 20"/></div>
+                  </div>
+                  <div class="wf-field"><label>Item labels <span class="muted">(one per line, starting with item number)</span></label>
+                    <div class="sf-help">Paste the verbatim item texts in order (<code>1: item text</code>) so the model matches reordered/paraphrased items. Leave empty for copyrighted instruments.</div>
+                    <textarea id="masemItems" class="sf-ta" rows="8"></textarea></div>
+                </div>
+
+                <div class="wf-field"><label>Live preview <span class="muted"><span id="masemPreviewLen">0</span> characters</span></label>
+                  <pre id="masemPreviewBox" class="raw-json" style="max-height:280px"></pre></div>
+                <div class="wf-actions">
+                  <button type="button" class="btn btn-ghost" data-back="2">Back</button>
+                  <button type="button" class="btn btn-primary" id="masemUse">Use this prompt →</button>
+                </div>
+              </div>
+
+              <!-- GUIDED (default): pick an example unit → one sentence → extras -->
+              <div id="simpleform">
+                <h4 class="sf-q" style="margin:2px 0 4px">1 · What do you want to extract?</h4>
+                <p class="muted sf-hint" style="margin:0 0 8px">Pick the closest example — you get <b>one row per</b> this in your dataset.</p>
+                <div class="unit-row" id="simple-units"></div>
+                <div id="simple-rest" hidden>
+                  <div class="wf-field" style="margin-top:16px"><label>2 · Describe it in one sentence <span class="muted">(optional)</span></label>
+                    <input id="simple-desc" placeholder="e.g. the effect of remote work on productivity"/></div>
+                  <div class="sf-paper">3 · <b>Paper details</b> captured automatically: title · authors · year · journal · DOI · volume · issue · pages.</div>
+                  <div class="wf-field" style="margin-top:12px"><label>4 · Anything else? <span class="muted">(optional)</span></label>
+                    <textarea id="simple-extra" class="sf-ta" placeholder="e.g. Only the main analysis, not robustness checks&#10;Focus on Table 2&#10;Report correlations as Pearson r&#10;Only the clinical subgroup&#10;Ignore appendix results"></textarea></div>
+                  <div class="wf-actions">
+                    <button type="button" class="btn btn-ghost" data-back="2">Back</button>
+                    <button type="button" class="btn btn-primary" id="simpleGen">Generate prompt →</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ADVANCED: the full structured designer -->
+              <div id="structform" hidden>
+                <h3 style="margin:2px 0 4px">Describe what to extract</h3>
+                <p class="muted" style="font-size:13px;margin:0 0 10px">Full control — define every field, its type, and its review tab.</p>
+
+                <div class="sf-stepper">
+                  <button type="button" class="sf-pill active" data-sub="1">1 · Unit</button>
+                  <button type="button" class="sf-pill" data-sub="2">2 · Fields &amp; tabs</button>
+                  <button type="button" class="sf-pill" data-sub="3">3 · Paper-level</button>
+                  <button type="button" class="sf-pill" data-sub="4">4 · Rules</button>
+                </div>
+
+                <!-- 3a · Unit of analysis -->
+                <div class="sf-sub" data-sub="1">
+                  <h4 class="sf-q">1. What is the unit of interest you want to extract?</h4>
+                  <p class="muted sf-hint">The thing you get <b>one row per</b> in your dataset. Pick the closest template, or <b>Other</b> to start from scratch.</p>
+                  <div class="unit-row" id="unit-presets"></div>
+                  <fieldset class="sf-section" id="unit-block" hidden>
+                    <legend>Unit of analysis</legend>
+                    <div class="sf-row">
+                      <div class="wf-field"><label><span class="hl" data-tip="The single repeated thing you pull from each paper — the grain you want one row per.&#10;&#10;AI-and-labour: a 'finding' — one estimated effect of AI/automation on a labour outcome.&#10;Econometrics: a 'regression' — one model in a results table.&#10;&#10;Example: in 'automation cut routine employment by 12% (β=-0.12)', the unit is one finding.">Name of one unit</span></label><input id="sf-unit" placeholder="e.g. finding"/><div class="sf-help">Singular noun — e.g. "finding" not "findings".</div></div>
+                      <div class="wf-field"><label><span class="hl" data-tip="'Many' if a paper reports several units (e.g. many regressions in Table 3) — the records[] array IS your output table. 'Exactly one' for a single unit per paper (e.g. one scale validation).">How many per paper?</span></label>
+                        <div class="radio-row">
+                          <label class="radio"><input type="radio" name="sf-card" value="one"/> Exactly one</label>
+                          <label class="radio"><input type="radio" name="sf-card" value="many" checked/> Many</label>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="wf-field"><label><span class="hl" data-tip="The name shown for each extracted record in the review list (the left sidebar of the workspace).&#10;&#10;Build it from any field with {field_name}.&#10;Example: '{subtopic}: {metric}' → 'Wages: elasticity'. Blank = 'Record 1, 2, …'.">Record label (optional)</span></label><input id="sf-label" placeholder="e.g. {subtopic}: {metric}"/><div class="sf-help">How each record is named in the review list — build it from fields with <code>{field_name}</code>. Blank = a numbered counter.</div></div>
+                    <div class="wf-field"><label><span class="hl" data-tip="Which extracted field is the record's stable id — used to attach evidence and corrections.&#10;&#10;Example: regression_id = 'T3-col2', or finding_id = 'F1'. Blank = auto-numbered.">Identifier field (optional)</span></label><input id="sf-id" placeholder="e.g. finding_type"/><div class="sf-help">Which field becomes the canonical <code>sample_id</code> for evidence + corrections. Blank = auto-generated id.</div></div>
+                  </fieldset>
+                </div>
+
+                <!-- 3b · Fields & tabs -->
+                <div class="sf-sub" data-sub="2" hidden>
+                  <fieldset class="sf-section" id="tabsblock" hidden>
+                    <legend>Review tabs</legend>
+                    <p class="muted sf-hint">Panels that group your fields in the review UI — each gets its own confidence rating. Assign each field to a tab below.</p>
+                    <div id="sf-tabs"></div>
+                    <button type="button" class="btn btn-ghost" id="addtab">+ Add tab</button>
+                  </fieldset>
+                  <button type="button" class="btn btn-ghost" id="tabsadd" hidden style="margin-bottom:6px">+ Group fields into review tabs</button>
+                  <div class="sf-q" style="font-size:14px;margin:16px 0 4px">Fields of each <b id="sf-unit-echo">record</b></div>
+                  <p class="muted sf-hint" style="margin:0 0 8px">Each field has a <b>type</b> — most are <b>Values</b>; use <b>List</b> for an array of values, and <b>Table</b> only when a single field is itself a sub-table (e.g. a regression's coefficients across regressors, or a correlation matrix). "Many per paper" already gives you one row per unit — you don't need a Table for that.</p>
+                  <div id="sf-fields"></div>
+                  <button type="button" class="btn btn-ghost" id="addfield">+ Add field</button>
+                </div>
+
+                <!-- 3c · Paper-level metadata -->
+                <div class="sf-sub" data-sub="3" hidden>
+                  <p class="muted sf-hint">Fields extracted once per paper, not per-unit. <code>title</code> / <code>doi</code> / <code>year</code> / <code>authors</code> are always included. Add additional fields below, one per line, in <code>name: description</code> format.</p>
+                  <textarea id="sf-meta" class="sf-ta" placeholder="domain: knowledge work | game | …&#10;study_type: lab_rct | field_rct | …&#10;n: total sample size in the paper"></textarea>
+                </div>
+
+                <!-- 3d · Rules -->
+                <div class="sf-sub" data-sub="4" hidden>
+                  <p class="muted sf-hint">Anything that doesn't fit a structured field — domain-specific rules, edge cases, definitions, references to existing extraction protocols.</p>
+                  <div class="wf-field"><label>Rules &amp; extra context (optional)</label>
+                    <textarea id="sf-context" class="sf-ta" placeholder="E.g. For papers reporting multiple effect sizes from one experimental design, extract each as a separate finding. For meta-analyses, record the meta-analytic summary as one finding."></textarea></div>
+                </div>
+
+                <div class="wf-actions">
+                  <button type="button" class="btn btn-ghost" id="sfBack">Back</button>
+                  <button type="button" class="btn btn-primary" id="sfNext">Next ▸</button>
+                </div>
+              </div>
+
+              <!-- freeform (write/paste your own) -->
+              <div id="pasteflow" hidden>
+                <p class="muted" style="font-size:13px">Write or paste your prompt. It should instruct the model to return one JSON object with a <code>records</code> array and an <code>evidence</code> array.</p>
+                <textarea id="pastebox" class="promptbox"></textarea>
+                <div class="wf-actions">
+                  <button class="btn btn-ghost" data-back="2">Back</button>
+                  <button class="btn btn-primary" id="usepaste">Continue</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 4 · Review prompt -->
+          <section class="acc-step" data-step="4">
+            <div class="acc-head"><span class="acc-num">4</span><span class="acc-title">Review prompt</span><span class="acc-sum"></span><span class="acc-chev">▾</span></div>
+            <div class="acc-body">
+              <p class="muted" style="font-size:13px">This is the exact prompt sent to the model — edit it if you like.</p>
+              <textarea id="prompt" class="promptbox"></textarea>
+              <div class="wf-actions">
+                <button class="btn btn-ghost" data-back="2">Back</button>
+                <button class="btn btn-primary" id="next4">Looks good</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 5 · Upload & extract -->
+          <section class="acc-step" data-step="5">
+            <div class="acc-head"><span class="acc-num">5</span><span class="acc-title">Upload &amp; extract</span><span class="acc-sum"></span><span class="acc-chev">▾</span></div>
+            <div class="acc-body">
+              <div class="dropzone" id="dropzone">
+                <div class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></div>
+                <div class="dz-title">Drag &amp; drop your papers here</div>
+                <div class="dz-sub">or click to browse — PDF, one or more</div>
+                <input id="pdf" type="file" accept="application/pdf" multiple hidden/>
+              </div>
+              <div class="filelist" id="filelist"></div>
+              <p class="muted" style="font-size:12px;margin:10px 0 0">Extraction runs through your selected model — expect roughly <b>~1 minute per paper</b> (longer for large PDFs). You can queue several at once; they run one after another.</p>
+              <div class="wf-actions" style="justify-content:flex-start">
+                <button class="btn btn-ghost" data-back="4">Back</button>
+                <button id="run" class="btn btn-primary">Run extraction</button>
+                <span id="status" class="muted" style="align-self:center"></span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div id="result"></div>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/static/extract.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

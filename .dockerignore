@@ -1,0 +1,13 @@
+.venv
+.git
+.gitignore
+.artifacts
+dump.rdb
+tests
+docs
+_archive
+**/__pycache__
+*.pyc
+.pytest_cache
+.claude
+scratchpad

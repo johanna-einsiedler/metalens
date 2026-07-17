@@ -1,0 +1,72 @@
+{
+  "id":                "human-ai-collab",
+  "title":             "Human–AI collaboration",
+  "tagline":           "Human–AI collaboration meta-analysis: one record per condition (all variables per entry; constant ones shown once as study info).",
+  "description":       "Extracts a human–AI collaboration experiment per a pre-registered data dictionary. Every variable is extracted at the condition (entry) level — experimental design, task (domain/data/output/type), AI system (incl. LLM descriptors), collaboration design, evaluation measures, participants, and human / AI / human+AI performance means and SDs. The reviewer shows fields that are identical across all conditions once in a shared study-information panel, and the varying ones per condition. Raw reported values only; enumeration/derived columns are added downstream.",
+  "mode":              "extraction",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Extract one record per experimental condition with the full field set; constant fields are shown once as study info.",
+  "context":           "Human–AI collaboration / decision-support experiments comparing human-alone, AI-alone, and human+AI performance across one or more conditions.",
+  "prompt_file":       "human-ai-collab.prompt.md",
+  "sub_views": [
+    {
+      "id":            "design",
+      "label":         "Design",
+      "include_keys":  ["Pre_Registration", "Research_Design"],
+      "evidence_keys": ["Pre_Registration", "Research_Design"]
+    },
+    {
+      "id":            "task",
+      "label":         "Task",
+      "include_keys":  ["Task_Desc", "Task_Domain", "Task_Data", "Task_Output", "Task_Type"],
+      "evidence_keys": ["Task_Desc", "Task_Domain", "Task_Output", "Task_Type"]
+    },
+    {
+      "id":            "ai-system",
+      "label":         "AI system",
+      "include_keys":  ["AI_Type", "AI_Data_In", "AI_Data_Out", "LLM_Model", "LLM_Version",
+                        "Prompting_Strategy", "Multi_Agent", "Multi_Agent_Count", "Fine_Tuned"],
+      "evidence_keys": ["AI_Type", "LLM_Model", "Prompting_Strategy", "Multi_Agent", "Fine_Tuned"]
+    },
+    {
+      "id":            "collaboration",
+      "label":         "Collaboration",
+      "include_keys":  ["Condition_Name", "Final_Decision", "Division_Labor", "AI_Expl_Incl",
+                        "AI_Conf_Incl", "AI_Expl_Type", "Interface_Modality", "Interaction_Turns"],
+      "evidence_keys": ["Condition_Name", "Final_Decision", "AI_Expl_Incl", "AI_Conf_Incl", "AI_Expl_Type"]
+    },
+    {
+      "id":            "evaluation",
+      "label":         "Evaluation",
+      "include_keys":  ["Perf_Metric", "Perf_Dir", "Tail_Performance", "Effect_Size_Measure",
+                        "Significance_Test"],
+      "evidence_keys": ["Perf_Metric", "Tail_Performance", "Effect_Size_Measure", "Significance_Test"]
+    },
+    {
+      "id":            "sample",
+      "label":         "Sample",
+      "include_keys":  ["Participant_Type", "Participant_Source", "N_Human", "N_HumanAI"],
+      "evidence_keys": ["Participant_Type", "Participant_Source", "N_Human", "N_HumanAI"]
+    },
+    {
+      "id":            "performance",
+      "label":         "Performance",
+      "include_keys":  ["Avg_Perf_Human", "Sd_Perf_Human", "Avg_Perf_AI", "Sd_Perf_AI",
+                        "Avg_Perf_HumanAI", "Sd_Perf_HumanAI"],
+      "evidence_keys": ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI",
+                        "Sd_Perf_Human", "Sd_Perf_AI", "Sd_Perf_HumanAI"]
+    },
+    {
+      "id":            "outcomes",
+      "label":         "Additional outcomes",
+      "include_keys":  ["Time_On_Task", "Trust_Measured", "Reliance", "Cognitive_Load",
+                        "Usability_Satisfaction", "HumanAI_Agreement", "Data_Contamination_Checked",
+                        "Notes"],
+      "evidence_keys": ["Time_On_Task", "Trust_Measured", "Reliance", "Cognitive_Load",
+                        "Usability_Satisfaction", "HumanAI_Agreement", "Data_Contamination_Checked"]
+    }
+  ],
+  "skip_to":           "setup",
+  "accent_color":      "#0f766e"
+}

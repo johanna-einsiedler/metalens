@@ -1,0 +1,52 @@
+{
+  "id":                "masem-ncs18",
+  "title":             "MASEMiner — factor loadings & correlations",
+  "tagline":           "Extract item-level factor loadings, inter-factor correlations, and study metadata for a target scale (MASEM, indirect)",
+  "description":       "MASEMiner — factor-loadings variant.  Extracts item-level factor loadings and inter-factor correlations (plus study/sample metadata) for a psychometric scale across primary factor-analytic studies.  Generic across scales — name your scale and items in the prompt; the sibling variant extracts pairwise effect sizes instead.",
+  "mode":              "extraction",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Extract factor-analytic data — item-level factor loadings, inter-factor correlations, and study/sample metadata — for the target scale, for every sample reported in the paper.",
+  "context":           "Papers report factor-analytic / psychometric studies (EFA/CFA) of a target scale: item-level loadings and inter-factor correlations across one or more samples.",
+  "prompt_template_file": "masem.template.md",
+  "template_params": {
+    "scale_name":           "",
+    "instrument_name":      "",
+    "instrument_name_long": "",
+    "n_items":              null,
+    "n_factors":            null,
+    "factor_naming":        [],
+    "cfa_item_assignment":  {},
+    "data_sources":         ["factor_loadings", "factor_correlations"],
+    "content_scope":        "concrete_items",
+    "item_texts":           [],
+    "include_item_texts":   false,
+    "variables":            [],
+    "study_characteristics_text": ""
+  },
+  "sub_views": [
+    {
+      "id":              "loadings",
+      "label":           "Factor loadings",
+      "include_keys":    ["sample_id", "factor_loadings"],
+      "evidence_keys":   ["factor_loadings"],
+      "confidence_keys": ["factor_loadings"]
+    },
+    {
+      "id":              "correlations",
+      "label":           "Correlations",
+      "include_keys":    ["factor_correlations"],
+      "evidence_keys":   ["factor_correlations"],
+      "confidence_keys": ["factor_correlations"]
+    },
+    {
+      "id":              "descriptives",
+      "label":           "Descriptives",
+      "exclude_keys":    ["factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"],
+      "confidence_keys": ["metadata"]
+    }
+  ],
+  "skip_to":           "setup",
+  "accent_color":      "#1d4a8c",
+  "landing_hidden":    true
+}

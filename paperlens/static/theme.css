@@ -1,0 +1,93 @@
+/* PaperLens theme tokens — the SINGLE source of palette truth.
+ *
+ * RULE: no raw hex anywhere else in static/*.css. Every other stylesheet
+ * references these vars only. Enforced by the review grep gate:
+ *   grep -rE '#[0-9a-fA-F]{3,6}' static/*.css | grep -v theme.css   # -> empty
+ * This is what keeps the palette swappable for org branding (the `theme`
+ * table's `tokens jsonb` can later be injected as an inline <style>).
+ *
+ * Default = the proven paper.metalens.tech teal-navy + mint system.
+ */
+:root {
+  /* brand / accent (teal-navy) */
+  --accent:        #1b485e;
+  --accent-dark:   #122740;
+  --accent-2:      #367380;   /* teal */
+  --accent-3:      #9cbcc4;   /* light teal */
+  --accent-wash:   #e9f4e7;   /* mint hover/selection wash */
+
+  /* surfaces */
+  --bg:            #f5f5f5;
+  --surface:       #ffffff;
+  --border:        #d6dde2;
+  --border-focus:  #9cbcc4;
+
+  /* text */
+  --text:          #122740;
+  --text-muted:    #5a6b78;
+  --on-accent:     #ffffff;
+
+  /* the signature evidence highlight + focus states */
+  --highlight:        rgba(250, 204, 21, 0.25);
+  --highlight-focus:  rgba(54, 115, 128, 0.32);
+  --highlight-stroke: rgba(27, 72, 94, 0.95);
+  --green-focus:      rgba(34, 197, 94, 0.20);
+  --green-stroke:     rgba(22, 163, 74, 0.95);
+
+  /* semantic */
+  --success:       #247a24;
+  --success-bg:    #e3f5e3;
+  --error:         #c93434;
+  --error-bg:      #fdeaea;
+  --override-bg:   #fefce8;   /* edited-value wash */
+  --override-line: #eab308;
+  --rose-wash:     #fbf2f4;   /* subtle rose for nested sub-field cards */
+
+  /* confidence badges */
+  --conf-high:     #1c6a37; --conf-high-bg:  #e7f7ec; --conf-high-bd:  #2f9e54;
+  --conf-med:      #7d5a02; --conf-med-bg:   #fdf5d3; --conf-med-bd:   #c79412;
+  --conf-low:      #8a1f1f; --conf-low-bg:   #fde7e7; --conf-low-bd:   #c93434;
+
+  /* categorical series palette + axes (D3 dashboard charts) */
+  --series-1: #1b485e; --series-2: #367380; --series-3: #c79412; --series-4: #2f9e54;
+  --series-5: #c93434; --series-6: #7a5ea8; --series-7: #9cbcc4; --series-8: #a86b32;
+  --ax-line:  #d6dde2;   /* axis / gridlines (= border) */
+  --ax-text:  #5a6b78;   /* axis labels (= text-muted) */
+  --mark:     #1b485e;   /* default single-series mark (= accent) */
+  --mark-2:   #367380;   /* secondary mark / reference */
+
+  /* type, radius, shadow */
+  --font:      "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius:    12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 3px rgba(18, 39, 64, .06);
+  --shadow-md: 0 4px 12px rgba(18, 39, 64, .08);
+}
+
+/* Example org re-skin via data attribute (kept here so the swap mechanism is
+   visible; an org theme would inject its own block from the `theme` table). */
+body[data-theme="maseminer"] {
+  --accent: #1d4a8c; --accent-dark: #122a4d; --accent-2: #2d8aa3;
+  --accent-3: #9ec9d5; --accent-wash: #eef6f9; --bg: #ffffff;
+}
+
+/* ── dashboard "vibe" palette presets (chosen in the builder's style step) ──
+   Each re-skins only the chart marks/series so a dashboard adopts a look without
+   touching app chrome. Applied via <body data-vibe="…"> on the analysis page. */
+body[data-vibe="journal"] {   /* muted, print-like (Economist/QJE feel) */
+  --mark: #1b485e; --mark-2: #a8324a;
+  --series-1: #1b485e; --series-2: #a8324a; --series-3: #c79412; --series-4: #5a6b78;
+  --series-5: #367380; --series-6: #7a5ea8; --series-7: #9cbcc4; --series-8: #a86b32;
+}
+body[data-vibe="nature"] {    /* teal/green science palette */
+  --mark: #2f6f6f; --mark-2: #2f9e54;
+  --series-1: #2f6f6f; --series-2: #2f9e54; --series-3: #367380; --series-4: #7aa532;
+  --series-5: #c79412; --series-6: #1b485e; --series-7: #9cbcc4; --series-8: #a86b32;
+}
+body[data-vibe="vivid"] {     /* high-contrast categorical */
+  --mark: #2b6cb0; --mark-2: #dd6b20;
+  --series-1: #2b6cb0; --series-2: #dd6b20; --series-3: #38a169; --series-4: #d53f8c;
+  --series-5: #805ad5; --series-6: #d69e2e; --series-7: #319795; --series-8: #718096;
+}

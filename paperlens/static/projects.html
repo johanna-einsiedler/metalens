@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — my workspace</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+  <main class="wrap" style="padding-top:24px">
+    <h2 style="margin:0 0 4px">My Workspace</h2>
+    <p class="muted" id="psub" style="margin:0 0 22px">Your datasets, presets and analyses.</p>
+
+    <section class="ws-section">
+      <div class="ws-head">
+        <h3>Datasets</h3>
+        <a class="btn btn-primary btn-sm" href="/extract">＋ New extraction</a>
+      </div>
+      <p class="muted ws-hint">Extracted records. Open one to add papers, review, or publish.</p>
+      <div id="datasets" class="proj-grid"></div>
+    </section>
+
+    <section class="ws-section">
+      <div class="ws-head">
+        <h3>Presets</h3>
+        <a class="btn btn-primary btn-sm" href="/preset">＋ New preset</a>
+      </div>
+      <p class="muted ws-hint">Your own extraction presets (prompt + review tabs). Pick them on the extract page; publishing a dataset built with one shares it.</p>
+      <div id="presets" class="proj-grid"></div>
+    </section>
+
+    <section class="ws-section">
+      <div class="ws-head">
+        <h3>Analyses</h3>
+        <span class="btn btn-primary btn-sm is-disabled" aria-disabled="true" title="Coming soon">＋ New analysis (coming soon)</span>
+      </div>
+      <p class="muted ws-hint">Saved views &amp; dashboards over one or more of your datasets.</p>
+      <div id="analyses" class="proj-grid"></div>
+    </section>
+  </main>
+  <script type="module" src="/static/projects.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

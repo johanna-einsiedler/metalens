@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — dataset</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/grid.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+  <main class="wrap" style="padding-top:24px;max-width:900px">
+    <a class="muted" href="/projects" style="font-size:12.5px">← My Workspace</a>
+    <div id="ds-body"><p class="muted" style="margin-top:18px">Loading…</p></div>
+  </main>
+  <script type="module" src="/static/dataset.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

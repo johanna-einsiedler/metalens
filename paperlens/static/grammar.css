@@ -1,0 +1,92 @@
+/* PaperLens record-rendering grammar — rv-* result grid, ev-* evidence,
+ * confidence badges, editable cells, PDF highlight overlay. Tokens only. */
+
+.rv-root { font-size: 13px; }
+.rv-obj { display: grid; grid-template-columns: auto 1fr; width: 100%; }
+.rv-row { display: contents; }
+.rv-key { font-weight: 600; color: var(--text-muted); white-space: nowrap;
+  padding: 6px 14px 6px 0; border-bottom: 1px solid var(--border); }
+.rv-val { color: var(--text); padding: 6px 0; border-bottom: 1px solid var(--border);
+  line-height: 1.5; word-break: break-word; }
+.rv-val.rv-nested { padding: 4px 0; }
+.rv-num { color: var(--accent-2); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.rv-null { color: var(--text-muted); font-style: italic; }
+
+.rv-table { border-collapse: collapse; font-size: 12.5px; margin: 2px 0; }
+.rv-table th, .rv-table td { border: 1px solid var(--border); padding: 3px 8px; text-align: left;
+  vertical-align: top; }
+.rv-table th { background: var(--bg); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+
+/* edit-in-place — corrections route through the verification layer */
+.rv-editable { cursor: text; border-bottom: 1px dashed transparent; border-radius: 3px; padding: 0 2px;
+  transition: background .15s, border-color .15s; }
+.rv-editable:hover { background: var(--accent-wash); border-bottom-color: var(--accent); }
+.rv-editable:focus { outline: none; background: var(--accent-wash); box-shadow: 0 0 0 2px var(--accent-wash); }
+.rv-edited { background: var(--override-bg); border-bottom: 2px solid var(--override-line); border-radius: 2px 2px 0 0; }
+
+/* confidence badges */
+.confidence-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.confidence-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid; }
+.confidence-high { background: var(--conf-high-bg); border-color: var(--conf-high-bd); color: var(--conf-high); }
+.confidence-medium { background: var(--conf-med-bg); border-color: var(--conf-med-bd); color: var(--conf-med); }
+.confidence-low { background: var(--conf-low-bg); border-color: var(--conf-low-bd); color: var(--conf-low); }
+
+/* evidence blocks (detail panel) */
+.ev-block { border-left: 3px solid var(--accent); padding-left: 12px; margin: 8px 0; }
+.ev-snippet { font-size: 12.5px; font-style: italic; color: var(--text); line-height: 1.6; margin: 0 0 6px; }
+.ev-snippet::before { content: "\201C"; } .ev-snippet::after { content: "\201D"; }
+.ev-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.ev-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: var(--bg); color: var(--text-muted); font-family: var(--font-mono); }
+.ev-tag.ev-page { background: var(--accent-wash); color: var(--accent); }
+.ev-tag.ev-source { background: var(--success-bg); color: var(--success); }
+
+/* PDF page + highlight overlay (the signature evidence trace) */
+.page { position: relative; max-width: 900px; margin: 0 auto 18px; background: var(--surface);
+  box-shadow: var(--shadow-sm); }
+.pageimg { display: block; width: 100%; }
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pagelabel { position: absolute; top: 4px; left: 4px; background: var(--accent); color: var(--on-accent);
+  font-size: 11px; padding: 1px 6px; border-radius: 3px; z-index: 2; }
+rect.hl { fill: var(--highlight); stroke: none; }
+rect.hl.hot { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2; }
+.val-check { font-size: 11px; color: var(--conf-med); margin-left: 8px; cursor: help; white-space: nowrap; }
+rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2.5;
+  animation: hl-pulse .5s ease 0s 3; }
+@keyframes hl-pulse { 50% { fill: var(--green-focus); stroke: var(--green-stroke); } }
+
+/* an extracted value that has linked evidence — hover previews, click jumps */
+.rv-linked { cursor: pointer; border-bottom: 1px dotted var(--accent-3); }
+.rv-linked:hover { background: var(--highlight); }
+
+/* per-record card (panel) */
+.record { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px;
+  background: var(--surface); }
+/* study-level info shown once above the per-condition entries */
+.study-block { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
+  padding: 8px 12px; margin-bottom: 14px; }
+.study-block > summary { cursor: pointer; font-weight: 600; }
+.study-block .study-body { margin-top: 8px; }
+.study-block .study-shared { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.study-block .study-sub { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+.record.focus { animation: rec-focus 2.3s ease; }
+@keyframes rec-focus { 0%, 100% { box-shadow: none; } 12%, 62% { box-shadow: 0 0 0 3px var(--accent-wash); border-color: var(--accent); } }
+.rectitle { font-weight: 600; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; }
+.recdel { margin-left: auto; border: none; background: none; cursor: pointer; font-size: 12px; opacity: .4; }
+.recdel:hover { opacity: 1; }
+
+/* sub-view tabs (metadata / correlations / effect sizes …) inside a record card */
+.subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; border-bottom: 1px solid var(--border); }
+.subtab { font-size: 11.5px; border: 1px solid transparent; border-bottom: none; background: none; cursor: pointer;
+  padding: 4px 10px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--text-muted); margin-bottom: -1px; }
+.subtab:hover { color: var(--text); }
+.subtab.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
+.subpanel.hidden { display: none; }
+.verify { display: flex; gap: 6px; margin-bottom: 10px; }
+.vbtn { font-size: 11px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
+  padding: 3px 9px; cursor: pointer; }
+.vbtn.ok:hover { background: var(--success-bg); border-color: var(--success); color: var(--success); }
+.vbtn.flag:hover { background: var(--error-bg); border-color: var(--error); color: var(--error); }
+.vbtn:disabled { opacity: .5; cursor: default; }
+.chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }

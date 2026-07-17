@@ -1,0 +1,45 @@
+{
+  "id":                "hai-screening",
+  "title":             "Human–AI screening",
+  "tagline":           "Screen a paper for eligibility in a human–AI collaboration meta-analysis (pre-registered inclusion/exclusion criteria) — one verdict per paper.",
+  "description":       "Applicability screening for a human–AI collaboration meta-analysis. Returns one verdict per paper: whether it is an original human–AI collaboration experiment that reports human-alone, AI-alone, AND human–AI performance quantitatively, includes the experimental design, per-condition N, and per-condition SD (or enough to compute it), is in English, and is not a review/meta-analysis/theoretical/qualitative/commentary/opinion/simulation. Each criterion is answered with verbatim evidence, and an overall Eligible = Yes/No decision with the failing reasons.",
+  "mode":              "extraction",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Screen a paper against the pre-registered human–AI collaboration inclusion/exclusion criteria and return one eligibility verdict with per-criterion answers and evidence.",
+  "context":           "Applicability screening step that runs BEFORE data extraction: decide whether a paper fits the meta-analysis before pulling its numbers with the Human–AI collaboration extractor.",
+  "prompt_file":       "hai-screening.prompt.md",
+  "sub_views": [
+    {
+      "id":            "verdict",
+      "label":         "Verdict",
+      "include_keys":  ["Eligible", "Study_Type", "Excluded_By_Type", "Exclusion_Reasons",
+                        "Screening_Notes"],
+      "evidence_keys": ["Eligible", "Study_Type", "Excluded_By_Type"]
+    },
+    {
+      "id":            "performance",
+      "label":         "Performance reported",
+      "include_keys":  ["Reports_Human_Alone", "Reports_AI_Alone", "Reports_HumanAI",
+                        "Quantitative_Measure"],
+      "evidence_keys": ["Reports_Human_Alone", "Reports_AI_Alone", "Reports_HumanAI",
+                        "Quantitative_Measure"]
+    },
+    {
+      "id":            "statistics",
+      "label":         "Statistics available",
+      "include_keys":  ["Reports_Experimental_Design", "Reports_N_Per_Condition",
+                        "Reports_SD_Per_Condition"],
+      "evidence_keys": ["Reports_Experimental_Design", "Reports_N_Per_Condition",
+                        "Reports_SD_Per_Condition"]
+    },
+    {
+      "id":            "eligibility",
+      "label":         "Scope",
+      "include_keys":  ["Is_Original_Experiment", "Is_English"],
+      "evidence_keys": ["Is_Original_Experiment", "Is_English"]
+    }
+  ],
+  "skip_to":           "setup",
+  "accent_color":      "#9a3412"
+}

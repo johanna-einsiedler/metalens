@@ -1,0 +1,72 @@
+/* D3 dashboard figures — classes only; all colour comes from theme.css tokens
+ * (keeps the no-raw-hex-outside-theme.css grep gate green). */
+
+/* dashboard grid */
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; }
+.dash-fig { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px;
+  background: var(--surface); box-shadow: var(--shadow-sm); min-width: 0; }
+.dash-fig-h { font-weight: 600; margin: 0 0 2px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fig-data-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); cursor: pointer;
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.fig-data-btn:hover { color: var(--accent); border-color: var(--accent-3); }
+
+/* interactive marks */
+.fig-svg .mark, .fig-svg circle, .fig-svg rect.mark { transition: fill-opacity .1s; }
+
+/* data-behind-figure panel */
+.trace-panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+  box-shadow: var(--shadow-sm); margin: 16px 0 8px; overflow: hidden; }
+.trace-panel .tp-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.trace-panel .tp-x { margin-left: auto; border: none; background: none; cursor: pointer; font-size: 14px; opacity: .5; }
+.trace-panel .tp-x:hover { opacity: 1; }
+.trace-panel .tp-body { padding: 0; }
+.tp-scroll { overflow-x: auto; }
+.tp-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.tp-table th, .tp-table td { text-align: left; padding: 7px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+.tp-table thead th { border-top: none; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.tp-table .tp-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-table .tp-ev { color: var(--text-muted); font-style: italic; max-width: 340px; }
+.tp-table a { white-space: nowrap; }
+.dash-fig-q { font-size: 12px; color: var(--text-muted); margin: 0 0 8px; }
+.dash-fig-n { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.dash-fig.insufficient { opacity: .6; }
+.dash-fig .nodata { font-size: 12.5px; color: var(--text-muted); padding: 24px 0; text-align: center; }
+
+/* svg chart primitives */
+.fig-svg { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--font); }
+.fig-svg text { font-size: 11px; fill: var(--text); }
+
+/* axes / gridlines */
+.ax path, .ax line { stroke: var(--ax-line); shape-rendering: crispEdges; }
+.ax text { fill: var(--ax-text); font-size: 10.5px; }
+.ax-title { fill: var(--text-muted); font-size: 11px; font-weight: 600; }
+.grid line { stroke: var(--ax-line); stroke-opacity: .55; }
+.grid path { stroke: none; }
+
+/* marks — single-series default + categorical series classes */
+.mark        { fill: var(--mark); }
+.mark-stroke { stroke: var(--mark); fill: none; stroke-width: 1.8; }
+.series-1 { fill: var(--series-1); } .series-2 { fill: var(--series-2); }
+.series-3 { fill: var(--series-3); } .series-4 { fill: var(--series-4); }
+.series-5 { fill: var(--series-5); } .series-6 { fill: var(--series-6); }
+.series-7 { fill: var(--series-7); } .series-8 { fill: var(--series-8); }
+.stroke-1 { stroke: var(--series-1); } .stroke-2 { stroke: var(--series-2); }
+.stroke-3 { stroke: var(--series-3); } .stroke-4 { stroke: var(--series-4); }
+.stroke-5 { stroke: var(--series-5); } .stroke-6 { stroke: var(--series-6); }
+.stroke-7 { stroke: var(--series-7); } .stroke-8 { stroke: var(--series-8); }
+
+/* forest / CI plot */
+.forest-line { stroke: var(--mark); stroke-width: 1.5; }
+.forest-dot  { fill: var(--mark); }
+.forest-ref  { stroke: var(--text-muted); stroke-dasharray: 3 3; stroke-width: 1; }
+
+/* raw model-output JSON (builder + analysis page) */
+.raw-json { white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: 11.5px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin: 8px 0; max-height: 340px; overflow: auto; color: var(--text); }
+.raw-details summary { cursor: pointer; font-size: 12.5px; color: var(--accent); margin: 0 0 6px; }
+
+/* legend */
+.fig-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 11.5px; }
+.fig-legend .lg { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
+.fig-legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }

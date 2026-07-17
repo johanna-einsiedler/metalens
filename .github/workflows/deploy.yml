@@ -1,0 +1,26 @@
+name: Deploy to Fly.io
+
+# Auto-deploy on every push to main. Requires a repo secret FLY_API_TOKEN:
+#   fly tokens create deploy -x 8760h   # then: gh secret set FLY_API_TOKEN
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # allow manual re-deploys from the Actions tab
+
+# never run two deploys at once; let an in-flight deploy finish before the next
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy app + worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # --remote-only builds on Fly's builders (no Docker needed on the runner).
+      # release_command in fly.toml runs records.init_db (idempotent migrations).
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

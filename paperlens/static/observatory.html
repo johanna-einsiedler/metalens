@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — examples</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <select id="viewpicker"><option>Loading…</option></select>
+    <button id="refresh" class="btn btn-ghost" title="re-run over current records">↻ recompute</button>
+    <span id="account" class="account"></span>
+  </header>
+  <main class="obs"><div class="wrap">
+    <div id="summary" class="muted"></div>
+    <div id="chart"></div>
+    <table id="tbl"></table>
+    <p id="attrib" class="muted"></p>
+  </div></main>
+  <script src="/static/observatory.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

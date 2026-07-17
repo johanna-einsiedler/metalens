@@ -1,0 +1,66 @@
+# Metalens beta — Fly.io deployment (beta.metalens.tech).
+#
+# Two processes off one image: `app` (web) and `worker` (arq). Postgres + Redis are
+# managed services; PDFs/page images live in Cloudflare R2 (S3-compatible). The whole
+# site sits behind a shared-password HTTP Basic Auth gate (PAPERLENS_BASIC_PASSWORD).
+#
+# One-time setup:
+#   fly launch --no-deploy --name metalens-beta        # or `fly apps create metalens-beta`
+#   fly secrets set \
+#     PAPERLENS_DATABASE_URL="postgres://…"  \          # managed Postgres DSN
+#     PAPERLENS_REDIS_URL="rediss://…"       \          # Upstash/Fly Redis (TLS ok)
+#     PAPERLENS_SECRET="$(openssl rand -hex 32)" \      # artifact-token HMAC key
+#     PAPERLENS_BASIC_PASSWORD="choose-a-beta-password" \
+#     PAPERLENS_S3_BUCKET="metalens" PAPERLENS_S3_ENDPOINT="https://<acct>.r2.cloudflarestorage.com" \
+#     AWS_ACCESS_KEY_ID="…" AWS_SECRET_ACCESS_KEY="…" AWS_REGION="auto"
+#   # optional — enable Metalens credits (keyless extraction) and GitHub publishing.
+#   # The credit model (PAPERLENS_CREDIT_MODEL) defaults to gemini-3.1-pro-preview in [env]
+#   # below, so credits need a GOOGLE key; change that model to switch providers.
+#   fly secrets set PAPERLENS_GOOGLE_KEY="AIza…"
+#   fly secrets set PAPERLENS_GITHUB_TOKEN="ghp_…"
+#   fly deploy
+#   fly certs add beta.metalens.tech      # then add the shown CNAME/A records in DNS
+#   fly ssh console -C "python scripts/create_user.py --credits 25"   # seed martin/testtest
+#
+# Leave PAPERLENS_S3_PUBLIC_URL UNSET so page-image URLs are short-lived presigned GETs.
+
+app = "metalens-beta"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PAPERLENS_STORAGE = "s3"
+  PAPERLENS_SECURE_COOKIES = "1"
+  PAPERLENS_BASIC_USER = "beta"
+  # Model used for keyless "Metalens credits" extraction (Gemini → needs PAPERLENS_GOOGLE_KEY).
+  PAPERLENS_CREDIT_MODEL = "gemini-3.1-pro-preview"
+
+[processes]
+  app = "uvicorn paperlens.app:app --host 0.0.0.0 --port 8000"
+  worker = "arq paperlens.worker.WorkerSettings"
+
+# Apply the schema (idempotent) before the new release boots. Runs `python` from the
+# app venv (on PATH) with the app's secrets available.
+[deploy]
+  release_command = "python -c \"from paperlens import records; c=records.connect(); records.init_db(c); c.close()\""
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"          # exempt from the password gate
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  processes = ["app", "worker"]

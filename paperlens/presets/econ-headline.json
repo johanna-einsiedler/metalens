@@ -1,0 +1,52 @@
+{
+  "id":                "econ-headline",
+  "title":             "Econ regressions",
+  "tagline":           "Extract every regression from an empirical-economics paper, group by table, classify headlines, rate confidence per table",
+  "description":       "Empirical-economics regression extractor (v2 schema).  Each paper renders as one synthesised \"Paper metadata\" entry plus one entry per results table.  Each table-entry shows the table-level metadata (caption, page, panels, notes) above an HTML table of the table's regression-columns side-by-side — rows are properties (dependent var / model / FEs / controls / SEs / classification / headline reasoning), columns are the regression-columns from the paper.  Per-table extraction_confidence + per-cell evidence highlighting.",
+  "mode":              "extraction",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Identify every regression-results table in the paper (main body + appendix + online appendix) and extract one entry per regression-column, with everything needed to rerun the regression given access to the underlying data.",
+  "context":           "Empirical-economics workflow for primary studies that report regression results in tables (typical AEJ / AER / QJE format).  One paper → one paper-metadata entry + one entry per table; each table-entry contains every regression-column from that table laid out as an HTML table.",
+  "prompt_template_file": "econ-headline.template.md",
+  "template_params": {
+    "data_sources": [
+      "paper_metadata",
+      "tables"
+    ]
+  },
+  "sub_views": [
+    {
+      "id":              "regmeta",
+      "label":           "Details",
+      "exclude_keys":    ["sample_id"],
+      "evidence_keys":   ["tables", "paper_metadata",
+                          "regressions", "regression_id", "column",
+                          "column_label", "panel", "page",
+                          "table_id", "table_caption", "table_notes",
+                          "panels", "n_regressions",
+                          "dependent_var", "outcome_construction",
+                          "model_type", "displayed_regressors",
+                          "fixed_effects", "continuous_controls",
+                          "non_displayed_coefficients_present",
+                          "iv_instruments", "treatment_definition",
+                          "sample_restrictions", "unit_of_observation",
+                          "time_period", "data_construction_steps",
+                          "weights", "standard_errors", "se_type",
+                          "clustered", "cluster_level", "multiway",
+                          "reported_in_parens",
+                          "is_treatment_effect", "non_treatment_category",
+                          "is_robustness_check",
+                          "headline_classification", "is_headline",
+                          "headline_reasoning", "mentioned_in_narrative",
+                          "preferred_specification",
+                          "not_robustness_or_mechanism",
+                          "critique_override_applied",
+                          "reproduction_notes",
+                          "title", "doi", "authors", "year", "paper_id"],
+      "confidence_keys": ["paper_metadata", "table"]
+    }
+  ],
+  "skip_to":           "setup",
+  "accent_color":      "#2c5aa0"
+}

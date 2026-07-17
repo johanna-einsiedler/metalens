@@ -1,0 +1,73 @@
+/* Cross-record spreadsheet grid (gridview.js). Wide tables scroll inside their own
+   container; the header rows and the leading "#" column stay pinned. Colours are all
+   theme tokens so the raw-hex CSS gate stays empty. */
+
+.grid-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: calc(100vh - 160px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.rec-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.rec-grid th,
+.rec-grid td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* header rows pinned to the top while scrolling */
+.rec-grid thead th {
+  position: sticky;
+  z-index: 2;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.rec-grid thead tr.grid-grp th { top: 0; z-index: 3; border-bottom: 1px solid var(--border); }
+.rec-grid thead tr.grid-col th { top: 29px; color: var(--text-muted); font-weight: 600; }
+.rec-grid thead tr.grid-grp th:not(.grid-idx) { text-align: center; color: var(--accent); background: var(--accent-wash); }
+
+/* the leading "#" column pinned to the left, in both header and body */
+.rec-grid .grid-idx {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+.rec-grid thead .grid-idx { z-index: 4; background: var(--bg); }
+.rec-grid tbody tr:hover td { background: var(--accent-wash); }
+.rec-grid tbody tr:hover .grid-idx { background: var(--accent-wash); }
+
+.grid-clickable { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* a cell whose value has covering evidence → click to source */
+.grid-cell.grid-linked {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--accent);
+}
+.grid-cell.grid-linked:hover { background: var(--highlight); }
+
+/* tiny verification-status dot next to the row index */
+.grid-st { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 5px; }
+.grid-st.verified { background: var(--success); }
+.grid-st.flagged { background: var(--error); }
+
+.grid-note { margin: 8px 2px 0; font-size: 12px; }

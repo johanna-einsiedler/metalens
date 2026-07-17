@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — build an analysis</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/figures.css"/>
+  <!-- d3 as a classic global (runs before the deferred modules below) -->
+  <script src="/static/vendor/d3.v7.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+
+  <main class="wrap" style="padding-top:24px;max-width:1080px">
+    <h2 style="margin:0 0 4px">Build an analysis</h2>
+    <p class="muted" style="margin:0 0 18px">Describe what you want to learn; an AI proposes a dashboard of figures over your data, which you can edit before saving.</p>
+
+    <div id="chooser" hidden>
+      <div class="ch-grid">
+        <button type="button" class="ch-card" id="ch-existing">
+          <div class="ch-ic">📊</div>
+          <div class="ch-t">Use an existing dataset</div>
+          <div class="ch-d">Build a dashboard over data you — or the community — already extracted.</div>
+        </button>
+        <button type="button" class="ch-card" id="ch-scratch">
+          <div class="ch-ic">📄</div>
+          <div class="ch-t">Start from scratch</div>
+          <div class="ch-d">Upload example papers; an AI proposes figures and the data to extract. <span class="ch-soon">coming soon</span></div>
+        </button>
+      </div>
+      <p class="muted" id="ch-note" style="margin:14px 2px 0"></p>
+    </div>
+
+    <section class="bld-card" id="wizard" hidden>
+      <div class="bld-row">
+        <label class="bld-field">
+          <span>Dataset</span>
+          <select id="dspick"><option value="">Loading…</option></select>
+        </label>
+        <label class="bld-field bld-grow">
+          <span>What do you want to learn? (goal)</span>
+          <input id="goal" type="text" placeholder="e.g. how effect sizes vary by study design and year"/>
+        </label>
+      </div>
+      <div class="bld-row">
+        <label class="bld-field"><span>Provider</span><select id="provider"></select></label>
+        <label class="bld-field"><span>Model</span><select id="model"></select></label>
+        <label class="bld-field bld-grow"><span id="keylabel">API key</span>
+          <input id="apikey" type="password" placeholder="sk-… (stored in this browser only)" autocomplete="off"/></label>
+      </div>
+      <div class="bld-actions">
+        <button class="btn btn-primary" id="propose">✦ Propose figures</button>
+        <span id="pstatus" class="muted" style="align-self:center"></span>
+      </div>
+    </section>
+
+    <div id="build" hidden>
+      <div class="bld-split">
+        <section class="bld-editor">
+          <div class="bld-eh"><h3 style="margin:0">Figures</h3>
+            <span style="display:flex;gap:8px">
+              <button class="btn btn-ghost btn-sm" id="viewraw" hidden>⟨⟩ Raw</button>
+              <button class="btn btn-ghost btn-sm" id="addfig">＋ Add figure</button>
+            </span></div>
+          <pre id="rawbox" class="raw-json" hidden></pre>
+          <div id="figcards"></div>
+        </section>
+        <section class="bld-preview">
+          <div class="bld-eh"><h3 style="margin:0">Preview</h3>
+            <label class="bld-field" style="min-width:150px"><span>Style</span>
+              <select id="vibe">
+                <option value="">Default</option>
+                <option value="journal">Journal</option>
+                <option value="nature">Nature</option>
+                <option value="vivid">Vivid</option>
+              </select></label>
+          </div>
+          <div id="preview"></div>
+        </section>
+      </div>
+      <div class="bld-savebar">
+        <label class="bld-field bld-grow"><span>Analysis name</span>
+          <input id="aname" type="text" placeholder="name this analysis"/></label>
+        <label class="radio"><input type="radio" name="avis" value="private" checked/> Private</label>
+        <label class="radio"><input type="radio" name="avis" value="public"/> Public</label>
+        <button class="btn btn-primary" id="save">Save analysis</button>
+        <span id="sstatus" class="muted" style="align-self:center"></span>
+      </div>
+    </div>
+  </main>
+
+  <script type="module" src="/static/builder.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>

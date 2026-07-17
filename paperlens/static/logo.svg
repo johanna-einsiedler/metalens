@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MetaPaperLens — sibling mark to the Metalens logo.
+
+  The M is built from FOUR identical "bar" strokes:
+    - two vertical pillars (left + right)
+    - two diagonals (top-left → V-apex, top-right → V-apex)
+
+  Every bar is the same form: an 80-wide line with `stroke-linecap="round"`,
+  so both ends are capped by a semicircle of radius 40.  No polygons,
+  no paths — just four <line>s with the same stroke + cap recipe.
+
+  The two diagonals share an endpoint at the V-apex (250, 330); their
+  rounded end-caps overlap there to form a single soft rounded apex.
+  The top ends of the diagonals (120, 100) and (380, 100) coincide
+  with the top ends of the pillars, so the pillar caps (drawn last)
+  sit on top and the join reads as a single rounded crown.
+
+  All four bars share one gradient (`mpl-bar`) defined in user space
+  from y=60 to y=440 — so the light teal-mint band runs horizontally
+  across the whole M at the same y-level on every bar.
+
+  Designed to scale cleanly from 24px (favicon) to 240px (hero).
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 500 500"
+     role="img"
+     aria-label="MetaPaperLens logo">
+  <defs>
+    <linearGradient id="mpl-bar" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="60" x2="0" y2="440">
+      <stop offset="0%"   stop-color="#122740"/>
+      <stop offset="42%"  stop-color="#9cbcc4"/>
+      <stop offset="58%"  stop-color="#9cbcc4"/>
+      <stop offset="100%" stop-color="#122740"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Diagonals first so the pillars (drawn next) sit on top at the
+       top-of-M joins.  Both diagonals end at the same V-apex point
+       so their rounded caps merge into a single rounded apex. -->
+  <line x1="120" y1="100" x2="250" y2="330"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+  <line x1="380" y1="100" x2="250" y2="330"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+
+  <!-- Pillars drawn last so their top caps cover the diagonal tops. -->
+  <line x1="120" y1="100" x2="120" y2="400"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+  <line x1="380" y1="100" x2="380" y2="400"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+</svg>

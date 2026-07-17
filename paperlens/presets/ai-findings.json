@@ -1,0 +1,42 @@
+{
+  "id":                "ai-findings",
+  "title":             "AI x labour — findings",
+  "tagline":           "Extract every effect-size finding from each paper, with topical mapping and study-design metadata",
+  "description":       "Empirical AI-and-labour research extractor.  Each paper renders as one synthesised \"Paper metadata\" entry plus one entry per reported finding (effect size, comparison, classification, classification_reasoning).  A single unified Details view per entry — confidence badges (paper_metadata / subtopics / findings) at the top, evidence_idx chips that expand inline with snippet + page + source on click, and click-to-jump cells that green-outline the supporting snippet on the PDF page.",
+  "mode":              "extraction",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Extract every reported finding from the paper — coefficients, confidence intervals, comparisons, and the subtopic each belongs to — plus paper-level metadata (study design, sample, technology type).",
+  "context":           "AI-and-labour research workflow for primary studies that report multiple effect-size findings per paper, classified by subtopic (productivity / inequality / entry-level / substitute-complement).",
+  "prompt_template_file": "ai-findings.template.md",
+  "template_params": {
+    "data_sources": [
+      "effect_size",
+      "comparison",
+      "classification",
+      "paper_metadata"
+    ]
+  },
+  "sub_views": [
+    {
+      "id":              "details",
+      "label":           "Details",
+      "exclude_keys":    ["sample_id"],
+      "evidence_keys":   ["findings", "effect_size", "metric", "value",
+                          "ci_low", "ci_high", "unit", "direction",
+                          "p_value", "evidence_idx", "comparison",
+                          "metric_definition", "note", "classification",
+                          "finding_type", "subtopic",
+                          "classification_reasoning", "outcome", "group",
+                          "paper_metadata", "title", "doi", "year",
+                          "authors", "domain", "study_type", "study_design",
+                          "is_genai", "is_conceptual", "n", "sample",
+                          "topics", "subtopics", "one_line", "qual_notes",
+                          "countries", "weblink", "short", "date", "scale"],
+      "confidence_keys": ["effect_size", "comparison", "classification",
+                          "findings", "paper_metadata", "subtopics"]
+    }
+  ],
+  "skip_to":           "setup",
+  "accent_color":      "#7c3aed"
+}
