@@ -594,23 +594,25 @@ function linkValueCells(card, evs) {
       // read-only cells get the "link" affordance; editable cells keep the text cursor
       // + dashed underline so they still read as editable.
       if (!editable) cell.classList.add("rv-linked");
-    } else if (!editable) {
-      cell.classList.add("rv-probe");    // read-only value with no cited evidence, still locatable on click
+      // TEXT → jump to the cited snippet; NUMBER → verbatim-locate on the evidence page.
+      cell.addEventListener("click", () => verifyAndJump(cell, best));
+      return;
     }
-    // EVERY value cell is clickable: jump to the model's cited evidence when we have it,
-    // otherwise search the PDF for the value itself and highlight it (most fields have no
-    // cited evidence). jumpToEvidence/flashRects only scroll — no focus steal — so an
-    // editable cell still places the caret to type on the same click.
-    cell.addEventListener("click", () => (best ? verifyAndJump(cell, best) : locateAndFlash(cell)));
+    // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay
+    // clickable-to-locate; a text value with no cited snippet has nothing to jump to.
+    if (cell.classList.contains("rv-num")) {
+      if (!editable) cell.classList.add("rv-probe");
+      cell.addEventListener("click", () => locateAndFlash(cell));
+    }
   });
 }
 
-// A value with no model-cited evidence → best-effort: search the PDF for the value's
-// own text and flash wherever it appears. Silent when not found (long free-text often
-// won't match verbatim). Reused for the 40+ fields the model doesn't cite.
+// A NUMERIC value with no model-cited evidence → best-effort: find that exact number in
+// the PDF and flash it. Verbatim search is numeric-only (text values jump to their cited
+// snippet instead, never a verbatim value hunt). Silent when the number isn't found.
 async function locateAndFlash(cell) {
   const txt = (cell.textContent || "").trim();
-  if (!txt || txt === "—" || txt.length > 120) return;   // matches the backend text-locate cap
+  if (!NUM_RE.test(txt)) return;               // numeric-only
   try {
     const r = await api.locateValue(DATA.document_id, txt.replace(/%$/, ""), 1);
     if (r && r.found) flashRects(r.page, r.rects);
