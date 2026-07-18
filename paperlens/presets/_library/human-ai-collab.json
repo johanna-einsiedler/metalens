@@ -1,26 +1,20 @@
 {
   "id":                "human-ai-collab",
   "title":             "Human–AI collaboration",
-  "tagline":           "Human–AI collaboration meta-analysis: one record per condition (all variables per entry; constant ones shown once as study info).",
-  "description":       "Extracts a human–AI collaboration experiment per a pre-registered data dictionary. Every variable is extracted at the condition (entry) level — experimental design, task (domain/data/output/type), AI system (incl. LLM descriptors), collaboration design, evaluation measures, participants, and human / AI / human+AI performance means and SDs. The reviewer shows fields that are identical across all conditions once in a shared study-information panel, and the varying ones per condition. Raw reported values only; enumeration/derived columns are added downstream.",
+  "tagline":           "Human–AI collaboration meta-analysis: one record per condition × metric (all three Perf values per record; study-constant fields shown once as study info).",
+  "description":       "Extracts a human–AI collaboration experiment per a pre-registered data dictionary. One record per experimental condition crossed with each performance metric — each record carries the human-alone, AI-alone and human+AI means and SDs for that condition, plus the study-level task (type/domain/data/output), AI system (incl. LLM descriptors, multi-agent, fine-tuning), collaboration design, and participants. The reviewer shows fields identical across all conditions once in a shared study-information panel, and the varying ones per record. Raw reported values only.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract one record per experimental condition with the full field set; constant fields are shown once as study info.",
+  "task_description":  "Extract one record per experimental condition × metric with the full field set; study-constant fields are shown once as study info.",
   "context":           "Human–AI collaboration / decision-support experiments comparing human-alone, AI-alone, and human+AI performance across one or more conditions.",
   "prompt_file":       "human-ai-collab.prompt.md",
   "sub_views": [
     {
-      "id":            "design",
-      "label":         "Design",
-      "include_keys":  ["Pre_Registration", "Research_Design"],
-      "evidence_keys": ["Pre_Registration", "Research_Design"]
-    },
-    {
-      "id":            "task",
-      "label":         "Task",
-      "include_keys":  ["Task_Desc", "Task_Domain", "Task_Data", "Task_Output", "Task_Type"],
-      "evidence_keys": ["Task_Desc", "Task_Domain", "Task_Output", "Task_Type"]
+      "id":            "task-design",
+      "label":         "Task & design",
+      "include_keys":  ["Task_Type", "Task_Desc", "Task_Domain", "Exp_Design", "Task_Data", "Task_Output"],
+      "evidence_keys": ["Task_Desc", "Task_Domain", "Exp_Design", "Task_Type"]
     },
     {
       "id":            "ai-system",
@@ -32,39 +26,23 @@
     {
       "id":            "collaboration",
       "label":         "Collaboration",
-      "include_keys":  ["Condition_Name", "Final_Decision", "Division_Labor", "AI_Expl_Incl",
-                        "AI_Conf_Incl", "AI_Expl_Type", "Interface_Modality", "Interaction_Turns"],
-      "evidence_keys": ["Condition_Name", "Final_Decision", "AI_Expl_Incl", "AI_Conf_Incl", "AI_Expl_Type"]
+      "include_keys":  ["Final_Decision", "Division_Labor", "AI_Conf_Incl", "Interface_Modality",
+                        "Interaction_Turns", "AI_Expl_Incl", "AI_Expl_Type"],
+      "evidence_keys": ["Division_Labor", "AI_Conf_Incl", "AI_Expl_Incl", "AI_Expl_Type"]
     },
     {
-      "id":            "evaluation",
-      "label":         "Evaluation",
-      "include_keys":  ["Perf_Metric", "Perf_Dir", "Tail_Performance", "Effect_Size_Measure",
-                        "Significance_Test"],
-      "evidence_keys": ["Perf_Metric", "Tail_Performance", "Effect_Size_Measure", "Significance_Test"]
-    },
-    {
-      "id":            "sample",
-      "label":         "Sample",
-      "include_keys":  ["Participant_Type", "Participant_Source", "N_Human", "N_HumanAI"],
-      "evidence_keys": ["Participant_Type", "Participant_Source", "N_Human", "N_HumanAI"]
+      "id":            "participants",
+      "label":         "Participants",
+      "include_keys":  ["Participant_Type", "Participant_Source", "N_Total", "N_Human", "N_HumanAI"],
+      "evidence_keys": ["Participant_Type", "Participant_Source", "N_Total", "N_Human", "N_HumanAI"]
     },
     {
       "id":            "performance",
       "label":         "Performance",
-      "include_keys":  ["Avg_Perf_Human", "Sd_Perf_Human", "Avg_Perf_AI", "Sd_Perf_AI",
-                        "Avg_Perf_HumanAI", "Sd_Perf_HumanAI"],
-      "evidence_keys": ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI",
-                        "Sd_Perf_Human", "Sd_Perf_AI", "Sd_Perf_HumanAI"]
-    },
-    {
-      "id":            "outcomes",
-      "label":         "Additional outcomes",
-      "include_keys":  ["Time_On_Task", "Trust_Measured", "Reliance", "Cognitive_Load",
-                        "Usability_Satisfaction", "HumanAI_Agreement", "Data_Contamination_Checked",
-                        "Notes"],
-      "evidence_keys": ["Time_On_Task", "Trust_Measured", "Reliance", "Cognitive_Load",
-                        "Usability_Satisfaction", "HumanAI_Agreement", "Data_Contamination_Checked"]
+      "include_keys":  ["Perf_Metric", "Perf_Human", "Perf_AI", "Perf_HumanAI",
+                        "Std_Human", "Std_AI", "Std_HumanAI"],
+      "evidence_keys": ["Perf_Metric", "Perf_Human", "Perf_AI", "Perf_HumanAI",
+                        "Std_Human", "Std_AI", "Std_HumanAI"]
     }
   ],
   "skip_to":           "setup",
