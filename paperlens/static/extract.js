@@ -707,22 +707,16 @@ async function runBatch(indices, reset) {
   setNav("results"); $("#result").scrollIntoView({ behavior: "smooth" });
   const schemaId = ADD_DATASET ? (ADD_DATASET.schema_id || schemaIdFor()) : schemaIdFor();
   const runStart = new Date().toISOString();
-  let forwarded = false, anyQueued = false;
+  let anyQueued = false;
   const jobIds = [];                        // queued jobs of this round → tracked in review
 
-  // As soon as the first paper lands, jump to the review panel scoped to this round.
-  // ?since picks up siblings' documents as they land; ?jobs lets the panel show each
+  // We forward to the review panel only AFTER every paper is submitted (see end of fn).
+  // ?since picks up each paper's document as it lands; ?jobs lets the panel show each
   // still-running paper as "extracting…" and each failure as an error (queued jobs
   // survive navigation on the worker).
   function forwardUrl() {
     const q = jobIds.length ? `&jobs=${encodeURIComponent(jobIds.join(","))}` : "";
     return `/workspace?since=${encodeURIComponent(runStart)}${q}`;
-  }
-  function maybeForward() {
-    if (forwarded || !reset || ADD_DATASET) return;
-    if (!anyQueued) return;                 // sync mode: don't abort in-flight siblings
-    forwarded = true;
-    location.href = forwardUrl();
   }
 
   // worker pool: pull indices off a shared cursor, up to MAX_CONCURRENT at once
@@ -742,11 +736,17 @@ async function runBatch(indices, reset) {
         fd.append("api_key", $("#apikey").value);
       }
       try {
+        // Only ENQUEUE (or sync-run) here and move on — do NOT wait for a queued job to
+        // finish. Waiting, then navigating on the first result, is what dropped papers 5+
+        // (the pool was aborted before it submitted them).
         const data = await api.extract(fd);
-        if (data.queued) { anyQueued = true; if (data.job_id) jobIds.push(data.job_id); }
-        const res = data.queued ? await pollJob(data.job_id) : data;
-        STATUS[i] = { state: "done", res }; renderResults();
-        maybeForward();
+        if (data.queued) {
+          anyQueued = true;
+          if (data.job_id) jobIds.push(data.job_id);
+          // STATUS stays "extracting" — the worker runs it; the review panel tracks it.
+        } else {
+          STATUS[i] = { state: "done", res: data }; renderResults();   // sync completed inline
+        }
       } catch (e) { STATUS[i] = { state: "failed", error: e.message }; renderResults(); }
     }
   }
@@ -754,8 +754,9 @@ async function runBatch(indices, reset) {
 
   $("#run").disabled = false; setStatus("done");
   renderResults(true);
-  // sync mode (jobs don't survive navigation): forward only once the batch is complete
-  if (reset && !ADD_DATASET && !forwarded && STATUS.some((s) => s.state === "done")) {
+  // Forward ONCE, after every paper has been submitted: queued jobs survive navigation and
+  // the review panel tracks them via ?jobs; any sync results are already in hand.
+  if (reset && !ADD_DATASET && (anyQueued || STATUS.some((s) => s.state === "done"))) {
     location.href = forwardUrl();
   }
 }
