@@ -330,12 +330,14 @@ function renderPanel() {
       box.innerHTML = `<div class="rectitle">raw extraction output</div>`
         + `<pre class="rawjson">${esc(JSON.stringify({ paper_metadata: DATA.paper_metadata, evidence: DATA.evidence }, null, 2))}</pre>`;
     } else {
-      box.innerHTML = `<p class="muted" style="padding:8px 2px">No records were extracted from this document — nothing matched the `
+      box.innerHTML = `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
         + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
-        + `Use <b>＋ Finding</b> to add one manually, or re-process with a different preset.</p>`;
+        + `You can still enter the data by hand, or re-process with a different preset.</p>`
+        + `<button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`;
     }
     panel.appendChild(box);
     wirePanelHead();
+    const ea = $("#empty-add"); if (ea) ea.onclick = doAddFinding;   // seed a blank editable entry
     return;
   }
   if (GRID) { renderGridInto(panel); wirePanelHead(); return; }

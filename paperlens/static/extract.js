@@ -696,8 +696,6 @@ function schemaIdFor() {
 
 async function run() { STATUS = FILES.map(() => ({ state: "pending" })); await runBatch(FILES.map((_, i) => i), true); }
 
-const MAX_CONCURRENT = 4;   // simultaneous extractions (respect provider rate limits)
-
 async function runBatch(indices, reset) {
   if (!FILES.length) return setStatus("add at least one PDF");
   if (!STATUS.length) STATUS = FILES.map(() => ({ state: "pending" }));
@@ -719,38 +717,35 @@ async function runBatch(indices, reset) {
     return `/workspace?since=${encodeURIComponent(runStart)}${q}`;
   }
 
-  // worker pool: pull indices off a shared cursor, up to MAX_CONCURRENT at once
-  let ptr = 0;
-  async function worker() {
-    while (ptr < indices.length) {
-      const i = indices[ptr++];
-      STATUS[i] = { state: "extracting" }; renderResults();
-      const fd = new FormData();
-      fd.append("pdf", FILES[i]);
-      fd.append("prompt", $("#prompt").value);
-      fd.append("schema_id", schemaId);
-      if (USE_CREDITS) {
-        fd.append("use_credits", "true");        // server supplies the model + its own key
-      } else {
-        fd.append("model", $("#model").value);
-        fd.append("api_key", $("#apikey").value);
-      }
-      try {
-        // Only ENQUEUE (or sync-run) here and move on — do NOT wait for a queued job to
-        // finish. Waiting, then navigating on the first result, is what dropped papers 5+
-        // (the pool was aborted before it submitted them).
-        const data = await api.extract(fd);
-        if (data.queued) {
-          anyQueued = true;
-          if (data.job_id) jobIds.push(data.job_id);
-          // STATUS stays "extracting" — the worker runs it; the review panel tracks it.
-        } else {
-          STATUS[i] = { state: "done", res: data }; renderResults();   // sync completed inline
-        }
-      } catch (e) { STATUS[i] = { state: "failed", error: e.message }; renderResults(); }
+  // Submit EVERY paper before navigating: the browser cancels in-flight uploads on
+  // navigation, so forwarding early would drop the un-submitted ones (the bug we just
+  // fixed). Fire them ALL at once — the browser caps concurrent connections itself, and a
+  // queued job just pushes to the worker — so the review panel opens the moment the batch
+  // is submitted, with no second upload round to wait through. It only ENQUEUES (or
+  // sync-runs) each paper; the review panel then tracks the running jobs via ?jobs.
+  async function submitOne(i) {
+    STATUS[i] = { state: "extracting" }; renderResults();
+    const fd = new FormData();
+    fd.append("pdf", FILES[i]);
+    fd.append("prompt", $("#prompt").value);
+    fd.append("schema_id", schemaId);
+    if (USE_CREDITS) {
+      fd.append("use_credits", "true");          // server supplies the model + its own key
+    } else {
+      fd.append("model", $("#model").value);
+      fd.append("api_key", $("#apikey").value);
     }
+    try {
+      const data = await api.extract(fd);
+      if (data.queued) {
+        anyQueued = true;
+        if (data.job_id) jobIds.push(data.job_id);   // stays "extracting"; the panel tracks it
+      } else {
+        STATUS[i] = { state: "done", res: data }; renderResults();   // sync completed inline
+      }
+    } catch (e) { STATUS[i] = { state: "failed", error: e.message }; renderResults(); }
   }
-  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT, indices.length) }, worker));
+  await Promise.all(indices.map(submitOne));
 
   $("#run").disabled = false; setStatus("done");
   renderResults(true);
