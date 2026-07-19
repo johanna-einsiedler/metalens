@@ -22,8 +22,12 @@ from . import enrich, records
 
 
 def redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(
+    base = RedisSettings.from_dsn(
         os.environ.get("PAPERLENS_REDIS_URL", "redis://localhost:6379"))
+    # The worker holds this connection across long, synchronous extractions that block the
+    # event loop; the default 1s connect timeout then makes a post-job reconnect fail on a
+    # busy box (or a managed-Redis blip) and crashes the whole worker. Give it real slack.
+    return dataclasses.replace(base, conn_timeout=15, conn_retries=10, conn_retry_delay=1)
 
 
 def _fast_settings() -> RedisSettings:

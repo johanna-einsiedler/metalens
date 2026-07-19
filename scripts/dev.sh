@@ -37,21 +37,31 @@ fi
 uv run python -c "import paperlens.records as r; r.init_db(r.connect())" \
   && echo "· schema up to date" || echo "⚠️  init_db failed (is Postgres running / DB created?)"
 
-# --- run worker + web; kill both on any exit ------------------------------------
-pids=()
+# --- run web + worker; keep the web up and RESTART the worker if it dies ---------
+WEB_PID="" WORKER_PID=""
 cleanup() {
   echo; echo "stopping…"
-  for p in "${pids[@]:-}"; do kill "$p" 2>/dev/null || true; done
+  kill "$WORKER_PID" "$WEB_PID" 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
-echo "▶ worker : arq paperlens.worker.WorkerSettings"
-uv run arq paperlens.worker.WorkerSettings & pids+=($!)
+start_worker() { uv run arq paperlens.worker.WorkerSettings & WORKER_PID=$!; }
 
 echo "▶ web    : http://${HOST}:${PORT}  (--reload)"
-uv run uvicorn paperlens.app:app --reload --host "$HOST" --port "$PORT" & pids+=($!)
+uv run uvicorn paperlens.app:app --reload --host "$HOST" --port "$PORT" & WEB_PID=$!
 
-# bash 3.2 has no `wait -n`; poll until either child dies, then cleanup fires.
-while kill -0 "${pids[0]}" 2>/dev/null && kill -0 "${pids[1]}" 2>/dev/null; do sleep 1; done
-echo "a process exited — shutting the other down."
+echo "▶ worker : arq paperlens.worker.WorkerSettings"
+start_worker
+
+# The worker doesn't hot-reload and can die on a transient Redis blip. Restart it and keep
+# the web running; only a web exit (or Ctrl-C) tears the whole thing down. NOTE: after
+# editing worker-side code (worker.py/extract.py/providers.py) you still must restart
+# dev.sh — auto-restart only covers crashes, not code changes.
+while kill -0 "$WEB_PID" 2>/dev/null; do
+  if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+    echo "⚠️  worker exited — restarting in 2s (Ctrl-C to quit)…"; sleep 2; start_worker
+  fi
+  sleep 1
+done
+echo "web exited — shutting down."
