@@ -32,6 +32,22 @@ _SESSION_COOKIE = "pl_session"
 
 app = FastAPI(title="PaperLens record spine", version="0.1.0")
 
+
+@app.on_event("startup")
+def _migrate_on_startup() -> None:
+    """Apply the idempotent schema (schema.sql via init_db) when the app boots, so a deploy
+    is self-migrating even if the platform's release_command didn't run. Best-effort: a
+    migration hiccup must never stop the app from starting."""
+    try:
+        conn = records.connect()
+        try:
+            records.init_db(conn)
+        finally:
+            conn.close()
+    except Exception as exc:   # pragma: no cover - migration is best-effort
+        import logging
+        logging.getLogger("paperlens").warning("startup init_db skipped: %s", exc)
+
 # ── beta gate ────────────────────────────────────────────────────────────────
 # A single shared-password HTTP Basic Auth in front of the WHOLE site (beta
 # testing). Reads PAPERLENS_BASIC_PASSWORD per request, so it's a complete no-op
