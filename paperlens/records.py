@@ -190,7 +190,8 @@ def load(conn: psycopg.Connection, doc_id: str) -> IngestResult:
     core_key, core_shape, had_top_evidence, top_extras, paper_metadata_raw = doc
 
     rec_rows = conn.execute(
-        "SELECT entry_index, field_values FROM record WHERE document_id = %s ORDER BY entry_index",
+        "SELECT entry_index, field_values FROM record "
+        "WHERE document_id = %s AND NOT screened_empty ORDER BY entry_index",
         (doc_id,),
     ).fetchall()
     records = [Record(entry_index=ei, field_values=fv) for ei, fv in rec_rows]
@@ -390,8 +391,11 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
     further restricts to documents with records in that project."""
     rows = conn.execute(
         """SELECT d.id, d.paper_id, d.schema_id, d.created_at, d.filename,
-                  p.title, p.doi, count(r.id) AS n_records,
-                  count(*) FILTER (WHERE r.verification_status = 'verified') AS n_verified
+                  p.title, p.doi,
+                  count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
+                  count(*) FILTER (WHERE r.verification_status = 'verified'
+                                     AND NOT COALESCE(r.screened_empty, false)) AS n_verified,
+                  bool_or(COALESCE(r.screened_empty, false)) AS screened
            FROM extraction_document d
            LEFT JOIN paper p ON p.id = d.paper_id
            LEFT JOIN record r ON r.document_id = d.id
@@ -413,8 +417,8 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
         {"document_id": str(did), "paper_id": str(pid) if pid else None,
          "schema_id": sid, "created_at": ca.isoformat() if ca else None,
          "filename": fn, "title": title, "doi": doi,
-         "n_records": n, "n_verified": nv}
-        for (did, pid, sid, ca, fn, title, doi, n, nv) in rows
+         "n_records": n, "n_verified": nv, "screened": bool(sc)}
+        for (did, pid, sid, ca, fn, title, doi, n, nv, sc) in rows
     ]
 
 
@@ -447,7 +451,7 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
         field_defs = srow[0] if srow else None
 
     rec_rows = conn.execute(
-        """SELECT id, entry_index, field_values, verification_status, extraction
+        """SELECT id, entry_index, field_values, verification_status, extraction, screened_empty
            FROM record WHERE document_id = %s ORDER BY entry_index""",
         (document_id,),
     ).fetchall()
@@ -474,12 +478,13 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
                 })
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
-         "verification_status": vs, "extraction": _ex,
+         "verification_status": vs, "extraction": _ex, "screened_empty": bool(_se),
          "corrections": corrections_by_rec.get(str(rid), [])}
-        for (rid, ei, fv, vs, _ex) in rec_rows
+        for (rid, ei, fv, vs, _ex, _se) in rec_rows
     ]
     n_pages = 0
-    for *_x, ex in rec_rows:
+    for row in rec_rows:
+        ex = row[4]                                   # extraction column (not the trailing flag)
         if isinstance(ex, dict) and ex.get("n_pages"):
             n_pages = int(ex["n_pages"]); break
 
@@ -596,7 +601,8 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
     """COMPUTED dataset badge (never hand-assigned): AI-only -> sample-verified
     (X% audited · Y% agree, Wilson CI) -> human-verified."""
     total = conn.execute(
-        "SELECT count(*) FROM record WHERE dataset_id = %s::uuid", (dataset_id,)
+        "SELECT count(*) FROM record WHERE dataset_id = %s::uuid AND NOT screened_empty",
+        (dataset_id,),
     ).fetchone()[0]
     rows = conn.execute(
         """SELECT r.id::text, ve.status, ve.diff
@@ -1136,9 +1142,11 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
 
     row = conn.execute(
         """SELECT count(DISTINCT r.paper_id)                                     AS n_papers,
-                  count(*)                                                       AS n_records,
-                  count(*) FILTER (WHERE r.verification_status = 'verified')     AS n_verified,
-                  count(DISTINCT r.schema_id)                                    AS n_schemas,
+                  count(*) FILTER (WHERE NOT r.screened_empty)                   AS n_records,
+                  count(*) FILTER (WHERE r.verification_status = 'verified'
+                                     AND NOT r.screened_empty)                   AS n_verified,
+                  count(DISTINCT r.schema_id) FILTER (WHERE NOT r.screened_empty) AS n_schemas,
+                  count(*) FILTER (WHERE r.screened_empty)                       AS n_screened,
                   min(ed.created_at)                                             AS first_extracted,
                   max(ed.created_at)                                             AS last_extracted,
                   coalesce(sum(CASE
@@ -1150,7 +1158,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            WHERE r.dataset_id = %s::uuid""",
         (dataset_id,),
     ).fetchone()
-    (n_papers, n_records, n_verified, n_schemas,
+    (n_papers, n_records, n_verified, n_schemas, n_screened,
      first_extracted, last_extracted, total_tokens) = row
 
     last_change = conn.execute(
@@ -1168,6 +1176,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
         "recipe": {"model": d["model"], "prompt": d["prompt"], "schema_id": d["schema_id"]},
         "stats": {
             "n_papers": n_papers, "n_records": n_records, "n_verified": n_verified,
+            "n_screened": n_screened,          # papers attempted that yielded 0 records
             "verified_pct": round(100 * n_verified / n_records, 1) if n_records else 0.0,
             "n_schemas": n_schemas, "total_tokens": int(total_tokens or 0),
             "first_extracted": first_extracted.isoformat() if first_extracted else None,
@@ -1182,7 +1191,8 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
 def dataset_records(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
     rows = conn.execute(
         """SELECT id, paper_id, entry_index, schema_id, field_values, verification_status
-           FROM record WHERE dataset_id = %s::uuid ORDER BY paper_id, entry_index""",
+           FROM record WHERE dataset_id = %s::uuid AND NOT screened_empty
+           ORDER BY paper_id, entry_index""",
         (dataset_id,),
     ).fetchall()
     return [
@@ -1208,7 +1218,7 @@ def dataset_rows(conn: psycopg.Connection, dataset_ids, *, principal=None,
                    r.verification_status, r.field_values, p.year, p.primary_topic, p.title
             FROM record r JOIN paper p ON p.id = r.paper_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
-            WHERE {where}
+            WHERE {where} AND NOT r.screened_empty
             ORDER BY r.dataset_id, r.paper_id, r.entry_index
             LIMIT %s""",
         (*params, limit),
@@ -1271,7 +1281,58 @@ def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
             "UPDATE record SET dataset_id = %s::uuid WHERE document_id = %s::uuid",
             (dataset_id, document_id),
         )
-    return cur.rowcount
+        n = cur.rowcount
+        if n == 0:
+            # 0-record document → record a "screened, no records" sentinel so the paper is
+            # still part of the dataset (coverage/provenance). Skip if one already exists.
+            doc = conn.execute(
+                "SELECT paper_id, schema_id, owner_user_id, session_id "
+                "FROM extraction_document WHERE id = %s::uuid", (document_id,),
+            ).fetchone()
+            has_sentinel = conn.execute(
+                "SELECT 1 FROM record WHERE document_id = %s::uuid AND screened_empty LIMIT 1",
+                (document_id,),
+            ).fetchone()
+            if doc is not None and has_sentinel is None:
+                conn.execute(
+                    """INSERT INTO record (id, document_id, paper_id, dataset_id, schema_id,
+                            entry_index, field_values, verification_status, screened_empty,
+                            owner_user_id, session_id)
+                       VALUES (%s, %s::uuid, %s, %s::uuid, %s, 0, %s, 'unverified', true, %s, %s)""",
+                    (_new_id(), document_id, doc[0], dataset_id, doc[1], Json({}), doc[2], doc[3]),
+                )
+                n = 1
+    return n
+
+
+def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
+                        owner_user_id: str | None = None,
+                        session_id: str | None = None) -> dict[str, list[dict]]:
+    """For each pdf_sha256 in ``hashes``, the caller's existing documents with that exact
+    content hash — powers duplicate detection when adding papers. Scoped to the principal
+    (owner or anonymous session); returns ``{sha: [{document_id, filename, created_at,
+    n_records}]}`` newest first (n_records excludes screened sentinels)."""
+    hs = [h for h in (hashes or []) if h]
+    if not hs or (owner_user_id is None and session_id is None):
+        return {}
+    rows = conn.execute(
+        """SELECT d.pdf_sha256, d.id, d.filename, d.created_at,
+                  count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records
+           FROM extraction_document d
+           LEFT JOIN record r ON r.document_id = d.id
+           WHERE d.pdf_sha256 = ANY(%s)
+             AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
+               OR (%s::text IS NOT NULL AND d.session_id = %s))
+           GROUP BY d.id
+           ORDER BY d.created_at DESC""",
+        (hs, owner_user_id, owner_user_id, session_id, session_id),
+    ).fetchall()
+    out: dict[str, list[dict]] = {}
+    for sha, did, fn, created, nrec in rows:
+        out.setdefault(sha, []).append({
+            "document_id": str(did), "filename": fn,
+            "created_at": created.isoformat() if created else None, "n_records": nrec})
+    return out
 
 
 def delete_document(conn: psycopg.Connection, document_id: str) -> dict:

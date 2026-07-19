@@ -188,6 +188,10 @@ async function load(docId) {
   DOCID = docId;
   $("#pages").innerHTML = '<p class="muted">Loading…</p>';
   DATA = await api.documentView(docId);
+  // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
+  // screened empty-state (not an empty card), but remember the doc WAS screened.
+  DATA._screened = (DATA.records || []).some((r) => r.screened_empty);
+  DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   renderPanel();
   if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
@@ -330,7 +334,10 @@ function renderPanel() {
       box.innerHTML = `<div class="rectitle">raw extraction output</div>`
         + `<pre class="rawjson">${esc(JSON.stringify({ paper_metadata: DATA.paper_metadata, evidence: DATA.evidence }, null, 2))}</pre>`;
     } else {
-      box.innerHTML = `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
+      const screened = DATA._screened
+        ? `<p class="muted" style="padding:0 2px 8px">✓ Recorded in the dataset as <b>screened — no applicable records</b>.</p>` : "";
+      box.innerHTML = screened
+        + `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
         + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
         + `You can still enter the data by hand, or re-process with a different preset.</p>`
         + `<button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`;
@@ -463,12 +470,12 @@ async function doSave() {
   // empty extraction doesn't look like "only the first paper was saved".
   const source = DOCS.length ? DOCS
     : [{ document_id: DATA.document_id, n_records: (DATA.records || []).length }];
-  const withRecs = source.filter((d) => (d.n_records || 0) > 0);
-  const skipped = source.length - withRecs.length;
-  if (!withRecs.length) { alert("Nothing to save yet — none of these documents have extracted records."); return; }
-  if (skipped && !confirm(`${skipped} document(s) have no extracted records and will be skipped.\nSave the ${withRecs.length} document(s) that have data?`)) return;
+  if (!source.length) { alert("Nothing to save yet."); return; }
+  const screened = source.filter((d) => !(d.n_records > 0)).length;
+  if (screened && !confirm(`${screened} of ${source.length} paper(s) have no extracted records.\n`
+      + `They'll be saved as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
   b.disabled = true;
-  const ids = withRecs.map((d) => d.document_id);
+  const ids = source.map((d) => d.document_id);
   try {
     // record the recipe (schema/preset + model) so re-opening the dataset can add
     // papers with the same preset without re-choosing it.

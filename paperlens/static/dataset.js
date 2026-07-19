@@ -71,6 +71,7 @@ function render() {
     <div class="ds-stats">
       ${stat(fmtNum(s.n_papers), "papers")}
       ${stat(fmtNum(s.n_records), "records extracted")}
+      ${s.n_screened ? stat(fmtNum(s.n_screened), "screened (no records)") : ""}
       ${stat(`${s.verified_pct}%`, `verified (${s.n_verified}/${s.n_records})`)}
       ${stat(fmtNum(s.total_tokens), "tokens used")}
       ${stat(range, "extracted", true)}
@@ -94,9 +95,11 @@ function stat(num, label, small) {
 
 function paperRow(d) {
   const name = d.filename || d.title || "(untitled)";
-  const meta = `${d.n_records} record${d.n_records === 1 ? "" : "s"}`
-    + (d.n_verified ? ` · ${d.n_verified} verified` : "")
-    + (d.doi ? ` · ${esc(d.doi)}` : "");
+  const meta = d.screened
+    ? `screened — no applicable records${d.doi ? " · " + esc(d.doi) : ""}`
+    : `${d.n_records} record${d.n_records === 1 ? "" : "s"}`
+      + (d.n_verified ? ` · ${d.n_verified} verified` : "")
+      + (d.doi ? ` · ${esc(d.doi)}` : "");
   return `<div class="paper-row" data-doc="${esc(d.document_id)}">
     <div class="pr-main">
       <div class="pr-name">${esc(name)}</div>

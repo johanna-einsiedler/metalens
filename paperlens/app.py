@@ -331,6 +331,21 @@ def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
     return {"rects": rects, "found": bool(rects), "page": found_page}
 
 
+class DuplicateCheck(BaseModel):
+    hashes: list[str] = []
+
+
+@app.post("/api/documents/check-duplicates")
+def check_duplicates(body: DuplicateCheck, db=Depends(get_db),
+                     who: Principal = Depends(principal)) -> dict:
+    """For each pdf_sha256 the client sends, return the caller's existing documents with
+    that exact content — so the extract page can flag already-extracted papers before
+    spending a run. Scoped to the principal (owner or anonymous session)."""
+    matches = records.documents_by_hashes(
+        db, body.hashes or [], owner_user_id=who.user_id, session_id=who.session_id)
+    return {"duplicates": matches}
+
+
 @app.get("/api/documents/{document_id}/text")
 def document_text(document_id: str, page: int | None = None, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:

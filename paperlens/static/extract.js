@@ -694,7 +694,79 @@ function schemaIdFor() {
     : task === "summarise" ? "summarize@v1" : `${task}@v1`;
 }
 
-async function run() { STATUS = FILES.map(() => ({ state: "pending" })); await runBatch(FILES.map((_, i) => i), true); }
+async function run() {
+  const keep = await screenDuplicates();          // resolve any already-extracted papers
+  if (keep === null) { setStatus("cancelled"); return; }
+  if (!keep.length) { setStatus("all selected papers were already extracted — nothing to run"); return; }
+  STATUS = FILES.map((_, i) => (keep.includes(i) ? { state: "pending" } : { state: "skipped" }));
+  renderResults();
+  await runBatch(keep, true);
+}
+
+// SHA-256 of a File as lowercase hex — matches the server's stored pdf_sha256.
+async function sha256Hex(file) {
+  const h = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Flag papers whose EXACT PDF was already extracted; let the user skip or re-extract each.
+// Returns the FILES indices to actually run (non-duplicates always kept), or null if
+// cancelled. A failed check never blocks — it just runs everything.
+async function screenDuplicates() {
+  const all = FILES.map((_, i) => i);
+  let dupMap = {};
+  try {
+    const hashes = await Promise.all(FILES.map(sha256Hex));
+    FILES.forEach((f, i) => (f._sha = hashes[i]));
+    const resp = await api.checkDuplicates([...new Set(hashes)]);
+    dupMap = (resp && resp.duplicates) || {};
+  } catch { return all; }
+  const dupIdx = all.filter((i) => (dupMap[FILES[i]._sha] || []).length);
+  if (!dupIdx.length) return all;
+  const decisions = await duplicateModal(dupIdx, dupMap);
+  if (decisions === null) return null;              // cancelled
+  return all.filter((i) => !(dupMap[FILES[i]._sha] || []).length || decisions[i] === "again");
+}
+
+function duplicateModal(dupIdx, dupMap) {
+  return new Promise((resolve) => {
+    const rows = dupIdx.map((i) => {
+      const d = (dupMap[FILES[i]._sha] || [])[0] || {};
+      const when = (d.created_at || "").slice(0, 10);
+      const recs = d.n_records != null ? `${d.n_records} record${d.n_records === 1 ? "" : "s"}` : "";
+      return `<div class="dup-row">
+          <div class="dup-name">${esc(FILES[i].name)}</div>
+          <div class="dup-meta muted">already extracted${when ? " · " + esc(when) : ""}${recs ? " · " + esc(recs) : ""}</div>
+          <div class="dup-choice">
+            <label class="radio"><input type="radio" name="dup-${i}" value="skip" checked/> Skip</label>
+            <label class="radio"><input type="radio" name="dup-${i}" value="again"/> Extract again</label>
+          </div></div>`;
+    }).join("");
+    const ov = document.createElement("div");
+    ov.className = "modal-overlay";
+    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+        <h3>${dupIdx.length} paper${dupIdx.length === 1 ? " is" : "s are"} already extracted</h3>
+        <p class="muted">Choose what to do with each duplicate (matched by exact PDF). Other papers are extracted normally.</p>
+        <div class="dup-list">${rows}</div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="dup-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="dup-go">Continue</button>
+        </div></div>`;
+    document.body.appendChild(ov);
+    const collect = () => {
+      const o = {};
+      dupIdx.forEach((i) => {
+        const r = ov.querySelector(`input[name="dup-${i}"]:checked`);
+        o[i] = r ? r.value : "skip";
+      });
+      return o;
+    };
+    const close = () => ov.remove();
+    ov.querySelector("#dup-cancel").onclick = () => { close(); resolve(null); };
+    ov.querySelector("#dup-go").onclick = () => { const d = collect(); close(); resolve(d); };
+    ov.addEventListener("click", (e) => { if (e.target === ov) { close(); resolve(null); } });
+  });
+}
 
 async function runBatch(indices, reset) {
   if (!FILES.length) return setStatus("add at least one PDF");
@@ -784,6 +856,7 @@ function renderResults(finished = false) {
     let right;
     if (s.state === "done") right = `<span class="fi-ok">✓ ${s.res.n_records} rec</span> <a href="/workspace?${scopeQ}${scopeQ ? "&" : ""}doc=${esc(s.res.document_id)}">Open →</a>`;
     else if (s.state === "failed") right = `<span class="fstatus">✗ ${esc(s.error || "failed")}</span>`;
+    else if (s.state === "skipped") right = `<span class="muted">— skipped (already extracted)</span>`;
     else right = `<span class="spin"></span> <span class="muted">${s.state === "extracting" ? "extracting…" : "queued"}</span>`;
     return `<div class="fileitem"><span>${esc(f.name)}</span><span class="fi-right">${right}</span></div>`;
   }).join("");

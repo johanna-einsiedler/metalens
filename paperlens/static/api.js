@@ -60,6 +60,7 @@ export const api = {
   deleteRecord: (id) => req(`/api/records/${id}`, { method: "DELETE" }),
   addRecord: (docId, body) => req(`/api/documents/${docId}/records`, json(body)),
   documents: (f) => req(`/api/documents${qs(f)}`),
+  checkDuplicates: (hashes) => req(`/api/documents/check-duplicates`, json({ hashes })),
   documentView: (id) => req(`/api/documents/${id}/view`),
   recordEvents: (id) => req(`/api/records/${id}/events`),
   locateValue: (id, value, page) =>

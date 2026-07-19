@@ -44,6 +44,13 @@ header.topbar {
 .pl-err { color: var(--error); font-size: 12px; min-height: 1em; }
 .pl-toggle { margin: 12px 0 0; font-size: 13px; }
 .modal .radio input, .modal .sv-warrant input { width: auto; padding: 0; border: none; box-shadow: none; }
+/* duplicate-paper screen (extract page) */
+.dup-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; margin: 10px 0; }
+.dup-row { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
+.dup-name { font-weight: 600; word-break: break-word; }
+.dup-meta { font-size: 12px; margin: 2px 0 6px; }
+.dup-choice { display: flex; gap: 16px; }
+.dup-choice .radio { margin: 0; }
 
 /* ── buttons ──────────────────────────────────────────────────────────── */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;

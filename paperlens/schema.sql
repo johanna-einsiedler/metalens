@@ -267,6 +267,11 @@ CREATE TABLE IF NOT EXISTS parsed_document (
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS pdf_sha256 text;
 CREATE INDEX IF NOT EXISTS extraction_document_sha_idx ON extraction_document(pdf_sha256);
 
+-- A "screened — no records" sentinel: a record with empty field_values that marks a paper
+-- as attempted-but-yielded-nothing, so a 0-record paper can still be part of a dataset
+-- (coverage/provenance). Excluded from data-record counts; shown as "screened" in review.
+ALTER TABLE record ADD COLUMN IF NOT EXISTS screened_empty boolean NOT NULL DEFAULT false;
+
 -- ── Metalens credits: per-user extraction allowance for server-key runs ──────────
 -- Logged-in users can be granted N credits and run extractions WITHOUT their own API
 -- key (Metalens supplies a server key + a fixed model); each such run decrements the
