@@ -349,16 +349,18 @@ def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
 
 class DuplicateCheck(BaseModel):
     hashes: list[str] = []
+    schema_id: str | None = None       # only flag docs extracted with THIS preset
 
 
 @app.post("/api/documents/check-duplicates")
 def check_duplicates(body: DuplicateCheck, db=Depends(get_db),
                      who: Principal = Depends(principal)) -> dict:
     """For each pdf_sha256 the client sends, return the caller's existing documents with
-    that exact content — so the extract page can flag already-extracted papers before
-    spending a run. Scoped to the principal (owner or anonymous session)."""
+    that exact content AND the same preset (schema_id) — so the extract page flags a paper
+    only when re-running the identical PDF through the identical preset. Principal-scoped."""
     matches = records.documents_by_hashes(
-        db, body.hashes or [], owner_user_id=who.user_id, session_id=who.session_id)
+        db, body.hashes or [], owner_user_id=who.user_id, session_id=who.session_id,
+        schema_id=body.schema_id)
     return {"duplicates": matches}
 
 

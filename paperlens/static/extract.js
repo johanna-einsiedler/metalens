@@ -714,11 +714,13 @@ async function sha256Hex(file) {
 // cancelled. A failed check never blocks — it just runs everything.
 async function screenDuplicates() {
   const all = FILES.map((_, i) => i);
+  const schemaId = ADD_DATASET ? (ADD_DATASET.schema_id || schemaIdFor()) : schemaIdFor();
   let dupMap = {};
   try {
     const hashes = await Promise.all(FILES.map(sha256Hex));
     FILES.forEach((f, i) => (f._sha = hashes[i]));
-    const resp = await api.checkDuplicates([...new Set(hashes)]);
+    // a duplicate = same PDF AND same preset (schema_id) → different preset re-extracts freely
+    const resp = await api.checkDuplicates([...new Set(hashes)], schemaId);
     dupMap = (resp && resp.duplicates) || {};
   } catch { return all; }
   const dupIdx = all.filter((i) => (dupMap[FILES[i]._sha] || []).length);

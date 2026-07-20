@@ -465,25 +465,32 @@ async function doAddFinding() {
 // Only offered outside a project (a project's docs are already in a dataset).
 async function doSave() {
   const b = $("#dlsave");
-  // A dataset is a set of RECORDS — a document with 0 records contributes nothing.
-  // Save only docs that have records, and say which (if any) were skipped, so an
-  // empty extraction doesn't look like "only the first paper was saved".
-  const source = DOCS.length ? DOCS
-    : [{ document_id: DATA.document_id, n_records: (DATA.records || []).length }];
-  if (!source.length) { alert("Nothing to save yet."); return; }
-  const screened = source.filter((d) => !(d.n_records > 0)).length;
-  if (screened && !confirm(`${screened} of ${source.length} paper(s) have no extracted records.\n`
+  // Save EVERY paper in view — the loaded docs, PLUS any of this round's jobs that have
+  // finished (their document may not have been pulled into DOCS yet), plus the one on
+  // screen. Relying on the DOCS snapshot alone is why a just-finished sibling was missed.
+  const nrecOf = new Map(DOCS.map((d) => [d.document_id, d.n_records || 0]));
+  if (DATA && DATA.document_id) nrecOf.set(DATA.document_id, (DATA.records || []).length);
+  const ids = [...new Set([
+    ...DOCS.map((d) => d.document_id),
+    ...Object.values(JOBS).filter((j) => j.status === "complete" && j.document_id).map((j) => j.document_id),
+    ...(DATA && DATA.document_id ? [DATA.document_id] : []),
+  ].filter(Boolean))];
+  if (!ids.length) { alert("Nothing to save yet."); return; }
+  const screened = ids.filter((id) => !((nrecOf.get(id) || 0) > 0)).length;
+  if (screened && !confirm(`${screened} of ${ids.length} paper(s) have no extracted records.\n`
       + `They'll be saved as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
   b.disabled = true;
-  const ids = source.map((d) => d.document_id);
   try {
     // record the recipe (schema/preset + model) so re-opening the dataset can add
     // papers with the same preset without re-choosing it.
     const model = (DATA.records || []).map((r) => r.extraction && r.extraction.model).find(Boolean) || null;
     const recipe = { schema_id: DATA.schema_id || null, model };
     const ds = await saveToWorkspace(ids, { defaultName: (DATA.paper && DATA.paper.title) || "", recipe });
-    if (ds) { b.textContent = `✓ saved ${ids.length} (${ds.visibility})`; setTimeout(() => { b.textContent = "💾 Save all"; b.disabled = false; }, 3000); }
-    else b.disabled = false;
+    if (ds) {
+      const note = ds.failed ? ` · ${ds.failed} failed` : "";
+      b.textContent = `✓ saved ${ds.saved != null ? ds.saved : ids.length}${note} (${ds.visibility})`;
+      setTimeout(() => { b.textContent = "💾 Save all"; b.disabled = false; }, 3000);
+    } else b.disabled = false;
   } catch (e) { alert("save failed: " + e.message); b.disabled = false; }
 }
 

@@ -1307,11 +1307,14 @@ def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
 
 def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
                         owner_user_id: str | None = None,
-                        session_id: str | None = None) -> dict[str, list[dict]]:
+                        session_id: str | None = None,
+                        schema_id: str | None = None) -> dict[str, list[dict]]:
     """For each pdf_sha256 in ``hashes``, the caller's existing documents with that exact
-    content hash — powers duplicate detection when adding papers. Scoped to the principal
-    (owner or anonymous session); returns ``{sha: [{document_id, filename, created_at,
-    n_records}]}`` newest first (n_records excludes screened sentinels)."""
+    content hash — powers duplicate detection when adding papers. A duplicate is the SAME
+    PDF extracted with the SAME preset, so pass ``schema_id`` to restrict matches to that
+    preset (None matches any). Scoped to the principal (owner or anonymous session);
+    returns ``{sha: [{document_id, filename, created_at, n_records}]}`` newest first
+    (n_records excludes screened sentinels)."""
     hs = [h for h in (hashes or []) if h]
     if not hs or (owner_user_id is None and session_id is None):
         return {}
@@ -1321,11 +1324,12 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
            FROM extraction_document d
            LEFT JOIN record r ON r.document_id = d.id
            WHERE d.pdf_sha256 = ANY(%s)
+             AND (%s::text IS NULL OR d.schema_id = %s)
              AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
                OR (%s::text IS NOT NULL AND d.session_id = %s))
            GROUP BY d.id
            ORDER BY d.created_at DESC""",
-        (hs, owner_user_id, owner_user_id, session_id, session_id),
+        (hs, schema_id, schema_id, owner_user_id, owner_user_id, session_id, session_id),
     ).fetchall()
     out: dict[str, list[dict]] = {}
     for sha, did, fn, created, nrec in rows:

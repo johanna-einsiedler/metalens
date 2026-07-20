@@ -79,3 +79,11 @@ def test_screened_sentinel_and_dedup() -> None:
     # a different hash → no match; empty input → empty result
     assert records.documents_by_hashes(conn, ["deadbeef"], session_id="sess-scr") == {}
     assert records.documents_by_hashes(conn, [], session_id="sess-scr") == {}
+
+    # a duplicate must match the PRESET too: same schema_id matches, a different one doesn't
+    same = records.documents_by_hashes(conn, [sha], session_id="sess-scr",
+                                       schema_id="human-ai-collab@v1")
+    assert any(m["document_id"] == doc_id for m in same.get(sha, []))
+    other = records.documents_by_hashes(conn, [sha], session_id="sess-scr",
+                                        schema_id="forestplot@v1")
+    assert all(m["document_id"] != doc_id for m in other.get(sha, []))

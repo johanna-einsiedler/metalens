@@ -105,6 +105,12 @@ export async function saveToWorkspace(documentIds, { defaultName = "", recipe = 
     title: project.name, visibility: project.visibility,
     prompt: recipe.prompt || null, model: recipe.model || null, schema_id: recipe.schema_id || null,
   });
-  for (const id of documentIds) await api.addToDataset(ds.id, { document_id: id });
-  return { ...ds, visibility: project.visibility };
+  // Add each paper independently — one failure must not drop the rest of the batch.
+  let saved = 0; const failed = [];
+  for (const id of documentIds) {
+    try { await api.addToDataset(ds.id, { document_id: id }); saved++; }
+    catch { failed.push(id); }
+  }
+  if (failed.length) console.warn("saveToWorkspace: some papers failed to add to dataset", failed);
+  return { ...ds, visibility: project.visibility, saved, failed: failed.length };
 }
