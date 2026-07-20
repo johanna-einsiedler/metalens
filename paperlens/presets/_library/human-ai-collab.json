@@ -1,50 +1,108 @@
 {
   "id":                "human-ai-collab",
   "title":             "Human–AI collaboration",
-  "tagline":           "Human–AI collaboration meta-analysis: one record per condition × metric (all three Perf values per record; study-constant fields shown once as study info).",
-  "description":       "Extracts a human–AI collaboration experiment per a pre-registered data dictionary. One record per experimental condition crossed with each performance metric — each record carries the human-alone, AI-alone and human+AI means and SDs for that condition, plus the study-level task (type/domain/data/output), AI system (incl. LLM descriptors, multi-agent, fine-tuning), collaboration design, and participants. The reviewer shows fields identical across all conditions once in a shared study-information panel, and the varying ones per record. Raw reported values only.",
+  "tagline":           "Human–AI collaboration meta-analysis (pre-registered codebook): one record per condition × metric; categorical fields as dropdowns; study-constant fields shown once.",
+  "description":       "Extracts a human–AI collaboration experiment per the pre-registered Data_Extraction codebook. One record per experimental condition crossed with each performance metric (one effect size), carrying human-alone / AI-alone / human+AI means and SDs plus the study-level design, task, AI system, collaboration and participant fields. Categorical fields are edited as dropdowns / multi-select; fields identical across all conditions appear once in a shared, editable study-information panel. Raw coded fields only — derived columns are computed downstream.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract one record per experimental condition × metric with the full field set; study-constant fields are shown once as study info.",
+  "task_description":  "Extract one record per experimental condition × metric with the full codebook field set; study-constant fields are shown once as study info.",
   "context":           "Human–AI collaboration / decision-support experiments comparing human-alone, AI-alone, and human+AI performance across one or more conditions.",
   "prompt_file":       "human-ai-collab.prompt.md",
   "sub_views": [
     {
-      "id":            "task-design",
-      "label":         "Task & design",
-      "include_keys":  ["Task_Type", "Task_Desc", "Task_Domain", "Exp_Design", "Task_Data", "Task_Output"],
-      "evidence_keys": ["Task_Desc", "Task_Domain", "Exp_Design", "Task_Type"]
+      "id":            "design",
+      "label":         "Design",
+      "include_keys":  ["Exp_Design", "Comp_Type"],
+      "evidence_keys": ["Exp_Design", "Comp_Type"]
+    },
+    {
+      "id":            "task",
+      "label":         "Task",
+      "include_keys":  ["Task_Desc", "Task_Data", "Task_Output", "Task_Type"],
+      "evidence_keys": ["Task_Desc", "Task_Data", "Task_Output", "Task_Type"]
     },
     {
       "id":            "ai-system",
       "label":         "AI system",
-      "include_keys":  ["AI_Type", "AI_Data_In", "AI_Data_Out", "LLM_Model", "LLM_Version",
-                        "Prompting_Strategy", "Multi_Agent", "Multi_Agent_Count", "Fine_Tuned"],
-      "evidence_keys": ["AI_Type", "LLM_Model", "Prompting_Strategy", "Multi_Agent", "Fine_Tuned"]
+      "include_keys":  ["AI_Type", "AI_Data_In", "AI_Data_Out", "AI_Expl_Incl", "AI_Conf_Incl",
+                        "AI_Expl_Type", "Prompting_Strategy", "Fine_Tuned", "Interface_Modality"],
+      "evidence_keys": ["AI_Type", "AI_Data_In", "AI_Data_Out", "AI_Expl_Incl", "AI_Conf_Incl",
+                        "AI_Expl_Type", "Prompting_Strategy", "Fine_Tuned", "Interface_Modality"]
     },
     {
       "id":            "collaboration",
       "label":         "Collaboration",
-      "include_keys":  ["Final_Decision", "Division_Labor", "AI_Conf_Incl", "Interface_Modality",
-                        "Interaction_Turns", "AI_Expl_Incl", "AI_Expl_Type"],
-      "evidence_keys": ["Division_Labor", "AI_Conf_Incl", "AI_Expl_Incl", "AI_Expl_Type"]
+      "include_keys":  ["Final_Decision", "Division_Labor", "Condition_Name"],
+      "evidence_keys": ["Division_Labor", "Condition_Name"]
+    },
+    {
+      "id":            "metric",
+      "label":         "Metric",
+      "include_keys":  ["Perf_Metric", "Perf_Dir"],
+      "evidence_keys": ["Perf_Metric", "Perf_Dir"]
+    },
+    {
+      "id":            "sample",
+      "label":         "Sample",
+      "include_keys":  ["N_Exp", "N_Human", "N_HumanAI"],
+      "evidence_keys": ["N_Exp", "N_Human", "N_HumanAI"]
     },
     {
       "id":            "participants",
       "label":         "Participants",
-      "include_keys":  ["Participant_Type", "Participant_Source", "N_Total", "N_Human", "N_HumanAI"],
-      "evidence_keys": ["Participant_Type", "Participant_Source", "N_Total", "N_Human", "N_HumanAI"]
+      "include_keys":  ["Participant_Type", "Participant_Source", "Participant_Expert", "Participant_Crowdworker"],
+      "evidence_keys": ["Participant_Type", "Participant_Source"]
     },
     {
       "id":            "performance",
       "label":         "Performance",
-      "include_keys":  ["Perf_Metric", "Perf_Human", "Perf_AI", "Perf_HumanAI",
-                        "Std_Human", "Std_AI", "Std_HumanAI"],
-      "evidence_keys": ["Perf_Metric", "Perf_Human", "Perf_AI", "Perf_HumanAI",
-                        "Std_Human", "Std_AI", "Std_HumanAI"]
+      "include_keys":  ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI",
+                        "Sd_Perf_Human", "Sd_Perf_AI", "Sd_Perf_HumanAI"],
+      "evidence_keys": ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI",
+                        "Sd_Perf_Human", "Sd_Perf_AI", "Sd_Perf_HumanAI"]
+    },
+    {
+      "id":            "notes",
+      "label":         "Notes",
+      "include_keys":  ["Est_ES", "Notes", "Notes_2"],
+      "evidence_keys": ["Est_ES"]
     }
   ],
+  "field_types": {
+    "Exp_Design":        {"type": "select", "options": ["Between-Subjects", "Within-Subjects", "Mixed", "Other"]},
+    "Comp_Type":         {"type": "select", "options": ["Independent Samples", "Dependent Samples"]},
+    "Task_Data":         {"type": "multiselect", "options": ["Text", "Video", "Numeric", "Image", "Categoric", "Code", "Audio"]},
+    "Task_Output":       {"type": "multiselect", "options": ["Binary", "Categoric", "Numeric", "Open Response", "Image", "Audio"]},
+    "Task_Type":         {"type": "select", "options": ["Create", "Decide"]},
+    "AI_Type":           {"type": "select", "options": ["Generative", "Deep", "Shallow", "Wizard of Oz"]},
+    "AI_Data_In":        {"type": "multiselect", "options": ["Text", "Numeric", "Image", "Categoric", "Code", "Video", "Audio"]},
+    "AI_Data_Out":       {"type": "select", "options": ["Binary", "Categorical", "Continuous", "Numeric", "Image", "Text", "Code"]},
+    "AI_Expl_Incl":      {"type": "select", "options": ["Yes", "No"]},
+    "AI_Conf_Incl":      {"type": "select", "options": ["Yes", "No"]},
+    "AI_Expl_Type":      {"type": "multiselect", "options": ["Image", "Numeric", "Text", "NA"]},
+    "Prompting_Strategy": {"type": "multiselect", "options": ["zero-shot", "few-shot", "chain-of-thought", "reasoning / thinking mode", "RAG", "tool-use / agentic"]},
+    "Fine_Tuned":        {"type": "select", "options": ["Yes", "No"]},
+    "Interface_Modality": {"type": "select", "options": ["chat", "dashboard", "inline-overlay", "document", "voice"]},
+    "Final_Decision":    {"type": "select", "options": ["Human"]},
+    "Division_Labor":    {"type": "select", "options": ["Yes", "No"]},
+    "Perf_Metric":       {"type": "select", "options": ["Accuracy", "Error", "Error Rate", "Quality", "Score", "Time"], "allow_other": true},
+    "Perf_Dir":          {"type": "select", "options": ["Up", "Down"]},
+    "N_Exp":             {"type": "number"},
+    "N_Human":           {"type": "number"},
+    "N_HumanAI":         {"type": "number"},
+    "Participant_Type":  {"type": "select", "options": ["Crowdworkers", "Specialists (Expert)", "Specialists (Non-Expert)", "Students", "Physicians", "Volunteers", "Working Professionals"], "allow_other": true},
+    "Participant_Source": {"type": "select", "options": ["MTurk", "Prolific", "Upwork", "Hospital", "University", "Company", "Invitation", "Email Lists", "Social Media", "Website", "Volunteer", "Not Specified"]},
+    "Participant_Expert": {"type": "select", "options": ["Yes", "No"]},
+    "Participant_Crowdworker": {"type": "select", "options": ["Yes", "No"]},
+    "Avg_Perf_Human":    {"type": "number"},
+    "Avg_Perf_AI":       {"type": "number"},
+    "Avg_Perf_HumanAI":  {"type": "number"},
+    "Sd_Perf_Human":     {"type": "number"},
+    "Sd_Perf_AI":        {"type": "number"},
+    "Sd_Perf_HumanAI":   {"type": "number"},
+    "Est_ES":            {"type": "select", "options": ["Yes", "No"]}
+  },
   "skip_to":           "setup",
   "accent_color":      "#0f766e"
 }

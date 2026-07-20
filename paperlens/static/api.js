@@ -61,6 +61,9 @@ export const api = {
   addRecord: (docId, body) => req(`/api/documents/${docId}/records`, json(body)),
   documents: (f) => req(`/api/documents${qs(f)}`),
   checkDuplicates: (hashes, schemaId) => req(`/api/documents/check-duplicates`, json({ hashes, schema_id: schemaId })),
+  setDocumentField: (docId, key, value) => req(`/api/documents/${docId}/set-field`, json({ key, value })),
+  updatePaper: (docId, fields) => req(`/api/documents/${docId}/paper`, { method: "PATCH",
+    headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
   documentView: (id) => req(`/api/documents/${id}/view`),
   recordEvents: (id) => req(`/api/records/${id}/events`),
   locateValue: (id, value, page) =>

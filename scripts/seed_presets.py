@@ -58,10 +58,15 @@ def main() -> None:
         pid = meta["id"]
         if args.ids and pid not in args.ids:
             continue
+        # field_types (per-field dropdown/enum metadata) rides inside template_params so it
+        # survives into the DB-backed personal preset without a new column.
+        tparams = dict(meta.get("template_params") or {})
+        if meta.get("field_types"):
+            tparams["field_types"] = meta["field_types"]
         fields = {
             "title": meta["title"], "prompt": meta["_prompt"], "tagline": meta.get("tagline"),
             "description": meta.get("description"), "mode": meta.get("mode", "extraction"),
-            "sub_views": meta.get("sub_views"), "template_params": meta.get("template_params"),
+            "sub_views": meta.get("sub_views"), "template_params": tparams or None,
             "accent_color": meta.get("accent_color"), "visibility": args.visibility,
         }
         if records.get_personal_preset(conn, pid) is not None:

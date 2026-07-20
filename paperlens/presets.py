@@ -56,7 +56,11 @@ def emit_schema_row(preset_id: str, conn=None) -> dict[str, Any] | None:
     if meta is None:
         return None
     sub_views = meta.get("sub_views") or []
-    data_sources = (meta.get("template_params") or {}).get("data_sources") or []
+    tparams = meta.get("template_params") or {}
+    data_sources = tparams.get("data_sources") or []
+    # per-field control metadata (select/multiselect/number + options) — file presets carry
+    # it at the top level, DB presets inside template_params (see scripts/seed_presets.py).
+    field_types = meta.get("field_types") or tparams.get("field_types") or {}
 
     evidence_keys = sorted({k for sv in sub_views for k in sv.get("evidence_keys", [])})
     confidence_keys = sorted({k for sv in sub_views for k in sv.get("confidence_keys", [])})
@@ -71,6 +75,7 @@ def emit_schema_row(preset_id: str, conn=None) -> dict[str, Any] | None:
         "schema_version": meta.get("schema_version"),
         "data_sources": data_sources,
         "sub_views": sub_views,
+        "field_types": field_types,
         "evidence_keys": evidence_keys,
         "confidence_keys": confidence_keys,
         "core_keys": core_keys,

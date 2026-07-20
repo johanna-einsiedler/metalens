@@ -275,42 +275,89 @@ function _fieldsForView(fv, view) {
   }
   return out;
 }
+// per-field control metadata (dropdown/multi-select options) declared by the preset
+function fieldTypes() { return (DATA.field_defs && DATA.field_defs.field_types) || {}; }
+
 function renderRecordBody(rec) {
+  const eopts = { editable: true, fieldTypes: fieldTypes() };
   const views = _subViews();
-  if (!views) return renderValue(entryFields(rec.field_values), { editable: true });
+  if (!views) return renderValue(entryFields(rec.field_values), eopts);
   // only show tabs that actually have fields for this record
   const present = views.filter((v) => Object.keys(_fieldsForView(rec.field_values, v)).length);
-  if (present.length < 2) return renderValue(entryFields(rec.field_values), { editable: true });
+  if (present.length < 2) return renderValue(entryFields(rec.field_values), eopts);
   const tabs = present.map((v, i) =>
     `<button class="subtab${i === 0 ? " active" : ""}" data-vi="${i}">${esc(v.label || v.id)}</button>`).join("");
   const panels = present.map((v, i) =>
-    `<div class="subpanel${i === 0 ? "" : " hidden"}" data-vi="${i}">${renderValue(_fieldsForView(rec.field_values, v), { editable: true })}</div>`).join("");
+    `<div class="subpanel${i === 0 ? "" : " hidden"}" data-vi="${i}">${renderValue(_fieldsForView(rec.field_values, v), eopts)}</div>`).join("");
   return `<div class="subtabs">${tabs}</div><div class="subpanels">${panels}</div>`;
 }
 
-// Study panel shown ONCE above the entries: (a) identification (always) + (b) any field
-// that's identical across all entries. Single entry → identification only.
+// Study panel shown ONCE above the entries: (a) paper identity (editable → the paper
+// record) + (b) any field identical across all entries (editable → propagates to every
+// entry). Single entry → identity only.
 function renderStudyBlock(panel) {
   const p = DATA.paper || {};
-  const ident = {};
-  if (p.title) ident.Title = p.title;
-  if (Array.isArray(p.authors) ? p.authors.length : p.authors) ident.Authors = p.authors;
-  if (p.year) ident.Year = p.year;
-  if (p.journal) ident.Venue = p.journal;
-  if (p.doi) ident.DOI = p.doi;
+  const hasIdent = p.title || (Array.isArray(p.authors) ? p.authors.length : p.authors) || p.year || p.journal || p.doi;
   const hasConst = Object.keys(CONSTANT).length > 0;
-  if (!Object.keys(ident).length && !hasConst) return;
+  if (!hasIdent && !hasConst) return;
   const box = document.createElement("details");
   box.className = "study-block"; box.open = true;
-  let body = Object.keys(ident).length ? renderValue(ident, { editable: false }) : "";
+  // identity — Title/Year/Venue/Authors editable (persist to the paper record); DOI read-only
+  const identRows = [
+    identRow("Title", "title", p.title, false),
+    identRow("Authors", "authors", Array.isArray(p.authors) ? p.authors.join("; ") : (p.authors || ""), false),
+    identRow("Year", "year", p.year, true),
+    identRow("Venue", "journal", p.journal, false),
+    p.doi ? `<div class="rv-row"><div class="rv-key">DOI</div><div class="rv-val"><span class="rv-cell">${esc(p.doi)}</span></div></div>` : "",
+  ].join("");
+  let body = `<div class="rv-root"><div class="rv-obj">${identRows}</div></div>`;
   if (hasConst) {
     body += `<div class="study-shared"><div class="study-sub">Shared across all ${(DATA.records || []).length} entries</div>`
-      + `${renderValue(CONSTANT, { editable: false })}</div>`;
+      + `${renderValue(CONSTANT, { editable: true, fieldTypes: fieldTypes() })}</div>`;
   }
   box.innerHTML = `<summary>📄 Study information</summary><div class="study-body">${body}</div>`;
   panel.appendChild(box);
+  wireStudyIdentity(box);
+  const shared = box.querySelector(".study-shared");
+  if (shared) wireControls(shared, saveStudyField, true);   // a constant edit → every entry
   // constant fields carry the same evidence on every record → link them to their source
   linkValueCells(box, DATA.evidence.map((ev, i) => ({ ev, i })));
+}
+
+// one editable paper-identity row (persists to the paper record on blur)
+function identRow(label, field, value, isNum) {
+  const v = value == null ? "" : String(value);
+  return `<div class="rv-row"><div class="rv-key">${esc(label)}</div>`
+    + `<div class="rv-val"><span class="rv-editable study-ident${isNum ? " rv-num" : ""}"`
+    + ` contenteditable="plaintext-only" data-field="${esc(field)}">${esc(v)}</span></div></div>`;
+}
+
+function wireStudyIdentity(box) {
+  box.querySelectorAll(".study-ident").forEach((cell) => {
+    cell.dataset.orig = cell.textContent;
+    cell.addEventListener("blur", () => {
+      const now = cell.textContent.trim();
+      if (now === (cell.dataset.orig || "").trim()) return;
+      const field = cell.dataset.field;
+      let val = now;
+      if (field === "year") val = now === "" ? null : (isNaN(Number(now)) ? now : Number(now));
+      else if (field === "authors") val = now ? now.split(";").map((s) => s.trim()).filter(Boolean) : [];
+      cell.classList.add("rv-edited");
+      api.updatePaper(DATA.document_id, { [field]: val })
+        .then((r) => { cell.dataset.orig = cell.textContent; if (r && r.paper) DATA.paper = r.paper; })
+        .catch((e) => alert("save failed: " + e.message));
+    });
+  });
+}
+
+// A study-constant edit writes to EVERY record (one call) + syncs in-memory records/CONSTANT.
+function saveStudyField(key, value) {
+  return api.setDocumentField(DATA.document_id, key, value)
+    .then(() => {
+      (DATA.records || []).forEach((r) => { if (r.field_values) r.field_values[key] = value; });
+      CONSTANT[key] = value;
+    })
+    .catch((e) => alert("save failed: " + e.message));
 }
 
 function renderPanel() {
@@ -513,29 +560,8 @@ function wireCard(card, rec) {
   linkValueCells(card, recordEvidence(rec).concat(orphanEvidence()));
   card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
-  // edit-in-place → a value-changing correction recorded via the verify layer
-  card.querySelectorAll(".rv-editable").forEach((cell) => {
-    cell.dataset.orig = cell.textContent;
-    cell.addEventListener("blur", () => {
-      const orig = cell.dataset.orig, now = cell.textContent;
-      if (now === orig) return;
-      cell.classList.add("rv-edited");
-      const path = cell.dataset.path;
-      // keep numbers numeric so the exported JSON stays typed
-      const val = cell.classList.contains("rv-num") && now.trim() !== "" && !isNaN(Number(now)) ? Number(now) : now;
-      // Apply the correction to a copy of the entry's field_values and send it, so the
-      // change is written to the record — it then appears in the downloaded JSON and
-      // survives a reload, not just the audit trail. The diff still logs old→new.
-      const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-      setByPath(fv, path, val);
-      api.verify(rec.id, {
-        status: "verified",
-        diff: [{ field_path: path, original_value: orig, final_value: now }],
-        field_values: fv,
-      }).then(() => { cell.dataset.orig = now; rec.field_values = fv; setStatus(card, "verified"); })
-        .catch((e) => alert("save failed: " + e.message));
-    });
-  });
+  // free-text/number cells + typed dropdown & multi-select controls → the verify layer
+  wireControls(card, (path, val) => saveFieldEdit(rec, card, path, val, curVal(rec, path)), true);
 }
 
 async function sendVerify(card, rec, status) {
@@ -594,6 +620,59 @@ function setByPath(obj, path, value) {
   }
   cur[toks[toks.length - 1]] = value;
 }
+
+// Persist ONE field correction: apply newVal at `path` on a copy of the entry's
+// field_values and route it through the verify layer — so the change lands in the record
+// (→ export + reload) and the audit trail, not just the UI. Shared by text cells + typed
+// controls. Returns the api.verify promise.
+function saveFieldEdit(rec, card, path, newVal, origVal) {
+  const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+  setByPath(fv, path, newVal);
+  return api.verify(rec.id, {
+    status: "verified",
+    diff: [{ field_path: path, original_value: origVal, final_value: newVal }],
+    field_values: fv,
+  }).then(() => { rec.field_values = fv; setStatus(card, "verified"); })
+    .catch((e) => alert("save failed: " + e.message));
+}
+// current stored value at a (top-level) field path — used as the diff's original_value
+function curVal(rec, path) { return (rec.field_values || {})[path]; }
+
+// Wire the typed controls (+ free-text cells when textToo) inside a container to
+// onSave(path, value). Shared by record cards (per-record save) and the study panel
+// (propagate-to-all save). Handles select, allow_other, and multi-select (array value).
+function wireControls(container, onSave, textToo) {
+  if (textToo) container.querySelectorAll(".rv-editable").forEach((cell) => {
+    if (cell.classList.contains("study-ident")) return;   // identity has its own handler
+    cell.dataset.orig = cell.textContent;
+    cell.addEventListener("blur", () => {
+      const now = cell.textContent;
+      if (now === cell.dataset.orig) return;
+      cell.classList.add("rv-edited");
+      const val = cell.classList.contains("rv-num") && now.trim() !== "" && !isNaN(Number(now)) ? Number(now) : now;
+      Promise.resolve(onSave(cell.dataset.path, val)).then(() => (cell.dataset.orig = now));
+    });
+  });
+  container.querySelectorAll(".rv-selwrap").forEach((wrap) => {
+    const path = wrap.dataset.path, sel = wrap.querySelector(".rv-select"), other = wrap.querySelector(".rv-other");
+    const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
+    sel.onchange = () => {
+      if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
+      if (other) other.hidden = true;
+      commit(sel.value || null);
+    };
+    if (other) other.addEventListener("blur", () => { if (sel.value === "__other__") commit(other.value.trim() || null); });
+  });
+  container.querySelectorAll(".rv-multi").forEach((mbox) => {
+    const path = mbox.dataset.path;
+    mbox.querySelectorAll('input[type="checkbox"]').forEach((cb) => (cb.onchange = () => {
+      mbox.classList.add("rv-edited");
+      const vals = [...mbox.querySelectorAll('input[type="checkbox"]:checked')].map((x) => x.value);
+      onSave(path, vals);
+    }));
+  });
+}
+
 function linkValueCells(card, evs) {
   const linkable = evs.map(({ ev, i }) => ({ i, page: ev.page, path: stripCore(ev.field_path) }));
   card.querySelectorAll("[data-path]").forEach((cell) => {
@@ -603,7 +682,8 @@ function linkValueCells(card, evs) {
       const covers = x.path === "" || x.path === p || p.startsWith(x.path + ".") || p.startsWith(x.path + "[");
       if (covers && (!best || x.path.length > best.path.length)) best = x;
     }
-    const editable = cell.classList.contains("rv-editable");
+    const isControl = cell.classList.contains("rv-selwrap") || cell.classList.contains("rv-multi");
+    const editable = cell.classList.contains("rv-editable") || isControl;
     if (best) {
       cell.addEventListener("mouseenter", () => showEvidence(best.i));
       cell.addEventListener("mouseleave", () => hideEvidence(best.i));
@@ -611,7 +691,9 @@ function linkValueCells(card, evs) {
       // + dashed underline so they still read as editable.
       if (!editable) cell.classList.add("rv-linked");
       // TEXT → jump to the cited snippet; NUMBER → verbatim-locate on the evidence page.
-      cell.addEventListener("click", () => verifyAndJump(cell, best));
+      // A dropdown/checkbox control: clicking operates it, so no click-jump (hover still
+      // previews the source).
+      if (!isControl) cell.addEventListener("click", () => verifyAndJump(cell, best));
       return;
     }
     // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay

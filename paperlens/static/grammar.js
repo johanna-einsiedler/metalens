@@ -11,6 +11,12 @@ export function renderValue(data, opts = {}) {
 }
 
 function renderNode(v, path, opts) {
+  // A preset can declare a typed edit control for a field (dropdown / multi-select). Must
+  // run BEFORE the array branch so a multi-select value (an array) renders as checkboxes.
+  const ft = opts.editable && opts.fieldTypes && opts.fieldTypes[path];
+  if (ft && (ft.type === "select" || ft.type === "multiselect") && (ft.options || []).length) {
+    return renderControl(v, path, ft);
+  }
   if (v === null || v === undefined) return `<span class="rv-null">—</span>`;
   if (Array.isArray(v)) return renderArray(v, path, opts);
   if (typeof v === "object") {
@@ -24,6 +30,32 @@ function renderNode(v, path, opts) {
   }
   // read-only cell still carries data-path so it can be linked to its source evidence
   return `<span class="rv-cell${num ? " rv-num" : ""}" data-path="${esc(path)}">${esc(String(v))}</span>`;
+}
+
+// A typed edit control declared by the preset's field_types. Produces markup only;
+// workspace.js wires the change events (by class) through the same correction path as
+// text cells. `select` → dropdown; `multiselect` → checkbox group (value = array);
+// `allow_other` adds an "Other…" choice that reveals a free-text input.
+function renderControl(v, path, ft) {
+  const options = ft.options || [];
+  if (ft.type === "multiselect") {
+    const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
+    const boxes = options.map((o) =>
+      `<label class="rv-chk"><input type="checkbox" value="${esc(o)}"${cur.includes(String(o)) ? " checked" : ""}/>${esc(o)}</label>`
+    ).join("");
+    return `<span class="rv-multi" data-path="${esc(path)}">${boxes}</span>`;
+  }
+  const val = (v == null) ? "" : String(v);
+  const known = options.map(String);
+  const isOther = !!ft.allow_other && val !== "" && !known.includes(val);
+  const optionsHtml = [`<option value="">—</option>`]
+    .concat(options.map((o) => `<option value="${esc(o)}"${String(o) === val ? " selected" : ""}>${esc(o)}</option>`))
+    .concat(ft.allow_other ? [`<option value="__other__"${isOther ? " selected" : ""}>Other…</option>`] : [])
+    .join("");
+  const other = ft.allow_other
+    ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>`
+    : "";
+  return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select">${optionsHtml}</select>${other}</span>`;
 }
 
 function renderObj(obj, path, opts) {

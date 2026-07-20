@@ -502,6 +502,51 @@ def delete_document(document_id: str, db=Depends(get_db),
     return records.delete_document(db, document_id)
 
 
+class SetField(BaseModel):
+    key: str
+    value: Any = None                  # any JSON value (string / number / array / null)
+
+
+@app.post("/api/documents/{document_id}/set-field")
+def set_document_field(document_id: str, body: SetField, db=Depends(get_db),
+                       who: Principal = Depends(principal)) -> dict:
+    """Owner-only: set one field on EVERY record of the document — used to edit a study-
+    constant field once and have it apply to all entries. Logs a correction per record."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    n = records.set_field_across_records(
+        db, document_id, body.key, body.value, verifier_user_id=who.user_id,
+        verifier_kind=("maintainer" if who.user_id else "community"))
+    return {"updated": n}
+
+
+class PaperEdit(BaseModel):
+    title: str | None = None
+    year: int | None = None
+    journal: str | None = None
+    authors: list[str] | None = None
+
+
+@app.patch("/api/documents/{document_id}/paper")
+def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
+                        who: Principal = Depends(principal)) -> dict:
+    """Owner-only: correct the paper identity (title / year / venue / authors) shown in the
+    Study-information panel. The paper row is DOI-deduped, so this applies to every document
+    that shares the paper."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    row = db.execute("SELECT paper_id FROM extraction_document WHERE id = %s::uuid",
+                     (document_id,)).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="Document has no paper record.")
+    fields = {}
+    for k in ("title", "year", "journal", "authors"):
+        v = getattr(body, k)
+        if v is not None:
+            fields[k] = v
+    return {"paper": records.update_paper_fields(db, str(row[0]), fields)}
+
+
 @app.delete("/api/datasets/{dataset_id}")
 def delete_dataset(dataset_id: str, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:

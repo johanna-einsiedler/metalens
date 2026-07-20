@@ -1339,6 +1339,64 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
     return out
 
 
+def set_field_across_records(conn: psycopg.Connection, document_id: str, key: str, value,
+                             *, verifier_user_id: str | None = None,
+                             verifier_kind: str = "maintainer") -> int:
+    """Set ``field_values[key] = value`` on EVERY data record of a document — used when a
+    coder edits a study-constant field once and it must apply to all entries. Logs a
+    verification_event per changed record (so it appears as a correction). Returns #changed."""
+    rows = conn.execute(
+        "SELECT id, field_values FROM record "
+        "WHERE document_id = %s::uuid AND NOT screened_empty", (document_id,),
+    ).fetchall()
+    n = 0
+    with conn.transaction():
+        for rid, fv in rows:
+            fv = dict(fv or {})
+            old = fv.get(key)
+            if old == value:
+                continue
+            fv[key] = value
+            conn.execute("UPDATE record SET field_values = %s, verification_status = 'verified' "
+                         "WHERE id = %s", (Json(fv), rid))
+            conn.execute(
+                """INSERT INTO verification_event
+                     (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)
+                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, 'verified', %s, NULL)""",
+                (_new_id(), str(rid), verifier_user_id, verifier_kind,
+                 Json([{"field_path": key, "original_value": old, "final_value": value}])))
+            n += 1
+    return n
+
+
+_PAPER_EDIT_COLS = ("title", "year", "journal", "authors")
+
+
+def update_paper_fields(conn: psycopg.Connection, paper_id: str, fields: dict) -> dict | None:
+    """Update an allowlisted subset of the paper record (title/year/journal/authors) — the
+    editable Study-info identity fields. Returns the updated paper dict, or None if nothing
+    to change. NOTE: the paper row is DOI-deduped, so this corrects title/year for every
+    document sharing the paper (intended)."""
+    cols = {k: v for k, v in (fields or {}).items() if k in _PAPER_EDIT_COLS}
+    if not cols:
+        return None
+    sets, vals = [], []
+    for k, v in cols.items():
+        sets.append(f"{k} = %s")
+        vals.append(Json(v) if k == "authors" else v)
+    vals.append(str(paper_id))
+    with conn.transaction():
+        conn.execute(f"UPDATE paper SET {', '.join(sets)} WHERE id = %s::uuid", vals)
+    row = conn.execute(
+        "SELECT id, title, doi, year, journal, authors FROM paper WHERE id = %s::uuid",
+        (str(paper_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"id": str(row[0]), "title": row[1], "doi": row[2], "year": row[3],
+            "journal": row[4], "authors": row[5]}
+
+
 def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     """Delete a document — cascades its records/evidence/confidence (FK ON DELETE
     CASCADE) — then its stored PDF + page images. Returns {"deleted": n}."""

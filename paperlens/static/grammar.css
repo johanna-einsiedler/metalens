@@ -33,6 +33,15 @@
   border-bottom-color: var(--accent); }
 .rv-edited { background: var(--override-bg); border-bottom: 2px solid var(--override-line); border-radius: 2px 2px 0 0; }
 
+/* typed edit controls declared by a preset's field_types (dropdown / multi-select) */
+.rv-selwrap { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+.rv-select, .rv-other { font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; max-width: 100%; }
+.rv-select:focus, .rv-other:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.rv-multi { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.rv-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.rv-chk input { width: auto; margin: 0; }
+
 /* confidence badges */
 .confidence-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .confidence-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
