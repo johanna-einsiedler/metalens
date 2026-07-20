@@ -664,11 +664,13 @@ function setByPath(obj, path, value) {
 function saveFieldEdit(rec, card, path, newVal, origVal) {
   const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
   setByPath(fv, path, newVal);
+  // A value edit is a CORRECTION (logged for provenance/audit), NOT a verification —
+  // it must not mark the record "verified"; that stays the explicit ✓ button's job.
   return api.verify(rec.id, {
-    status: "verified",
+    status: "corrected",
     diff: [{ field_path: path, original_value: origVal, final_value: newVal }],
     field_values: fv,
-  }).then(() => { rec.field_values = fv; setStatus(card, "verified"); })
+  }).then(() => { rec.field_values = fv; })
     .catch((e) => alert("save failed: " + e.message));
 }
 // current stored value at a (top-level) field path — used as the diff's original_value

@@ -584,7 +584,10 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
 
 # ── verification / credibility (Phase 3) ──────────────────────────────────────
 
-_VALID_STATUS = ("verified", "flagged", "unverified")
+# "corrected" logs a human value-edit for provenance/audit WITHOUT claiming the record was
+# verified — editing a value is a correction, not an affirmation, so it must not inflate the
+# verified count. It records an event + updates field_values but leaves verification_status.
+_VALID_STATUS = ("verified", "flagged", "unverified", "corrected")
 
 
 def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
@@ -621,8 +624,9 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
             (eid, record_id, verifier_user_id, verifier_kind, status,
              Json(diff) if diff is not None else None, notes),
         )
-        conn.execute("UPDATE record SET verification_status = %s WHERE id = %s::uuid",
-                     (status, record_id))
+        if status != "corrected":     # a value edit records provenance but is NOT a verification
+            conn.execute("UPDATE record SET verification_status = %s WHERE id = %s::uuid",
+                         (status, record_id))
         if field_values is not None:
             conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid",
                          (Json(field_values), record_id))
@@ -1454,12 +1458,11 @@ def set_field_across_records(conn: psycopg.Connection, document_id: str, key: st
             if old == value:
                 continue
             fv[key] = value
-            conn.execute("UPDATE record SET field_values = %s, verification_status = 'verified' "
-                         "WHERE id = %s", (Json(fv), rid))
+            conn.execute("UPDATE record SET field_values = %s WHERE id = %s", (Json(fv), rid))
             conn.execute(
                 """INSERT INTO verification_event
                      (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)
-                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, 'verified', %s, NULL)""",
+                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, 'corrected', %s, NULL)""",
                 (_new_id(), str(rid), verifier_user_id, verifier_kind,
                  Json([{"field_path": key, "original_value": old, "final_value": value}])))
             n += 1

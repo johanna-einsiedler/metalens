@@ -52,14 +52,26 @@ def test_study_field_edits() -> None:
         conn.commit()
     doc_id = out["document_id"]
 
-    # a study-constant edit applies to EVERY record and is logged as a correction on each
+    # a study-constant edit applies to EVERY record and is logged as a correction on each —
+    # but editing is NOT verifying, so the records must stay unverified.
     assert records.set_field_across_records(conn, doc_id, "AI_Type", "Generative") == 2
     conn.commit()
     v = records.document_view(conn, doc_id)
     assert [r["field_values"]["AI_Type"] for r in v["records"]] == ["Generative", "Generative"]
     assert all(any(c["field_path"] == "AI_Type" for c in r["corrections"]) for r in v["records"])
+    assert all(r["verification_status"] != "verified" for r in v["records"])   # edit ≠ verify
     assert records.set_field_across_records(conn, doc_id, "AI_Type", "Generative") == 0   # idempotent
     conn.commit()
+
+    # a single-value correction (verify_record status="corrected") also must not verify
+    rid = v["records"][0]["id"]
+    records.verify_record(conn, rid, status="corrected",
+                          diff=[{"field_path": "Notes", "original_value": None, "final_value": "x"}],
+                          field_values={**v["records"][0]["field_values"], "Notes": "x"})
+    conn.commit()
+    got = records.document_view(conn, doc_id)["records"][0]
+    assert got["verification_status"] != "verified"
+    assert any(c["field_path"] == "Notes" for c in got["corrections"])   # still logged for provenance
 
     # edit paper identity — only the allowlisted fields change
     pid = str(conn.execute("SELECT paper_id FROM extraction_document WHERE id=%s::uuid",
