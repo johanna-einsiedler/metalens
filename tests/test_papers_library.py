@@ -81,9 +81,13 @@ def test_library_dedup_and_datasets() -> None:
         names = [x["title"] for x in lib[sha_a]["datasets"]]
         assert names == ["LibDS"]
 
-        # deleting the dataset detaches it — paper stays in the library, now in no dataset
+        # deleting the dataset discards ITS records but keeps the cached paper (re-extractable)
         records.delete_dataset(conn, ds["id"])
         conn.commit()
+        assert conn.execute("SELECT count(*) FROM record WHERE document_id=%s::uuid",
+                            (out_a["document_id"],)).fetchone()[0] == 0     # its records discarded
+        assert conn.execute("SELECT 1 FROM extraction_document WHERE id=%s::uuid",
+                            (out_a["document_id"],)).fetchone() is not None  # cached PDF kept
         lib = {p["pdf_sha256"]: p for p in records.list_papers(conn, session_id=sess)}
         assert sha_a in lib and lib[sha_a]["datasets"] == []
 

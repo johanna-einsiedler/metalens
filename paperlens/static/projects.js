@@ -67,7 +67,7 @@ async function renderDatasets(grid, me) {
     + `<button class="pt-del" data-id="${esc(d.id)}" title="delete dataset">🗑</button></div>`).join("");
   grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async (e) => {
     e.preventDefault();
-    if (!confirm("Delete this dataset? Its papers stay in “All my papers” (you can re-add them to another dataset); only this grouping is removed.")) return;
+    if (!confirm("Delete this dataset? Its extracted records are discarded, but each paper stays in “All my papers” so you can re-extract it into another dataset.")) return;
     try { await api.deleteDataset(b.dataset.id); b.closest(".proj-tile-wrap").remove(); }
     catch (ex) { alert("delete failed: " + ex.message); }
   }));
@@ -94,7 +94,8 @@ async function renderPapers(grid, _me) {
   }
   grid.innerHTML = papers.map((p) => {
     const name = p.title || p.filename || "untitled";
-    const bits = [`${p.n_records} record${p.n_records === 1 ? "" : "s"}`];
+    // n_records 0 = cached PDF with no current extraction (e.g. its dataset was deleted)
+    const bits = [p.n_records ? `${p.n_records} record${p.n_records === 1 ? "" : "s"}` : "not extracted"];
     if (p.n_pages) bits.push(`${p.n_pages} pp`);
     if (p.n_extractions > 1) bits.push(`${p.n_extractions} extractions`);
     const ds = p.datasets || [];

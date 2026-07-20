@@ -823,7 +823,10 @@ async function runBatch(indices, reset) {
     fd.append("prompt", $("#prompt").value);
     fd.append("schema_id", schemaId);
     if (USE_CREDITS) {
-      fd.append("use_credits", "true");          // server supplies the model + its own key
+      fd.append("use_credits", "true");          // server runs on its own key
+      // When re-extracting into a dataset, honor that dataset's model — the server keeps it
+      // if it's a credit-allowed model, else falls back to the default credit model.
+      if (ADD_DATASET && ADD_DATASET.model) fd.append("model", ADD_DATASET.model);
     } else {
       fd.append("model", $("#model").value);
       fd.append("api_key", $("#apikey").value);

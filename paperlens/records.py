@@ -440,7 +440,8 @@ def list_papers(conn: psycopg.Connection, *, owner_user_id: str | None = None,
                   (array_agg(d.id::text ORDER BY d.created_at DESC))[1] AS document_id,
                   max(pd.n_pages)  AS n_pages,
                   min(d.created_at) AS created_at,
-                  count(DISTINCT d.id) AS n_extractions,
+                  count(DISTINCT d.id) FILTER (WHERE r.id IS NOT NULL
+                      AND NOT COALESCE(r.screened_empty, false)) AS n_extractions,
                   count(DISTINCT r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
                   jsonb_agg(DISTINCT jsonb_build_object('id', ds.id::text, 'title', ds.title))
                       FILTER (WHERE ds.id IS NOT NULL) AS datasets
@@ -1383,9 +1384,9 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
     "already extracted" warning when adding papers. A duplicate is the SAME PDF, extracted
     with the SAME preset (pass ``schema_id``; None matches any), whose real (non-screened)
     records currently belong to a live dataset. Deliberately does NOT flag papers that are
-    merely cached/orphaned: after ``delete_dataset`` un-publishes a paper (dataset_id→NULL),
-    or when re-extracting under a different preset, the paper is no longer a duplicate, so a
-    from-scratch rebuild is clean. Scoped to the principal (owner or anonymous session);
+    merely cached: after ``delete_dataset`` discards a paper's records (leaving only its
+    cached PDF), or when re-extracting under a different preset, the paper is no longer a
+    duplicate, so a from-scratch rebuild is clean. Scoped to the principal (owner or session);
     returns ``{sha: [{document_id, filename, created_at, n_records}]}`` newest first."""
     hs = [h for h in (hashes or []) if h]
     if not hs or (owner_user_id is None and session_id is None):
@@ -1526,12 +1527,16 @@ def add_record(conn: psycopg.Connection, document_id: str, *,
 
 
 def delete_dataset(conn: psycopg.Connection, dataset_id: str) -> dict:
-    """Delete a dataset; its records revert to PRIVATE (``dataset_id = NULL`` =
-    un-published) rather than being deleted (they still belong to the owner's docs)."""
+    """Delete a dataset and DISCARD its extraction records — they were this dataset's data
+    (deleting them cascades their evidence/confidence/verification via FK). Each paper's
+    cached PDF is KEPT: the extraction_document + stored PDF survive, so the paper stays in
+    "All my papers" and can be re-extracted into another dataset. A record belongs to at
+    most one dataset, so this only removes the records that were in THIS one. Returns the
+    dataset + record delete counts."""
     with conn.transaction():
-        conn.execute("UPDATE record SET dataset_id = NULL WHERE dataset_id = %s::uuid", (dataset_id,))
+        rec = conn.execute("DELETE FROM record WHERE dataset_id = %s::uuid", (dataset_id,))
         cur = conn.execute("DELETE FROM dataset WHERE id = %s::uuid", (dataset_id,))
-    return {"deleted": cur.rowcount}
+    return {"deleted": cur.rowcount, "records_deleted": rec.rowcount}
 
 
 def delete_user_data(conn: psycopg.Connection, user_id: str) -> dict:

@@ -568,7 +568,8 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
 @app.delete("/api/datasets/{dataset_id}")
 def delete_dataset(dataset_id: str, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
-    """Owner-only: delete the dataset (its records revert to private, not deleted)."""
+    """Owner-only: delete the dataset and discard its extraction records; each paper's
+    cached PDF is kept in "All my papers" so it can be re-extracted into another dataset."""
     if not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
     return records.delete_dataset(db, dataset_id)

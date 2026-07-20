@@ -74,11 +74,13 @@ def test_duplicate_flagged_only_while_in_live_dataset() -> None:
     assert records.documents_by_hashes(conn, [sha], session_id="sess-dedup",
                                         schema_id="some-other@v1") == {}
 
-    # delete the dataset → paper un-published → NOT flagged → clean rebuild
+    # delete the dataset → its records are discarded → NOT flagged → clean rebuild
     records.delete_dataset(conn, ds["id"])
     conn.commit()
     assert check() == {}
-    # the document + its PDF survive (still re-extractable / listable)
+    assert conn.execute("SELECT count(*) FROM record WHERE document_id=%s::uuid",
+                        (doc_id,)).fetchone()[0] == 0     # records gone
+    # the document + its cached PDF survive (still re-extractable / listable)
     assert conn.execute("SELECT 1 FROM extraction_document WHERE id=%s::uuid",
                         (doc_id,)).fetchone() is not None
 
