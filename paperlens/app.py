@@ -957,15 +957,20 @@ def extract_endpoint(
     use_text: bool = Form(False),
     schema_id: str | None = Form(None),
     use_credits: bool = Form(False),
+    dataset_id: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
     """Upload a PDF -> extract into records. Browser supplies the model + api_key
     per request (never persisted). The prompt comes from `prompt` if given, else
     from the preset (`preset_id`, or the preset implied by `schema_id`). Enqueues
-    when Redis is up (restart-safe), else runs synchronously."""
+    when Redis is up (restart-safe), else runs synchronously. When ``dataset_id`` is
+    given (add-papers), the finished document is attached to that dataset server-side
+    — so queued papers land in it even though the browser has no document_id yet."""
     data = pdf.file.read()
     fname = pdf.filename or None
+    if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="You don't own that dataset.")
 
     if not prompt.strip():
         pid = preset_id or (schema_id.split("@")[0] if schema_id else None)
@@ -998,7 +1003,7 @@ def extract_endpoint(
             "extract_job", base64.b64encode(data).decode(), prompt,
             model=cmodel, api_key="", base_url=None, use_text=use_text, schema_id=schema_id,
             session_id=who.session_id, owner_user_id=who.user_id, filename=fname,
-            use_credits=True, credit_user_id=who.user_id, _expires=1800)
+            use_credits=True, credit_user_id=who.user_id, dataset_id=dataset_id, _expires=1800)
         if job_id:
             return {"queued": True, "job_id": job_id}
         # Redis down → run synchronously (no Redis payload to protect anyway)
@@ -1007,6 +1012,8 @@ def extract_endpoint(
                 db, data, prompt, model=cmodel, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
                 owner_user_id=who.user_id, filename=fname)
+            if dataset_id:
+                records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         except ValueError as exc:
             credits.refund(db, who.user_id, model=cmodel)
             raise HTTPException(status_code=422, detail=str(exc))
@@ -1020,7 +1027,7 @@ def extract_endpoint(
         "extract_job", base64.b64encode(data).decode(), prompt,
         model=model, api_key=api_key, base_url=base_url, use_text=use_text,
         schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
-        filename=fname,
+        filename=fname, dataset_id=dataset_id,
         # discard the job if no worker consumes it within 30 min (avoid running a
         # long-stale extraction the user has already abandoned — see delayed=… logs)
         _expires=1800)
@@ -1033,6 +1040,8 @@ def extract_endpoint(
             db, data, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=fname)
+        if dataset_id:
+            records.assign_document_to_dataset(db, dataset_id, result["document_id"])
     except ValueError as exc:                 # bad/empty PDF, unparseable model output
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:                   # provider errors (bad key/model/quota)

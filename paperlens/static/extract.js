@@ -128,7 +128,8 @@ async function maybeAddPapersMode() {
   if (body && !document.querySelector("#addbanner")) {
     const b = document.createElement("div");
     b.id = "addbanner"; b.className = "add-banner";
-    b.innerHTML = `Adding papers to <b>${esc(ADD_DATASET.title)}</b> — they’ll reuse this dataset’s model, prompt & schema. `
+    b.innerHTML = `Adding papers to <b>${esc(ADD_DATASET.title)}</b> — drop your PDFs below and Run. `
+      + `They reuse this dataset’s model, prompt &amp; schema; open a step above to change any before running. `
       + `<a href="/dataset?id=${esc(dsId)}">Back to dataset →</a>`;
     body.prepend(b);
   }
@@ -822,6 +823,7 @@ async function runBatch(indices, reset) {
     fd.append("pdf", FILES[i]);
     fd.append("prompt", $("#prompt").value);
     fd.append("schema_id", schemaId);
+    if (ADD_DATASET) fd.append("dataset_id", ADD_DATASET.id);   // server attaches the result
     if (USE_CREDITS) {
       fd.append("use_credits", "true");          // server runs on its own key
       // When re-extracting into a dataset, honor that dataset's model — the server keeps it
@@ -847,8 +849,15 @@ async function runBatch(indices, reset) {
   renderResults(true);
   // Forward ONCE, after every paper has been submitted: queued jobs survive navigation and
   // the review panel tracks them via ?jobs; any sync results are already in hand.
-  if (reset && !ADD_DATASET && (anyQueued || STATUS.some((s) => s.state === "done"))) {
-    location.href = forwardUrl();
+  if (reset && (anyQueued || STATUS.some((s) => s.state === "done"))) {
+    if (ADD_DATASET) {
+      // Add-papers: the server attaches each finished paper to the dataset, so jump to the
+      // dataset's Data review and watch them fill in (?jobs tracks the queued ones).
+      const jq = jobIds.length ? `&jobs=${jobIds.join(",")}` : "";
+      location.href = `/workspace?project=${encodeURIComponent(ADD_DATASET.id)}${jq}`;
+    } else {
+      location.href = forwardUrl();
+    }
   }
 }
 

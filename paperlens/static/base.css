@@ -120,6 +120,10 @@ main.split { display: flex; height: calc(100vh - 53px); }
 /* this-round jobs still processing / failed, shown alongside the document tabs */
 .doctab.jobpend { color: var(--text-muted); font-size: 12px; cursor: default; }
 .doctab.jobfail { color: var(--error); border-color: var(--error); font-size: 12px; cursor: help; }
+/* "＋ Add papers" — back to the extract page in add-papers mode for this dataset */
+.doctab-add { justify-content: center; margin-top: 8px; border-style: dashed; color: var(--accent);
+  text-decoration: none; font-weight: 600; }
+.doctab-add:hover { background: var(--accent-wash); border-color: var(--accent); text-decoration: none; }
 
 /* raw JSON view */
 .rawjson { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;

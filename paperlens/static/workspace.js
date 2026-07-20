@@ -104,6 +104,9 @@ function startRoundPoll(since) {
 
 async function reloadRoundDocs(since) {
   try {
+    // In a dataset view (add-papers), the server attaches each finished paper to the
+    // dataset, so a dataset-scoped refetch naturally grows to include the new ones.
+    if (PROJECT) { DOCS = (await api.documents({ dataset: PROJECT })).documents || []; return; }
     const all = (await api.documents({})).documents || [];
     // a completed job's document belongs to this round even if a clock skew would push
     // its created_at just under `since` — include it by id as well as by the time filter.
@@ -167,6 +170,11 @@ async function landingChooser() {
 function renderDocTabs() {
   const strip = $("#doctabs"); if (!strip) return;
   const label = PROJECT_TITLE ? `<span class="doctabs-label">${esc(PROJECT_TITLE)}</span>` : "";
+  // Add-papers entry point: from a dataset's review, jump back to the extract page in
+  // add-papers mode (drag-drop first, this dataset's recipe reused) to add more.
+  const addBtn = PROJECT
+    ? `<a class="doctab doctab-add" href="/extract?dataset=${esc(PROJECT)}" title="Add more papers to this dataset">＋ Add papers</a>`
+    : "";
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}" data-id="${d.document_id}" title="${esc(nm)}">`
@@ -180,7 +188,7 @@ function renderDocTabs() {
   ).map((j) => j.status === "failed"
     ? `<span class="doctab jobfail" title="${esc(j.error || "extraction failed")}">✗ failed</span>`
     : `<span class="doctab jobpend">⏳ extracting…</span>`).join("");
-  strip.innerHTML = label + docTabs + jobTabs;
+  strip.innerHTML = label + docTabs + jobTabs + addBtn;
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
 }
 

@@ -77,7 +77,8 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
                       use_text: bool = False, schema_id: str | None = None,
                       session_id: str | None = None, owner_user_id: str | None = None,
                       filename: str | None = None, use_credits: bool = False,
-                      credit_user_id: str | None = None) -> dict:
+                      credit_user_id: str | None = None,
+                      dataset_id: str | None = None) -> dict:
     """Full PDF extraction as a durable job (render -> LLM -> highlight -> records).
 
     For ``use_credits`` runs the api_key is EMPTY in the payload — resolved here from the
@@ -112,7 +113,7 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
                 f"{provider!r} in the worker env (credit refunded on final attempt).")
     conn = records.connect()
     try:
-        return extract.run_extraction(
+        result = extract.run_extraction(
             conn, pdf_bytes, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=session_id,
             owner_user_id=owner_user_id, source_job_id=ctx.get("job_id"),
@@ -125,6 +126,17 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
             except Exception:
                 pass
         raise
+    else:
+        # Add-papers: attach the finished document to its target dataset here, so it lands
+        # in the dataset whether the run was queued or synchronous (the browser can't do it
+        # for queued jobs — it has no document_id until the worker finishes). Best-effort:
+        # the extraction already succeeded, so never fail/retry the job over the link.
+        if dataset_id and isinstance(result, dict) and result.get("document_id"):
+            try:
+                records.assign_document_to_dataset(conn, dataset_id, result["document_id"])
+            except Exception:
+                pass
+        return result
     finally:
         conn.close()
 
