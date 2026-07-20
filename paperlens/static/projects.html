@@ -51,6 +51,15 @@
       <p class="muted ws-hint">Saved views &amp; dashboards over one or more of your datasets.</p>
       <div id="analyses" class="proj-grid"></div>
     </section>
+
+    <section class="ws-section">
+      <div class="ws-head">
+        <h3>All my papers</h3>
+        <a class="btn btn-primary btn-sm" href="/extract">＋ Process papers</a>
+      </div>
+      <p class="muted ws-hint">Every PDF you've processed, kept even after a dataset is deleted. Add one to a dataset to (re-)extract it with that dataset's recipe, or remove it entirely.</p>
+      <div id="papers" class="proj-grid"></div>
+    </section>
   </main>
   <script type="module" src="/static/projects.js"></script>
   <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>

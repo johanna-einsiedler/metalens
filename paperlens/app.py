@@ -384,6 +384,24 @@ def document_text(document_id: str, page: int | None = None, db=Depends(get_db),
             "n_pages": data["n_pages"], "cached": True}
 
 
+@app.get("/api/papers/mine")
+def my_papers(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The principal's cached-PDF library ("All my papers") — one entry per distinct PDF,
+    with its extraction count and any live datasets that currently contain it. A paper
+    stays here after its dataset is deleted, so it can be re-extracted for another one."""
+    return {"papers": records.list_papers(
+        db, owner_user_id=who.user_id, session_id=who.session_id)}
+
+
+@app.delete("/api/papers/mine/{sha}")
+def delete_my_paper(sha: str, db=Depends(get_db),
+                    who: Principal = Depends(principal)) -> dict:
+    """Remove a cached PDF from the library entirely — deletes every extraction the caller
+    owns for that content hash, plus its stored PDF + page images. Cannot be undone."""
+    n = records.delete_paper(db, sha, owner_user_id=who.user_id, session_id=who.session_id)
+    return {"deleted": n}
+
+
 # ── datasets (Phase 2) ────────────────────────────────────────────────────────
 
 class DatasetCreate(BaseModel):

@@ -132,6 +132,25 @@ async function maybeAddPapersMode() {
       + `<a href="/dataset?id=${esc(dsId)}">Back to dataset →</a>`;
     body.prepend(b);
   }
+  // came from "All my papers → Add to dataset": pre-load the cached PDF so the user just
+  // hits Run (re-extracted here with THIS dataset's recipe, no re-upload needed).
+  const source = new URLSearchParams(location.search).get("source");
+  if (source) await loadSourcePaper(source, new URLSearchParams(location.search).get("name"));
+}
+
+// Fetch an already-cached PDF by its document id (owner-gated /artifacts route) and stage
+// it as the file to extract — used when re-extracting a library paper into a dataset.
+async function loadSourcePaper(docId, name) {
+  try {
+    const r = await fetch(`/artifacts/pdf/${encodeURIComponent(docId)}.pdf`, { credentials: "same-origin" });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    const blob = await r.blob();
+    const fname = (name && name.trim()) || `${docId}.pdf`;
+    FILES = [new File([blob], fname, { type: "application/pdf" })];
+    renderFiles();
+  } catch (e) {
+    setStatus(`Couldn't load the paper's cached PDF (${e.message}). Drop the file manually to continue.`);
+  }
 }
 
 // Select the provider whose model list contains `value`, then that model. If the

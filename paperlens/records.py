@@ -422,6 +422,75 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
     ]
 
 
+def list_papers(conn: psycopg.Connection, *, owner_user_id: str | None = None,
+                session_id: str | None = None, limit: int = 200) -> list[dict]:
+    """The principal's distinct cached PDFs — one row per content hash — regardless of
+    dataset membership: the "All my papers" library. A single PDF may have several
+    extractions (one per preset/run) and belong to zero or more LIVE datasets; deleting a
+    dataset detaches the paper but keeps it here (still re-extractable). ``document_id`` is
+    a representative surviving extraction (newest) used to fetch the cached PDF and to
+    re-extract without re-upload. Scoped to whoever owns any of the paper's documents or
+    records (logged-in user or anonymous session)."""
+    if owner_user_id is None and session_id is None:
+        return []
+    rows = conn.execute(
+        """SELECT d.pdf_sha256,
+                  (array_agg(p.title    ORDER BY d.created_at DESC) FILTER (WHERE p.title IS NOT NULL))[1]    AS title,
+                  (array_agg(d.filename ORDER BY d.created_at DESC) FILTER (WHERE d.filename IS NOT NULL))[1] AS filename,
+                  (array_agg(d.id::text ORDER BY d.created_at DESC))[1] AS document_id,
+                  max(pd.n_pages)  AS n_pages,
+                  min(d.created_at) AS created_at,
+                  count(DISTINCT d.id) AS n_extractions,
+                  count(DISTINCT r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
+                  jsonb_agg(DISTINCT jsonb_build_object('id', ds.id::text, 'title', ds.title))
+                      FILTER (WHERE ds.id IS NOT NULL) AS datasets
+           FROM extraction_document d
+           LEFT JOIN paper           p  ON p.id = d.paper_id
+           LEFT JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256
+           LEFT JOIN record          r  ON r.document_id = d.id
+           LEFT JOIN dataset         ds ON ds.id = r.dataset_id
+           WHERE d.pdf_sha256 IS NOT NULL
+           GROUP BY d.pdf_sha256
+           HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
+               OR (%s::text IS NOT NULL AND bool_or(d.session_id = %s OR r.session_id = %s))
+           ORDER BY max(d.created_at) DESC
+           LIMIT %s""",
+        (owner_user_id, owner_user_id, owner_user_id,
+         session_id, session_id, session_id, limit),
+    ).fetchall()
+    return [
+        {"pdf_sha256": sha, "title": title, "filename": fn, "document_id": did,
+         "n_pages": npg, "created_at": ca.isoformat() if ca else None,
+         "n_extractions": nx, "n_records": nrec, "datasets": dss or []}
+        for (sha, title, fn, did, npg, ca, nx, nrec, dss) in rows
+    ]
+
+
+def delete_paper(conn: psycopg.Connection, pdf_sha256: str, *,
+                 owner_user_id: str | None = None, session_id: str | None = None) -> int:
+    """Remove a cached PDF from the library entirely: hard-delete every extraction_document
+    the principal owns that shares this content hash (each cascades its records/evidence and
+    deletes its stored PDF + page images via ``delete_document``). Returns the number of
+    extractions removed. Owner-scoped so a shared content hash never lets one principal
+    delete another's extraction."""
+    if owner_user_id is None and session_id is None:
+        return 0
+    rows = conn.execute(
+        """SELECT DISTINCT d.id::text FROM extraction_document d
+           LEFT JOIN record r ON r.document_id = d.id
+           WHERE d.pdf_sha256 = %s
+           GROUP BY d.id
+           HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
+               OR (%s::text IS NOT NULL AND bool_or(d.session_id = %s OR r.session_id = %s))""",
+        (pdf_sha256, owner_user_id, owner_user_id, owner_user_id,
+         session_id, session_id, session_id),
+    ).fetchall()
+    n = 0
+    for (did,) in rows:
+        n += delete_document(conn, did).get("deleted", 0)
+    return n
+
+
 def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
     """Everything the viewer needs for one document: paper metadata, the resolved
     schema grammar, page-image urls, records, and evidence spans (with rects)."""

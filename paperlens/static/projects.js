@@ -7,18 +7,20 @@ async function init() {
   const dsGrid = document.querySelector("#datasets");
   const anGrid = document.querySelector("#analyses");
   const preGrid = document.querySelector("#presets");
+  const papGrid = document.querySelector("#papers");
   const sub = document.querySelector("#psub");
   const me = await api.me();
   if (!me || !me.email) {
     sub.textContent = "Sign in to see your workspace.";
     dsGrid.innerHTML = '<p class="muted">Use “Sign in” in the top-right, then your saved '
       + 'datasets, presets and analyses appear here. Save a dataset from the extraction results.</p>';
-    anGrid.innerHTML = ""; if (preGrid) preGrid.innerHTML = "";
+    anGrid.innerHTML = ""; if (preGrid) preGrid.innerHTML = ""; if (papGrid) papGrid.innerHTML = "";
     return;
   }
   renderDatasets(dsGrid, me);
   renderPresets(preGrid, me);
   renderAnalyses(anGrid, me);
+  renderPapers(papGrid, me);
 }
 
 async function renderPresets(grid, _me) {
@@ -65,7 +67,7 @@ async function renderDatasets(grid, me) {
     + `<button class="pt-del" data-id="${esc(d.id)}" title="delete dataset">🗑</button></div>`).join("");
   grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async (e) => {
     e.preventDefault();
-    if (!confirm("Delete this dataset? Its records become private again (the underlying documents are kept).")) return;
+    if (!confirm("Delete this dataset? Its papers stay in “All my papers” (you can re-add them to another dataset); only this grouping is removed.")) return;
     try { await api.deleteDataset(b.dataset.id); b.closest(".proj-tile-wrap").remove(); }
     catch (ex) { alert("delete failed: " + ex.message); }
   }));
@@ -76,6 +78,76 @@ async function renderDatasets(grid, me) {
 async function renderAnalyses(grid, _me) {
   grid.innerHTML = '<p class="muted">🚧 Dashboards &amp; saved analyses are coming soon. '
     + 'For now, extract papers and review the data under <a href="/workspace">Data review</a>.</p>';
+}
+
+// "All my papers" — the cached-PDF library (one card per distinct PDF, deduped by
+// content hash server-side). A paper persists here after its dataset is deleted, and
+// can be (re-)extracted into any dataset with that dataset's recipe.
+async function renderPapers(grid, _me) {
+  if (!grid) return;
+  let papers = [];
+  try { papers = (await api.myPapers()).papers || []; }
+  catch (e) { grid.innerHTML = `<p class="muted">error: ${esc(e.message)}</p>`; return; }
+  if (!papers.length) {
+    grid.innerHTML = '<p class="muted">No papers yet. <a href="/extract">Process a paper</a> and it appears here.</p>';
+    return;
+  }
+  grid.innerHTML = papers.map((p) => {
+    const name = p.title || p.filename || "untitled";
+    const bits = [`${p.n_records} record${p.n_records === 1 ? "" : "s"}`];
+    if (p.n_pages) bits.push(`${p.n_pages} pp`);
+    if (p.n_extractions > 1) bits.push(`${p.n_extractions} extractions`);
+    const ds = p.datasets || [];
+    const inDs = ds.length
+      ? "in " + ds.slice(0, 2).map((d) => esc(d.title || "untitled")).join(", ") + (ds.length > 2 ? ` +${ds.length - 2}` : "")
+      : "not in a dataset";
+    return `<div class="proj-tile-wrap">`
+      + `<div class="proj-tile">`
+      + `<a class="pt-title" href="/workspace?doc=${esc(p.document_id)}" title="Open in Data review">${esc(name)}</a>`
+      + `<div class="pt-meta">${esc(bits.join(" · "))}</div>`
+      + `<div class="pt-meta pt-inds">${inDs}</div>`
+      + `<div class="pt-actions"><button class="btn btn-ghost btn-sm pt-add" `
+      + `data-sha="${esc(p.pdf_sha256)}" data-doc="${esc(p.document_id)}" `
+      + `data-name="${esc(p.filename || (name + ".pdf"))}">＋ Add to dataset</button></div>`
+      + `</div>`
+      + `<button class="pt-del" data-sha="${esc(p.pdf_sha256)}" title="remove paper (deletes all its extractions)">🗑</button></div>`;
+  }).join("");
+  grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async (e) => {
+    e.preventDefault();
+    if (!confirm("Remove this paper from your library? This permanently deletes all of its extractions and its stored PDF. This cannot be undone.")) return;
+    try { await api.deletePaper(b.dataset.sha); b.closest(".proj-tile-wrap").remove(); }
+    catch (ex) { alert("delete failed: " + ex.message); }
+  }));
+  grid.querySelectorAll(".pt-add").forEach((b) => (b.onclick = async () => {
+    const dsId = await chooseDataset();
+    if (dsId) location.href = `/extract?dataset=${encodeURIComponent(dsId)}`
+      + `&source=${encodeURIComponent(b.dataset.doc)}&name=${encodeURIComponent(b.dataset.name)}`;
+  }));
+}
+
+// Small chooser: pick one of the user's own datasets to add a paper to. Resolves the
+// dataset id (or null if cancelled). The /extract page then re-extracts with its recipe.
+async function chooseDataset() {
+  let datasets = [];
+  try { datasets = (await api.myDatasets()).datasets || []; }
+  catch (e) { alert("could not load datasets: " + e.message); return null; }
+  const mine = datasets.filter((d) => d.owner_user_id);
+  return new Promise((resolve) => {
+    const ov = document.createElement("div");
+    ov.className = "modal-overlay";
+    const opts = mine.map((d) =>
+      `<button class="btn btn-ghost ds-pick" data-id="${esc(d.id)}">${esc(d.title || "untitled")}</button>`).join("");
+    ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true">`
+      + `<h3>Add to dataset</h3>`
+      + `<p class="muted">Re-extract this paper with the chosen dataset's prompt &amp; model, then add it.</p>`
+      + `<div class="ds-pick-list">${opts || '<p class="muted">You have no datasets yet — create one from an extraction first.</p>'}</div>`
+      + `<div class="modal-actions"><button class="btn btn-ghost pick-cancel">Cancel</button></div></div>`;
+    document.body.appendChild(ov);
+    const close = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector(".pick-cancel").onclick = () => close(null);
+    ov.addEventListener("click", (e) => { if (e.target === ov) close(null); });
+    ov.querySelectorAll(".ds-pick").forEach((b) => (b.onclick = () => close(b.dataset.id)));
+  });
 }
 
 init();
