@@ -1310,19 +1310,25 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
                         session_id: str | None = None,
                         schema_id: str | None = None) -> dict[str, list[dict]]:
     """For each pdf_sha256 in ``hashes``, the caller's existing documents with that exact
-    content hash — powers duplicate detection when adding papers. A duplicate is the SAME
-    PDF extracted with the SAME preset, so pass ``schema_id`` to restrict matches to that
-    preset (None matches any). Scoped to the principal (owner or anonymous session);
-    returns ``{sha: [{document_id, filename, created_at, n_records}]}`` newest first
-    (n_records excludes screened sentinels)."""
+    content hash that are STILL LIVE IN A DATASET under the given preset — powers the
+    "already extracted" warning when adding papers. A duplicate is the SAME PDF, extracted
+    with the SAME preset (pass ``schema_id``; None matches any), whose real (non-screened)
+    records currently belong to a live dataset. Deliberately does NOT flag papers that are
+    merely cached/orphaned: after ``delete_dataset`` un-publishes a paper (dataset_id→NULL),
+    or when re-extracting under a different preset, the paper is no longer a duplicate, so a
+    from-scratch rebuild is clean. Scoped to the principal (owner or anonymous session);
+    returns ``{sha: [{document_id, filename, created_at, n_records}]}`` newest first."""
     hs = [h for h in (hashes or []) if h]
     if not hs or (owner_user_id is None and session_id is None):
         return {}
+    # JOIN (not LEFT JOIN) record + dataset so only papers with real records in a still-
+    # existing dataset surface. record.dataset_id has no FK, so JOIN dataset (not just
+    # dataset_id IS NOT NULL) is required to exclude dangling links to deleted datasets.
     rows = conn.execute(
-        """SELECT d.pdf_sha256, d.id, d.filename, d.created_at,
-                  count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records
+        """SELECT d.pdf_sha256, d.id, d.filename, d.created_at, count(r.id) AS n_records
            FROM extraction_document d
-           LEFT JOIN record r ON r.document_id = d.id
+           JOIN record  r  ON r.document_id = d.id AND NOT COALESCE(r.screened_empty, false)
+           JOIN dataset ds ON ds.id = r.dataset_id
            WHERE d.pdf_sha256 = ANY(%s)
              AND (%s::text IS NULL OR d.schema_id = %s)
              AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
