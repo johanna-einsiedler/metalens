@@ -46,16 +46,25 @@ export function renderPages(root, pages, evidence) {
   });
 }
 
+// Clear the current single selection: unpaint any selected/flashing pre-drawn rect, and
+// remove any ad-hoc located-number rects entirely — so only the NEWEST pick stays visible.
+function clearSelection() {
+  document.querySelectorAll("rect.hl.sel, rect.hl.flash").forEach((r) => r.classList.remove("sel", "flash"));
+  document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());
+}
+
 export function jumpToEvidence(page, eid) {
-  document.querySelectorAll("rect.hl.flash").forEach((r) => r.classList.remove("flash"));
+  clearSelection();               // replace the previous highlight — never stack them
   const rects = [...document.querySelectorAll(`rect.hl[data-eid="${eid}"]`)];
-  rects.forEach((r) => { r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 2000); });
+  rects.forEach((r) => { r.classList.add("sel", "flash"); setTimeout(() => r.classList.remove("flash"), 1500); });
   scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
 }
 
-// pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value) with
-// the SAME yellow evidence-flash marking — temporary overlay rects that fade out.
+// pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value). Like
+// jumpToEvidence it keeps ONLY this selection: ad-hoc rects marked `.located` so the next
+// pick clears them, and they persist (not a 2s fade) until then.
 export function flashRects(page, rects) {
+  clearSelection();
   const wrap = document.getElementById(`page-${page}`);
   const svg = wrap && wrap.querySelector("svg.overlay");
   if (!svg) return;
@@ -63,9 +72,9 @@ export function flashRects(page, rects) {
     const r = document.createElementNS(SVGNS, "rect");
     r.setAttribute("x", x); r.setAttribute("y", y);
     r.setAttribute("width", w); r.setAttribute("height", h);
-    r.setAttribute("class", "hl flash");
+    r.setAttribute("class", "hl sel located flash");
     svg.appendChild(r);
-    setTimeout(() => r.remove(), 2500);
+    setTimeout(() => r.classList.remove("flash"), 1500);
     return r;
   });
   scrollToRect(drawn[0], page);

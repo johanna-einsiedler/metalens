@@ -67,7 +67,11 @@
 .overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .pagelabel { position: absolute; top: 4px; left: 4px; background: var(--accent); color: var(--on-accent);
   font-size: 11px; padding: 1px 6px; border-radius: 3px; z-index: 2; }
-rect.hl { fill: var(--highlight); stroke: none; }
+/* Only ONE evidence is shown at a time: every rect is transparent by default (no wall of
+   highlights that makes the page unreadable), and clicking a value/field paints just that
+   one (.sel), replacing the previous. .hot is the transient hover preview. */
+rect.hl { fill: transparent; stroke: none; }
+rect.hl.sel { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2; }
 rect.hl.hot { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2; }
 .val-check { font-size: 11px; color: var(--conf-med); margin-left: 8px; cursor: help; white-space: nowrap; }
 rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2.5;
