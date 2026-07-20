@@ -146,6 +146,11 @@ class WorkerSettings:
     max_jobs = 10
     max_tries = _EXTRACT_MAX_TRIES   # retry with backoff → spreads rate-limited LLM calls
     job_timeout = 300  # extraction LLM calls can be slow
+    # The worker polls Redis for new jobs every poll_delay seconds — CONTINUOUSLY, whether
+    # or not anything is running. arq's default (0.5s) means ~hundreds of thousands of
+    # commands/day just idling, which dominates managed-Redis (Upstash) usage. 3s cuts that
+    # ~6× and only delays a job's pickup by up to 3s (negligible vs 20-40s extractions).
+    poll_delay = 3.0
 
 
 # ── enqueue / status helpers for the (sync) API ───────────────────────────────

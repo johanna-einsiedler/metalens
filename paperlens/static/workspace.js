@@ -98,8 +98,8 @@ function startRoundPoll(since) {
         .filter((d) => d.created_at && new Date(d.created_at) >= new Date(since));
     } catch { return; }
     if (docs.length > DOCS.length) { DOCS = docs; renderDocTabs(); idle = 0; }
-    else if (++idle >= 10) clearInterval(timer);   // ~40s with no new papers
-  }, 4000);
+    else if (++idle >= 5) clearInterval(timer);    // ~40s with no new papers
+  }, 8000);                                        // 8s poll (was 4s) — fewer document-list queries
 }
 
 async function reloadRoundDocs(since) {
@@ -134,8 +134,8 @@ function startJobTracking(jobIds, since) {
     }
     if (newDoc) await reloadRoundDocs(since);
     renderDocTabs();
-    if (!pending || ++ticks > 90) clearInterval(timer);   // done, or ~6 min safety cap
-  }, 4000);
+    if (!pending || ++ticks > 45) clearInterval(timer);   // done, or ~6 min safety cap
+  }, 8000);                                               // 8s poll (was 4s) — halves Upstash job-status polling
 }
 
 // Data-review entry: if the user has datasets, let them pick which to review; if
