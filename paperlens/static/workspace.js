@@ -10,6 +10,7 @@ import { renderGrid } from "/static/gridview.js";
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
+let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
 
 // Drag the splitter to resize the entries panel; width persists across sessions.
 function mountSplitter() {
@@ -120,25 +121,48 @@ async function reloadRoundDocs(since) {
 // Track this round's jobs: show each still-running paper as "extracting…", each failure
 // as an error, and pull in each document as its job completes. Survives navigation
 // because the jobs run on the worker, not the page.
+//
+// CRUCIAL for refresh: ?jobs stays in the URL, so a reload re-tracks the SAME ids. If we
+// blindly stamped them "pending" and rendered, jobs that already FINISHED before the
+// reload would flash as "extracting…" beside their real doc tabs — looking like a re-run.
+// So the first status check runs immediately (in parallel), and placeholders stay hidden
+// until it classifies each job; finished ones become real tabs, only truly-running ones
+// show a spinner. Once nothing is pending, ?jobs is dropped from the URL so later reloads
+// are clean.
 function startJobTracking(jobIds, since) {
   jobIds.forEach((id) => (JOBS[id] = { status: "pending" }));
-  renderDocTabs();
+  renderDocTabs();                                     // DOCS now; placeholders hidden (JOBS_POLLED=false)
   let ticks = 0;
-  const timer = setInterval(async () => {
-    let pending = false, newDoc = false;
-    for (const id of jobIds) {
+  const tick = async () => {
+    const seen = await Promise.all(jobIds.map(async (id) => {
       const j = JOBS[id];
-      if (!j || j.status === "complete" || j.status === "failed") continue;
-      let st;
-      try { st = await api.job(id); } catch { pending = true; continue; }
-      if (st.success === true) { j.status = "complete"; j.document_id = st.result && st.result.document_id; newDoc = true; }
-      else if (st.success === false) { j.status = "failed"; j.error = st.error || "extraction failed"; }
-      else pending = true;
-    }
-    if (newDoc) await reloadRoundDocs(since);
+      if (!j || j.status === "complete" || j.status === "failed") return "settled";
+      try {
+        const st = await api.job(id);
+        if (st.success === true) { j.status = "complete"; j.document_id = st.result && st.result.document_id; return "new"; }
+        if (st.success === false) { j.status = "failed"; j.error = st.error || "extraction failed"; return "settled"; }
+      } catch { /* transient — treat as still pending */ }
+      return "pending";
+    }));
+    JOBS_POLLED = true;
+    if (seen.includes("new")) await reloadRoundDocs(since);
     renderDocTabs();
-    if (!pending || ++ticks > 45) clearInterval(timer);   // done, or ~6 min safety cap
-  }, 8000);                                               // 8s poll (was 4s) — halves Upstash job-status polling
+    return seen.includes("pending");
+  };
+  const loop = (pending) => {
+    if (!pending) {                                    // all settled → drop ?jobs so a reload is clean
+      const u = new URL(location.href); u.searchParams.delete("jobs");
+      history.replaceState(null, "", u);
+      return;
+    }
+    const timer = setInterval(async () => {
+      if (!(await tick()) || ++ticks > 45) {           // done, or ~6 min safety cap
+        clearInterval(timer);
+        const u = new URL(location.href); u.searchParams.delete("jobs"); history.replaceState(null, "", u);
+      }
+    }, 8000);                                          // 8s poll — halves Upstash job-status polling
+  };
+  tick().then(loop);                                   // first check immediately, not after 8s
 }
 
 // Data-review entry: if the user has datasets, let them pick which to review; if
@@ -180,11 +204,13 @@ function renderDocTabs() {
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}" data-id="${d.document_id}" title="${esc(nm)}">`
       + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`;
   }).join("");
-  // still-running or failed papers from this round that aren't yet a visible document
+  // still-running or failed papers from this round that aren't yet a visible document.
+  // Hidden until the first status check (JOBS_POLLED) so a refresh of already-finished
+  // jobs doesn't flash "extracting…"; and never a placeholder for a doc already shown.
   const shown = new Set(DOCS.map((d) => d.document_id));
-  const jobTabs = Object.values(JOBS).filter((j) =>
-    j.status === "pending" || j.status === "failed"
-    || (j.status === "complete" && j.document_id && !shown.has(j.document_id))
+  const jobTabs = (JOBS_POLLED ? Object.values(JOBS) : []).filter((j) =>
+    !(j.document_id && shown.has(j.document_id))
+    && (j.status === "pending" || j.status === "failed" || (j.status === "complete" && j.document_id))
   ).map((j) => j.status === "failed"
     ? `<span class="doctab jobfail" title="${esc(j.error || "extraction failed")}">✗ failed</span>`
     : `<span class="doctab jobpend">⏳ extracting…</span>`).join("");

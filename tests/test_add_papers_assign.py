@@ -70,6 +70,34 @@ def test_extract_with_dataset_id_assigns_to_it(monkeypatch) -> None:
     assert any(d["document_id"] == doc_id for d in docs)   # shows under the dataset view
 
 
+def test_dataset_never_holds_same_paper_twice(monkeypatch) -> None:
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    conn = records.connect(); records.init_db(conn)
+    sess = "sess-dupguard"
+    ds = records.create_dataset(conn, title="Dup DS", schema_id="human-ai-collab@v1", session_id=sess)
+    conn.commit()
+    _force_sync_with_fake_llm(monkeypatch)
+    client = TestClient(appmod.app)
+    pdf = _pdf()
+
+    def add():
+        return client.post("/api/extract", headers={"X-Session-Id": sess},
+                           files={"pdf": ("p.pdf", pdf, "application/pdf")},
+                           data={"prompt": "x", "schema_id": "human-ai-collab@v1", "dataset_id": ds["id"]})
+
+    assert add().status_code == 200
+    assert add().status_code == 200          # same PDF again (e.g. re-upload while the 1st was in flight)
+
+    conn.rollback()
+    # both extractions persisted (they live in the library), but the dataset holds the paper ONCE
+    n_docs = conn.execute("SELECT count(*) FROM extraction_document WHERE session_id=%s", (sess,)).fetchone()[0]
+    assert n_docs == 2
+    in_dataset = records.list_documents(conn, session_id=sess, dataset_id=ds["id"])
+    assert len(in_dataset) == 1
+
+
 def test_extract_rejects_non_owner_dataset(monkeypatch) -> None:
     if not _db_ok():
         import pytest; pytest.skip("no Postgres")

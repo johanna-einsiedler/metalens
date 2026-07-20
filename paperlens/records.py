@@ -1347,6 +1347,27 @@ def assign_records_to_dataset(conn: psycopg.Connection, dataset_id: str,
 def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
                                document_id: str) -> int:
     with conn.transaction():
+        # Idempotency: a dataset must never hold the SAME PDF twice (a double-clicked Run,
+        # a re-upload while the first extraction is still in flight, or two concurrent
+        # workers can each mint a fresh document for the same content hash). Serialize
+        # same-(dataset, sha) assigns with a txn advisory lock, then skip if another
+        # document with this hash is already in the dataset — non-destructive: the newcomer
+        # simply stays private in "All my papers" rather than duplicating the paper.
+        sha_row = conn.execute(
+            "SELECT pdf_sha256 FROM extraction_document WHERE id = %s::uuid", (document_id,)
+        ).fetchone()
+        sha = sha_row[0] if sha_row else None
+        if sha:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                         (str(dataset_id), sha))
+            dup = conn.execute(
+                """SELECT 1 FROM extraction_document d2
+                   JOIN record r ON r.document_id = d2.id AND r.dataset_id = %s::uuid
+                   WHERE d2.pdf_sha256 = %s AND d2.id <> %s::uuid LIMIT 1""",
+                (dataset_id, sha, document_id),
+            ).fetchone()
+            if dup is not None:
+                return 0     # this paper is already in the dataset → skip the duplicate
         cur = conn.execute(
             "UPDATE record SET dataset_id = %s::uuid WHERE document_id = %s::uuid",
             (dataset_id, document_id),

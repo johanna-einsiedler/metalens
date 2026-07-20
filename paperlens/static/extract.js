@@ -28,6 +28,12 @@ function done(n) { stepEl(n).classList.add("done"); }
 function summary(n, t) { stepEl(n).querySelector(".acc-sum").textContent = t; }
 
 async function init() {
+  // Add-papers (?dataset=…): jump straight to Upload & extract and wire the dropzone NOW,
+  // before the slow model/preset load — so the user lands on drag-and-drop instead of
+  // seeing step 1 ("turn a paper into data") flash for a second first.
+  const addingTo = new URLSearchParams(location.search).get("dataset");
+  setupDropzone();
+  if (addingTo) openStep(5);
   try { presets = (await api.presets()).presets || []; } catch { /* */ }
   await loadModels();
   document.querySelectorAll(".task-card[data-task]").forEach((c) =>
@@ -63,7 +69,6 @@ async function init() {
   renderSimpleUnits();
   syncTabsUI();
   setupTooltips();
-  setupDropzone();
   await setupCredits();          // resolve credits first so add-papers can reflect them
   await maybeAddPapersMode();
 }
@@ -714,13 +719,19 @@ function schemaIdFor() {
     : task === "summarise" ? "summarize@v1" : `${task}@v1`;
 }
 
+let SUBMITTING = false;    // re-entrancy guard: a 2nd click during the async screen/submit would double-extract
 async function run() {
-  const keep = await screenDuplicates();          // resolve any already-extracted papers
-  if (keep === null) { setStatus("cancelled"); return; }
-  if (!keep.length) { setStatus("all selected papers were already extracted — nothing to run"); return; }
-  STATUS = FILES.map((_, i) => (keep.includes(i) ? { state: "pending" } : { state: "skipped" }));
-  renderResults();
-  await runBatch(keep, true);
+  if (SUBMITTING) return;
+  SUBMITTING = true;
+  $("#run").disabled = true;                       // disable NOW, not only once inside runBatch
+  try {
+    const keep = await screenDuplicates();         // resolve any already-extracted papers
+    if (keep === null) { setStatus("cancelled"); $("#run").disabled = false; return; }
+    if (!keep.length) { setStatus("all selected papers were already extracted — nothing to run"); $("#run").disabled = false; return; }
+    STATUS = FILES.map((_, i) => (keep.includes(i) ? { state: "pending" } : { state: "skipped" }));
+    renderResults();
+    await runBatch(keep, true);                     // navigates away on success; re-enables on retry paths
+  } finally { SUBMITTING = false; }
 }
 
 // SHA-256 of a File as lowercase hex — matches the server's stored pdf_sha256.
