@@ -223,8 +223,10 @@ async function load(docId) {
   $("#pages").innerHTML = '<p class="muted">Loading…</p>';
   DATA = await api.documentView(docId);
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
-  // screened empty-state (not an empty card), but remember the doc WAS screened.
-  DATA._screened = (DATA.records || []).some((r) => r.screened_empty);
+  // screened empty-state (not an empty card), but keep the sentinel so the reviewer can
+  // CONFIRM "no records" (verify it) — remember whether the doc was screened.
+  DATA._sentinel = (DATA.records || []).find((r) => r.screened_empty) || null;
+  DATA._screened = !!DATA._sentinel;
   DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   renderPanel();
@@ -425,16 +427,27 @@ function renderPanel() {
   if (!DATA.records.length) {           // 0-record doc: clear empty state + hand-entry button
     const box = document.createElement("div");
     box.className = "empty-records";
+    const confirmed = DATA._sentinel && DATA._sentinel.verification_status === "verified";
     const screened = DATA._screened
       ? `<p class="muted" style="padding:0 2px 8px">✓ Recorded in the dataset as <b>screened — no applicable records</b>.</p>` : "";
+    // For a screened paper the reviewer can CONFIRM there are genuinely no entries (verify
+    // the sentinel) — distinct from the AI just not finding any.
+    const confirmBtn = DATA._sentinel
+      ? (confirmed
+          ? `<span class="status verified" id="noconfirm" title="a reviewer confirmed this paper has no applicable records">✓ Confirmed — no records</span>`
+          : `<button class="btn btn-ghost" id="noconfirm">✓ Confirm — no records here</button>`)
+      : "";
     box.innerHTML = screened
       + `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
       + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
       + `You can still enter the data by hand, or re-process with a different preset.</p>`
-      + `<button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`;
+      + `<div class="empty-actions"><button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`
+      + confirmBtn + `</div>`;
     panel.appendChild(box);
     wirePanelHead();
     const ea = $("#empty-add"); if (ea) ea.onclick = doAddFinding;   // seed a blank editable entry
+    const nc = $("#noconfirm");
+    if (nc && DATA._sentinel && !confirmed) nc.onclick = () => confirmNoRecords(nc);
     return;
   }
   if (GRID) { renderGridInto(panel); wirePanelHead(); return; }
@@ -605,6 +618,15 @@ async function sendVerify(card, rec, status) {
   try { await api.verify(rec.id, { status }); setStatus(card, status); }
   catch (e) { alert("verify failed: " + e.message); }
   finally { card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = false)); }
+}
+
+// Confirm a screened (0-record) paper genuinely has no entries — verify its sentinel.
+function confirmNoRecords(btn) {
+  if (!DATA._sentinel) return;
+  btn.disabled = true;
+  api.verify(DATA._sentinel.id, { status: "verified" })
+    .then(() => { DATA._sentinel.verification_status = "verified"; renderPanel(); })
+    .catch((e) => { btn.disabled = false; alert("save failed: " + e.message); });
 }
 
 function setStatus(card, status) {

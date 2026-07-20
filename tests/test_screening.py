@@ -83,3 +83,33 @@ def test_screened_sentinel_and_dedup() -> None:
     # a different hash → no match; empty input → empty result
     assert records.documents_by_hashes(conn, ["deadbeef"], session_id="sess-scr") == {}
     assert records.documents_by_hashes(conn, [], session_id="sess-scr") == {}
+
+
+def test_confirm_screened_no_records() -> None:
+    """A reviewer can CONFIRM a screened (0-record) paper genuinely has no entries — verify
+    the sentinel. It shows as n_screened_confirmed without inflating the data-record
+    credibility (audited counts only real records)."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres available")
+    conn = records.connect(); records.init_db(conn)
+    with tempfile.TemporaryDirectory() as d:
+        out = extract.run_extraction(conn, _make_pdf(), prompt="x", model="gpt-4o", api_key="",
+                                     schema_id="human-ai-collab@v1", session_id="sess-conf",
+                                     complete=_empty, store=storage.LocalObjectStore(root=d))
+        conn.commit()
+    doc_id = out["document_id"]
+    ds = records.create_dataset(conn, title="Conf DS", schema_id="human-ai-collab@v1", session_id="sess-conf")
+    records.assign_document_to_dataset(conn, ds["id"], doc_id)          # mints the sentinel
+    conn.commit()
+    sent = conn.execute("SELECT id FROM record WHERE document_id=%s::uuid AND screened_empty",
+                        (doc_id,)).fetchone()[0]
+
+    ov0 = records.dataset_overview(conn, ds["id"])["stats"]
+    assert ov0["n_screened"] == 1 and ov0["n_screened_confirmed"] == 0
+
+    records.verify_record(conn, str(sent), status="verified")          # the "Confirm — no records" action
+    conn.commit()
+    ov1 = records.dataset_overview(conn, ds["id"])
+    assert ov1["stats"]["n_screened_confirmed"] == 1
+    assert ov1["stats"]["n_verified"] == 0                              # not a DATA record
+    assert ov1["credibility"]["audited"] == 0                          # sentinel excluded from credibility

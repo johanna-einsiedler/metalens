@@ -71,7 +71,7 @@ function render() {
     <div class="ds-stats">
       ${stat(fmtNum(s.n_papers), "papers")}
       ${stat(fmtNum(s.n_records), "records extracted")}
-      ${s.n_screened ? stat(fmtNum(s.n_screened), "screened (no records)") : ""}
+      ${s.n_screened ? stat(fmtNum(s.n_screened), `screened${s.n_screened_confirmed ? ` · ${s.n_screened_confirmed} confirmed` : " (no records)"}`) : ""}
       ${stat(`${s.verified_pct}%`, `verified (${s.n_verified}/${s.n_records})`)}
       ${stat(fmtNum(s.total_tokens), "tokens used")}
       ${stat(range, "extracted", true)}

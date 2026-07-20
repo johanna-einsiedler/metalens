@@ -249,6 +249,8 @@ a.pt-title:hover { color: var(--accent); }
 .empty-state { max-width: 460px; margin: 64px auto; text-align: center; padding: 0 20px; }
 .empty-state h3 { margin: 0 0 8px; }
 .empty-state .btn { margin-top: 14px; }
+/* 0-record doc: "add a finding" + "confirm no records" sit side by side */
+.empty-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* account settings page */
 .acct-sec { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; background: var(--surface); }

@@ -681,7 +681,7 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
     rows = conn.execute(
         """SELECT r.id::text, ve.status, ve.diff
            FROM record r JOIN verification_event ve ON ve.record_id = r.id
-           WHERE r.dataset_id = %s::uuid""",
+           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false)""",
         (dataset_id,),
     ).fetchall()
 
@@ -1221,6 +1221,8 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                                      AND NOT r.screened_empty)                   AS n_verified,
                   count(DISTINCT r.schema_id) FILTER (WHERE NOT r.screened_empty) AS n_schemas,
                   count(*) FILTER (WHERE r.screened_empty)                       AS n_screened,
+                  count(*) FILTER (WHERE r.screened_empty
+                                     AND r.verification_status = 'verified')      AS n_screened_confirmed,
                   min(ed.created_at)                                             AS first_extracted,
                   max(ed.created_at)                                             AS last_extracted,
                   coalesce(sum(CASE
@@ -1232,7 +1234,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            WHERE r.dataset_id = %s::uuid""",
         (dataset_id,),
     ).fetchone()
-    (n_papers, n_records, n_verified, n_schemas, n_screened,
+    (n_papers, n_records, n_verified, n_schemas, n_screened, n_screened_confirmed,
      first_extracted, last_extracted, total_tokens) = row
 
     last_change = conn.execute(
@@ -1251,6 +1253,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
         "stats": {
             "n_papers": n_papers, "n_records": n_records, "n_verified": n_verified,
             "n_screened": n_screened,          # papers attempted that yielded 0 records
+            "n_screened_confirmed": n_screened_confirmed,   # of those, human-confirmed "no records"
             "verified_pct": round(100 * n_verified / n_records, 1) if n_records else 0.0,
             "n_schemas": n_schemas, "total_tokens": int(total_tokens or 0),
             "first_extracted": first_extracted.isoformat() if first_extracted else None,
