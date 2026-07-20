@@ -381,22 +381,31 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual finding">＋ Finding</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
+  if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
+    const raw = {
+      paper_metadata: DATA.paper_metadata || DATA.paper || null,
+      records: (DATA.records || []).map((r) => r.field_values),
+      evidence: DATA.evidence || [],
+    };
+    const box = document.createElement("div");
+    box.className = "record";
+    box.innerHTML = `<div class="rectitle">raw extraction output</div>`
+      + `<pre class="rawjson">${esc(JSON.stringify(raw, null, 2))}</pre>`;
+    panel.appendChild(box);
+    wirePanelHead();
+    return;
+  }
   renderStudyBlock(panel);              // study-level info once, above the entries
-  if (!DATA.records.length) {           // 0-record doc: clear empty state; Raw shows the raw output
+  if (!DATA.records.length) {           // 0-record doc: clear empty state + hand-entry button
     const box = document.createElement("div");
     box.className = "empty-records";
-    if (RAW) {
-      box.innerHTML = `<div class="rectitle">raw extraction output</div>`
-        + `<pre class="rawjson">${esc(JSON.stringify({ paper_metadata: DATA.paper_metadata, evidence: DATA.evidence }, null, 2))}</pre>`;
-    } else {
-      const screened = DATA._screened
-        ? `<p class="muted" style="padding:0 2px 8px">✓ Recorded in the dataset as <b>screened — no applicable records</b>.</p>` : "";
-      box.innerHTML = screened
-        + `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
-        + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
-        + `You can still enter the data by hand, or re-process with a different preset.</p>`
-        + `<button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`;
-    }
+    const screened = DATA._screened
+      ? `<p class="muted" style="padding:0 2px 8px">✓ Recorded in the dataset as <b>screened — no applicable records</b>.</p>` : "";
+    box.innerHTML = screened
+      + `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
+      + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
+      + `You can still enter the data by hand, or re-process with a different preset.</p>`
+      + `<button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`;
     panel.appendChild(box);
     wirePanelHead();
     const ea = $("#empty-add"); if (ea) ea.onclick = doAddFinding;   // seed a blank editable entry
@@ -406,13 +415,6 @@ function renderPanel() {
   DATA.records.forEach((rec) => {
     const card = document.createElement("div");
     card.className = "record"; card.dataset.rid = rec.id;
-    if (RAW) {
-      card.innerHTML = `<div class="rectitle">entry ${rec.entry_index}`
-        + `<span class="status ${rec.verification_status}">${rec.verification_status}</span></div>`
-        + `<pre class="rawjson">${esc(JSON.stringify(rec.field_values, null, 2))}</pre>`;
-      panel.appendChild(card);
-      return;
-    }
     const evs = recordEvidence(rec);
     card.innerHTML =
       `<div class="rectitle">entry ${rec.entry_index}`
@@ -698,10 +700,10 @@ function linkValueCells(card, evs) {
       // read-only cells get the "link" affordance; editable cells keep the text cursor
       // + dashed underline so they still read as editable.
       if (!editable) cell.classList.add("rv-linked");
-      // TEXT → jump to the cited snippet; NUMBER → verbatim-locate on the evidence page.
-      // A dropdown/checkbox control: clicking operates it, so no click-jump (hover still
-      // previews the source).
-      if (!isControl) cell.addEventListener("click", () => verifyAndJump(cell, best));
+      // Click ANY covered cell — value, dropdown/checkbox control, or the field-name key —
+      // to jump to its evidence. TEXT/categorical → the cited snippet; NUMBER → refine to
+      // the exact number. On a control the same click still opens/toggles it.
+      cell.addEventListener("click", () => verifyAndJump(cell, best));
       return;
     }
     // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay
@@ -734,15 +736,19 @@ const NUM_RE = /^-?\d[\d,]*(\.\d+)?%?$/;
 async function verifyAndJump(cell, best) {
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();
+  // Jump to the cited snippet IMMEDIATELY — the rects are already in the DOM, so this is
+  // instant. For a number we then refine to its exact location once the server search
+  // returns; the user never waits on that round-trip to see the evidence.
+  jumpToEvidence(best.page, best.i);
   const txt = cell.textContent.trim();
-  if (!NUM_RE.test(txt)) { jumpToEvidence(best.page, best.i); return; }   // (a) text → snippet
+  if (!NUM_RE.test(txt)) return;                     // (a) text/categorical → the snippet is the answer
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   try {
-    const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) number → the page's number
-    if (r.no_pdf) { jumpToEvidence(best.page, best.i); return; }
-    if (r.found) { flashRects(r.page || best.page, r.rects); return; }    // highlight wherever it actually is
-  } catch { jumpToEvidence(best.page, best.i); return; }
-  jumpToEvidence(best.page, best.i);                 // number not verbatim → snippet + soft note
+    const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) refine to the number
+    if (r && r.found) { flashRects(r.page || best.page, r.rects); return; }   // highlight where it actually is
+    if (r && r.no_pdf) return;                        // no PDF to search — the snippet jump stands
+  } catch { return; }                                // network hiccup — the snippet jump stands
+  // number isn't in the source verbatim → keep the snippet jump + a soft note
   cell.insertAdjacentHTML("afterend",
     `<span class="val-check" title="This exact number isn't in the source PDF text — it may be rounded, transformed, or computed from other values. Not necessarily wrong.">⚠ not found verbatim</span>`);
 }

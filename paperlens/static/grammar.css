@@ -77,6 +77,8 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); s
 /* an extracted value that has linked evidence — hover previews, click jumps */
 .rv-linked { cursor: pointer; border-bottom: 1px dotted var(--accent-3); }
 .rv-linked:hover { background: var(--highlight); }
+/* the field-name key is also click-to-evidence, but stays a plain label (no underline) */
+.rv-key.rv-linked { border-bottom: none; }
 /* read-only value with no cited evidence — still locatable in the PDF on click */
 .rv-probe { cursor: pointer; }
 .rv-probe:hover { background: var(--highlight); }

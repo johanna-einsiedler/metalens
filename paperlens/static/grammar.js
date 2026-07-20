@@ -64,8 +64,11 @@ function renderObj(obj, path, opts) {
     .map(([k, val]) => {
       const child = path ? `${path}.${k}` : k;
       const nested = val && typeof val === "object";
+      // The key carries the same data-path as its value, so clicking the FIELD NAME jumps
+      // to the field's evidence too (wired in linkValueCells, only when evidence exists).
       // nested values span the full width (rv-row-block); scalars pack into columns
-      return `<div class="rv-row${nested ? " rv-row-block" : ""}"><div class="rv-key">${esc(formatKey(k))}</div>`
+      return `<div class="rv-row${nested ? " rv-row-block" : ""}">`
+        + `<div class="rv-key" data-path="${esc(child)}">${esc(formatKey(k))}</div>`
         + `<div class="rv-val${nested ? " rv-nested" : ""}">${renderNode(val, child, opts)}</div></div>`;
     }).join("");
   return `<div class="rv-obj">${rows}</div>`;
