@@ -23,6 +23,10 @@ function renderNode(v, path, opts) {
   const leaf = path.replace(/\[\d+\]$/, "").split(".").pop();
   const rh = opts.renderHints && leaf && opts.renderHints[leaf];
   if (rh && rh.as === "cards" && Array.isArray(v) && v.length) return renderCards(v, path, opts, rh);
+  // No explicit hint, but the array is a "table of rows that each hold a sub-table" (the
+  // cramped nested-table shape) → render as cards automatically. This gives custom prompts
+  // (which can't declare render_hints) the readable layout; simple tables stay tables.
+  if (!rh && Array.isArray(v) && v.length && isCardShape(v)) return renderCards(v, path, opts, autoCardHint(v));
   if (v === null || v === undefined) return `<span class="rv-null">—</span>`;
   if (Array.isArray(v)) return renderArray(v, path, opts);
   if (typeof v === "object") {
@@ -100,6 +104,26 @@ function renderTable(rows, path, opts) {
   // its columns into letter-by-letter wrapping
   return `<div class="rv-tablewrap"><table class="rv-table"><thead><tr>${head}</tr></thead>`
     + `<tbody>${body}</tbody></table></div>`;
+}
+
+// Is this an array of objects where at least one element contains a NESTED array-of-objects
+// (a sub-table)? That's the table-in-table shape that renders unreadably as a wide table.
+const _isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+function isCardShape(arr) {
+  if (!arr.every(_isObj)) return false;
+  return arr.some((el) => Object.values(el).some((x) => Array.isArray(x) && x.length && _isObj(x[0])));
+}
+// Derive a card hint from the data: the first nested array-of-objects field is the table;
+// scalar fields become the header; everything else falls below.
+function autoCardHint(arr) {
+  const el = arr.find(_isObj) || {};
+  let table = null; const header = [];
+  for (const [k, x] of Object.entries(el)) {
+    if (SKIP.has(k)) continue;
+    if (!table && Array.isArray(x) && x.length && _isObj(x[0])) { table = k; continue; }
+    if (x === null || typeof x !== "object") header.push(k);
+  }
+  return { as: "cards", header, table };
 }
 
 // render_hints "cards": each element of the array becomes a card — a compact header line
