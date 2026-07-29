@@ -18,10 +18,16 @@
 .rv-num { color: var(--accent-2); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .rv-null { color: var(--text-muted); font-style: italic; }
 
+/* wide/nested tables scroll horizontally inside the panel rather than crushing columns */
+.rv-tablewrap { overflow-x: auto; max-width: 100%; }
 .rv-table { border-collapse: collapse; font-size: 12.5px; margin: 2px 0; }
+/* word-break:normal overrides the inherited break-word so words don't split letter-by-letter
+   in a narrow column; min/max-width keep cells readable, and long labels wrap at spaces. */
 .rv-table th, .rv-table td { border: 1px solid var(--border); padding: 3px 8px; text-align: left;
-  vertical-align: top; }
+  vertical-align: top; word-break: normal; overflow-wrap: break-word; min-width: 64px; max-width: 280px; }
 .rv-table th { background: var(--bg); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+/* a cell holding a nested table/object must not be width-capped — its own wrapper scrolls */
+.rv-table td:has(.rv-tablewrap), .rv-table td:has(.rv-obj) { max-width: none; }
 
 /* edit-in-place — corrections route through the verification layer */
 .rv-editable { cursor: text; border-bottom: 1px dashed transparent; border-radius: 3px; padding: 0 2px;

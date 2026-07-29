@@ -90,7 +90,10 @@ function renderTable(rows, path, opts) {
   const body = rows.map((r, i) =>
     `<tr>${cols.map((c) => `<td>${renderNode(r ? r[c] : null, `${path}[${i}].${c}`, opts)}</td>`).join("")}</tr>`
   ).join("");
-  return `<table class="rv-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  // wrap so a wide/nested table scrolls horizontally inside the panel instead of crushing
+  // its columns into letter-by-letter wrapping
+  return `<div class="rv-tablewrap"><table class="rv-table"><thead><tr>${head}</tr></thead>`
+    + `<tbody>${body}</tbody></table></div>`;
 }
 
 export function renderConfidence(conf) {
