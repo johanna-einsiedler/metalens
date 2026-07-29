@@ -218,10 +218,20 @@ function renderDocTabs() {
     && (j.status === "pending" || j.status === "failed" || (j.status === "complete" && j.document_id))
   ).map(([id, j]) => j.status === "failed"
     ? `<button class="doctab jobfail" data-jobid="${esc(id)}" title="click to see why">✗ failed</button>`
-    : `<span class="doctab jobpend">⏳ extracting…</span>`).join("");
+    : `<span class="doctab jobpend">⏳ extracting…`
+      + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
   strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
+  strip.querySelectorAll(".jobstop[data-jobid]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cancelJob(b.dataset.jobid, b); }));
+}
+
+// Stop a queued/running extraction and drop its tab.
+async function cancelJob(jobId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try { await api.cancelJob(jobId); } catch { /* best-effort — the poll will settle it anyway */ }
+  delete JOBS[jobId];
+  renderDocTabs();
 }
 
 // Show a failed job's cleaned error in the main area (there's no document to open for it),

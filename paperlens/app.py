@@ -946,6 +946,12 @@ def job_status(job_id: str) -> dict:
     return st
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    """Stop a queued or in-progress extraction (mirrors the id-gated job-status endpoint)."""
+    return {"cancelled": worker.cancel_job(job_id)}
+
+
 @app.post("/api/jobs/{job_id}/retry")
 def retry_job(job_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Re-run a failed extraction from its original stored args (PDF bytes + recipe) — no

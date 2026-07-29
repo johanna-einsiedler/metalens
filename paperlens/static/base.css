@@ -118,7 +118,10 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .doctab.active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; }
 .doctab .dt-n { font-size: 11px; background: var(--bg); border-radius: 8px; padding: 0 6px; }
 /* this-round jobs still processing / failed, shown alongside the document tabs */
-.doctab.jobpend { color: var(--text-muted); font-size: 12px; cursor: default; }
+.doctab.jobpend { color: var(--text-muted); font-size: 12px; cursor: default; justify-content: space-between; }
+.jobstop { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px;
+  padding: 0 2px; margin-left: 6px; line-height: 1; opacity: .6; }
+.jobstop:hover { color: var(--error); opacity: 1; }
 .doctab.jobfail { color: var(--error); border-color: var(--error); font-size: 12px; cursor: pointer; }
 /* "＋ Add papers" — back to the extract page in add-papers mode for this dataset */
 .doctab-add { justify-content: center; margin-top: 8px; border-style: dashed; color: var(--accent);

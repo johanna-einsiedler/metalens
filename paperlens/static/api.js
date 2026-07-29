@@ -98,6 +98,7 @@ export const api = {
   ingest: (body) => req(`/api/ingest`, json(body)),
   job: (id) => req(`/api/jobs/${id}`),
   retryJob: (id) => req(`/api/jobs/${id}/retry`, { method: "POST" }),
+  cancelJob: (id) => req(`/api/jobs/${id}/cancel`, { method: "POST" }),
   me: () => req(`/api/auth/me`).catch(() => null),
   credits: () => req(`/api/credits`),
   login: (email, password) => req(`/api/auth/login`, json({ email, password })),

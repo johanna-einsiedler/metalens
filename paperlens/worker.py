@@ -155,6 +155,7 @@ async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
     redis_settings = redis_settings()
+    allow_abort_jobs = True   # let the UI stop an in-progress extraction (Job.abort)
     max_jobs = 10
     max_tries = _EXTRACT_MAX_TRIES   # retry with backoff → spreads rate-limited LLM calls
     job_timeout = 300  # extraction LLM calls can be slow
@@ -237,6 +238,25 @@ def job_args(job_id: str) -> dict | None:
         return asyncio.run(_job_args(job_id))
     except Exception:
         return None
+
+
+async def _cancel_job(job_id: str) -> bool:
+    from arq.jobs import Job
+    pool = await create_pool(_fast_settings())
+    try:
+        # abort() drops a still-queued job from the queue, and (with allow_abort_jobs)
+        # signals the worker to cancel one already running. Returns True once aborted.
+        return bool(await Job(job_id, pool).abort(timeout=3))
+    finally:
+        await pool.aclose()
+
+
+def cancel_job(job_id: str) -> bool:
+    """Stop a queued or in-progress extraction. True if it was aborted."""
+    try:
+        return asyncio.run(_cancel_job(job_id))
+    except Exception:
+        return False
 
 
 def redis_available() -> bool:
