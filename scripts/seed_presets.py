@@ -63,6 +63,8 @@ def main() -> None:
         tparams = dict(meta.get("template_params") or {})
         if meta.get("field_types"):
             tparams["field_types"] = meta["field_types"]
+        if meta.get("render_hints"):
+            tparams["render_hints"] = meta["render_hints"]
         fields = {
             "title": meta["title"], "prompt": meta["_prompt"], "tagline": meta.get("tagline"),
             "description": meta.get("description"), "mode": meta.get("mode", "extraction"),

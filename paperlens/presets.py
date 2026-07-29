@@ -61,6 +61,9 @@ def emit_schema_row(preset_id: str, conn=None) -> dict[str, Any] | None:
     # per-field control metadata (select/multiselect/number + options) — file presets carry
     # it at the top level, DB presets inside template_params (see scripts/seed_presets.py).
     field_types = meta.get("field_types") or tparams.get("field_types") or {}
+    # per-field LAYOUT metadata (e.g. render an array field as cards with a header + a
+    # sub-table). Absent → the generic shape-driven rendering (nested tables) is used.
+    render_hints = meta.get("render_hints") or tparams.get("render_hints") or {}
 
     evidence_keys = sorted({k for sv in sub_views for k in sv.get("evidence_keys", [])})
     confidence_keys = sorted({k for sv in sub_views for k in sv.get("confidence_keys", [])})
@@ -76,6 +79,7 @@ def emit_schema_row(preset_id: str, conn=None) -> dict[str, Any] | None:
         "data_sources": data_sources,
         "sub_views": sub_views,
         "field_types": field_types,
+        "render_hints": render_hints,
         "evidence_keys": evidence_keys,
         "confidence_keys": confidence_keys,
         "core_keys": core_keys,

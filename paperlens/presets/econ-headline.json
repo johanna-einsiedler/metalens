@@ -15,6 +15,13 @@
       "tables"
     ]
   },
+  "render_hints": {
+    "regressions": {
+      "as":     "cards",
+      "header": ["column", "column_label", "panel", "dependent_var", "sample_size", "n_clusters"],
+      "table":  "cells"
+    }
+  },
   "sub_views": [
     {
       "id":              "regmeta",

@@ -17,6 +17,12 @@ function renderNode(v, path, opts) {
   if (ft && (ft.type === "select" || ft.type === "multiselect") && (ft.options || []).length) {
     return renderControl(v, path, ft);
   }
+  // preset render_hints (keyed by field name): an array field can render as CARDS — a
+  // header line + a designated sub-table + everything else below — instead of a wide
+  // nested table. Absent → the default shape-driven rendering below.
+  const leaf = path.replace(/\[\d+\]$/, "").split(".").pop();
+  const rh = opts.renderHints && leaf && opts.renderHints[leaf];
+  if (rh && rh.as === "cards" && Array.isArray(v) && v.length) return renderCards(v, path, opts, rh);
   if (v === null || v === undefined) return `<span class="rv-null">—</span>`;
   if (Array.isArray(v)) return renderArray(v, path, opts);
   if (typeof v === "object") {
@@ -94,6 +100,32 @@ function renderTable(rows, path, opts) {
   // its columns into letter-by-letter wrapping
   return `<div class="rv-tablewrap"><table class="rv-table"><thead><tr>${head}</tr></thead>`
     + `<tbody>${body}</tbody></table></div>`;
+}
+
+// render_hints "cards": each element of the array becomes a card — a compact header line
+// (hint.header keys), the hint.table field rendered as a full-width table, and every other
+// field below as a labelled grid. Child paths are preserved so evidence-linking + editing
+// keep working exactly as in the default layout.
+function renderCards(arr, path, opts, hint) {
+  const headerKeys = hint.header || [];
+  const tableKey = hint.table;
+  return arr.map((el, i) => {
+    const base = `${path}[${i}]`;
+    if (!el || typeof el !== "object" || Array.isArray(el)) return renderNode(el, base, opts);
+    const head = headerKeys
+      .filter((k) => el[k] !== null && el[k] !== undefined && el[k] !== "" && typeof el[k] !== "object")
+      .map((k) => `<span class="rc-h"><span class="rc-hk">${esc(formatKey(k))}</span> ${esc(String(el[k]))}</span>`)
+      .join("");
+    const tbl = (tableKey && Array.isArray(el[tableKey]) && el[tableKey].length)
+      ? renderNode(el[tableKey], `${base}.${tableKey}`, opts) : "";
+    const rest = {};
+    Object.keys(el).forEach((k) => {
+      if (k === tableKey || headerKeys.includes(k) || SKIP.has(k)) return;
+      rest[k] = el[k];
+    });
+    const below = Object.keys(rest).length ? `<div class="rc-below">${renderObj(rest, base, opts)}</div>` : "";
+    return `<div class="rv-card">${head ? `<div class="rc-head">${head}</div>` : ""}${tbl}${below}</div>`;
+  }).join("");
 }
 
 export function renderConfidence(conf) {

@@ -360,9 +360,10 @@ function _fieldsForView(fv, view) {
 }
 // per-field control metadata (dropdown/multi-select options) declared by the preset
 function fieldTypes() { return (DATA.field_defs && DATA.field_defs.field_types) || {}; }
+function renderHints() { return (DATA.field_defs && DATA.field_defs.render_hints) || {}; }
 
 function renderRecordBody(rec) {
-  const eopts = { editable: true, fieldTypes: fieldTypes() };
+  const eopts = { editable: true, fieldTypes: fieldTypes(), renderHints: renderHints() };
   const views = _subViews();
   if (!views) return renderValue(entryFields(rec.field_values), eopts);
   // only show tabs that actually have fields for this record

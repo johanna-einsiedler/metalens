@@ -225,74 +225,81 @@ EXTRACTION ORDER OF PREFERENCE (apply this to EVERY field in this step):
 # STEP 4: BUILD EVIDENCE RECORDS
 # =============================================================================
 
-The `evidence` array documents WHERE in the PDF each extracted value
-came from.  The shape of each evidence entry is tied DIRECTLY to the
-extraction order of preference declared in STEP 3:
+The `evidence` array documents WHERE in the PDF each extracted value came
+from, and it is what powers SOURCE HIGHLIGHTING in the review UI.
 
-  (a) Field value came from the TABLE (column header, row label, cell
-      contents, table note, panel header):
+CRITICAL: EVERY evidence item MUST carry BOTH a verbatim `snippet` AND a
+1-indexed `page`.  The highlighter can only draw a box when both are
+present; an item missing either is silently discarded and produces NO
+highlight.  Shape:
+
         {
-          "source": "Table 1",
-          "field":  "tables[0].regressions[0].dependent_var"
+          "field":   "<dotted path into this prompt's output>",
+          "snippet": "<verbatim text copied from the PDF>",
+          "page":    <1-indexed PDF page where that text appears>,
+          "source":  "<table_id | section name | null>"
         }
-      Just record the table identifier — no snippet, no page.
 
-  (b) Field value came from the PAPER TEXT (methods section, data
-      appendix, results discussion, etc.) as a fallback because the
-      table did not state it:
+## 4a — TABLE-CELL VALUES  (the transcribed numbers in `cells`)
+
+For EVERY cell that has a non-null `value`, emit ONE evidence item:
+
+        {
+          "field":   "tables[i].regressions[j].cells[k].value",
+          "snippet": "<the number EXACTLY as printed in that cell>",
+          "page":    <1-indexed page the number is printed on>,
+          "source":  "<parent table_id, e.g. \"Table 4\">",
+          "column":  "<column id as printed, e.g. \"(1)\">"
+        }
+
+  - `field` MUST be the FULL path — the `tables[i]` prefix plus the exact
+    `regressions[j].cells[k]` indices (0-based, matching the cell's
+    position in your output) — ending in `.value`.
+  - `snippet` MUST be VERBATIM: copy the characters as printed, keeping the
+    sign (use the same minus glyph the PDF shows) and every digit/decimal.
+    If significance stars are printed IMMEDIATELY next to the number,
+    INCLUDE them (e.g. "−0.46**", "−1.27**") — the extra characters make
+    the snippet unique and land the highlight on the correct cell in dense
+    tables where the same number recurs.
+  - `page` is the page the number appears on (the regression's `page`).
+  - Skip cells whose `value` is null.  You MAY optionally also emit one for
+    a `dispersion_value` using the same shape with field
+    `tables[i].regressions[j].cells[k].dispersion_value`.
+
+  Dense-table caveat: a bare, frequently-repeated number (e.g. an N like
+  "125") may occasionally highlight a different occurrence; including
+  adjacent stars and the correct page is the best available disambiguation.
+
+## 4b — OTHER FIELDS  (paper metadata, per-regression descriptors, headline)
+
+Same shape; `snippet` is the verbatim printed text (from the table) or a
+verbatim sentence (from the body), and `page` is where it appears:
+
+        {
+          "field":   "tables[0].regressions[0].dependent_var",
+          "snippet": "Village meetings",
+          "page":    10,
+          "source":  "Table 4"
+        }
         {
           "snippet": "Standard errors clustered at the village level.",
-          "page":    27,
-          "source":  null,
+          "page":    27, "source":  null,
           "field":   "tables[0].regressions[0].standard_errors.cluster_level"
         }
-      Provide the verbatim snippet and the 1-indexed page.
 
-  (c) Field value is null (no information in table OR text): emit NO
-      evidence entry for it.
+Paper-metadata / classification fields (`paper_metadata.title`,
+`paper_metadata.doi`, `paper_metadata.year`, `paper_metadata.authors`,
+`paper_classification.is_empirical`) each get one item with a verbatim
+snippet + page.  `paper_metadata.paper_id` is DERIVED — no entry.
 
-Rules:
-- For source = "Table N" entries (case a), `snippet` and `page` may be
-  omitted entirely or set to null.  The `source` string must match the
-  parent table's `table_id` exactly.
-- For body-text entries (case b), `snippet` must be verbatim — no
-  paraphrase, no ellipses — and `page` must be the 1-indexed PDF page
-  where the snippet appears.  `source` is null (or a section name like
-  "Section 3" if helpful).
-- `field` is a JSON-path-like reference into THIS prompt's output, e.g.:
-    paper_metadata.title
-    paper_metadata.doi
-    paper_metadata.paper_id
-    tables[0].table_caption
-    tables[0].table_notes
-    tables[0].regressions[0].dependent_var
-    tables[0].regressions[0].outcome_construction
-    tables[0].regressions[0].model_type
-    tables[0].regressions[0].fixed_effects
-    tables[0].regressions[0].continuous_controls
-    tables[0].regressions[0].non_displayed_coefficients_present
-    tables[0].regressions[0].iv_instruments
-    tables[0].regressions[0].treatment_definition
-    tables[0].regressions[0].sample_restrictions
-    tables[0].regressions[0].time_period
-    tables[0].regressions[0].data_construction_steps
-    tables[0].regressions[0].weights
-    tables[0].regressions[0].standard_errors.se_type
-    tables[0].regressions[0].standard_errors.cluster_level
-    tables[0].regressions[0].displayed_regressors[0].variable
-    tables[0].regressions[0].reproduction_notes
+Headline-classification evidence lives INSIDE
+`headline_classification.<sub>.evidence_snippet`/`evidence_page` and does
+NOT need to be repeated in the top-level `evidence[]` array.
 
-You SHOULD emit one evidence entry per non-null extracted field — case
-(a) for table-sourced values, case (b) for text-fallback values.  At
-minimum, ALWAYS emit a text-fallback entry whenever a field's value came
-from the body text rather than the table.
-
-Headline classification evidence lives INSIDE
-`headline_classification.<sub>.evidence_snippet` and does NOT need to be
-repeated in the top-level `evidence[]` array.
-
-Do not fabricate evidence.  If no reliable snippet exists for a value, omit
-the entry and explain in the regression's `notes` (top-level free-text key).
+If a field's value is null, emit NO evidence entry for it.  Do not
+fabricate evidence; if no reliable snippet exists, omit the entry.  ALWAYS
+emit the 4a cell-value evidence — that is what makes the printed numbers
+clickable to their source in the PDF.
 
 
 # =============================================================================
@@ -527,7 +534,12 @@ no commentary).
   ],
 
   "evidence": [
-    { "source": "Table 1", "field": "tables[0].regressions[0].dependent_var" },
+    { "field": "tables[0].regressions[0].cells[0].value",
+      "snippet": "−0.46**", "page": 10, "source": "Table 4", "column": "(1)" },
+    { "field": "tables[0].regressions[0].cells[2].value",
+      "snippet": "−0.79*", "page": 10, "source": "Table 4", "column": "(1)" },
+    { "field": "tables[0].regressions[0].dependent_var",
+      "snippet": "Village meetings", "page": 10, "source": "Table 4" },
     { "snippet": "Standard errors clustered at the village level.",
       "page": 27, "source": null,
       "field": "tables[0].regressions[0].standard_errors.cluster_level" }

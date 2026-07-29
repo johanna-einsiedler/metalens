@@ -29,6 +29,13 @@
 /* a cell holding a nested table/object must not be width-capped — its own wrapper scrolls */
 .rv-table td:has(.rv-tablewrap), .rv-table td:has(.rv-obj) { max-width: none; }
 
+/* render_hints "cards": one card per array element — header line, sub-table, details below */
+.rv-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px;
+  margin: 8px 0; background: var(--surface); }
+.rc-head { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 8px; font-size: 12.5px; }
+.rc-hk { color: var(--text-muted); font-weight: 600; margin-right: 3px; }
+.rc-below { margin-top: 8px; }
+
 /* edit-in-place — corrections route through the verification layer */
 .rv-editable { cursor: text; border-bottom: 1px dashed transparent; border-radius: 3px; padding: 0 2px;
   transition: background .15s, border-color .15s; }
