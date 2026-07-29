@@ -9,6 +9,7 @@ import { renderGrid } from "/static/gridview.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
+let PANEL_SEL = null;   // multi-entry panel nav: null(default→"study") | "study" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
 
@@ -267,6 +268,7 @@ async function retryJob(jobId, btn) {
 
 async function load(docId) {
   DOCID = docId;
+  PANEL_SEL = null;                 // reset the entry nav when switching papers
   $("#pages").innerHTML = '<p class="muted">Loading…</p>';
   DATA = await api.documentView(docId);
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
@@ -471,8 +473,8 @@ function renderPanel() {
     wirePanelHead();
     return;
   }
-  renderStudyBlock(panel);              // study-level info once, above the entries
   if (!DATA.records.length) {           // 0-record doc: clear empty state + hand-entry button
+    renderStudyBlock(panel);            // paper info above the empty state
     const box = document.createElement("div");
     box.className = "empty-records";
     const confirmed = DATA._sentinel && DATA._sentinel.verification_status === "verified";
@@ -498,28 +500,53 @@ function renderPanel() {
     if (nc && DATA._sentinel && !confirmed) nc.onclick = () => confirmNoRecords(nc);
     return;
   }
-  if (GRID) { renderGridInto(panel); wirePanelHead(); return; }
-  DATA.records.forEach((rec) => {
-    const card = document.createElement("div");
-    card.className = "record"; card.dataset.rid = rec.id;
-    const evs = recordEvidence(rec);
-    card.innerHTML =
-      `<div class="rectitle">entry ${rec.entry_index}`
-      + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
-      + `<button class="histbtn" title="change history">↻ history</button>`
-      + `<button class="recdel" title="delete this finding">🗑</button></div>`
-      + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
-      + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
-      + renderConfidence(rec.field_values && rec.field_values.extraction_confidence)
-      + renderRecordBody(rec)
-      + `<div class="chips">${evs.map(({ ev, i }) =>
-          `<button class="chip" data-eid="${i}" data-page="${ev.page}">p${ev.page} · ${esc((ev.snippet || "").slice(0, 40))}</button>`
-        ).join("") || '<span class="muted">no evidence</span>'}</div>`
-      + `<div class="histbody" hidden></div>`;
-    wireCard(card, rec);
-    panel.appendChild(card);
-  });
+  if (GRID) { renderStudyBlock(panel); renderGridInto(panel); wirePanelHead(); return; }
+  const recs = DATA.records;
+  if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
+    if (PANEL_SEL === null) PANEL_SEL = "study";
+    renderRecordNav(panel, recs);
+    if (PANEL_SEL === "study" || !recs[PANEL_SEL]) renderStudyBlock(panel);
+    else renderRecordCard(panel, recs[PANEL_SEL]);
+  } else {
+    renderStudyBlock(panel);
+    recs.forEach((rec) => renderRecordCard(panel, rec));
+  }
   wirePanelHead();
+}
+
+// A sub-navigation above the entries: "Study information" + one entry per record (its
+// table_id when present) — so a multi-table paper shows one at a time, not all at once.
+function renderRecordNav(panel, recs) {
+  const lbl = (rec, i) => {
+    const fv = rec.field_values || {};
+    return esc(fv.table_id || fv.title || `Entry ${rec.entry_index != null ? rec.entry_index : i + 1}`);
+  };
+  const nav = document.createElement("div");
+  nav.className = "rnav";
+  nav.innerHTML = `<button class="rnav-tab${PANEL_SEL === "study" ? " active" : ""}" data-sel="study">Study information</button>`
+    + recs.map((rec, i) => `<button class="rnav-tab${PANEL_SEL === i ? " active" : ""}" data-sel="${i}">${lbl(rec, i)}</button>`).join("");
+  panel.appendChild(nav);
+  nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => {
+    PANEL_SEL = b.dataset.sel === "study" ? "study" : +b.dataset.sel;
+    renderPanel();
+  }));
+}
+
+function renderRecordCard(panel, rec) {
+  const card = document.createElement("div");
+  card.className = "record"; card.dataset.rid = rec.id;
+  card.innerHTML =
+    `<div class="rectitle">entry ${rec.entry_index}`
+    + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
+    + `<button class="histbtn" title="change history">↻ history</button>`
+    + `<button class="recdel" title="delete this finding">🗑</button></div>`
+    + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
+    + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
+    + renderConfidence(rec.field_values && rec.field_values.extraction_confidence)
+    + renderRecordBody(rec)
+    + `<div class="histbody" hidden></div>`;
+  wireCard(card, rec);
+  panel.appendChild(card);
 }
 
 function wirePanelHead() {
@@ -839,7 +866,11 @@ async function verifyAndJump(cell, best) {
   // returns; the user never waits on that round-trip to see the evidence.
   jumpToEvidence(best.page, best.i);
   const txt = cell.textContent.trim();
-  if (!NUM_RE.test(txt)) return;                     // (a) text/categorical → the snippet is the answer
+  // Only hunt for the exact number when the evidence points AT THIS cell (its field_path
+  // matches). A broad, table-level citation (e.g. "jump to Table 4" / a shared caption, or a
+  // headline-snippet citation) just lands on that snippet — never chase the number, which in
+  // dense tables (or a page number like "2") would light up every matching digit in the PDF.
+  if (best.path !== cell.dataset.path || !NUM_RE.test(txt)) return;
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   try {
     const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) refine to the number

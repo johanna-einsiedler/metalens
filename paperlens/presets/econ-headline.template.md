@@ -226,12 +226,9 @@ EXTRACTION ORDER OF PREFERENCE (apply this to EVERY field in this step):
 # =============================================================================
 
 The `evidence` array documents WHERE in the PDF each extracted value came
-from, and it is what powers SOURCE HIGHLIGHTING in the review UI.
-
-CRITICAL: EVERY evidence item MUST carry BOTH a verbatim `snippet` AND a
-1-indexed `page`.  The highlighter can only draw a box when both are
-present; an item missing either is silently discarded and produces NO
-highlight.  Shape:
+from, and it powers SOURCE HIGHLIGHTING in the review UI.  EVERY item MUST
+carry a verbatim `snippet` + a 1-indexed `page` (an item missing either is
+discarded).  Shape:
 
         {
           "field":   "<dotted path into this prompt's output>",
@@ -240,66 +237,55 @@ highlight.  Shape:
           "source":  "<table_id | section name | null>"
         }
 
-## 4a — TABLE-CELL VALUES  (the transcribed numbers in `cells`)
+## 4a — ONE citation per TABLE (points every value to its source table)
 
-For EVERY cell that has a non-null `value`, emit ONE evidence item:
-
-        {
-          "field":   "tables[i].regressions[j].cells[k].value",
-          "snippet": "<the number EXACTLY as printed in that cell>",
-          "page":    <1-indexed page the number is printed on>,
-          "source":  "<parent table_id, e.g. \"Table 4\">",
-          "column":  "<column id as printed, e.g. \"(1)\">"
-        }
-
-  - `field` MUST be the FULL path — the `tables[i]` prefix plus the exact
-    `regressions[j].cells[k]` indices (0-based, matching the cell's
-    position in your output) — ending in `.value`.
-  - `snippet` MUST be VERBATIM: copy the characters as printed, keeping the
-    sign (use the same minus glyph the PDF shows) and every digit/decimal.
-    If significance stars are printed IMMEDIATELY next to the number,
-    INCLUDE them (e.g. "−0.46**", "−1.27**") — the extra characters make
-    the snippet unique and land the highlight on the correct cell in dense
-    tables where the same number recurs.
-  - `page` is the page the number appears on (the regression's `page`).
-  - Skip cells whose `value` is null.  You MAY optionally also emit one for
-    a `dispersion_value` using the same shape with field
-    `tables[i].regressions[j].cells[k].dispersion_value`.
-
-  Dense-table caveat: a bare, frequently-repeated number (e.g. an N like
-  "125") may occasionally highlight a different occurrence; including
-  adjacent stars and the correct page is the best available disambiguation.
-
-## 4b — OTHER FIELDS  (paper metadata, per-regression descriptors, headline)
-
-Same shape; `snippet` is the verbatim printed text (from the table) or a
-verbatim sentence (from the body), and `page` is where it appears:
+Do NOT cite individual cell numbers — a coefficient like "−0.46" or an N
+like "125" recurs across the paper and would highlight the wrong spot.
+Instead emit ONE item per table that points at the TABLE'S CAPTION; the UI
+makes clicking any value in that table jump to the caption and highlight it:
 
         {
-          "field":   "tables[0].regressions[0].dependent_var",
-          "snippet": "Village meetings",
-          "page":    10,
-          "source":  "Table 4"
+          "field":   "tables[i]",
+          "snippet": "<the table's caption line VERBATIM, e.g. \"Table 4—OLS Regression: Village Governance…\">",
+          "page":    <1-indexed page the table begins on>,
+          "source":  "<table_id, e.g. \"Table 4\">"
         }
+
+  - `field` is EXACTLY `tables[i]` (the table index, no deeper path) so the
+    citation covers every value in that table.
+  - `snippet` is the caption/title as printed (the "Table N" label plus
+    enough of its title to be found verbatim on the page).
+  - `page` is the table's page.  One such item per table.
+  - Do NOT emit per-cell `.value` or `.dispersion_value` evidence.
+
+## 4b — HEADLINE-CLASSIFICATION snippets (so each one highlights)
+
+The three headline sub-criteria carry `evidence_snippet` + `evidence_page`
+inside `headline_classification`.  To make each snippet clickable-to-source,
+ALSO emit a top-level item pointing at that snippet, for every sub-criterion
+whose `evidence_snippet` is non-null:
+
         {
-          "snippet": "Standard errors clustered at the village level.",
-          "page":    27, "source":  null,
-          "field":   "tables[0].regressions[0].standard_errors.cluster_level"
+          "field":   "tables[i].regressions[j].headline_classification.<sub>.evidence_snippet",
+          "snippet": "<the SAME verbatim evidence_snippet text>",
+          "page":    <that sub-criterion's evidence_page>,
+          "source":  "<abstract | introduction | conclusion | null>"
         }
 
-Paper-metadata / classification fields (`paper_metadata.title`,
-`paper_metadata.doi`, `paper_metadata.year`, `paper_metadata.authors`,
-`paper_classification.is_empirical`) each get one item with a verbatim
-snippet + page.  `paper_metadata.paper_id` is DERIVED — no entry.
+  where `<sub>` is `mentioned_in_narrative`, `preferred_specification`, or
+  `not_robustness_or_mechanism`.  `snippet`/`page` MUST equal that
+  sub-criterion's own `evidence_snippet`/`evidence_page`.
 
-Headline-classification evidence lives INSIDE
-`headline_classification.<sub>.evidence_snippet`/`evidence_page` and does
-NOT need to be repeated in the top-level `evidence[]` array.
+## 4c — PAPER METADATA / CLASSIFICATION  (title page / body prose)
 
-If a field's value is null, emit NO evidence entry for it.  Do not
-fabricate evidence; if no reliable snippet exists, omit the entry.  ALWAYS
-emit the 4a cell-value evidence — that is what makes the printed numbers
-clickable to their source in the PDF.
+One item each, verbatim snippet + page: `paper_metadata.title`,
+`paper_metadata.doi` (if non-null), `paper_metadata.year` (if non-null),
+`paper_metadata.authors`, `paper_classification.is_empirical`.
+`paper_metadata.paper_id` is DERIVED — no entry.
+
+Do not fabricate evidence; if no reliable snippet exists for a field, omit
+it.  Always emit the 4a per-table caption citation — that is what makes the
+extracted values clickable to their source table.
 
 
 # =============================================================================
@@ -534,15 +520,16 @@ no commentary).
   ],
 
   "evidence": [
-    { "field": "tables[0].regressions[0].cells[0].value",
-      "snippet": "−0.46**", "page": 10, "source": "Table 4", "column": "(1)" },
-    { "field": "tables[0].regressions[0].cells[2].value",
-      "snippet": "−0.79*", "page": 10, "source": "Table 4", "column": "(1)" },
-    { "field": "tables[0].regressions[0].dependent_var",
-      "snippet": "Village meetings", "page": 10, "source": "Table 4" },
-    { "snippet": "Standard errors clustered at the village level.",
-      "page": 27, "source": null,
-      "field": "tables[0].regressions[0].standard_errors.cluster_level" }
+    { "field": "tables[0]",
+      "snippet": "Table 4—OLS Regression: Village Governance in Landlord and Nonlandlord Districts",
+      "page": 10, "source": "Table 4" },
+    { "field": "tables[0].regressions[0].headline_classification.mentioned_in_narrative.evidence_snippet",
+      "snippet": "Local governments are less functional… in districts with a history of landlord control.",
+      "page": 2, "source": "introduction" },
+    { "snippet": "<verbatim title-page title>", "page": 1, "source": null,
+      "field": "paper_metadata.title" },
+    { "snippet": "<abstract sentence framing the paper's contribution>", "page": 1,
+      "source": "abstract", "field": "paper_classification.is_empirical" }
   ],
 
   "extraction_confidence": {

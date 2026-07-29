@@ -122,6 +122,12 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .jobstop { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px;
   padding: 0 2px; margin-left: 6px; line-height: 1; opacity: .6; }
 .jobstop:hover { color: var(--error); opacity: 1; }
+/* entry sub-nav in the records panel: Study information + one tab per table/record */
+.rnav { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; }
+.rnav-tab { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  color: var(--text-muted); cursor: pointer; padding: 5px 11px; font-size: 12.5px; }
+.rnav-tab:hover { border-color: var(--accent-3); }
+.rnav-tab.active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; }
 .doctab.jobfail { color: var(--error); border-color: var(--error); font-size: 12px; cursor: pointer; }
 /* "＋ Add papers" — back to the extract page in add-papers mode for this dataset */
 .doctab-add { justify-content: center; margin-top: 8px; border-style: dashed; color: var(--accent);
