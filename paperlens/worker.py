@@ -196,7 +196,12 @@ async def _job_status(job_id: str) -> dict:
         if info is not None:
             out["success"] = info.success
             out["result"] = info.result if info.success else None
-            out["error"] = None if info.success else str(info.result)
+            out["error"] = None
+            if not info.success:
+                # Surface a clean, human-readable failure (dig the provider message out of a
+                # noisy "Error code: 401 - {...}" blob; plain message for other errors).
+                from . import providers
+                out["error"] = providers.extract_provider_message(info.result)
         return out
     finally:
         await pool.aclose()
@@ -205,6 +210,31 @@ async def _job_status(job_id: str) -> dict:
 def job_status(job_id: str) -> dict | None:
     try:
         return asyncio.run(_job_status(job_id))
+    except Exception:
+        return None
+
+
+async def _job_args(job_id: str) -> dict | None:
+    from arq.jobs import Job
+    pool = await create_pool(_fast_settings())
+    try:
+        # A finished job's definition (arq:job:*) is gone, but its RESULT (JobResult inherits
+        # JobDef) still carries the original function/args/kwargs — so a failed extraction can
+        # be re-enqueued from those (its PDF bytes live in args) with no re-upload.
+        info = await Job(job_id, pool).result_info()
+        if info is None:
+            return None
+        return {"function": info.function, "args": list(info.args or []),
+                "kwargs": dict(info.kwargs or {})}
+    finally:
+        await pool.aclose()
+
+
+def job_args(job_id: str) -> dict | None:
+    """The original function/args/kwargs of a (finished) job — for retry. None if the job's
+    result has expired from Redis."""
+    try:
+        return asyncio.run(_job_args(job_id))
     except Exception:
         return None
 

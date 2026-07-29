@@ -147,6 +147,11 @@ function startJobTracking(jobIds, since) {
     JOBS_POLLED = true;
     if (seen.includes("new")) await reloadRoundDocs(since);
     renderDocTabs();
+    // Nothing extracted yet and a paper failed → surface the reason instead of a blank panel.
+    if (!DOCID && !DOCS.length) {
+      const failed = Object.entries(JOBS).find(([, j]) => j.status === "failed");
+      if (failed) showJobError(failed[0]);
+    }
     return seen.includes("pending");
   };
   const loop = (pending) => {
@@ -208,14 +213,46 @@ function renderDocTabs() {
   // Hidden until the first status check (JOBS_POLLED) so a refresh of already-finished
   // jobs doesn't flash "extracting…"; and never a placeholder for a doc already shown.
   const shown = new Set(DOCS.map((d) => d.document_id));
-  const jobTabs = (JOBS_POLLED ? Object.values(JOBS) : []).filter((j) =>
+  const jobTabs = (JOBS_POLLED ? Object.entries(JOBS) : []).filter(([, j]) =>
     !(j.document_id && shown.has(j.document_id))
     && (j.status === "pending" || j.status === "failed" || (j.status === "complete" && j.document_id))
-  ).map((j) => j.status === "failed"
-    ? `<span class="doctab jobfail" title="${esc(j.error || "extraction failed")}">✗ failed</span>`
+  ).map(([id, j]) => j.status === "failed"
+    ? `<button class="doctab jobfail" data-jobid="${esc(id)}" title="click to see why">✗ failed</button>`
     : `<span class="doctab jobpend">⏳ extracting…</span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
+  strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
+}
+
+// Show a failed job's cleaned error in the main area (there's no document to open for it),
+// with a one-click Retry that re-runs the same paper from its stored args (no re-upload).
+function showJobError(jobId) {
+  const job = JOBS[jobId]; if (!job) return;
+  DOCID = null; renderDocTabs();
+  $("#panelbody").innerHTML = "";
+  $("#pages").innerHTML = `<div class="empty-state">`
+    + `<h3>Extraction failed</h3>`
+    + `<p class="muted" style="white-space:pre-wrap">${esc(job.error || "The extraction failed.")}</p>`
+    + `<div class="empty-actions" style="justify-content:center">`
+    + `<button class="btn btn-primary" id="job-retry">🔁 Retry</button>`
+    + `<a class="btn btn-ghost" href="/extract${PROJECT ? `?dataset=${esc(PROJECT)}` : ""}">Re-upload instead</a>`
+    + `</div><p class="muted" style="margin-top:10px">Often an API key, model, or quota issue.</p></div>`;
+  const rb = $("#job-retry"); if (rb) rb.onclick = () => retryJob(jobId, rb);
+}
+
+// Re-run a failed extraction from its original args; track the fresh attempt in place.
+async function retryJob(jobId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Retrying…"; }
+  try {
+    const r = await api.retryJob(jobId);
+    delete JOBS[jobId];                                 // replace the failed attempt
+    $("#pages").innerHTML = `<div class="empty-state"><h3>Retrying…</h3>`
+      + `<p class="muted">Re-running the extraction — watch the tab above.</p></div>`;
+    startJobTracking([r.job_id], null);                 // seed + poll the new job
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "🔁 Retry"; }
+    alert("Couldn't retry: " + e.message);
+  }
 }
 
 async function load(docId) {

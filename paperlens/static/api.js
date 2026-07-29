@@ -97,6 +97,7 @@ export const api = {
   extract: (formData) => req(`/api/extract`, { method: "POST", body: formData }),
   ingest: (body) => req(`/api/ingest`, json(body)),
   job: (id) => req(`/api/jobs/${id}`),
+  retryJob: (id) => req(`/api/jobs/${id}/retry`, { method: "POST" }),
   me: () => req(`/api/auth/me`).catch(() => null),
   credits: () => req(`/api/credits`),
   login: (email, password) => req(`/api/auth/login`, json({ email, password })),

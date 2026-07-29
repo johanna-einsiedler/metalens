@@ -946,6 +946,31 @@ def job_status(job_id: str) -> dict:
     return st
 
 
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Re-run a failed extraction from its original stored args (PDF bytes + recipe) — no
+    re-upload. Owner-gated; re-consumes a credit for credit runs like the first attempt."""
+    ja = worker.job_args(job_id)
+    if not ja or ja["function"] != "extract_job":
+        raise HTTPException(status_code=410,
+                            detail="This job's data has expired — re-upload the paper to retry.")
+    kw = ja["kwargs"]
+    owner, sess = kw.get("owner_user_id"), kw.get("session_id")
+    if not ((owner and who.user_id and str(owner) == str(who.user_id))
+            or (sess and sess == who.session_id)):
+        raise HTTPException(status_code=403, detail="Not authorized to retry this job.")
+    if kw.get("use_credits"):                     # mirror the extract endpoint's consume-at-enqueue
+        cuid = kw.get("credit_user_id") or who.user_id
+        cmodel = kw.get("model") or credits.credit_model()
+        if not (cuid and cmodel and credits.try_consume(db, cuid, model=cmodel)):
+            raise HTTPException(status_code=402,
+                                detail="You have no Metalens credits left. Use your own API key instead.")
+    new_id = worker.enqueue(ja["function"], *ja["args"], **kw)
+    if not new_id:
+        raise HTTPException(status_code=503, detail="Queue unavailable — try again shortly.")
+    return {"job_id": new_id}
+
+
 @app.post("/api/extract")
 def extract_endpoint(
     pdf: UploadFile = File(...),
