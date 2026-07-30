@@ -949,6 +949,67 @@ def _snippet_candidates(norm: str):
             if cand: yield cand
 
 
+def _tok(s: str) -> str:
+    """Reduce a word to its bare alphanumeric core (lowercased) so matching ignores
+    punctuation and quote style: "children's" (curly OR straight) → "childrens",
+    "(p-value" → "pvalue", "0.01)." → "001"."""
+    return re.sub(r"[^0-9a-z]+", "", s.lower())
+
+
+def _find_subseq(hay: list, needle: list) -> int | None:
+    """Index of the first contiguous occurrence of ``needle`` in ``hay`` (both token lists)."""
+    m = len(needle)
+    if not m:
+        return None
+    first = needle[0]
+    for i in range(len(hay) - m + 1):
+        if hay[i] == first and hay[i:i + m] == needle:
+            return i
+    return None
+
+
+def _group_word_rects(words: list):
+    """Union consecutive matched word bboxes that share a text line into one rect per line."""
+    import fitz
+    out: list = []
+    cur = None
+    cy = None
+    for w in words:
+        r = fitz.Rect(w[0], w[1], w[2], w[3])
+        if cur is not None and cy is not None and abs(w[1] - cy) <= 3:
+            cur |= r
+        else:
+            if cur is not None:
+                out.append(cur)
+            cur = fitz.Rect(r)
+            cy = w[1]
+    if cur is not None:
+        out.append(cur)
+    return out
+
+
+def _prose_word_rects(page, norm: str) -> list:
+    """Locate a prose snippet by matching its WORD SEQUENCE against the page's words,
+    comparing on bare alphanumeric tokens. Robust to the quote/punctuation/case
+    differences that defeat ``page.search_for`` (curly vs straight apostrophes, "(p-value",
+    trailing periods). Returns fitz.Rects for the longest contiguous window that matches,
+    or [] when nothing ≥4 words lines up."""
+    want = [t for t in (_tok(w) for w in norm.split()) if t]
+    if len(want) < 4:
+        return []
+    words = page.get_text("words")            # (x0,y0,x1,y1, word, block, line, wordno)
+    if not words:
+        return []
+    ptok = [_tok(w[4]) for w in words]
+    n = len(want)
+    for size in range(n, 3, -1):              # prefer the longest matching window
+        for start in range(0, n - size + 1):
+            j = _find_subseq(ptok, want[start:start + size])
+            if j is not None:
+                return _group_word_rects(words[j:j + size])
+    return []
+
+
 def _find_table_caption(page, table_num: str):
     """Locate the caption rect for 'Table N' on the page, if present.
 
@@ -1230,8 +1291,10 @@ def pdf_to_pages_with_rects(
                 return False
         return False
 
-    def _page_has(page_idx: int, cands: list) -> bool:
-        return any(_page_contains(page_idx, c) for c in cands)
+    def _page_has(page_idx: int, cands: list, norm: str) -> bool:
+        if any(_page_contains(page_idx, c) for c in cands):
+            return True
+        return bool(_prose_word_rects(doc[page_idx], norm))   # punctuation-insensitive fallback
 
     def _resolve_page(ev: dict) -> int | None:
         cited = ev.get("page")
@@ -1240,7 +1303,7 @@ def pdf_to_pages_with_rects(
         if len(norm) < 5:                                  # nothing to search on → cited or drop
             return cited if cited_ok else None
         cands = list(_snippet_candidates(norm))
-        if cited_ok and _page_has(cited - 1, cands):       # cited page is right → fast path
+        if cited_ok and _page_has(cited - 1, cands, norm): # cited page is right → fast path
             return cited
         # Prefer the MOST SPECIFIC match: try each candidate (longest/most-unique first)
         # across ALL pages before falling back to a shorter one. Otherwise a generic 4-word
@@ -1249,6 +1312,9 @@ def pdf_to_pages_with_rects(
             for pidx in range(n_pages):
                 if _page_contains(pidx, c):
                     return pidx + 1
+        for pidx in range(n_pages):                        # last resort: token-sequence match
+            if _prose_word_rects(doc[pidx], norm):
+                return pidx + 1
         return cited if cited_ok else None                 # not found anywhere → cited (no rect)
 
     by_page: dict[int, list[dict]] = {}
@@ -1302,6 +1368,14 @@ def pdf_to_pages_with_rects(
                 if rects:
                     matched_via = cand
                     break
+            if not rects:
+                # search_for is defeated by quote style / punctuation ("children's" curly vs
+                # straight, "(p-value = 0.01)"). Fall back to a punctuation-insensitive
+                # word-sequence match so prose snippets (headline reasoning, narrative) still
+                # highlight.
+                rects = _prose_word_rects(page, norm)
+                if rects:
+                    matched_via = "prose:word-seq"
 
             if _DEBUG_HL:
                 tag = f"p{page_1idx} field={ev.get('field')!r}"
