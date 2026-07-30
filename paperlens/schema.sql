@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS evidence_span (
     document_id uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
     record_id   uuid REFERENCES record(id) ON DELETE CASCADE,   -- NULL for caption/doc-level
     ord         integer NOT NULL,
-    placement   text NOT NULL,                  -- entry | top
+    placement   text NOT NULL,                  -- entry | top | inline (derived, highlight-only)
     entry_index integer,
     field_path  text,
     snippet     text,

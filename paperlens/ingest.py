@@ -188,6 +188,28 @@ def ingest(result: str | dict) -> IngestResult:
                 source=ev.get("source"),
             ))
 
+    # Inline evidence: some models cite a snippet in-place inside the entry — an object with
+    # an ``evidence_snippet`` (+ sibling ``evidence_page``) rather than a top-level evidence[]
+    # item (e.g. econ headline_classification.<sub>.evidence_snippet). Only SOME of these get
+    # mirrored into evidence[], so harvest ALL of them here, keyed to their own field path, so
+    # every cited snippet highlights on click. Dedupe against evidence already collected.
+    seen_paths = {e.field_path for e in evidence if e.field_path}
+    ord_ctr = len(evidence)
+    for i, rec in enumerate(records):
+        for fp, snip, page, section in _harvest_inline_evidence(rec.field_values, core_key, i):
+            if fp in seen_paths:
+                continue
+            seen_paths.add(fp)
+            # placement="inline": derived from an in-place evidence_snippet field that ALREADY
+            # lives in field_values. Tagged distinctly so reconstruct() does NOT re-nest it into
+            # entry["evidence"] (which would corrupt the loss-free round-trip / export) — it
+            # exists only to power highlighting.
+            evidence.append(EvidenceSpan(
+                ord=ord_ctr, placement="inline", entry_index=i,
+                field_path=fp, snippet=snip, page=_as_int(page), source=section,
+            ))
+            ord_ctr += 1
+
     # extraction_confidence (non-publishable, kept for the credibility system).
     confidence: list[FieldConfidence] = []
     conf = obj.get("extraction_confidence")
@@ -223,6 +245,35 @@ def ingest(result: str | dict) -> IngestResult:
         schema_version=obj.get("schema_version"),
         had_top_evidence=had_top_evidence,
     )
+
+
+def _harvest_inline_evidence(field_values: dict, core_key: str, entry_index: int):
+    """Walk an entry's values and yield ``(field_path, snippet, page, section)`` for every
+    nested object carrying an ``evidence_snippet``. The field_path is the FULL path to that
+    ``evidence_snippet`` leaf (``tables[0].regressions[1].headline_classification.<sub>.evidence_snippet``)
+    — same convention as a mirrored top-level evidence item — so it lines up with the rendered
+    cell and highlights on click. ``page`` reads ``evidence_page`` then ``page``; ``section``
+    reads ``evidence_section``."""
+    prefix = f"{core_key}[{entry_index}]"
+    out: list[tuple[str, str, Any, Any]] = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            snip = node.get("evidence_snippet")
+            if isinstance(snip, str) and snip.strip():
+                leaf = f"{path}.evidence_snippet" if path else "evidence_snippet"
+                page = node.get("evidence_page", node.get("page"))
+                out.append((f"{prefix}.{leaf}", snip, page, node.get("evidence_section")))
+            for k, v in node.items():
+                if k in ("evidence", "extraction_confidence"):
+                    continue
+                walk(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list):
+            for idx, v in enumerate(node):
+                walk(v, f"{path}[{idx}]")
+
+    walk(field_values, "")
+    return out
 
 
 def _as_int(v: Any) -> int | None:

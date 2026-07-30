@@ -80,6 +80,45 @@ def test_decomposition_shapes() -> None:
     assert mr.top_extras.get("schema_version") == "masem-v3"
 
 
+def test_inline_evidence_harvested_but_excluded_from_roundtrip() -> None:
+    """A snippet cited IN PLACE (an object with evidence_snippet/evidence_page nested in an
+    entry, not in a top-level evidence[]) is harvested into a highlight-only 'inline' span so
+    it can be located — but it must NOT re-nest into the entry on reconstruct (round-trip stays
+    loss-free)."""
+    import json
+    raw = json.dumps({
+        "tables": [{
+            "table_id": "T1",
+            "regressions": [{
+                "column": "1",
+                "headline_classification": {
+                    "is_headline": False,
+                    "mentioned_in_narrative": {
+                        "value": True,
+                        "evidence_snippet": "We find that WTP is significantly lower on weekends.",
+                        "evidence_page": 3,
+                    },
+                },
+            }],
+        }],
+    })
+    import copy
+    res = ingest(raw)
+    inline = [s for s in res.evidence if s.placement == "inline"]
+    assert len(inline) == 1
+    s = inline[0]
+    assert s.field_path == "tables[0].regressions[0].headline_classification.mentioned_in_narrative.evidence_snippet"
+    assert s.page == 3 and s.entry_index == 0
+    assert s.snippet.startswith("We find that WTP")
+    # the inline span must NOT re-nest into the entry on reconstruct, and must not change the
+    # reconstruct output at all vs. a run without it → export / round-trip stays loss-free.
+    rebuilt = reconstruct_publishable(res)
+    assert "evidence" not in rebuilt["tables"][0]["regressions"][0]
+    res_wo = copy.copy(res)
+    res_wo.evidence = [x for x in res.evidence if x.placement != "inline"]
+    assert reconstruct_publishable(res_wo) == rebuilt
+
+
 def _main() -> int:
     failures = 0
     tests = [
