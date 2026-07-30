@@ -285,22 +285,29 @@ def update_paper_enrichment(conn: psycopg.Connection, paper_id: str,
 
 
 def attach_rects(conn: psycopg.Connection, document_id: str, highlights: list[dict]) -> int:
-    """Set evidence_span.rect from computed highlights, matched by (page, snippet).
-
-    Highlights come from the same evidence the spans were built from, so a
-    (document, page, snippet) match is exact. Recovered-orphan highlights with no
-    matching span are simply skipped. Returns the number of spans updated.
+    """Set evidence_span.rect from computed highlights + CORRECT the span's page to where the
+    snippet was actually found (the cited page may be a printed/journal number, not the PDF
+    page — the highlighter resolves it). Matched by (field_path, snippet) when the highlight
+    carries a field, else by (page, snippet) for recovered orphans. Returns spans updated.
     """
     if not highlights:
         return 0
     n = 0
     with conn.transaction():
         for h in highlights:
-            cur = conn.execute(
-                """UPDATE evidence_span SET rect = %s
-                   WHERE document_id = %s AND page = %s AND snippet = %s""",
-                (Json(h.get("rects")), document_id, h.get("page"), h.get("snippet")),
-            )
+            field, page, snippet = h.get("field"), h.get("page"), h.get("snippet")
+            if field is not None:
+                cur = conn.execute(
+                    """UPDATE evidence_span SET rect = %s, page = %s
+                       WHERE document_id = %s AND field_path = %s AND snippet = %s""",
+                    (Json(h.get("rects")), page, document_id, field, snippet),
+                )
+            else:                                  # recovered-orphan span (no field)
+                cur = conn.execute(
+                    """UPDATE evidence_span SET rect = %s
+                       WHERE document_id = %s AND page = %s AND snippet = %s""",
+                    (Json(h.get("rects")), document_id, page, snippet),
+                )
             n += cur.rowcount
     return n
 

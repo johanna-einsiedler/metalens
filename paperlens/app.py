@@ -1092,6 +1092,7 @@ def ingest_pdf_endpoint(
     pdf: UploadFile = File(...),
     result: str = Form(...),
     schema_id: str | None = Form(None),
+    dataset_id: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -1099,9 +1100,12 @@ def ingest_pdf_endpoint(
     the pages and compute highlight rects from the JSON's own evidence, then persist a full
     viewable document — the SAME pipeline as /api/extract, but with the result SUPPLIED
     instead of calling a model (no model, key, or credits).  Accepts either the canonical
-    object or a ``{…, "extraction": {…}}`` wrapper."""
+    object or a ``{…, "extraction": {…}}`` wrapper.  With ``dataset_id`` the imported document
+    is added to that dataset (owner-gated)."""
     import json as _json
     data = pdf.file.read()
+    if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="You don't own that dataset.")
     try:
         obj = _json.loads(result)
     except Exception:
@@ -1122,6 +1126,8 @@ def ingest_pdf_endpoint(
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Import failed: {exc}")
+    if dataset_id:
+        records.assign_document_to_dataset(db, dataset_id, res["document_id"])
     return {"queued": False, **res}
 
 

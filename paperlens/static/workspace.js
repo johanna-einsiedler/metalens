@@ -808,6 +808,14 @@ function wireControls(container, onSave, textToo) {
   });
 }
 
+// A page-REFERENCE field (page / evidence_page / *_page) holds a page number, not a value
+// that lives in the PDF — clicking it must never hunt that number (it would light up every
+// matching digit). It still jumps to its covering (e.g. table-caption) evidence.
+function isPageRef(path) {
+  const leaf = (path || "").split(".").pop().replace(/\[\d+\]$/, "");
+  return leaf === "page" || leaf === "evidence_page" || leaf.endsWith("_page");
+}
+
 function linkValueCells(card, evs) {
   const linkable = evs.map(({ ev, i }) => ({ i, page: ev.page, path: stripCore(ev.field_path) }));
   card.querySelectorAll("[data-path]").forEach((cell) => {
@@ -833,7 +841,7 @@ function linkValueCells(card, evs) {
     }
     // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay
     // clickable-to-locate; a text value with no cited snippet has nothing to jump to.
-    if (cell.classList.contains("rv-num")) {
+    if (cell.classList.contains("rv-num") && !isPageRef(p)) {
       if (!editable) cell.classList.add("rv-probe");
       cell.addEventListener("click", () => locateAndFlash(cell));
     }
@@ -870,7 +878,7 @@ async function verifyAndJump(cell, best) {
   // matches). A broad, table-level citation (e.g. "jump to Table 4" / a shared caption, or a
   // headline-snippet citation) just lands on that snippet — never chase the number, which in
   // dense tables (or a page number like "2") would light up every matching digit in the PDF.
-  if (best.path !== cell.dataset.path || !NUM_RE.test(txt)) return;
+  if (best.path !== cell.dataset.path || !NUM_RE.test(txt) || isPageRef(cell.dataset.path)) return;
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   try {
     const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) refine to the number

@@ -1213,13 +1213,44 @@ def pdf_to_pages_with_rects(
     mat   = fitz.Matrix(dpi / 72, dpi / 72)
     scale = dpi / 72.0  # PDF points → image pixels
 
-    # Group evidence items by page for one-pass rendering
+    # Group evidence items by page for one-pass rendering. The cited `page` is often a
+    # PRINTED (journal) page number rather than the 1-indexed PDF page — especially for
+    # imported extractions — so RESOLVE each item to the PDF page where its snippet actually
+    # appears: trust the cited page only if the text is there, otherwise scan the document.
+    n_pages = min(len(doc), MAX_PAGES)
+
+    def _page_has(page_idx: int, cands: list) -> bool:
+        pg = doc[page_idx]
+        for c in cands:
+            if pg.search_for(c):
+                return True
+            if _DEHY:
+                try:
+                    if pg.search_for(c, flags=_DEHY):
+                        return True
+                except Exception:
+                    pass
+        return False
+
+    def _resolve_page(ev: dict) -> int | None:
+        cited = ev.get("page")
+        cited_ok = isinstance(cited, int) and 1 <= cited <= n_pages
+        norm = _normalize_snippet(ev.get("snippet") or "")
+        if len(norm) < 5:                                  # nothing to search on → cited or drop
+            return cited if cited_ok else None
+        cands = list(_snippet_candidates(norm))
+        if cited_ok and _page_has(cited - 1, cands):       # cited page is right → fast path
+            return cited
+        for pidx in range(n_pages):                        # otherwise find where the text is
+            if _page_has(pidx, cands):
+                return pidx + 1
+        return cited if cited_ok else None                 # not found anywhere → cited (no rect)
+
     by_page: dict[int, list[dict]] = {}
     for ev in evidence_items:
-        page = ev.get("page")
-        if not isinstance(page, int) or page < 1:
-            continue
-        by_page.setdefault(page, []).append(ev)
+        rp = _resolve_page(ev)
+        if rp:
+            by_page.setdefault(rp, []).append(ev)
 
     for page_idx in range(min(len(doc), MAX_PAGES)):
         page      = doc[page_idx]
