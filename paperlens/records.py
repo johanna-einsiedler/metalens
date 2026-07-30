@@ -1523,10 +1523,42 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
 
 def delete_record(conn: psycopg.Connection, record_id: str) -> dict:
     """Delete a single record/finding (evidence + confidence + verification events
-    cascade via FK ON DELETE CASCADE). Returns {"deleted": n}."""
+    cascade via FK ON DELETE CASCADE). Returns {"deleted": n}.
+
+    If this was the LAST real (non-screened) record of a paper that belongs to a dataset —
+    e.g. a reviewer deleted every entry as out-of-scope — the paper would silently drop out
+    of the dataset. Instead we leave a "screened, no records" sentinel so the paper stays in
+    the dataset marked as having no extracts (coverage/provenance is preserved)."""
     with conn.transaction():
+        row = conn.execute(
+            "SELECT document_id, dataset_id FROM record WHERE id = %s::uuid", (record_id,)
+        ).fetchone()
         cur = conn.execute("DELETE FROM record WHERE id = %s::uuid", (record_id,))
-    return {"deleted": cur.rowcount}
+        deleted = cur.rowcount
+        if deleted and row and row[1] is not None:
+            document_id, dataset_id = str(row[0]), str(row[1])
+            remaining = conn.execute(
+                "SELECT 1 FROM record WHERE document_id = %s::uuid AND dataset_id = %s::uuid "
+                "AND NOT COALESCE(screened_empty, false) LIMIT 1", (document_id, dataset_id),
+            ).fetchone()
+            has_sentinel = conn.execute(
+                "SELECT 1 FROM record WHERE document_id = %s::uuid AND dataset_id = %s::uuid "
+                "AND screened_empty LIMIT 1", (document_id, dataset_id),
+            ).fetchone()
+            if remaining is None and has_sentinel is None:
+                doc = conn.execute(
+                    "SELECT paper_id, schema_id, owner_user_id, session_id "
+                    "FROM extraction_document WHERE id = %s::uuid", (document_id,),
+                ).fetchone()
+                if doc is not None:
+                    conn.execute(
+                        """INSERT INTO record (id, document_id, paper_id, dataset_id, schema_id,
+                                entry_index, field_values, verification_status, screened_empty,
+                                owner_user_id, session_id)
+                           VALUES (%s, %s::uuid, %s, %s::uuid, %s, 0, %s, 'unverified', true, %s, %s)""",
+                        (_new_id(), document_id, doc[0], dataset_id, doc[1], Json({}), doc[2], doc[3]),
+                    )
+    return {"deleted": deleted}
 
 
 def add_record(conn: psycopg.Connection, document_id: str, *,

@@ -1219,18 +1219,19 @@ def pdf_to_pages_with_rects(
     # appears: trust the cited page only if the text is there, otherwise scan the document.
     n_pages = min(len(doc), MAX_PAGES)
 
-    def _page_has(page_idx: int, cands: list) -> bool:
+    def _page_contains(page_idx: int, cand: str) -> bool:
         pg = doc[page_idx]
-        for c in cands:
-            if pg.search_for(c):
-                return True
-            if _DEHY:
-                try:
-                    if pg.search_for(c, flags=_DEHY):
-                        return True
-                except Exception:
-                    pass
+        if pg.search_for(cand):
+            return True
+        if _DEHY:
+            try:
+                return bool(pg.search_for(cand, flags=_DEHY))
+            except Exception:
+                return False
         return False
+
+    def _page_has(page_idx: int, cands: list) -> bool:
+        return any(_page_contains(page_idx, c) for c in cands)
 
     def _resolve_page(ev: dict) -> int | None:
         cited = ev.get("page")
@@ -1241,9 +1242,13 @@ def pdf_to_pages_with_rects(
         cands = list(_snippet_candidates(norm))
         if cited_ok and _page_has(cited - 1, cands):       # cited page is right → fast path
             return cited
-        for pidx in range(n_pages):                        # otherwise find where the text is
-            if _page_has(pidx, cands):
-                return pidx + 1
+        # Prefer the MOST SPECIFIC match: try each candidate (longest/most-unique first)
+        # across ALL pages before falling back to a shorter one. Otherwise a generic 4-word
+        # window could match an earlier page and land a full sentence on the wrong page.
+        for c in cands:
+            for pidx in range(n_pages):
+                if _page_contains(pidx, c):
+                    return pidx + 1
         return cited if cited_ok else None                 # not found anywhere → cited (no rect)
 
     by_page: dict[int, list[dict]] = {}

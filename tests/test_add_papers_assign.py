@@ -113,3 +113,40 @@ def test_extract_rejects_non_owner_dataset(monkeypatch) -> None:
         files={"pdf": ("p.pdf", _pdf(), "application/pdf")},
         data={"prompt": "x", "schema_id": "human-ai-collab@v1", "dataset_id": ds["id"]})
     assert r.status_code == 403                     # not the dataset owner
+
+
+def test_deleting_all_records_keeps_paper_in_dataset(monkeypatch) -> None:
+    """A reviewer deleting every entry of a paper (all out-of-scope) must NOT drop the paper
+    out of the dataset — it stays as a screened, no-records sentinel (coverage preserved)."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    conn = records.connect(); records.init_db(conn)
+    sess = "sess-delkeep"
+    ds = records.create_dataset(conn, title="Del DS", schema_id="human-ai-collab@v1", session_id=sess)
+    conn.commit()
+    _force_sync_with_fake_llm(monkeypatch)
+
+    r = TestClient(appmod.app).post(
+        "/api/extract", headers={"X-Session-Id": sess},
+        files={"pdf": ("p.pdf", _pdf(), "application/pdf")},
+        data={"prompt": "x", "schema_id": "human-ai-collab@v1", "dataset_id": ds["id"]})
+    assert r.status_code == 200, r.text
+    doc_id = r.json()["document_id"]
+
+    conn.rollback()
+    rec_ids = [str(x[0]) for x in conn.execute(
+        "SELECT id FROM record WHERE document_id=%s::uuid AND NOT COALESCE(screened_empty,false)",
+        (doc_id,)).fetchall()]
+    assert rec_ids
+    for rid in rec_ids:
+        records.delete_record(conn, rid)
+    conn.commit(); conn.rollback()
+
+    # no real records remain, but the paper is still in the dataset via a screened sentinel
+    real = conn.execute("SELECT count(*) FROM record WHERE document_id=%s::uuid "
+                        "AND NOT COALESCE(screened_empty,false)", (doc_id,)).fetchone()[0]
+    assert real == 0
+    docs = records.list_documents(conn, session_id=sess, dataset_id=ds["id"])
+    hit = [d for d in docs if d["document_id"] == doc_id]
+    assert hit and hit[0]["screened"] is True and hit[0]["n_records"] == 0
