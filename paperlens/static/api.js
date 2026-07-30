@@ -95,6 +95,7 @@ export const api = {
   testKey: (body) => req(`/api/providers/test`, json(body)),
   designPrompt: (body) => req(`/api/design-prompt`, json(body)),
   extract: (formData) => req(`/api/extract`, { method: "POST", body: formData }),
+  ingestPdf: (formData) => req(`/api/ingest-pdf`, { method: "POST", body: formData }),
   ingest: (body) => req(`/api/ingest`, json(body)),
   job: (id) => req(`/api/jobs/${id}`),
   retryJob: (id) => req(`/api/jobs/${id}/retry`, { method: "POST" }),

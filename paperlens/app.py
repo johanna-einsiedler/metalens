@@ -138,6 +138,12 @@ def extract_page() -> FileResponse:
     return _page("extract.html")
 
 
+@app.get("/import")
+def import_page() -> FileResponse:
+    """Import pre-computed extractions (JSON) + their source PDFs into the viewer."""
+    return _page("import.html")
+
+
 @app.get("/workspace")
 def workspace() -> FileResponse:
     """PDF + highlight overlays alongside the extracted records (verify / edit-in-place)."""
@@ -1079,6 +1085,44 @@ def extract_endpoint(
         raise HTTPException(status_code=502,
                             detail=f"Extraction failed: {providers.extract_provider_message(exc)}")
     return {"queued": False, **result}
+
+
+@app.post("/api/ingest-pdf")
+def ingest_pdf_endpoint(
+    pdf: UploadFile = File(...),
+    result: str = Form(...),
+    schema_id: str | None = Form(None),
+    db=Depends(get_db),
+    who: Principal = Depends(principal),
+) -> dict:
+    """Import a PRE-COMPUTED extraction (canonical JSON) together with its source PDF: render
+    the pages and compute highlight rects from the JSON's own evidence, then persist a full
+    viewable document — the SAME pipeline as /api/extract, but with the result SUPPLIED
+    instead of calling a model (no model, key, or credits).  Accepts either the canonical
+    object or a ``{…, "extraction": {…}}`` wrapper."""
+    import json as _json
+    data = pdf.file.read()
+    try:
+        obj = _json.loads(result)
+    except Exception:
+        raise HTTPException(status_code=422, detail="`result` is not valid JSON.")
+    canonical = (obj.get("extraction") if isinstance(obj, dict)
+                 and isinstance(obj.get("extraction"), dict) else obj)
+    text = _json.dumps(canonical)
+    usage = (obj.get("usage") if isinstance(obj, dict) else None) or {}
+
+    def _supplied(pdf_bytes, prompt, **kw):
+        return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model="imported")
+
+    try:
+        res = extract.run_extraction(
+            db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
+            owner_user_id=who.user_id, filename=pdf.filename, complete=_supplied)
+    except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Import failed: {exc}")
+    return {"queued": False, **res}
 
 
 @app.get("/api/papers/provenance")

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — import</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
+    <nav class="nav-shared">
+      <a href="/catalog">Data Catalogue</a>
+      <a href="/observatory">Examples</a>
+    </nav>
+    <span class="spacer"></span>
+    <nav class="nav-personal">
+      <a href="/extract">Process papers</a>
+      <a href="/import">Import</a>
+      <a href="/workspace">Data review</a>
+    </nav>
+    <span id="account" class="account"></span>
+  </header>
+  <main class="wrap" style="padding-top:24px; max-width:760px">
+    <h2 style="margin:0 0 4px">Import extractions</h2>
+    <p class="muted" style="margin:0 0 18px">Already have extraction JSON from your own pipeline? Drop it here with the
+      source PDFs (paired by filename) — Metalens renders the pages and highlights each citation from the JSON's evidence,
+      so you get the full viewer with source highlighting. No model is called.</p>
+
+    <div class="dropzone" id="dz">
+      <div class="dz-title">Drag &amp; drop your .json + .pdf files here</div>
+      <div class="dz-sub">or click to browse — pair by name, e.g. <code>paper1.json</code> + <code>paper1.pdf</code>
+        (a <code>.gemini.json</code> suffix and a <code>{ "extraction": … }</code> wrapper are handled automatically)</div>
+      <input id="files" type="file" accept=".json,application/json,.pdf,application/pdf" multiple hidden/>
+    </div>
+
+    <div style="margin:14px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <label class="muted" style="font-size:12.5px">Preset schema</label>
+      <input id="schema" value="econ-headline@v1"
+             style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; min-width:220px"/>
+      <span class="muted" style="font-size:11.5px">the schema whose layout to render with (leave as-is for econ regressions)</span>
+    </div>
+
+    <div id="pairs" class="import-pairs"></div>
+
+    <div style="margin-top:16px; display:flex; gap:12px; align-items:center">
+      <button id="run" class="btn btn-primary" disabled>Import</button>
+      <span id="status" class="muted"></span>
+    </div>
+  </main>
+  <script type="module" src="/static/import.js"></script>
+  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+</body>
+</html>
