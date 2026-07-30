@@ -564,6 +564,19 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
         ex = row[4]                                   # extraction column (not the trailing flag)
         if isinstance(ex, dict) and ex.get("n_pages"):
             n_pages = int(ex["n_pages"]); break
+    if not n_pages:
+        # Screened / deleted-to-empty docs carry a sentinel with no extraction metadata; without
+        # this the page count would fall back to max(evidence page) and show just page 1 — but a
+        # reviewer needs the WHOLE paper to confirm "no records". Use the authoritative parsed
+        # page count (capped at the render limit — page images beyond it aren't stored).
+        from . import pdf_utils
+        prow = conn.execute(
+            "SELECT pd.n_pages FROM extraction_document d "
+            "JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256 WHERE d.id = %s::uuid",
+            (document_id,),
+        ).fetchone()
+        if prow and prow[0]:
+            n_pages = min(int(prow[0]), pdf_utils.MAX_PAGES)
 
     ev_rows = conn.execute(
         """SELECT record_id, entry_index, page, field_path, snippet, source, rect

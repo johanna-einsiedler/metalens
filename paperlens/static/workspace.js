@@ -529,7 +529,18 @@ function renderRecordNav(panel, recs) {
   nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => {
     PANEL_SEL = b.dataset.sel === "study" ? "study" : +b.dataset.sel;
     renderPanel();
+    if (PANEL_SEL !== "study" && recs[PANEL_SEL]) jumpToTable(recs[PANEL_SEL]);
   }));
+}
+
+// Selecting a table tab jumps to that table in the PDF. The table's own citation
+// (field:"tables[i]" → empty stripped path, covering the whole table) points at the caption /
+// table region; fall back to the record's first evidence.
+function jumpToTable(rec) {
+  const evs = recordEvidence(rec);
+  if (!evs.length) return;
+  const cap = evs.find(({ ev }) => stripCore(ev.field_path) === "") || evs[0];
+  jumpToEvidence(cap.ev.page, cap.i);
 }
 
 function renderRecordCard(panel, rec) {

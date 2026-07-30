@@ -113,3 +113,32 @@ def test_confirm_screened_no_records() -> None:
     assert ov1["stats"]["n_screened_confirmed"] == 1
     assert ov1["stats"]["n_verified"] == 0                              # not a DATA record
     assert ov1["credibility"]["audited"] == 0                          # sentinel excluded from credibility
+
+
+def _make_pdf_pages(n):
+    import fitz
+    d = fitz.open()
+    for i in range(n):
+        d.new_page().insert_text((72, 90), f"page {i + 1} of the screened paper")
+    b = d.tobytes(); d.close()
+    return b
+
+
+def test_screened_doc_shows_all_pages() -> None:
+    """A screened (0-record) paper must be viewable in FULL — a reviewer needs every page to
+    confirm there are no entries. Its page count comes from the parsed page count, not from
+    max(evidence page) (which would show only page 1)."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres available")
+    conn = records.connect(); records.init_db(conn)
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = storage.LocalObjectStore(root=d)
+        out = extract.run_extraction(conn, _make_pdf_pages(5), prompt="x", model="gpt-4o",
+                                     api_key="", schema_id="human-ai-collab@v1",
+                                     session_id="sess-allpages", complete=_empty, store=store)
+        conn.commit()
+        v = records.document_view(conn, out["document_id"])
+    # evidence only cites page 1, but the whole 5-page paper is viewable
+    assert len(v["pages"]) == 5, [p["page"] for p in v["pages"]]
+    assert [r for r in v["records"] if not r["screened_empty"]] == []
