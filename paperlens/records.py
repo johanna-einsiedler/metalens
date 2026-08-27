@@ -1551,16 +1551,32 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     log, not a reason to 500 the caller."""
     if not _is_uuid(document_id):
         return {"deleted": 0}
+    from . import pdf_utils, storage
+    # The page count has to be read BEFORE the row goes away: it turns the page images
+    # into an explicit key list, so the cleanup never has to enumerate the bucket.
+    # ListObjectsV2 is the first thing to break on an S3-compatible backend, and a
+    # delete that can't list is a delete that leaks every page image.
+    prow = conn.execute(
+        "SELECT pd.n_pages FROM extraction_document d "
+        "JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256 WHERE d.id = %s::uuid",
+        (document_id,),
+    ).fetchone()
+    n_pages = min(int(prow[0]), pdf_utils.MAX_PAGES) if prow and prow[0] else 0
+
     with conn.transaction():
         cur = conn.execute("DELETE FROM extraction_document WHERE id = %s::uuid", (document_id,))
     deleted = cur.rowcount
     orphaned = False
     if deleted:
-        from . import storage
         store = storage.get_store()
-        # Two independent calls: losing the PDF must not skip the page images.
-        for label, op in (("pdf", lambda: store.delete(storage.pdf_key(document_id))),
-                          ("pages", lambda: store.delete_prefix(f"pages/{document_id}/"))):
+        pages = [storage.page_image_key(document_id, i) for i in range(1, n_pages + 1)]
+        # Two independent calls: losing the PDF must not skip the page images. Fall back
+        # to prefix deletion only when the page count is unknown (no cached parse).
+        for label, op in (
+            ("pdf", lambda: store.delete(storage.pdf_key(document_id))),
+            ("pages", (lambda: store.delete_keys(pages)) if pages
+                      else (lambda: store.delete_prefix(f"pages/{document_id}/"))),
+        ):
             try:
                 op()
             except Exception as exc:      # noqa: BLE001 - any backend error; the row is gone

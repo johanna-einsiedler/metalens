@@ -26,6 +26,7 @@ class ObjectStore(Protocol):
     def exists(self, key: str) -> bool: ...
     def url(self, key: str) -> str: ...
     def delete(self, key: str) -> None: ...
+    def delete_keys(self, keys: list[str]) -> None: ...
     def delete_prefix(self, prefix: str) -> None: ...
 
 
@@ -65,6 +66,10 @@ class LocalObjectStore:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def delete_keys(self, keys: list[str]) -> None:
+        for key in keys:
+            self._path(key).unlink(missing_ok=True)
 
     def delete_prefix(self, prefix: str) -> None:
         import shutil
@@ -112,6 +117,19 @@ class S3ObjectStore:
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self.bucket, Key=key)
+
+    def delete_keys(self, keys: list[str]) -> None:
+        """Delete an EXPLICIT list of keys — no ListObjectsV2 involved.
+
+        Preferred over ``delete_prefix`` wherever the caller can derive the keys, because
+        listing is the most fragile operation across S3-compatible backends (and the one
+        a misconfigured endpoint breaks first, since a bucket-level GET degenerates into
+        an object-level one). Deletes are idempotent, so keys that aren't there are fine.
+        """
+        for i in range(0, len(keys), 1000):
+            batch = [{"Key": k} for k in keys[i:i + 1000]]
+            if batch:
+                self._client.delete_objects(Bucket=self.bucket, Delete={"Objects": batch})
 
     def delete_prefix(self, prefix: str) -> None:
         paginator = self._client.get_paginator("list_objects_v2")

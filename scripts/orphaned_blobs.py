@@ -160,6 +160,49 @@ def _diagnose(conn, store) -> int:
     return 0
 
 
+def _try_endpoint(store, endpoint: str) -> int:
+    """List the bucket through a DIFFERENT endpoint URL, changing nothing.
+
+    A bucket name left on the end of PAPERLENS_S3_ENDPOINT is invisible to per-key
+    operations — puts and gets both go through the same doubled path, so they agree with
+    each other — but it breaks every bucket-level call. Correcting it silently moves where
+    the app looks for keys, so confirm the real layout here FIRST: whatever prefix shows up
+    below is where the existing objects actually live.
+    """
+    import boto3
+    client = boto3.client("s3", endpoint_url=endpoint,
+                          region_name=os.environ.get("AWS_REGION"))
+    print(f"probing:  {endpoint}")
+    print(f"bucket:   {store.bucket}   (read-only — this deletes and writes nothing)\n")
+    try:
+        keys = _list(client, store.bucket)
+    except Exception as exc:                                 # noqa: BLE001
+        print(f"  FAIL  ListObjectsV2  {type(exc).__name__}: {exc}")
+        return 1
+
+    print(f"  OK    ListObjectsV2  {len(keys)} key(s)\n")
+    if not keys:
+        print("The bucket lists clean but is empty — wrong bucket, or the objects live "
+              "elsewhere.")
+        return 0
+    tops: dict[str, int] = defaultdict(int)
+    for key, _size in keys:
+        tops[key.split("/", 1)[0] if "/" in key else "(root)"] += 1
+    print("top-level prefixes:")
+    for top, n in sorted(tops.items(), key=lambda kv: -kv[1]):
+        print(f"  {top + '/':<24} {n:>6} key(s)")
+    print("\nsample keys:")
+    for key, size in keys[:5]:
+        print(f"  {key}  ({size} bytes)")
+    if set(tops) <= {"pdf", "pages", "text"}:
+        print("\nThis is the layout the app expects — switching to this endpoint is safe.")
+    else:
+        print(f"\nThe app writes pdf/, pages/ and text/ at the ROOT. What's here is nested "
+              f"under {sorted(tops)}, so switching endpoints would hide every existing\n"
+              f"object until the keys are moved up a level.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -167,6 +210,9 @@ def main() -> int:
                     help="download each orphaned PDF to name the paper (1 GET per orphan)")
     ap.add_argument("--diagnose", action="store_true",
                     help="probe each S3 operation and report which ones the backend supports")
+    ap.add_argument("--try-endpoint", metavar="URL",
+                    help="read-only: re-probe against a different endpoint URL and show the "
+                         "key layout it sees (use before changing PAPERLENS_S3_ENDPOINT)")
     args = ap.parse_args()
 
     conn = records.connect()
@@ -178,6 +224,12 @@ def main() -> int:
         print("NOTE: this is the local filesystem store, which cannot fail a delete — so\n"
               "      orphans here are ordinary dev debris (wiped DBs, purged test rows),\n"
               "      NOT the 500 bug. Only an S3/R2 run answers that question.\n")
+
+    if args.try_endpoint:
+        if not s3:
+            print("--try-endpoint probes S3 operations; this is the filesystem store.")
+            return 0
+        return _try_endpoint(store, args.try_endpoint)
 
     if args.diagnose:
         if not s3:

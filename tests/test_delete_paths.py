@@ -46,8 +46,52 @@ class _BrokenStore:
     def delete(self, key: str) -> None:
         raise RuntimeError("AccessDenied: s3:DeleteObject")
 
+    def delete_keys(self, keys: list) -> None:
+        raise RuntimeError("AccessDenied: s3:DeleteObject")
+
     def delete_prefix(self, prefix: str) -> None:
         raise RuntimeError("AccessDenied: s3:ListBucket")
+
+
+class _NoListStore:
+    """Beta's real backend: per-key operations work, ListObjectsV2 does not."""
+
+    def __init__(self) -> None:
+        self.deleted: list[str] = []
+
+    def delete(self, key: str) -> None:
+        self.deleted.append(key)
+
+    def delete_keys(self, keys: list) -> None:
+        self.deleted += list(keys)
+
+    def delete_prefix(self, prefix: str) -> None:
+        raise AssertionError("delete_prefix must not be reached when n_pages is known")
+
+
+def test_page_images_are_deleted_without_listing(monkeypatch) -> None:
+    """The page images must come off as an explicit key list, not a prefix sweep."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    conn = records.connect(); records.init_db(conn)
+    sess = "sess-del-nolist"
+    doc_id = _doc(conn, sess)
+    # a cached parse gives delete_document the page count it derives the keys from
+    sha = f"sha-nolist-{doc_id[:8]}"
+    conn.execute("INSERT INTO parsed_document (pdf_sha256, n_pages) VALUES (%s, %s) "
+                 "ON CONFLICT (pdf_sha256) DO UPDATE SET n_pages = EXCLUDED.n_pages", (sha, 3))
+    conn.execute("UPDATE extraction_document SET pdf_sha256 = %s WHERE id = %s::uuid",
+                 (sha, doc_id))
+    store = _NoListStore()
+    monkeypatch.setattr(storage, "_store", store)
+
+    r = TestClient(appmod.app).delete(f"/api/documents/{doc_id}",
+                                      headers={"X-Session-Id": sess})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"deleted": 1, "blobs_orphaned": False}
+    assert store.deleted == [f"pdf/{doc_id}.pdf"] + [
+        f"pages/{doc_id}/{i}.jpg" for i in (1, 2, 3)]
 
 
 def test_delete_document_survives_a_broken_object_store(monkeypatch) -> None:
