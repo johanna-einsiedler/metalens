@@ -43,16 +43,30 @@ _KEY_RE = re.compile(
     r"^(?:pdf/(?P<a>[0-9a-f-]{36})\.pdf|pages/(?P<b>[0-9a-f-]{36})/.*)$", re.I)
 
 
+def _list(client, bucket: str, **kw) -> list[tuple[str, int]]:
+    """ListObjectsV2 pages flattened to (key, size)."""
+    out = []
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, **kw):
+        out += [(o["Key"], o["Size"]) for o in page.get("Contents", [])]
+    return out
+
+
 def _iter_keys(store) -> list[tuple[str, int]]:
     """Every (key, size) under the two document-scoped prefixes, for either backend."""
     client = getattr(store, "_client", None)
-    if client is not None:                                   # S3 / R2
-        out = []
-        paginator = client.get_paginator("list_objects_v2")
-        for prefix in ("pdf/", "pages/"):
-            for page in paginator.paginate(Bucket=store.bucket, Prefix=prefix):
-                out += [(o["Key"], o["Size"]) for o in page.get("Contents", [])]
-        return out
+    if client is not None:                                   # S3-compatible
+        try:
+            out = []
+            for prefix in ("pdf/", "pages/"):
+                out += _list(client, store.bucket, Prefix=prefix)
+            return out
+        except Exception as exc:                             # noqa: BLE001
+            # Not every S3-compatible implementation handles a bare Prefix the way AWS
+            # does (Supabase Storage answers NoSuchKey rather than an empty listing).
+            # Fall back to walking the whole bucket and filtering here.
+            print(f"prefix listing failed ({type(exc).__name__}: {exc})\n"
+                  f"→ retrying with a full-bucket listing\n")
+            return _list(client, store.bucket)
     root = store.root                                        # LocalObjectStore
     out = []
     for prefix in ("pdf", "pages"):
@@ -92,11 +106,67 @@ def _identify(conn, store, doc_id: str) -> str:
     return f"(unidentified; sha256 {sha[:12]}…)"
 
 
+def _diagnose(conn, store) -> int:
+    """Probe the S3 operations delete_document needs, one at a time, and say which work.
+
+    ``delete_document`` needs exactly three: DeleteObject for the PDF, then ListObjectsV2
+    + DeleteObjects for the page images. Uploads only need PutObject, so a backend can
+    look perfectly healthy right up until someone deletes a paper.
+    """
+    client = store._client
+    print(f"bucket:   {store.bucket}")
+    print(f"endpoint: {os.environ.get('PAPERLENS_S3_ENDPOINT') or '(AWS default)'}")
+    print(f"region:   {os.environ.get('AWS_REGION') or '(unset)'}\n")
+
+    # A key we know exists, to tell "no permission" apart from "nothing there".
+    row = conn.execute("SELECT id FROM extraction_document ORDER BY created_at DESC "
+                       "LIMIT 1").fetchone()
+    known = storage.pdf_key(str(row[0])) if row else None
+
+    def probe(label: str, fn) -> None:
+        try:
+            print(f"  {'OK  ':<5} {label:<34} {fn()}")
+        except Exception as exc:                             # noqa: BLE001
+            print(f"  {'FAIL':<5} {label:<34} {type(exc).__name__}: {exc}")
+
+    print("operation probes:")
+    def _then(fn, msg):
+        def run():
+            fn()
+            return msg
+        return run
+
+    probe("HeadBucket", _then(lambda: client.head_bucket(Bucket=store.bucket), "reachable"))
+    probe("ListObjectsV2 (no prefix)",
+          lambda: f"{len(_list(client, store.bucket))} key(s)")
+    probe("ListObjectsV2 Prefix=pdf/",
+          lambda: f"{len(_list(client, store.bucket, Prefix='pdf/'))} key(s)")
+    probe("ListObjectsV2 Prefix+Delimiter",
+          lambda: f"{len(_list(client, store.bucket, Prefix='pdf/', Delimiter='/'))} key(s)")
+    if known:
+        probe("HeadObject (a live PDF)",
+              lambda: f"{client.head_object(Bucket=store.bucket, Key=known)['ContentLength']} bytes")
+    # Deletes are idempotent in S3 — removing a key that was never there changes nothing,
+    # so this probes the permission without touching a single real object.
+    probe("DeleteObject (nonexistent key)",
+          _then(lambda: client.delete_object(Bucket=store.bucket,
+                                             Key="pdf/_probe_does_not_exist.pdf"), "allowed"))
+    probe("DeleteObjects (nonexistent key)",
+          _then(lambda: client.delete_objects(
+              Bucket=store.bucket,
+              Delete={"Objects": [{"Key": "pdf/_probe_does_not_exist.pdf"}]}), "allowed"))
+    print("\ndelete_document needs DeleteObject + ListObjectsV2 + DeleteObjects.\n"
+          "Whichever of those says FAIL is what was turning a paper delete into a 500.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--identify", action="store_true",
                     help="download each orphaned PDF to name the paper (1 GET per orphan)")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="probe each S3 operation and report which ones the backend supports")
     args = ap.parse_args()
 
     conn = records.connect()
@@ -108,6 +178,12 @@ def main() -> int:
         print("NOTE: this is the local filesystem store, which cannot fail a delete — so\n"
               "      orphans here are ordinary dev debris (wiped DBs, purged test rows),\n"
               "      NOT the 500 bug. Only an S3/R2 run answers that question.\n")
+
+    if args.diagnose:
+        if not s3:
+            print("--diagnose probes S3 operations; this is the filesystem store.")
+            return 0
+        return _diagnose(conn, store)
 
     blobs: dict[str, list[tuple[str, int]]] = defaultdict(list)
     for key, size in _iter_keys(store):
