@@ -77,12 +77,23 @@ def _iter_keys(store) -> list[tuple[str, int]]:
     return out
 
 
+def _page_link(store, doc_id: str) -> str:
+    """A presigned link to page 1 — the title page. The last resort when the PDF itself
+    was deleted: the old cleanup removed it BEFORE the page listing blew up, so a paper
+    can be unidentifiable from storage while all its page images are still sitting there.
+    """
+    try:
+        return f"open the title page: {store.url(storage.page_image_key(doc_id, 1))}"
+    except Exception as exc:                                 # noqa: BLE001
+        return f"(no PDF, and no link for page 1: {exc})"
+
+
 def _identify(conn, store, doc_id: str) -> str:
     """Best-effort name for a deleted document, from its surviving PDF blob."""
     try:
         sha = hashlib.sha256(store.get(storage.pdf_key(doc_id))).hexdigest()
-    except Exception as exc:                                 # noqa: BLE001
-        return f"(couldn't read the PDF: {exc})"
+    except Exception:                                        # noqa: BLE001
+        return _page_link(store, doc_id)
     # Best signal: the same file was extracted again and that document still exists.
     row = conn.execute(
         """SELECT p.title, d.filename FROM extraction_document d
@@ -275,17 +286,25 @@ def main() -> int:
     print("\nOrphaned — blobs whose document row is gone"
           + (" (on this backend, each one is a delete that 500'd):\n" if s3
              else " (dev debris; see the note above):\n"))
+    no_pdf = 0
     for doc_id in orphans:
         files = blobs[doc_id]
         nbytes = sum(s for _k, s in files)
         total += nbytes
-        print(f"  {doc_id}  {len(files):>4} file(s)  {nbytes / 1e6:>7.1f} MB")
+        has_pdf = any(k.startswith("pdf/") for k, _s in files)
+        no_pdf += not has_pdf
+        print(f"  {doc_id}  {len(files):>4} file(s)  {nbytes / 1e6:>7.1f} MB"
+              f"{'' if has_pdf else '   [pages only — the PDF was deleted]'}")
         if args.identify:
             print(f"      ↳ {_identify(conn, store, doc_id)}")
     print(f"\n{len(orphans)} document(s), {total / 1e6:.1f} MB still in storage.")
     if s3:
-        print("The PDFs and page images survive; their records, evidence, and verification\n"
-              "history do not — those cascaded away with the document row.")
+        print("Their records, evidence and verification history are gone — those cascaded\n"
+              "away with the document row.")
+        if no_pdf:
+            print(f"\n{no_pdf} of them kept only page images. The old cleanup deleted the PDF\n"
+                  "FIRST and died on the page listing, so the source file is gone too — the\n"
+                  "page images are all that is left of those papers.")
     return 0
 
 
