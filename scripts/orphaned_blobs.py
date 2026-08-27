@@ -160,8 +160,11 @@ def _diagnose(conn, store) -> int:
     return 0
 
 
-def _try_endpoint(store, endpoint: str) -> int:
+def _try_endpoint(store, endpoint: str):
     """List the bucket through a DIFFERENT endpoint URL, changing nothing.
+
+    Returns the (key, size) pairs, with any single nesting prefix stripped, so the caller
+    can run the orphan report through the corrected endpoint. Returns None if it can't list.
 
     A bucket name left on the end of PAPERLENS_S3_ENDPOINT is invisible to per-key
     operations — puts and gets both go through the same doubled path, so they agree with
@@ -178,13 +181,13 @@ def _try_endpoint(store, endpoint: str) -> int:
         keys = _list(client, store.bucket)
     except Exception as exc:                                 # noqa: BLE001
         print(f"  FAIL  ListObjectsV2  {type(exc).__name__}: {exc}")
-        return 1
+        return None
 
     print(f"  OK    ListObjectsV2  {len(keys)} key(s)\n")
     if not keys:
         print("The bucket lists clean but is empty — wrong bucket, or the objects live "
               "elsewhere.")
-        return 0
+        return None
     tops: dict[str, int] = defaultdict(int)
     for key, _size in keys:
         tops[key.split("/", 1)[0] if "/" in key else "(root)"] += 1
@@ -195,12 +198,19 @@ def _try_endpoint(store, endpoint: str) -> int:
     for key, size in keys[:5]:
         print(f"  {key}  ({size} bytes)")
     if set(tops) <= {"pdf", "pages", "text"}:
-        print("\nThis is the layout the app expects — switching to this endpoint is safe.")
-    else:
-        print(f"\nThe app writes pdf/, pages/ and text/ at the ROOT. What's here is nested "
-              f"under {sorted(tops)}, so switching endpoints would hide every existing\n"
-              f"object until the keys are moved up a level.")
-    return 0
+        print("\nThis is the layout the app expects — switching to this endpoint is safe.\n")
+        return keys
+    # One nesting level, and it's the bucket name repeated: the classic symptom of the
+    # bucket being left on the end of the endpoint URL. Strip it so the keys line up with
+    # what the app thinks it wrote, and the report can run without waiting for a migration.
+    print(f"\nThe app writes pdf/, pages/ and text/ at the ROOT. What's here is nested "
+          f"under {sorted(tops)}, so switching endpoints would hide every existing\n"
+          f"object until the keys are moved up a level.\n")
+    if len(tops) == 1:
+        nest = next(iter(tops))
+        print(f"Stripping the '{nest}/' nesting to line the keys up with the database.\n")
+        return [(k.split("/", 1)[1], sz) for k, sz in keys if "/" in k]
+    return keys
 
 
 def main() -> int:
@@ -211,8 +221,9 @@ def main() -> int:
     ap.add_argument("--diagnose", action="store_true",
                     help="probe each S3 operation and report which ones the backend supports")
     ap.add_argument("--try-endpoint", metavar="URL",
-                    help="read-only: re-probe against a different endpoint URL and show the "
-                         "key layout it sees (use before changing PAPERLENS_S3_ENDPOINT)")
+                    help="read-only: list through a different endpoint URL, show the key "
+                         "layout it sees, and run the report on it (use before changing "
+                         "PAPERLENS_S3_ENDPOINT)")
     args = ap.parse_args()
 
     conn = records.connect()
@@ -225,20 +236,24 @@ def main() -> int:
               "      orphans here are ordinary dev debris (wiped DBs, purged test rows),\n"
               "      NOT the 500 bug. Only an S3/R2 run answers that question.\n")
 
-    if args.try_endpoint:
-        if not s3:
-            print("--try-endpoint probes S3 operations; this is the filesystem store.")
-            return 0
-        return _try_endpoint(store, args.try_endpoint)
-
+    if args.try_endpoint and not s3:
+        print("--try-endpoint probes S3 operations; this is the filesystem store.")
+        return 0
     if args.diagnose:
         if not s3:
             print("--diagnose probes S3 operations; this is the filesystem store.")
             return 0
         return _diagnose(conn, store)
 
+    if args.try_endpoint:
+        keys = _try_endpoint(store, args.try_endpoint)
+        if keys is None:
+            return 1
+    else:
+        keys = _iter_keys(store)
+
     blobs: dict[str, list[tuple[str, int]]] = defaultdict(list)
-    for key, size in _iter_keys(store):
+    for key, size in keys:
         m = _KEY_RE.match(key.replace(os.sep, "/"))
         if m:
             blobs[(m.group("a") or m.group("b")).lower()].append((key, size))
