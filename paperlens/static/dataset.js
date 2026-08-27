@@ -33,7 +33,8 @@ function render() {
   body.innerHTML = `
     <div class="ds-head">
       <div>
-        <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled dataset")}</h2>
+        <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled dataset")}${
+          OWNER ? ` <button class="ds-rename" id="ds-rename" title="rename dataset">✎</button>` : ""}</h2>
         <div class="muted ds-sub">
           <span class="pt-vis ${esc(vis)}">${esc(vis)}</span>
           · ${s.n_papers} paper${s.n_papers === 1 ? "" : "s"} · ${s.n_records} record${s.n_records === 1 ? "" : "s"}
@@ -118,6 +119,7 @@ function wireActions() {
     try { await api.setDatasetVisibility(id, next); OV.visibility = next; render(); }
     catch (ex) { alert("update failed: " + ex.message); e.target.disabled = false; }
   };
+  const rn = $("#ds-rename"); if (rn) rn.onclick = doRename;
   $("#ds-export").onclick = doExport;
   const gh = $("#ds-github"); if (gh) gh.onclick = () => publishToGithub(gh);
   $("#ds-del").onclick = async () => {
@@ -130,6 +132,20 @@ function wireActions() {
     try { await api.deleteDocument(b.dataset.doc); OV = await api.datasetOverview(id); render(); }
     catch (ex) { alert("delete failed: " + ex.message); }
   }));
+}
+
+// Rename the dataset. The slug stays as it was — it is the published address
+// (datasets/<slug>/ in the GitHub repo), so a retitle must not move it.
+async function doRename() {
+  const next = prompt("Rename this dataset:", OV.title || "");
+  if (next === null) return;                      // cancelled
+  const title = next.trim();
+  if (!title || title === OV.title) return;       // unchanged / empty → nothing to do
+  try {
+    const r = await api.renameDataset(id, title);
+    OV.title = r.title;
+    render();
+  } catch (ex) { alert("rename failed: " + ex.message); }
 }
 
 // Publish the dataset to the metalens-datasets GitHub repo as a PR (owner-only).

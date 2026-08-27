@@ -582,21 +582,36 @@ def delete_dataset(dataset_id: str, db=Depends(get_db),
 
 
 class DatasetPatch(BaseModel):
-    visibility: str                        # public | private
+    visibility: str | None = None          # public | private
+    title: str | None = None               # rename; the slug deliberately stays put
 
 
 @app.patch("/api/datasets/{dataset_id}")
 def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
-    """Owner-only visibility change. Publishing (→ public) requires owning EVERY
-    record in the dataset — never publish another user's work (the bright wall)."""
+    """Owner-only: rename and/or change visibility. Publishing (→ public) requires owning
+    EVERY record in the dataset — never publish another user's work (the bright wall)."""
     if not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
+    if body.visibility is None and body.title is None:
+        raise HTTPException(status_code=422, detail="Nothing to change: send title and/or visibility.")
+
+    res: dict = {}
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="Title must not be empty.")
+        if len(title) > 200:
+            raise HTTPException(status_code=422, detail="Title must be 200 characters or fewer.")
+        res = records.rename_dataset(db, dataset_id, title)
+    if body.visibility is None:
+        return res
+
     if body.visibility not in ("public", "private"):
         raise HTTPException(status_code=422, detail="visibility must be public|private")
     if body.visibility == "public" and not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You can only publish records you own.")
-    res = records.set_dataset_visibility(db, dataset_id, body.visibility)
+    res = {**res, **records.set_dataset_visibility(db, dataset_id, body.visibility)}
     if body.visibility == "public":
         # publishing a dataset also publishes the personal preset it was built with,
         # so others can find and use it (only if the publisher owns that preset)

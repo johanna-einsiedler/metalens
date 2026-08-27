@@ -1699,6 +1699,26 @@ def dataset_records_all_owned(conn: psycopg.Connection, dataset_id: str, princip
     return all(_owns(principal, o, s) for (o, s) in rows)
 
 
+def rename_dataset(conn: psycopg.Connection, dataset_id: str, title: str) -> dict:
+    """Retitle a dataset. Returns {"updated": n, "title": t}.
+
+    The SLUG deliberately does not follow. It was minted from the original title at
+    creation and is the dataset's published identity — ``github_publish`` writes to
+    ``datasets/<slug>/``, so regenerating it would strand the already-published copy in
+    the repo under its old directory and open the next PR against a new one. Titles are
+    labels; slugs are addresses. ``search_tsv`` is a generated column, so the catalogue
+    picks the new title up on its own.
+    """
+    title = (title or "").strip()
+    if not title:
+        raise ValueError("title must not be empty")
+    with conn.transaction():
+        cur = conn.execute(
+            "UPDATE dataset SET title = %s, updated_at = now() WHERE id = %s::uuid",
+            (title, dataset_id))
+    return {"updated": cur.rowcount, "title": title}
+
+
 def set_dataset_visibility(conn: psycopg.Connection, dataset_id: str, visibility: str) -> dict:
     with conn.transaction():
         cur = conn.execute("UPDATE dataset SET visibility = %s WHERE id = %s::uuid",

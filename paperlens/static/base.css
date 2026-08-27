@@ -173,6 +173,11 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .proj-tile-wrap { position: relative; }
 .pt-del { position: absolute; top: 10px; right: 10px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
 .pt-del:hover { opacity: 1; }
+/* inline retitle affordance, sitting next to the heading it edits */
+.pt-rename { position: absolute; top: 10px; right: 30px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
+.pt-rename:hover { opacity: 1; }
+.ds-rename { border: none; background: none; cursor: pointer; font-size: .6em; vertical-align: middle; opacity: .4; padding: 0 4px; }
+.ds-rename:hover { opacity: 1; }
 /* All my papers: cached-PDF tiles — the title is a link, and the card carries actions */
 a.pt-title { display: block; text-decoration: none; color: var(--text); }
 a.pt-title:hover { color: var(--accent); }

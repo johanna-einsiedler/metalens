@@ -64,12 +64,24 @@ async function renderDatasets(grid, me) {
     + `<div class="pt-title">${esc(d.title)}</div>`
     + `<div class="pt-meta">${d.n_records} record${d.n_records === 1 ? "" : "s"} · `
     + `<span class="pt-vis ${esc(d.visibility)}">${esc(d.visibility)}</span></div></a>`
+    + `<button class="pt-rename" data-id="${esc(d.id)}" title="rename dataset">✎</button>`
     + `<button class="pt-del" data-id="${esc(d.id)}" title="delete dataset">🗑</button></div>`).join("");
   grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async (e) => {
     e.preventDefault();
     if (!confirm("Delete this dataset? Its extracted records are discarded, but each paper stays in “All my papers” so you can re-extract it into another dataset.")) return;
     try { await api.deleteDataset(b.dataset.id); b.closest(".proj-tile-wrap").remove(); }
     catch (ex) { alert("delete failed: " + ex.message); }
+  }));
+  // The tile is a link, so the button has to stop the click from navigating away.
+  grid.querySelectorAll(".pt-rename").forEach((b) => (b.onclick = async (e) => {
+    e.preventDefault();
+    const cell = b.closest(".proj-tile-wrap").querySelector(".pt-title");
+    const next = prompt("Rename this dataset:", cell.textContent);
+    if (next === null) return;
+    const title = next.trim();
+    if (!title || title === cell.textContent) return;
+    try { const r = await api.renameDataset(b.dataset.id, title); cell.textContent = r.title; }
+    catch (ex) { alert("rename failed: " + ex.message); }
   }));
 }
 
