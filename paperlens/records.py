@@ -10,6 +10,7 @@ minted here (uuid4); no DB extension required.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import re
@@ -20,6 +21,8 @@ import psycopg
 from psycopg.types.json import Json
 
 from .ingest import EvidenceSpan, FieldConfidence, IngestResult, Record
+
+_log = logging.getLogger("paperlens")
 
 _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
 
@@ -46,6 +49,17 @@ def init_db(conn: psycopg.Connection) -> None:
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+def _is_uuid(value: str | None) -> bool:
+    """True iff ``value`` is a well-formed uuid. Path ids reach the DB as ``%s::uuid``,
+    where a malformed one (a stale/undefined id from the browser) raises and surfaces as
+    a 500 — callers use this to answer "not found" instead."""
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
@@ -611,6 +625,8 @@ _VALID_STATUS = ("verified", "flagged", "unverified", "corrected")
 
 
 def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
+    if not _is_uuid(record_id):
+        return None
     r = conn.execute(
         """SELECT id, document_id, paper_id, dataset_id, entry_index, schema_id,
                   field_values, verification_status FROM record WHERE id = %s::uuid""",
@@ -912,6 +928,8 @@ def _owns(principal, owner_user_id, session_id) -> bool:
 
 
 def is_document_owner(conn: psycopg.Connection, document_id: str, principal) -> bool:
+    if not _is_uuid(document_id):
+        return False
     r = conn.execute(
         "SELECT owner_user_id::text, session_id FROM extraction_document WHERE id = %s::uuid",
         (document_id,)).fetchone()
@@ -919,6 +937,8 @@ def is_document_owner(conn: psycopg.Connection, document_id: str, principal) -> 
 
 
 def is_dataset_owner(conn: psycopg.Connection, dataset_id: str, principal) -> bool:
+    if not _is_uuid(dataset_id):
+        return False
     r = conn.execute(
         "SELECT owner_user_id::text, session_id FROM dataset WHERE id = %s::uuid",
         (dataset_id,)).fetchone()
@@ -946,7 +966,7 @@ def record_is_visible(conn: psycopg.Connection, record_id: str, principal) -> bo
 def records_all_owned(conn: psycopg.Connection, record_ids: list[str], principal) -> bool:
     """True iff every given record exists and is owned by the principal."""
     ids = [str(x) for x in (record_ids or [])]
-    if not ids:
+    if not ids or not all(_is_uuid(i) for i in ids):
         return False
     rows = conn.execute(
         "SELECT owner_user_id::text, session_id FROM record WHERE id::text = ANY(%s)",
@@ -1522,16 +1542,32 @@ def update_paper_fields(conn: psycopg.Connection, paper_id: str, fields: dict) -
 
 def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     """Delete a document — cascades its records/evidence/confidence (FK ON DELETE
-    CASCADE) — then its stored PDF + page images. Returns {"deleted": n}."""
+    CASCADE) — then its stored PDF + page images. Returns {"deleted": n}.
+
+    The blob cleanup is BEST-EFFORT. It runs after the row is already gone, so raising
+    here would report a failure for a delete that actually happened (and the local
+    backend can't fail at all, which is why this only ever bit the S3/R2 one). An
+    unreachable bucket or a token without DeleteObject leaves orphaned blobs — a leak to
+    log, not a reason to 500 the caller."""
+    if not _is_uuid(document_id):
+        return {"deleted": 0}
     with conn.transaction():
         cur = conn.execute("DELETE FROM extraction_document WHERE id = %s::uuid", (document_id,))
     deleted = cur.rowcount
+    orphaned = False
     if deleted:
         from . import storage
         store = storage.get_store()
-        store.delete(storage.pdf_key(document_id))
-        store.delete_prefix(f"pages/{document_id}/")
-    return {"deleted": deleted}
+        # Two independent calls: losing the PDF must not skip the page images.
+        for label, op in (("pdf", lambda: store.delete(storage.pdf_key(document_id))),
+                          ("pages", lambda: store.delete_prefix(f"pages/{document_id}/"))):
+            try:
+                op()
+            except Exception as exc:      # noqa: BLE001 - any backend error; the row is gone
+                orphaned = True
+                _log.warning("delete_document %s: %s blobs left orphaned: %s",
+                             document_id, label, exc)
+    return {"deleted": deleted, "blobs_orphaned": orphaned}
 
 
 def delete_record(conn: psycopg.Connection, record_id: str) -> dict:
@@ -1542,6 +1578,8 @@ def delete_record(conn: psycopg.Connection, record_id: str) -> dict:
     e.g. a reviewer deleted every entry as out-of-scope — the paper would silently drop out
     of the dataset. Instead we leave a "screened, no records" sentinel so the paper stays in
     the dataset marked as having no extracts (coverage/provenance is preserved)."""
+    if not _is_uuid(record_id):
+        return {"deleted": 0}
     with conn.transaction():
         row = conn.execute(
             "SELECT document_id, dataset_id FROM record WHERE id = %s::uuid", (record_id,)
