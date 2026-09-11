@@ -125,6 +125,13 @@ def test_v2_confidence_has_a_home() -> None:
     assert routed["samples[1].records[0].es"] == 1
 
 
+def test_confidence_note_alias_is_read() -> None:
+    """Some pipelines write ``note`` instead of ``notes``; the rating keeps its text."""
+    from paperlens.contract import normalize_confidence
+    assert normalize_confidence({"design": {"level": "high", "note": "stated"}}) == {"design": {"level": "high", "notes": "stated"}}
+    assert normalize_confidence({"design": {"level": "high", "notes": "n", "note": "ignored"}}) == {"design": {"level": "high", "notes": "n"}}
+
+
 def test_bare_string_confidence_is_canonicalised() -> None:
     """``{"g": "high"}`` and ``{"g": {"level": "high"}}`` are the same rating; an empty
     block is the same as no block."""

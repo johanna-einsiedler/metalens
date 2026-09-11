@@ -99,8 +99,17 @@ table.tbl th { background: var(--bg); font-weight: 600; }
 
 /* ── workspace two-column (PDF | records) ─────────────────────────────── */
 main.split { display: flex; height: calc(100vh - 53px); }
+.pagespane { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
 .pages { flex: 1; min-width: 0; overflow: auto; padding: 16px; background: var(--bg); }
-.panel { width: 480px; flex: 0 0 auto; min-width: 0; max-width: 82vw; overflow: auto; padding: 16px; background: var(--surface); }
+/* the review panel can be dragged as wide as the window allows; the PDF pane then scrolls
+   sideways and can be zoomed instead of shrinking into an unreadable strip */
+.panel { width: 480px; flex: 0 0 auto; min-width: 0; overflow: auto; padding: 16px; background: var(--surface); }
+.pdfzoom { position: absolute; top: 8px; right: 18px; z-index: 6; display: flex; align-items: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 4px;
+  font-size: 12px; color: var(--text-muted); box-shadow: var(--shadow-sm); }
+.pdfzoom button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+.pdfzoom button:hover { background: var(--bg); }
+.pdfzoom #pdfzoomval { min-width: 34px; text-align: center; }
 .splitter { flex: 0 0 6px; cursor: col-resize; background: var(--bg); border-right: 1px solid var(--border); border-left: 1px solid var(--border); }
 .splitter:hover, .splitter.drag { background: var(--accent-3); }
 .panelhead { margin-bottom: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -111,6 +120,8 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .docsidebar { flex: 0 0 200px; width: 200px; overflow: auto; padding: 12px 10px; background: var(--surface);
   border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .docsidebar-label, .doctabs-label { font-weight: 600; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+a.doctabs-label { display: block; text-decoration: none; }
+a.doctabs-label:hover { color: var(--accent); }
 .doctab { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left;
   white-space: normal; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
   color: var(--text-muted); cursor: pointer; padding: 7px 10px; font-size: 12.5px; }

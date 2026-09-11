@@ -167,7 +167,7 @@ def normalize_confidence(block: Any) -> dict[str, dict[str, str | None]] | None:
             out[str(group)] = {"level": val, "notes": None}
         elif isinstance(val, dict):
             out[str(group)] = {"level": _str_or_none(val.get("level")),
-                               "notes": _str_or_none(val.get("notes"))}
+                               "notes": _str_or_none(val.get("notes", val.get("note")))}
     return out or None
 
 

@@ -28,7 +28,13 @@
     <nav id="doctabs" class="docsidebar"></nav>
     <aside id="panel" class="panel"><div id="panelbody"></div></aside>
     <div id="splitter" class="splitter" title="drag to resize"></div>
-    <section id="pages" class="pages"><p class="muted">Select a document.</p></section>
+    <section id="pagespane" class="pagespane">
+      <div id="pdfzoom" class="pdfzoom" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)">
+        <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
+        <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+      </div>
+      <div id="pages" class="pages"><p class="muted">Select a document.</p></div>
+    </section>
   </main>
   <script type="module" src="/static/workspace.js"></script>
   <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>

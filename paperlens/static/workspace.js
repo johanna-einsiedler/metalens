@@ -38,7 +38,9 @@ function mountSplitter() {
   });
   window.addEventListener("mousemove", (e) => {
     if (!dragging) return;
-    const w = Math.max(300, Math.min(1100, e.clientX - panel.getBoundingClientRect().left));
+    // as wide as the window allows, keeping a grabbable strip of the PDF pane
+    const maxW = window.innerWidth - panel.getBoundingClientRect().left - 140;
+    const w = Math.max(300, Math.min(maxW, e.clientX - panel.getBoundingClientRect().left));
     panel.style.width = w + "px";
   });
   window.addEventListener("mouseup", () => {
@@ -48,8 +50,32 @@ function mountSplitter() {
   });
 }
 
+// Zoom the PDF pages: − / + / fit buttons and Ctrl/⌘ + wheel over the pages. A factor
+// above 1 makes a page wider than the pane (it scrolls sideways) — the way to read a page
+// when the review panel takes most of the window. Persists across sessions.
+function mountPdfZoom() {
+  const pages = $("#pages"), box = $("#pdfzoom"), val = $("#pdfzoomval");
+  if (!pages || !box) return;
+  let z = parseFloat(localStorage.getItem("metalens_pdf_zoom") || "1") || 1;
+  const apply = () => {
+    z = Math.min(4, Math.max(0.5, Math.round(z * 100) / 100));
+    pages.style.setProperty("--pdf-zoom", String(z));
+    val.textContent = z === 1 ? "fit" : `${Math.round(z * 100)}%`;
+    localStorage.setItem("metalens_pdf_zoom", String(z));
+  };
+  box.querySelectorAll("button[data-z]").forEach((b) => (b.onclick = () => {
+    z = b.dataset.z === "in" ? z * 1.25 : b.dataset.z === "out" ? z / 1.25 : 1; apply();
+  }));
+  pages.addEventListener("wheel", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault(); z = e.deltaY < 0 ? z * 1.1 : z / 1.1; apply();
+  }, { passive: false });
+  apply();
+}
+
 async function init() {
   mountSplitter();
+  mountPdfZoom();
   mountKeys();
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
@@ -188,7 +214,11 @@ function startJobTracking(jobIds, since) {
 // paper switcher — a tab per document, above the records
 function renderDocTabs() {
   const strip = $("#doctabs"); if (!strip) return;
-  const label = PROJECT_TITLE ? `<span class="doctabs-label">${esc(PROJECT_TITLE)}</span>` : "";
+  // the dataset these papers belong to — a link, so an import (which always lands in a
+  // dataset) is one click from its dataset page
+  const label = !PROJECT_TITLE ? ""
+    : PROJECT ? `<a class="doctabs-label" href="/dataset?id=${esc(PROJECT)}" title="open this dataset">${esc(PROJECT_TITLE)} ↗</a>`
+    : `<span class="doctabs-label">${esc(PROJECT_TITLE)}</span>`;
   // Add-papers entry point: from a dataset's review, jump back to the extract page in
   // add-papers mode (drag-drop first, this dataset's recipe reused) to add more.
   const addBtn = PROJECT
@@ -745,6 +775,8 @@ function renderGridInto(panel) {
                             : (rec) => worstLevel(VM, rec.confidence || {}),
     levels: VM.levels,
     onCellClick: (rec, col, cov, e) => { if (cov) gridCellClick(e.currentTarget, cov); },
+    // a grid edit is the same correction as a card edit: logged with original → final
+    onCellEdit: specMode ? (rec, path, val) => saveFieldEdit(rec, null, path, val, curVal(rec, path)) : null,
   });
   host.querySelectorAll(".grid-linked[data-eid]").forEach((td) => {
     const eid = +td.dataset.eid;

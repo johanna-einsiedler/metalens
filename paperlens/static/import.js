@@ -136,8 +136,10 @@ async function addFiles(files) {
         autoSchema(sid);
       } else {
         const sid = obj.schema_id || (obj.extraction && obj.extraction.schema_id) || null;
-        const canonical = kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj;
-        JSONS[base(f.name)] = { name: f.name, canonical, schema_id: sid, kind };
+        const canonical = normalizeResult(kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj);
+        // a result that names its own PDF ("source_pdf") pairs with it even when the file names differ
+        const hint = canonical && typeof canonical.source_pdf === "string" ? base(canonical.source_pdf.split(/[\\/]/).pop()) : null;
+        JSONS[base(f.name)] = { name: f.name, canonical, schema_id: sid, kind, pdfHint: hint };
         autoSchema(sid);
       }
     } else if (/\.pdf$/i.test(f.name)) {
@@ -147,9 +149,27 @@ async function addFiles(files) {
   renderPairs();
 }
 
+// Results from other pipelines often call the paper block "paper" (with a "venue") instead
+// of "paper_metadata" (with a "journal"); map it so title / authors / year land in the viewer.
+function normalizeResult(obj) {
+  if (!obj || typeof obj !== "object" || obj.paper_metadata || !obj.paper || typeof obj.paper !== "object") return obj;
+  const { venue, ...pm } = obj.paper;
+  if (venue != null && pm.journal == null) pm.journal = venue;
+  const { paper, ...rest } = obj;
+  return { paper_metadata: pm, ...rest };
+}
+
 // ── pairing ─────────────────────────────────────────────────────────────────────────────
-const pdfFor = (key) => (MANUAL[key] ? PDFS[MANUAL[key]] : PDFS[key]) || null;
-const claimed = () => new Set([...Object.keys(JSONS).filter((k) => !MANUAL[k] && PDFS[k]), ...Object.values(MANUAL)]);
+// a JSON pairs with the PDF of the same basename, the PDF it names in "source_pdf", or the
+// one assigned by hand
+const pdfKeyFor = (key) => {
+  if (MANUAL[key]) return MANUAL[key];
+  if (PDFS[key]) return key;
+  const hint = JSONS[key] && JSONS[key].pdfHint;
+  return hint && PDFS[hint] ? hint : null;
+};
+const pdfFor = (key) => { const k = pdfKeyFor(key); return k ? PDFS[k] : null; };
+const claimed = () => new Set(Object.keys(JSONS).map(pdfKeyFor).filter(Boolean));
 
 function allRows() {
   const taken = claimed();

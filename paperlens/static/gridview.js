@@ -76,7 +76,7 @@ function covering(colKey, recEv) {
  */
 export function renderGrid(host, opts) {
   const { records = [], subViews = [], columns = null, rows = null, evidenceFor = () => [],
-          onCellClick, onRowClick, confidenceFor = null, levels = ["high", "medium", "low"],
+          onCellClick, onRowClick, onCellEdit = null, confidenceFor = null, levels = ["high", "medium", "low"],
           maxRows = 500 } = opts || {};
   const specMode = Array.isArray(rows) && Array.isArray(columns);
   const units = specMode ? rows : records.map((r) => ({
@@ -103,8 +103,11 @@ export function renderGrid(host, opts) {
       const cov = covering(cellPath, recEv);
       const linked = cov ? " grid-linked" : "";
       const val = c.summary ? summaryText(u.values[c.key]) : cellText(u.values[c.key]);
-      return `<td class="grid-cell${linked}" data-col="${esc(c.key)}" data-path="${esc(cellPath)}"`
+      // a scalar cell edits in place (like a card value); a nested summary stays read-only
+      const editable = onCellEdit && specMode && !c.summary;
+      return `<td class="grid-cell${linked}${editable ? " grid-edit" : ""}" data-col="${esc(c.key)}" data-path="${esc(cellPath)}"`
         + (cov ? ` data-eid="${cov.i}" data-page="${cov.page}"` : "")
+        + (editable ? ` contenteditable="plaintext-only" spellcheck="false"` : "")
         + `>${esc(val)}</td>`;
     }).join("");
     const lv = confidenceFor ? confidenceFor(specMode ? u : r) : null;
@@ -136,6 +139,39 @@ export function renderGrid(host, opts) {
         ? { i: +td.dataset.eid, page: +td.dataset.page } : null;
       if (onCellClick) td.onclick = (e) => onCellClick(rec, col, cov, e);
       else if (onRowClick && cov == null) td.onclick = () => onRowClick(rec);
+      if (td.classList.contains("grid-edit")) wireCellEdit(td, unit, cols.find((c) => c.key === col), onCellEdit);
     });
+  });
+}
+
+// In-place editing of one grid cell. Enter commits, Escape reverts, blur commits when the
+// text changed. The value is typed after the stored one: a number stays a number, a
+// boolean a boolean, a list of scalars is split on commas, an emptied cell becomes null.
+// The edit path is exact: an entry field, the sub-entry's own field, or the table row's.
+function wireCellEdit(td, unit, col, onCellEdit) {
+  if (!col) return;
+  const seg = String(unit.path || "").split(".");
+  const path = col.scope === "entry" ? col.key
+    : col.scope === "child" ? `${seg[0]}.${col.key}`
+    : `${unit.path}.${col.key}`;
+  td.dataset.editPath = path;
+  td.dataset.orig = td.textContent;
+  td.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); td.blur(); }
+    else if (e.key === "Escape") { td.textContent = td.dataset.orig; td.blur(); }
+  });
+  td.addEventListener("blur", () => {
+    const now = td.textContent;
+    if (now === td.dataset.orig) return;
+    const was = unit.values[col.key];
+    let val;
+    const t = now.trim();
+    if (t === "") val = null;
+    else if (Array.isArray(was)) val = t.split(",").map((x) => x.trim()).filter(Boolean);
+    else if (typeof was === "boolean" && /^(true|false)$/i.test(t)) val = t.toLowerCase() === "true";
+    else if ((typeof was === "number" || was == null) && !isNaN(Number(t)) && /^-?\d/.test(t)) val = Number(t);
+    else val = now;
+    td.classList.add("rv-edited");
+    Promise.resolve(onCellEdit(unit.rec, path, val)).then(() => { td.dataset.orig = now; unit.values[col.key] = val; });
   });
 }
