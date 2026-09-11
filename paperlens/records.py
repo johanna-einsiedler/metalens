@@ -398,6 +398,17 @@ def paper_coverage(conn: psycopg.Connection, doi: str) -> dict | None:
     }
 
 
+def count_documents_for_session(conn: psycopg.Connection, session_id: str | None) -> int:
+    """How many extraction documents this anonymous session already produced — the
+    meter behind the logged-out free-trial cap in /api/extract."""
+    if not session_id:
+        return 0
+    row = conn.execute(
+        "SELECT count(*) FROM extraction_document WHERE session_id = %s AND owner_user_id IS NULL",
+        (session_id,)).fetchone()
+    return int(row[0]) if row else 0
+
+
 def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                    owner_user_id: str | None = None, session_id: str | None = None,
                    dataset_id: str | None = None) -> list[dict]:
@@ -1305,6 +1316,121 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     }
 
 
+def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
+    """The dataset as a citable file: metadata + papers, each carrying its own records.
+
+    The flat ``records`` array the download used to emit was just ``field_values``, so a
+    row could not be traced back to the paper it came from — with 40-odd papers that makes
+    the file unusable for anything but eyeballing the numbers. Grouping by paper puts the
+    attribution back and gives every row its record id.
+
+    Screened papers (attempted, zero records) are included with an empty ``records`` list
+    and ``screened: true``. They are part of the dataset — ``stats.n_papers`` counts them —
+    so omitting them would leave the file contradicting its own stats block, and would lose
+    the record of what was searched and found empty.
+    """
+    d = get_dataset(conn, dataset_id)
+    if d is None:
+        return None
+
+    rows = conn.execute(
+        """SELECT ed.id, ed.filename, p.title, p.doi, p.year, p.journal, p.authors,
+                  r.id, r.entry_index, r.verification_status, r.field_values,
+                  COALESCE(r.screened_empty, false)
+           FROM record r
+           JOIN extraction_document ed ON ed.id = r.document_id
+           LEFT JOIN paper p ON p.id = r.paper_id
+           WHERE r.dataset_id = %s::uuid
+           ORDER BY p.title NULLS LAST, ed.id, r.entry_index""",
+        (dataset_id,),
+    ).fetchall()
+
+    papers: dict[str, dict] = {}
+    for (doc_id, fn, title, doi, year, journal, authors,
+         rid, ei, vs, fv, screened) in rows:
+        entry = papers.setdefault(str(doc_id), {
+            "document_id": str(doc_id), "filename": fn,
+            "paper": {"title": title, "doi": doi, "year": year,
+                      "journal": journal, "authors": authors},
+            "screened": False, "records": [],
+        })
+        if screened:
+            entry["screened"] = True          # the "attempted, nothing found" sentinel
+            continue
+        entry["records"].append({
+            "record_id": str(rid), "entry_index": ei,
+            "verification_status": vs, "values": fv,
+        })
+
+    ov = dataset_overview(conn, dataset_id) or {}
+    return {
+        "title": d["title"], "slug": d["slug"], "description": d["description"],
+        "visibility": d["visibility"], "cite_as": d["cite_as"],
+        "created_at": d["created_at"], "updated_at": d["updated_at"],
+        "recipe": ov.get("recipe"), "stats": ov.get("stats"),
+        "credibility": ov.get("credibility"),
+        "papers": list(papers.values()),
+    }
+
+
+def dataset_activity(conn: psycopg.Connection, dataset_id: str, *, limit: int = 100) -> list[dict]:
+    """Merged, newest-first history of everything that has happened to a dataset.
+
+    Two sources, because "what changed and when" spans both:
+
+      * ``extraction_document.created_at`` — a paper entering the dataset
+      * ``verification_event``            — a human verifying, flagging, or editing values
+
+    A verification_event with a value-changing diff is an EDIT; one without is a review
+    action. ``_diff_changes_value`` draws that line, the same way the verified counts do,
+    so a correction never masquerades as an affirmation.
+
+    Note what is NOT here: dataset-level actions (rename, publish/unpublish) are not
+    versioned anywhere — the table keeps only ``updated_at``, the last write. Adding them
+    would need a real audit table.
+    """
+    out: list[dict] = []
+    for (at, title, doc_id, fn) in conn.execute(
+        """SELECT DISTINCT ed.created_at, p.title, ed.id, ed.filename
+           FROM record r
+           JOIN extraction_document ed ON ed.id = r.document_id
+           LEFT JOIN paper p ON p.id = ed.paper_id
+           WHERE r.dataset_id = %s::uuid
+           ORDER BY ed.created_at DESC LIMIT %s""",
+        (dataset_id, limit),
+    ).fetchall():
+        out.append({"kind": "paper_added", "at": at.isoformat() if at else None,
+                    "paper": title or fn, "document_id": str(doc_id),
+                    "actor": None, "changes": []})
+
+    for (at, status, diff, notes, kind, email, rid, ei, title, doc_id) in conn.execute(
+        """SELECT ve.created_at, ve.status, ve.diff, ve.notes, ve.verifier_kind, u.email,
+                  r.id, r.entry_index, p.title, r.document_id
+           FROM verification_event ve
+           JOIN record r ON r.id = ve.record_id
+           LEFT JOIN paper p ON p.id = r.paper_id
+           LEFT JOIN users u ON u.id = ve.verifier_user_id
+           WHERE r.dataset_id = %s::uuid
+           ORDER BY ve.created_at DESC LIMIT %s""",
+        (dataset_id, limit),
+    ).fetchall():
+        changes = [
+            {"field_path": d.get("field_path"),
+             "from": d.get("original_value"), "to": d.get("final_value")}
+            for d in (diff if isinstance(diff, list) else [])
+            if isinstance(d, dict) and d.get("original_value") != d.get("final_value")
+        ]
+        out.append({
+            "kind": "edited" if _diff_changes_value(diff) else status,
+            "at": at.isoformat() if at else None, "paper": title, "entry_index": ei,
+            "record_id": str(rid), "document_id": str(doc_id) if doc_id else None,
+            "actor": email or kind, "notes": notes, "changes": changes,
+        })
+
+    out.sort(key=lambda e: e["at"] or "", reverse=True)
+    return out[:limit]
+
+
 def dataset_records(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
     rows = conn.execute(
         """SELECT id, paper_id, entry_index, schema_id, field_values, verification_status
@@ -1721,8 +1847,9 @@ def rename_dataset(conn: psycopg.Connection, dataset_id: str, title: str) -> dic
 
 def set_dataset_visibility(conn: psycopg.Connection, dataset_id: str, visibility: str) -> dict:
     with conn.transaction():
-        cur = conn.execute("UPDATE dataset SET visibility = %s WHERE id = %s::uuid",
-                           (visibility, dataset_id))
+        cur = conn.execute(
+            "UPDATE dataset SET visibility = %s, updated_at = now() WHERE id = %s::uuid",
+            (visibility, dataset_id))
     return {"updated": cur.rowcount, "visibility": visibility}
 
 

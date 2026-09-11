@@ -490,6 +490,43 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     return ov
 
 
+@app.get("/api/datasets/{dataset_id}/export")
+def dataset_export(dataset_id: str, db=Depends(get_db),
+                   who: Principal = Depends(principal)) -> dict:
+    """The downloadable dataset file: metadata + papers, each with its own records.
+    Same owner-or-public gate as the overview, PLUS an account: anyone may review
+    extracted data in the browser, but taking it away as a file needs a login."""
+    if not who.user_id:
+        raise HTTPException(status_code=401, detail=(
+            "Create a free account to download extracted data."))
+    d = records.get_dataset(db, dataset_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    owner = records.is_dataset_owner(db, dataset_id, who)
+    if d["visibility"] != "public" and not owner:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    out = records.dataset_export(db, dataset_id)
+    if not owner:                        # don't leak the uploader's local filenames
+        for paper in out.get("papers", []):
+            paper["filename"] = None
+    return out
+
+
+@app.get("/api/datasets/{dataset_id}/activity")
+def dataset_activity(dataset_id: str, limit: int = 100, db=Depends(get_db),
+                     who: Principal = Depends(principal)) -> dict:
+    """Newest-first history of the dataset: papers added, and records verified / flagged /
+    edited. Same owner-or-public gate as the overview."""
+    d = records.get_dataset(db, dataset_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    if d["visibility"] != "public" and not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return {"dataset_id": dataset_id, "created_at": d["created_at"],
+            "updated_at": d["updated_at"],
+            "events": records.dataset_activity(db, dataset_id, limit=max(1, min(limit, 500)))}
+
+
 @app.get("/api/datasets/{dataset_id}/credibility")
 def dataset_credibility(dataset_id: str, db=Depends(get_db)) -> dict:
     if records.get_dataset(db, dataset_id) is None:
@@ -894,6 +931,32 @@ def me(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
     return auth.get_user(db, who.user_id)
 
 
+# How many papers a logged-OUT visitor may extract on the server's own key before they
+# have to make an account. Bringing your own API key lifts the cap entirely.
+ANON_FREE_EXTRACTIONS = 1
+
+
+@app.get("/api/extraction-config")
+def extraction_config(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
+    """Public: what the extract page needs before it knows who you are — the model
+    extraction runs on by default, and the logged-out limits. Adds the credit balance
+    when there IS a user, so the page can render its whole model line from one call."""
+    model = credits.credit_model()
+    out = {
+        "model": model,
+        "offered": credits.offered(),          # server actually holds a key for it
+        "logged_in": bool(who.user_id),
+        "anon_free_extractions": ANON_FREE_EXTRACTIONS,
+        "anon_extractions_used": 0,
+        "can_download": bool(who.user_id),     # exports are an account feature
+    }
+    if who.user_id:
+        out["credits"] = credits.summary(db, who.user_id)
+    else:
+        out["anon_extractions_used"] = records.count_documents_for_session(db, who.session_id)
+    return out
+
+
 @app.get("/api/credits")
 def get_credits(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
     """The logged-in user's credit balance + recent ledger, and whether keyless
@@ -1031,9 +1094,61 @@ def extract_endpoint(
             raise HTTPException(status_code=422, detail=(
                 f"No `prompt` given and preset {pid!r} has no inline prompt. Pass a "
                 "`prompt` with full canonical-JSON instructions (it must ask the model "
-                "for an `evidence` array), or use a preset that ships one (e.g. "
-                "forestplot). Template-based presets (masem / econ-headline / "
-                "ai-findings) need their prompt templates ported first."))
+                "for an `evidence` array), or use one of the built-in presets "
+                "(masem-direct / masem-indirect / summarize)."))
+
+    own_key = bool(api_key.strip())
+
+    # Is this a keyless request this deployment can actually serve? ``credits.offered()``
+    # gates the whole story: with no server key configured there is nothing to run on, so
+    # such a request falls through to the legacy path (enqueue what the caller supplied)
+    # rather than being refused something this deployment never promised.
+    keyless_available = not own_key and not use_credits and credits.offered()
+
+    # ── logged-out free trial: the server's own key, capped per anonymous session ──
+    # The model picker is gone from the UI, so a visitor with no account and no key still
+    # has to be able to run something. They get ANON_FREE_EXTRACTIONS papers on the default
+    # model; after that it's an account or their own key. NOTE: the cap is measured from
+    # documents already persisted, so papers submitted concurrently can slip past it —
+    # it's a free-trial nudge, not a hard quota.
+    if keyless_available and not who.user_id:
+        server_model = credits.credit_model()
+        server_key = credits.server_key_for(providers.get_provider(server_model, None))
+        if records.count_documents_for_session(db, who.session_id) >= ANON_FREE_EXTRACTIONS:
+            raise HTTPException(status_code=402, detail=(
+                f"You’ve used your free trial ({ANON_FREE_EXTRACTIONS} paper). Create a free "
+                "account to keep extracting, or add your own API key."))
+        # use_credits=True tells the WORKER to resolve the server key from its own env, so
+        # the key never enters the Redis payload; credit_user_id=None means no ledger entry
+        # and nothing to refund — an anonymous trial run spends no credits.
+        job_id = worker.enqueue(
+            "extract_job", base64.b64encode(data).decode(), prompt,
+            model=server_model, api_key="", base_url=None, use_text=use_text,
+            schema_id=schema_id, session_id=who.session_id, owner_user_id=None,
+            filename=fname, use_credits=True, credit_user_id=None,
+            dataset_id=dataset_id, _expires=1800)
+        if job_id:
+            return {"queued": True, "job_id": job_id}
+        try:                                   # Redis down → run it inline
+            result = extract.run_extraction(
+                db, data, prompt, model=server_model, api_key=server_key, base_url=None,
+                use_text=use_text, schema_id=schema_id, session_id=who.session_id,
+                owner_user_id=None, filename=fname)
+            if dataset_id:
+                records.assign_document_to_dataset(db, dataset_id, result["document_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=502,
+                                detail=f"Extraction failed: {providers.extract_provider_message(exc)}")
+        return {"queued": False, **result}
+
+    # A logged-in user with neither credits selected nor a key would otherwise reach the
+    # provider with an empty key and get an opaque 401 — say what's actually wrong.
+    if keyless_available and who.user_id:
+        raise HTTPException(status_code=402, detail=(
+            "You have no Metalens credits left. Add your own API key on the Review "
+            "prompt step to keep extracting."))
 
     # ── Metalens credits: keyless run on the server's key + fixed model ───────────
     # ENQUEUED like any extraction so it survives navigation (review the first result

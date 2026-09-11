@@ -22,21 +22,19 @@ def test_all_presets_discovered() -> None:
     # The globbed FILE presets. The human-AI presets live under presets/_library/
     # (seeded as personal DB presets), so they are intentionally NOT in this set.
     ids = set(presets.load_all())
-    assert ids == {"ai-findings", "econ-headline", "forestplot",
-                   "masem-ncs18", "masem", "summarize"}
+    assert ids == {"masem-direct", "masem-indirect", "summarize"}
 
 
 def test_declared_sub_views_win() -> None:
-    # masem declares sub_views explicitly -> used verbatim (not auto-derived).
-    fd = presets.emit_schema_row("masem")
+    # masem-direct declares sub_views explicitly -> used verbatim (not auto-derived).
+    fd = presets.emit_schema_row("masem-direct")
     labels = [sv["label"] for sv in fd["sub_views"]]
     assert "Effect sizes" in labels
     assert fd["mode"] == "extraction"
 
 
 def test_data_sources_auto_derive_tabs_and_descriptives() -> None:
-    # masem-ncs18 declares NO sub_views but has data_sources -> auto-derived.
-    fd = presets.emit_schema_row("masem-ncs18")
+    fd = presets.emit_schema_row("masem-indirect")
     ids = [sv["id"] for sv in fd["sub_views"]]
     assert "loadings" in ids and "correlations" in ids
     assert ids[-1] == "descriptives"            # Descriptives always appended last
@@ -46,22 +44,22 @@ def test_data_sources_auto_derive_tabs_and_descriptives() -> None:
     assert "factor_loadings" in fd["core_keys"] and "sample_id" not in fd["core_keys"]
 
 
-def test_econ_headline_grammar() -> None:
-    # econ-headline declares its OWN sub_views (one "Details" tab using exclude_keys),
-    # so they are used verbatim rather than auto-derived from data_sources.
-    fd = presets.emit_schema_row("econ-headline")
-    assert [sv["id"] for sv in fd["sub_views"]] == ["regmeta"]
-    # its declared evidence/confidence grammar is surfaced faithfully
-    assert {"paper_metadata", "tables", "regressions"} <= set(fd["evidence_keys"])
-    assert "paper_metadata" in fd["confidence_keys"]
-    # the single declared sub_view uses exclude_keys -> no include-derived core_keys
-    assert fd["core_keys"] == [] and "exclude_keys" in fd["sub_views"][0]
+def test_legacy_preset_ids_still_resolve() -> None:
+    # Documents extracted before the rename carry `masem@v3` / `masem-ncs18@v1` in
+    # record.schema_id, and add-papers re-resolves the prompt by that id — so the old
+    # names must keep resolving to the renamed presets forever.
+    assert presets.get("masem")["id"] == "masem-direct"
+    assert presets.get("masem-ncs18")["id"] == "masem-indirect"
+    assert presets.emit_schema_row("masem")["preset_id"] == "masem-direct"
+    assert presets.prompt_for("masem-ncs18")
 
 
-def test_forestplot_minimal_grammar() -> None:
-    # forestplot has neither sub_views nor data_sources -> empty grammar, still valid.
-    fd = presets.emit_schema_row("forestplot")
-    assert fd is not None and fd["sub_views"] == [] and fd["mode"] == "extraction"
+def test_indirect_preset_is_scale_agnostic() -> None:
+    # The indirect variant used to be named for one instrument (NCS-18). It ships no
+    # scale of its own — the builder supplies scale_name / items per run.
+    tp = presets.get("masem-indirect")["template_params"]
+    assert not tp.get("scale_name") and not tp.get("item_texts")
+    assert not tp.get("n_items")
 
 
 def test_unknown_preset_returns_none() -> None:

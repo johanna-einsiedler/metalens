@@ -6,7 +6,7 @@ vendored ``presets_loader`` (the archive's full template-rendering machinery):
   * ``load_all`` / ``get`` — discover presets with their prompt fully rendered
     from ``<id>.template.md`` + ``template_params`` and their ``sub_views`` resolved.
   * ``prompt_for`` — the rendered extraction prompt (so /api/extract works for
-    masem / econ / ai-findings, not just inline-prompt presets like forestplot).
+    the MASEMiner variants, not just presets that ship an inline prompt).
   * ``emit_schema_row`` — serialize the resolved view-grammar into the JSONB
     ``schema.field_defs`` the SPA/validators read (presets never become primary).
 """

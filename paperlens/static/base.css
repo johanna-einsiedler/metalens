@@ -173,6 +173,18 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .proj-tile-wrap { position: relative; }
 .pt-del { position: absolute; top: 10px; right: 10px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
 .pt-del:hover { opacity: 1; }
+/* dataset activity feed: icon | what changed | when */
+.ds-activity:empty { display: none; }
+.act-head { padding: 0 0 8px; font-size: 12px; }
+.act-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 1px solid var(--line, #eee); font-size: 13px; }
+.act-icon { width: 1.2em; text-align: center; opacity: .6; flex: none; }
+.act-main { flex: 1; min-width: 0; }
+.act-when { flex: none; font-size: 12px; white-space: nowrap; }
+.act-diff { font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.act-from { text-decoration: line-through; opacity: .6; }
+.act-to { font-weight: 600; }
+.act-note { font-size: 12px; margin-top: 2px; }
+
 /* inline retitle affordance, sitting next to the heading it edits */
 .pt-rename { position: absolute; top: 10px; right: 30px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
 .pt-rename:hover { opacity: 1; }
@@ -440,6 +452,7 @@ a.acct:hover { color: var(--accent); }
 /* step-3 mode switch (Guided / Advanced / Write your own) */
 .mode-switch { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 16px; background: var(--bg);
   border: 1px solid var(--border); border-radius: 999px; }
+.mode-switch[hidden] { display: none; }   /* display:inline-flex would otherwise defeat [hidden] */
 .mode-btn { border: none; background: none; cursor: pointer; font-size: 12.5px; padding: 5px 14px;
   border-radius: 999px; color: var(--text-muted); }
 .mode-btn:hover { color: var(--text); }
@@ -574,3 +587,53 @@ input[type=file] { margin: 6px 0; }
 #tbl th { background: var(--bg); }
 header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   font: 13px var(--font); }
+
+/* ── model line (Review prompt): which model runs this, what's left, the way out ── */
+.model-line { display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  flex-wrap:wrap; margin:10px 0 0; padding:10px 12px; border:1px solid var(--border);
+  border-radius:var(--radius-sm); background:var(--bg); }
+.ml-facts { display:flex; flex-direction:column; gap:3px; font-size:13px; color:var(--text-muted); }
+.ml-row b { color:var(--text); font-weight:600; }
+.ml-row a { color:var(--accent-2); }
+.ml-row.ml-warn { color:var(--error); }
+.ml-toggle { border:1px solid var(--border); background:var(--surface); color:var(--accent);
+  font:inherit; font-size:13px; padding:6px 10px; border-radius:var(--radius-sm); cursor:pointer;
+  white-space:nowrap; }
+.ml-toggle:hover { background:var(--accent-wash); border-color:var(--border-focus); }
+.ml-chev { opacity:.7; margin-left:2px; }
+.ml-panel { margin-top:10px; padding:12px; border:1px solid var(--border);
+  border-radius:var(--radius-sm); background:var(--surface); }
+
+/* download is an account feature — the locked affordance still looks like a button */
+.dl-locked { text-decoration:none; opacity:.75; }
+.dl-locked:hover { opacity:1; }
+
+/* ── rendered prompt preview (MASEMiner builder) ────────────────────────────── */
+/* The preset prompts are markdown; rendering them beats a wall of monospace. */
+.md-preview { max-height: 340px; overflow: auto; padding: 14px 16px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px;
+  line-height: 1.6; color: var(--text); }
+.md-preview > :first-child { margin-top: 0; }
+.md-preview > :last-child { margin-bottom: 0; }
+.md-preview p { margin: 0 0 9px; }
+.md-preview .md-h { font-weight: 600; line-height: 1.3; color: var(--accent); }
+.md-preview .md-h1 { font-size: 15px; margin: 18px 0 8px; padding-bottom: 5px;
+  border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .04em; }
+.md-preview .md-h2 { font-size: 13.5px; margin: 14px 0 6px; }
+.md-preview .md-h3, .md-preview .md-h4 { font-size: 13px; margin: 12px 0 5px; color: var(--text); }
+.md-preview .md-list { margin: 0 0 9px; padding-left: 20px; }
+.md-preview .md-list li { margin: 2px 0; }
+.md-preview code { font-family: var(--font-mono); font-size: 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.md-preview .md-code { font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap;
+  overflow-x: auto; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px; margin: 0 0 10px; }
+.md-preview .md-code code { background: none; border: none; padding: 0; }
+
+/* ── a task that isn't shipping yet ─────────────────────────────────────────── */
+.task-card.soon { cursor: not-allowed; opacity: .55; background: var(--bg); }
+.task-card.soon:hover { border-color: var(--border); box-shadow: none; transform: none; }
+.soon-badge { display: inline-block; vertical-align: middle; margin-left: 6px; padding: 2px 7px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--text-muted); }

@@ -16,6 +16,7 @@
 #   # optional — enable Metalens credits (keyless extraction) and GitHub publishing.
 #   # The credit model (PAPERLENS_CREDIT_MODEL) defaults to gemini-3.1-pro-preview in [env]
 #   # below, so credits need a GOOGLE key; change that model to switch providers.
+  # (Unset it entirely and the app falls back to credits.DEFAULT_CREDIT_MODEL.)
 #   fly secrets set PAPERLENS_GOOGLE_KEY="AIza…"
 #   fly secrets set PAPERLENS_GITHUB_TOKEN="ghp_…"
 #   fly deploy
@@ -34,7 +35,7 @@ primary_region = "iad"
   PAPERLENS_SECURE_COOKIES = "1"
   PAPERLENS_BASIC_USER = "beta"
   # Model used for keyless "Metalens credits" extraction (Gemini → needs PAPERLENS_GOOGLE_KEY).
-  PAPERLENS_CREDIT_MODEL = "gemini-3.1-pro-preview"
+  PAPERLENS_CREDIT_MODEL = "gemini-3.5-flash"
 
 [processes]
   app = "uvicorn paperlens.app:app --host 0.0.0.0 --port 8000"

@@ -30,7 +30,10 @@ def _db_ok() -> bool:
 def test_config_model_allowlist() -> None:
     for k in ("PAPERLENS_CREDIT_MODEL", "PAPERLENS_CREDIT_MODELS"):
         os.environ.pop(k, None)
-    assert credits.credit_model() is None
+    # With nothing configured the app falls back to its built-in default rather than
+    # leaving the model unset — the extract UI has no model picker to fall back on.
+    assert credits.credit_model() == credits.DEFAULT_CREDIT_MODEL
+    assert credits.is_allowed_model(credits.DEFAULT_CREDIT_MODEL) is True
     assert credits.is_allowed_model("gpt-4o") is False
     try:
         os.environ["PAPERLENS_CREDIT_MODEL"] = "gpt-4o"

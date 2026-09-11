@@ -12,6 +12,7 @@ let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = n
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"study") | "study" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
+let ACCOUNT = false;  // logged in? JSON/CSV export is an account feature — anon can review, not download
 
 // Drag the splitter to resize the entries panel; width persists across sessions.
 function mountSplitter() {
@@ -37,6 +38,7 @@ function mountSplitter() {
 
 async function init() {
   mountSplitter();
+  try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
   PROJECT = q.get("project") || null;
   const docsParam = q.get("docs");    // comma list → scope to one extraction round
@@ -455,8 +457,11 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + (PROJECT ? "" : `<button class="btn btn-primary" id="dlsave">💾 Save all</button>`)
-    + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
-    + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
+    + (ACCOUNT
+        ? `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
+          + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
+        : `<a class="btn btn-ghost dl-locked" href="/account?next=${encodeURIComponent(location.pathname + location.search)}"`
+          + ` title="Create a free account to download your extracted data as JSON or CSV">🔒 Download</a>`)
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual finding">＋ Finding</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
@@ -561,8 +566,8 @@ function renderRecordCard(panel, rec) {
 }
 
 function wirePanelHead() {
-  $("#dljson").onclick = downloadJSON;
-  $("#dlcsv").onclick = downloadCSV;
+  const dj = $("#dljson"); if (dj) dj.onclick = downloadJSON;
+  const dc = $("#dlcsv"); if (dc) dc.onclick = downloadCSV;
   const save = $("#dlsave"); if (save) save.onclick = doSave;
   $("#addfinding").onclick = doAddFinding;
   $("#deldoc").onclick = doDelete;

@@ -14,6 +14,8 @@ let presets = [];
 let MODELS = {};
 let ADD_DATASET = null;   // {id,title,schema_id,prompt,model} when ?dataset= (add-papers mode)
 let USE_CREDITS = false;  // logged-in keyless run on Metalens's server key + fixed model
+let CFG = null;           // /api/extraction-config: default model + logged-out limits
+let FILE_CAP = null;      // null = no cap (logged in, or own key); a number = papers still allowed
 
 const PROVIDER_LABEL = { openai: "OpenAI", google: "Google Gemini", anthropic: "Anthropic",
                          deepseek: "DeepSeek", mistral: "Mistral" };
@@ -33,11 +35,14 @@ async function init() {
   // seeing step 1 ("turn a paper into data") flash for a second first.
   const addingTo = new URLSearchParams(location.search).get("dataset");
   setupDropzone();
-  if (addingTo) openStep(5);
+  if (addingTo) openStep(4);
   try { presets = (await api.presets()).presets || []; } catch { /* */ }
   await loadModels();
   document.querySelectorAll(".task-card[data-task]").forEach((c) =>
-    (c.onclick = () => selectTask(c.dataset.task, c)));
+    (c.onclick = () => {
+      if (c.classList.contains("soon")) return;   // not shipping yet — the card says so
+      selectTask(c.dataset.task, c);
+    }));
   // any step / sidebar item can be unfolded by clicking
   steps.forEach((s) => (s.querySelector(".acc-head").onclick = () => openStep(+s.dataset.step)));
   document.querySelectorAll(".wf-step-nav").forEach((w) => (w.onclick = () => {
@@ -45,15 +50,16 @@ async function init() {
     openStep(+w.dataset.step);
   }));
   document.querySelectorAll("[data-back]").forEach((b) => (b.onclick = () => openStep(+b.dataset.back)));
-  $("#next2").onclick = afterModel;
-  $("#next4").onclick = () => { done(4); summary(4, "reviewed"); openStep(5); };
+  $("#next4").onclick = () => { done(3); summary(3, modelSummary()); openStep(4); };
+  $("#ml-toggle").onclick = toggleModelPanel;
   $("#testconn").onclick = testConnection;
-  $("#apikey").oninput = () => setKey($("#provider").value, $("#apikey").value.trim());
+  $("#apikey").oninput = () => { setKey($("#provider").value, $("#apikey").value.trim()); applyKeyMode(); };
+  $("#model").addEventListener("change", applyKeyMode);
   $("#run").onclick = run;
   // step 3: structured designer (substeps) + freeform toggle
   document.querySelectorAll(".sf-pill").forEach((p) => (p.onclick = () => openSub(+p.dataset.sub)));
   $("#sfNext").onclick = () => (sub < 4 ? openSub(sub + 1) : genStruct());
-  $("#sfBack").onclick = () => (sub === 1 ? openStep(2) : openSub(sub - 1));
+  $("#sfBack").onclick = () => (sub === 1 ? openStep(1) : openSub(sub - 1));
   $("#addfield").onclick = () => addField({});
   $("#addtab").onclick = () => addTab();
   $("#tabsadd").onclick = () => addTab();
@@ -69,30 +75,83 @@ async function init() {
   renderSimpleUnits();
   syncTabsUI();
   setupTooltips();
-  await setupCredits();          // resolve credits first so add-papers can reflect them
+  await setupExtractionConfig();  // resolve model + credits first so add-papers can reflect them
   await maybeAddPapersMode();
 }
 
-// Offer keyless extraction on Metalens credits when the user is logged in, the
-// server is configured to provide it, and they have a positive balance. Selecting
-// "credits" hides the own-key block; the server picks the model + uses its own key.
-async function setupCredits() {
-  const sw = $("#credit-switch"); if (!sw) return;
-  let c = null;
-  try { c = await api.credits(); } catch { return; }   // 401 for anon → no toggle
-  if (!c || !c.offered || (c.balance || 0) <= 0) return;
-  USE_CREDITS = true;                                    // default to credits when available
-  $("#credit-left").textContent = `(${c.balance} left)`;
-  if (c.model) $("#credit-model").textContent = `· ${c.model}`;
-  sw.hidden = false;
+// The model line under the prompt: which model runs this, how much the user has left,
+// and the way out. The server decides the model — the browser only reports it — so the
+// provider/model/key controls stay folded away until someone asks for them.
+async function setupExtractionConfig() {
+  try { CFG = await api.extractionConfig(); } catch { CFG = null; }
+  const bal = CFG && CFG.credits ? (CFG.credits.balance || 0) : 0;
+  // Credits are the default whenever the user is logged in and actually has some.
+  USE_CREDITS = !!(CFG && CFG.logged_in && CFG.offered && bal > 0);
+
+  const nameEl = $("#ml-model");
+  if (nameEl) nameEl.textContent = (CFG && CFG.model) || "not configured";
+
+  const cr = $("#ml-credits");
+  if (cr && CFG && CFG.logged_in) {
+    cr.textContent = bal === 1 ? "1 credit left" : `${bal} credits left`;
+    cr.classList.toggle("ml-warn", bal <= 0);
+    cr.hidden = false;
+  }
+
+  // Logged out: one free paper, and no export. Say both up front rather than failing later.
+  const an = $("#ml-anon");
+  if (an && CFG && !CFG.logged_in) {
+    const left = Math.max(0, (CFG.anon_free_extractions || 0) - (CFG.anon_extractions_used || 0));
+    an.innerHTML = left > 0
+      ? `${left} free paper${left === 1 ? "" : "s"} without an account · `
+        + `<a href="/account">create one</a> to extract more and download results`
+      : `Free trial used · <a href="/account">create a free account</a> to keep extracting, `
+        + `or add your own API key below`;
+    an.hidden = false;
+  }
+
+  // The credits/own-key radio only means anything when there are credits to choose.
+  const sw = $("#credit-switch");
+  if (sw && CFG && CFG.logged_in && CFG.offered && bal > 0) {
+    $("#credit-left").textContent = `(${bal} left)`;
+    if (CFG.model) $("#credit-model").textContent = `· ${CFG.model}`;
+    sw.hidden = false;
+    sw.querySelectorAll('input[name="keymode"]').forEach((r) => (r.onchange = () => {
+      USE_CREDITS = sw.querySelector('input[name="keymode"]:checked').value === "credits";
+      applyKeyMode();
+    }));
+  }
   applyKeyMode();
-  sw.querySelectorAll('input[name="keymode"]').forEach((r) => (r.onchange = () => {
-    USE_CREDITS = sw.querySelector('input[name="keymode"]:checked').value === "credits";
-    applyKeyMode();
-  }));
+}
+
+// A typed key overrides everything — including the logged-out cap, since the run no
+// longer costs us anything.
+function ownKeyPresent() { const k = $("#apikey"); return !!(k && k.value.trim()); }
+// The logged-out cap, recomputed from scratch each time: a typed key lifts it, and
+// CLEARING that key has to put it back (otherwise one keystroke buys unlimited runs).
+function anonCap() {
+  if (!CFG || CFG.logged_in || ownKeyPresent()) return null;   // no cap at all
+  return Math.max(0, (CFG.anon_free_extractions || 0) - (CFG.anon_extractions_used || 0));
 }
 function applyKeyMode() {
-  const block = $("#ownkey-block"); if (block) block.hidden = USE_CREDITS;
+  const fields = $("#ownkey-fields"); if (fields) fields.hidden = USE_CREDITS;
+  FILE_CAP = anonCap();
+  const nameEl = $("#ml-model");
+  if (nameEl) {
+    nameEl.textContent = (!USE_CREDITS && ownKeyPresent() && $("#model").value)
+      ? $("#model").value : ((CFG && CFG.model) || "not configured");
+  }
+}
+function toggleModelPanel() {
+  const block = $("#ownkey-block"), btn = $("#ml-toggle"); if (!block || !btn) return;
+  const open = block.hidden;
+  block.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+  btn.querySelector(".ml-chev").textContent = open ? "▴" : "▾";
+}
+function modelSummary() {
+  if (!USE_CREDITS && ownKeyPresent() && $("#model").value) return `${$("#model").value} · your key`;
+  return (CFG && CFG.model) || "default model";
 }
 
 // ── add-papers mode: /extract?dataset=<id> reuses a dataset's saved recipe ────
@@ -125,11 +184,10 @@ async function maybeAddPapersMode() {
   if (ADD_DATASET.prompt) $("#prompt").value = ADD_DATASET.prompt;
   // fast-forward the accordion to Upload & extract
   done(1); summary(1, `Adding to “${ADD_DATASET.title}”`);
-  done(2); summary(2, USE_CREDITS ? "Metalens credits" : ($("#model").value ? `${$("#model").value} · key ••••` : "set your model & key"));
-  done(3); summary(3, "reusing saved prompt");
-  done(4); summary(4, "reviewed");
-  openStep(5);
-  const body = stepEl(5).querySelector(".acc-body");
+  done(2); summary(2, "reusing saved prompt");
+  done(3); summary(3, modelSummary());
+  openStep(4);
+  const body = stepEl(4).querySelector(".acc-body");
   if (body && !document.querySelector("#addbanner")) {
     const b = document.createElement("div");
     b.id = "addbanner"; b.className = "add-banner";
@@ -250,23 +308,22 @@ function selectTask(t, card) {
     advance({ extract: "Extract data", label: "Label a paper", summarise: "Summarise a paper" }[t]);
   }
 }
-function advance(sum) { done(1); summary(1, sum); openStep(2); }
-
-// ── step 2: model → 3 (describe) or 4 (preset prompt) ──────────────────────
-async function afterModel() {
-  if (!USE_CREDITS && !$("#apikey").value) { $("#teststatus").textContent = "enter your API key"; return; }
-  summary(2, USE_CREDITS ? "Metalens credits" : `${$("#model").value} · key ••••`); done(2);
+// ── step 1 → 2 (describe the task) or straight to 3 when the prompt is pre-built ──
+// The old step 2 (pick a provider/model/key) is gone: extraction runs on the server's
+// default model, and bringing your own key is a disclosure inside step 3.
+async function advance(sum) {
+  done(1); summary(1, sum);
   if (task === "extract" || task === "label") {
     showMode("simple");
-    openStep(3);
+    openStep(2);
   } else if (isMasemPreset(presetId)) {
     await openMasemBuilder(presetId);   // guided MASEMiner builder (Direct/Indirect)
-    openStep(3);
+    openStep(2);
   } else {
-    summary(3, "auto (pre-built prompt)"); done(3);
+    summary(2, "auto (pre-built prompt)"); done(2);
     const pid = task === "summarise" ? "summarize" : presetId;
     if (pid) { try { $("#prompt").value = (await api.presetPrompt(pid)).prompt; } catch { $("#prompt").value = ""; } }
-    openStep(4);
+    openStep(3);
   }
 }
 
@@ -277,6 +334,10 @@ let lastFieldDefs = null;
 // step 3 has three levels: guided (default) · advanced (structured designer) · own prompt
 let MODE = "simple";
 function showMode(m) {
+  // A pre-built method owns the whole "describe your task" step — its builder IS the
+  // description. Never let a stray Guided/Advanced click swap it for the generic form
+  // (the mode switch is hidden for presets, but re-entering the step must be idempotent).
+  if (isMasemPreset(presetId)) { openMasemBuilder(presetId); return; }
   MODE = m;
   const ms = document.querySelector(".mode-switch"); if (ms) ms.hidden = false;
   const mb = $("#masemBuilder"); if (mb) mb.hidden = true;
@@ -291,16 +352,75 @@ const isMasemPreset = (pid) => typeof pid === "string" && pid.startsWith("masem"
 // ── MASEMiner guided builder (one preset → Direct/Indirect toggle + live preview) ─
 const MASEM = { starter: null, defaults: {}, cache: {}, timer: null };
 const MASEM_STARTERS = [
-  { id: "masem", label: "Direct information", tag: "Extract correlations from text and table(s)." },
-  { id: "masem-ncs18", label: "Indirect information", tag: "Extract factor loadings and factor correlations from text and table(s)." },
+  { id: "masem-direct", label: "Direct information", tag: "The paper reports the effect sizes themselves — correlations in text or table(s)." },
+  { id: "masem-indirect", label: "Indirect information", tag: "The paper reports the measurement model — factor loadings and factor correlations." },
 ];
+
+// ── minimal markdown renderer for the prompt preview ────────────────────────────
+// The preset prompts are markdown (# TASK, ## EFFECT SIZES, bullets, fenced JSON), and
+// dumping them into a <pre> made a long wall of monospace nobody reads. No dependency:
+// the CDN isn't reachable from a published page and the rest of this front-end is
+// build-free. Escapes FIRST, so nothing in a prompt can inject markup.
+function renderMarkdown(src) {
+  const esc_ = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (t) => esc_(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+  const out = [];
+  const lines = String(src || "").split("\n");
+  let list = null;                 // "ul" | "ol" while a list is open
+  let para = [];                   // buffered plain lines
+  let fence = null;                // buffered fenced-code lines
+
+  const flushPara = () => {
+    if (para.length) { out.push(`<p>${para.map(inline).join("<br/>")}</p>`); para = []; }
+  };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const flush = () => { flushPara(); flushList(); };
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+
+    if (fence !== null) {                                  // inside ```…```
+      if (/^\s*```/.test(line)) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
+      else fence.push(raw);
+      continue;
+    }
+    if (/^\s*```/.test(line)) { flush(); fence = []; continue; }
+
+    if (!line.trim()) { flush(); continue; }
+
+    const h = line.match(/^(#{1,4})\s+(.*)$/);            // # heading
+    if (h) { flush(); const n = h[1].length; out.push(`<h${n + 2} class="md-h md-h${n}">${inline(h[2])}</h${n + 2}>`); continue; }
+
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);          // 1. item
+    if (ol) {
+      flushPara();
+      if (list !== "ol") { flushList(); out.push('<ol class="md-list">'); list = "ol"; }
+      out.push(`<li>${inline(ol[1])}</li>`); continue;
+    }
+    const ul = line.match(/^\s*[-*\u2013\u2022]\s+(.*)$/);  // -, *, – or • item
+    if (ul) {
+      flushPara();
+      if (list !== "ul") { flushList(); out.push('<ul class="md-list">'); list = "ul"; }
+      out.push(`<li>${inline(ul[1])}</li>`); continue;
+    }
+
+    flushList();
+    para.push(line);
+  }
+  if (fence !== null) out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`);
+  flush();
+  return out.join("");
+}
 
 async function openMasemBuilder(pid) {
   const ms = document.querySelector(".mode-switch"); if (ms) ms.hidden = true;
   $("#simpleform").hidden = true; $("#structform").hidden = true; $("#pasteflow").hidden = true;
   $("#masemBuilder").hidden = false;
   renderMasemStarters();
-  await selectMasemStarter(isMasemPreset(pid) ? pid : "masem", false);
+  await selectMasemStarter(isMasemPreset(pid) ? pid : "masem-direct", false);
 }
 function renderMasemStarters() {
   const box = $("#masem-starters"); if (!box) return;
@@ -314,10 +434,10 @@ async function selectMasemStarter(pid, isUserClick) {
   let detail = MASEM.cache[pid];
   if (!detail) { try { detail = await api.presetDetail(pid); MASEM.cache[pid] = detail; } catch { return; } }
   MASEM.starter = pid;
-  presetId = pid;                       // schemaIdFor() → `${pid}@v1` (masem / masem-ncs18)
+  presetId = pid;                       // schemaIdFor() → `${pid}@v1` (masem-direct / masem-indirect)
   MASEM.defaults = JSON.parse(JSON.stringify(detail.template_params || {}));
   renderMasemStarters();
-  const direct = pid === "masem";
+  const direct = pid === "masem-direct";
   $("#masemFormDirect").hidden = !direct;
   $("#masemFormIndirect").hidden = direct;
   populateMasemForm(MASEM.defaults);
@@ -327,7 +447,7 @@ async function selectMasemStarter(pid, isUserClick) {
 function populateMasemForm(d) {
   const es = $("#masemEffectSizes"); if (es) { es.value = ""; es.placeholder = serialiseEffectSizes(d.effect_sizes) || "r: Correlation\nor: Odds ratios"; }
   const vs = $("#masemVariables"); if (vs) { vs.value = ""; vs.placeholder = serialiseVariables(d.variables) || "bm: A measure of body mass such as BMI or waist circumference\nvg: A measure of video-game use — hours/day or session frequency\npa: A measure of physical activity — exercise length or frequency"; }
-  const sn = $("#masemScaleName"); if (sn) { sn.value = ""; const nm = d.scale_name || d.instrument_name; sn.placeholder = (nm && nm !== "the target scale" && nm !== "the target instrument") ? `e.g. ${nm}` : "e.g. Need for Cognition Scale (NCS-18)"; }
+  const sn = $("#masemScaleName"); if (sn) { sn.value = ""; const nm = d.scale_name || d.instrument_name; sn.placeholder = (nm && nm !== "the target scale" && nm !== "the target instrument") ? `e.g. ${nm}` : "the scale this extraction targets"; }
   const ni = $("#masemNItems"); if (ni) ni.value = "";
   const it = $("#masemItems"); if (it) {
     it.value = ""; const items = Array.isArray(d.item_texts) ? d.item_texts : [];
@@ -336,7 +456,7 @@ function populateMasemForm(d) {
 }
 function readMasemParams() {
   const p = {};
-  if (MASEM.starter === "masem") {
+  if (MASEM.starter === "masem-direct") {
     const es = parseEffectSizes($("#masemEffectSizes").value); if (es.length) p.effect_sizes = es;
     const vs = parseVariables($("#masemVariables").value); if (vs.length) p.variables = vs;
   } else {
@@ -351,16 +471,17 @@ async function doMasemPreview() {
   const pid = MASEM.starter; if (!pid) return;
   try {
     const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams() });
-    $("#masemPreviewBox").textContent = r.prompt || "";
-    $("#masemPreviewLen").textContent = (r.prompt || "").length;
-    $("#prompt").value = r.prompt || "";   // the exact extraction prompt
+    const md = r.prompt || "";
+    $("#masemPreviewBox").innerHTML = renderMarkdown(md);
+    $("#masemPreviewLen").textContent = md.length;
+    $("#prompt").value = md;               // the RAW markdown is what the model gets
   } catch { /* best-effort preview */ }
 }
 function refreshMasemPreview() { if (MASEM.timer) clearTimeout(MASEM.timer); MASEM.timer = setTimeout(doMasemPreview, 350); }
 async function masemUse() {
   await doMasemPreview();
   if (!$("#prompt").value.trim()) { alert("Could not build a prompt — fill in the fields."); return; }
-  summary(3, `MASEMiner · ${MASEM.starter === "masem" ? "direct" : "indirect"}`); done(3); openStep(4);
+  summary(2, `MASEMiner · ${MASEM.starter === "masem-direct" ? "direct" : "indirect"}`); done(2); openStep(3);
 }
 function parseEffectSizes(text) {
   return (text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
@@ -569,6 +690,7 @@ const UNIT_PRESETS = {
       { name: "factor_loadings", desc: "item × factor standardised loadings", type: "table", tab: "loadings",
         columns: [ { name: "item", desc: "item number or short text" }, { name: "factor", desc: "factor label, e.g. F1" }, { name: "loading", desc: "standardised loading (number or null)" } ] },
       { name: "cronbach_alpha", desc: "reliability of the full scale (number or null)", type: "value", tab: "details" } ] },
+  papermeta: { title: "Paper metadata", unit: "paper", cardinality: "one", id: "", label: "{title}", fields: [] },
   custom: { title: "Other", unit: "", cardinality: "many", id: "", label: "", fields: [] },
 };
 function renderUnitPresets() {
@@ -600,25 +722,53 @@ function applyUnitPreset(key) {
   if (MODE === "advanced") requestAnimationFrame(() => $("#sfNext").scrollIntoView({ behavior: "smooth", block: "nearest" }));
 }
 
-// guided-mode unit chips (a simplified view over the same field state)
+// Guided mode deliberately shows FOUR choices over the same UNIT_PRESETS state — the
+// full seven live in Advanced. "Something else" carries no field template, so its
+// one-sentence description is the only spec the prompt gets, and is required.
+const SIMPLE_UNITS = [
+  { key: "regression", label: "Regression results",       tag: "One row per regression / model in a results table." },
+  { key: "papermeta",  label: "Paper metadata",           tag: "One row per paper — the bibliographic details only." },
+  { key: "finding",    label: "Findings & effect sizes",  tag: "One row per reported finding or effect size." },
+  { key: "custom",     label: "Something else",           tag: "Describe it yourself in one sentence." },
+];
+const descRequired = () => SIMPLE_UNIT === "custom";
+let SIMPLE_UNIT = null;
+
 function renderSimpleUnits() {
   const box = $("#simple-units"); if (!box) return;
-  box.innerHTML = Object.entries(UNIT_PRESETS).map(([k, p]) =>
-    `<button type="button" class="unit-chip${k === "custom" ? " other" : ""}" data-preset="${k}">${esc(p.title)}</button>`).join("");
-  box.querySelectorAll(".unit-chip").forEach((b) => (b.onclick = () => applyUnitPreset(b.dataset.preset)));
+  box.innerHTML = SIMPLE_UNITS.map((u) =>
+    `<button type="button" class="unit-chip${u.key === "custom" ? " other" : ""}" data-preset="${u.key}" `
+    + `title="${esc(u.tag)}">${esc(u.label)}</button>`).join("");
+  box.querySelectorAll(".unit-chip").forEach((b) => (b.onclick = () => {
+    SIMPLE_UNIT = b.dataset.preset;
+    applyUnitPreset(SIMPLE_UNIT);
+    // the description is the whole spec for "Something else" — mark it required
+    $("#simple-desc-req").textContent = descRequired() ? "(required)" : "(optional)";
+    $("#simple-desc-help").hidden = !descRequired();
+    $("#simple-desc").placeholder = descRequired()
+      ? "e.g. one row per robustness check, with its specification and coefficient"
+      : "e.g. the effect of remote work on productivity";
+  }));
 }
 
 // guided-mode generate: reuse the chosen unit template's fields + a one-sentence
 // context + free-text extra rules → the same assemblePrompt/buildFieldDefs machinery.
 function genSimple() {
-  if (!collectFields().length) { alert("Pick what you want to extract first."); return; }
+  if (!SIMPLE_UNIT) { alert("Pick what you want to extract first."); return; }
   const desc = $("#simple-desc").value.trim();
-  const extra = $("#simple-extra").value.trim();
-  $("#sf-context").value = [desc && `We are studying: ${desc}.`, extra].filter(Boolean).join("\n");
+  if (descRequired() && !desc) {
+    $("#simple-desc-help").hidden = false;
+    $("#simple-desc").focus();
+    return;
+  }
+  // "Something else" ships no field template, so the sentence IS the field spec.
+  $("#sf-context").value = desc
+    ? (descRequired() ? `Extract one record per: ${desc}.` : `We are studying: ${desc}.`)
+    : "";
   $("#prompt").value = assemblePrompt();
   lastFieldDefs = buildFieldDefs();
   try { window.__lastFieldDefs = lastFieldDefs; } catch { /* */ }
-  summary(3, "Guided"); done(3); openStep(4);
+  summary(2, "Guided"); done(2); openStep(3);
 }
 
 // generation: prompt (sent) + field_defs (stashed for the deferred review UI) ─
@@ -634,7 +784,20 @@ function assemblePrompt() {
   p += `UNIT OF ANALYSIS: each "${unit}" — one row in the final dataset. `;
   p += many ? `A paper may report MANY; return a top-level array "records", one element per ${unit}.\n\n`
             : `There is exactly ONE per paper; still return a one-element "records" array.\n\n`;
-  p += `For each ${unit} record, extract:\n`;
+  // Two different reasons a unit can carry no field list, and they need opposite prompts:
+  // "Paper metadata" genuinely has none (everything lives in paper_metadata), whereas
+  // "Something else" has none YET — its one-sentence description is the spec, so the model
+  // has to derive the fields. Either way, never emit a dangling "extract:" with nothing
+  // under it.
+  if (!fields.length) {
+    p += (MODE === "simple" && SIMPLE_UNIT === "papermeta")
+      ? `This record carries NO fields of its own — everything of interest belongs in `
+        + `"paper_metadata" below. Return "records": [{}].\n`
+      : `Work out which fields each ${unit} needs from the ADDITIONAL RULES below. Choose `
+        + `concise snake_case keys, and use the SAME keys for every record.\n`;
+  } else {
+    p += `For each ${unit} record, extract:\n`;
+  }
   fields.forEach((f) => {
     if (f.type === "list") {
       p += `  - "${f.name}": ${f.desc} — return a JSON array of scalar values.\n`;
@@ -682,27 +845,41 @@ function genStruct() {
   $("#prompt").value = assemblePrompt();
   lastFieldDefs = buildFieldDefs();
   try { window.__lastFieldDefs = lastFieldDefs; } catch { /* */ }
-  summary(3, "Custom prompt (structured)"); done(3); openStep(4);
+  summary(2, "Custom prompt (structured)"); done(2); openStep(3);
 }
 function usePaste() {
   const p = $("#pastebox").value.trim();
   if (!p) { alert("Write or paste your prompt."); return; }
   $("#prompt").value = p;
-  summary(3, "Custom prompt"); done(3); openStep(4);
+  summary(2, "Custom prompt"); done(2); openStep(3);
 }
 
 // ── step 5: upload (dropzone, multi-file) + run ─────────────────────────────
 function setStatus(m) { $("#status").textContent = m; }
 let FILES = [];
 
+// Logged-out visitors may run FILE_CAP papers (null = no cap). Trim rather than reject so
+// dropping a folder still does something useful. Returns false when nothing may run.
+function applyFileCap() {
+  if (FILE_CAP === null || FILES.length <= FILE_CAP) return true;
+  const dropped = FILES.length - FILE_CAP;
+  FILES = FILES.slice(0, FILE_CAP);
+  setStatus(FILE_CAP === 0
+    ? "You've used your free paper. Create a free account to keep extracting, or add your "
+      + "own API key under “Use a different model”."
+    : `Only ${FILE_CAP} paper without an account — kept the first, skipped ${dropped}. `
+      + "Create a free account or add your own API key to run the rest.");
+  return FILE_CAP > 0;
+}
 function setupDropzone() {
   const dz = $("#dropzone"), input = $("#pdf");
   dz.onclick = () => input.click();
-  input.onchange = () => { FILES = [...input.files]; renderFiles(); };
+  input.onchange = () => { FILES = [...input.files]; applyFileCap(); renderFiles(); };
   ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
   ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
   dz.addEventListener("drop", (e) => {
     FILES = [...e.dataTransfer.files].filter((f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
+    applyFileCap();
     renderFiles();
   });
 }
@@ -725,6 +902,9 @@ async function run() {
   SUBMITTING = true;
   $("#run").disabled = true;                       // disable NOW, not only once inside runBatch
   try {
+    const allowed = applyFileCap(); renderFiles();
+    if (!allowed) { $("#run").disabled = false; return; }   // status already explains why
+    if (!FILES.length) { setStatus("add at least one PDF"); $("#run").disabled = false; return; }
     const keep = await screenDuplicates();         // resolve any already-extracted papers
     if (keep === null) { setStatus("cancelled"); $("#run").disabled = false; return; }
     if (!keep.length) { setStatus("all selected papers were already extracted — nothing to run"); $("#run").disabled = false; return; }

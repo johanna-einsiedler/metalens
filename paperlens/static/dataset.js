@@ -75,8 +75,15 @@ function render() {
       ${s.n_screened ? stat(fmtNum(s.n_screened), `screened${s.n_screened_confirmed ? ` · ${s.n_screened_confirmed} confirmed` : " (no records)"}`) : ""}
       ${stat(`${s.verified_pct}%`, `verified (${s.n_verified}/${s.n_records})`)}
       ${stat(fmtNum(s.total_tokens), "tokens used")}
+      ${stat(fmtDate(OV.created_at), "created", true)}
       ${stat(range, "extracted", true)}
       ${stat(fmtDate(s.last_change), "last change", true)}
+    </div>
+
+    <div class="ds-card">
+      <div class="ds-card-h">Activity
+        <button class="btn btn-ghost btn-sm" id="ds-act" style="margin-left:auto">Show history</button></div>
+      <div class="ds-activity" id="ds-actbody"></div>
     </div>
 
     <div class="ds-card">
@@ -86,7 +93,60 @@ function render() {
     </div>`;
 
   const gridBtn = $("#ds-grid"); if (gridBtn) gridBtn.onclick = showSpreadsheet;
+  const actBtn = $("#ds-act"); if (actBtn) actBtn.onclick = () => toggleActivity(actBtn);
   if (OWNER) wireActions();
+}
+
+// Precise timestamp for the history — a date alone can't order same-day edits.
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+    + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+const ACT_LABEL = {
+  paper_added: ["＋", "added"], edited: ["✎", "edited"], verified: ["✓", "verified"],
+  flagged: ["⚑", "flagged"], unverified: ["↺", "reset to unverified"],
+  corrected: ["✎", "corrected"],
+};
+
+function activityRow(e) {
+  const [icon, verb] = ACT_LABEL[e.kind] || ["·", esc(e.kind)];
+  const what = e.kind === "paper_added"
+    ? esc(e.paper || "a paper")
+    : `entry ${e.entry_index} of ${esc(e.paper || "a paper")}`;
+  // Show the actual before→after for value edits; that IS the "what changed".
+  const changes = (e.changes || []).map((c) =>
+    `<div class="act-diff"><code>${esc(c.field_path || "?")}</code> `
+    + `<span class="act-from">${esc(JSON.stringify(c.from))}</span> → `
+    + `<span class="act-to">${esc(JSON.stringify(c.to))}</span></div>`).join("");
+  return `<div class="act-row">
+    <span class="act-icon">${icon}</span>
+    <div class="act-main">
+      <div>${verb} ${what}${e.actor ? ` · <span class="muted">${esc(e.actor)}</span>` : ""}</div>
+      ${changes}${e.notes ? `<div class="muted act-note">${esc(e.notes)}</div>` : ""}
+    </div>
+    <span class="muted act-when">${esc(fmtWhen(e.at))}</span>
+  </div>`;
+}
+
+let ACT = null;
+async function toggleActivity(btn) {
+  const host = $("#ds-actbody");
+  if (host.innerHTML) { host.innerHTML = ""; btn.textContent = "Show history"; return; }
+  btn.disabled = true; host.innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    ACT = ACT || await api.datasetActivity(id);
+    const rows = (ACT.events || []).map(activityRow).join("");
+    host.innerHTML =
+      `<div class="muted act-head">Created ${esc(fmtWhen(ACT.created_at))}`
+      + `${ACT.updated_at ? ` · dataset last edited ${esc(fmtWhen(ACT.updated_at))}` : ""}</div>`
+      + (rows || '<p class="muted">No activity recorded yet.</p>');
+    btn.textContent = "Hide history";
+  } catch (ex) {
+    host.innerHTML = `<p class="muted">Couldn’t load the history: ${esc(ex.message)}</p>`;
+  } finally { btn.disabled = false; }
 }
 
 function stat(num, label, small) {
@@ -144,6 +204,7 @@ async function doRename() {
   try {
     const r = await api.renameDataset(id, title);
     OV.title = r.title;
+    ACT = null;                 // its header carries updated_at, which just moved
     render();
   } catch (ex) { alert("rename failed: " + ex.message); }
 }
@@ -170,14 +231,12 @@ async function publishToGithub(btn) {
   }
 }
 
+// Grouped by paper: every row carries its record id and the paper it came from.
+// The old flat `records: [field_values]` shape dropped both, so a row could not be
+// traced back to its source — unusable once a dataset spans more than a paper or two.
 async function doExport() {
   try {
-    const full = await api.dataset(id);
-    const out = {
-      title: OV.title, visibility: OV.visibility, recipe: OV.recipe,
-      stats: OV.stats, credibility: OV.credibility,
-      records: (full.records || []).map((r) => r.field_values),
-    };
+    const out = await api.datasetExport(id);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
     a.download = `${(OV.slug || "dataset")}.json`;

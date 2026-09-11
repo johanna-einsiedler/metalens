@@ -13,6 +13,15 @@ from __future__ import annotations
 import os
 import uuid
 
+# The extraction model every run uses unless the user brings their own key. Extraction is
+# vision-based (one 200-DPI page image per page), so input tokens dominate and input price
+# is what matters: gemini-3.5-flash is $1.50/$9.00 per MTok vs $2.00/$12.00 for the
+# 3.1-pro-preview it replaces, while staying a full Flash model — Flash-Lite is 6x cheaper
+# again but this task is citation-critical (verbatim snippets + exact page numbers), which
+# is the first thing a lighter model gets wrong. Override per deployment with
+# PAPERLENS_CREDIT_MODEL; the browser never chooses it.
+DEFAULT_CREDIT_MODEL = "gemini-3.5-flash"
+
 # provider (from providers.get_provider) → env var holding Metalens's key for it
 _PROVIDER_ENV = {
     "openai": "PAPERLENS_OPENAI_KEY",
@@ -97,12 +106,12 @@ def credit_models() -> list[str]:
 
 def credit_model() -> str | None:
     """The model a keyless credit run uses (PAPERLENS_CREDIT_MODEL, else the first
-    entry of PAPERLENS_CREDIT_MODELS)."""
+    entry of PAPERLENS_CREDIT_MODELS, else the built-in DEFAULT_CREDIT_MODEL)."""
     m = os.environ.get("PAPERLENS_CREDIT_MODEL", "").strip()
     if m:
         return m
     models = credit_models()
-    return models[0] if models else None
+    return models[0] if models else DEFAULT_CREDIT_MODEL
 
 
 def is_allowed_model(model: str) -> bool:
