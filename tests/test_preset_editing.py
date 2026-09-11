@@ -103,3 +103,39 @@ def test_field_types_passthrough() -> None:
     assert ft["AI_Type"]["type"] == "select" and "Generative" in ft["AI_Type"]["options"]
     assert ft["Task_Data"]["type"] == "multiselect"
     assert ft["Perf_Metric"].get("allow_other") is True
+
+
+def test_declared_paper_field_edit_is_audited() -> None:
+    """A paper-level field the preset declares can be corrected through the paper route;
+    the edit lands in paper_metadata and logs a document-level event. Undeclared names
+    are refused."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import json, uuid
+    from fastapi.testclient import TestClient
+    from paperlens import preset_spec, presets
+    from paperlens.app import app
+    from paperlens.ingest import ingest
+    conn = records.connect(); records.init_db(conn)
+    sid = f"pf-{uuid.uuid4().hex[:6]}"
+    spec = preset_spec.normalize({
+        "format": 2, "id": f"pf-{uuid.uuid4().hex[:8]}", "meta": {"title": "PF"},
+        "prompt": {"text": "x"},
+        "paper": {"fields": [{"name": "design", "type": "enum", "options": ["rct", "obs"]}]},
+        "entries": {"key": "records", "fields": [{"name": "v", "type": "string"}]}})
+    records.create_personal_preset(conn, preset_id=spec["id"], session_id=sid, title="PF", prompt="x", spec=spec)
+    run = presets.resolve_run(conn, preset_id=spec["id"])
+    with conn.transaction():
+        records.upsert_schema(conn, run.schema_id, run.field_defs)
+    doc = records.persist(conn, ingest(json.dumps({"paper_metadata": {"title": "T"}, "records": [{"v": "a"}]})),
+                          schema_id=run.schema_id, session_id=sid, source_job_id="pf")
+    conn.commit()
+    c = TestClient(app); h = {"X-Session-Id": sid}
+    r = c.request("PATCH", f"/api/documents/{doc}/paper", json={"fields": {"design": "rct"}}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["changed"] == ["design"] and r.json()["paper_metadata"]["design"] == "rct"
+    assert records.document_view(conn, doc)["paper_metadata"]["design"] == "rct"
+    ev = conn.execute("SELECT status, diff FROM verification_event WHERE document_id = %s::uuid", (doc,)).fetchone()
+    assert ev[0] == "corrected" and ev[1][0]["field_path"] == "paper_metadata.design"
+    assert c.request("PATCH", f"/api/documents/{doc}/paper", json={"fields": {"bogus": 1}}, headers=h).status_code == 422
+    conn.close()

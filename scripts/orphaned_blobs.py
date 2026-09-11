@@ -38,9 +38,9 @@ if _ROOT not in sys.path:
 
 from paperlens import records, storage  # noqa: E402
 
-# pdf/<uuid>.pdf  and  pages/<uuid>/<n>.jpg — the two layouts delete_document cleans up.
+# pdf/<uuid>.pdf, raw/<uuid>.txt and pages/<uuid>/<n>.jpg — the layouts delete_document cleans up.
 _KEY_RE = re.compile(
-    r"^(?:pdf/(?P<a>[0-9a-f-]{36})\.pdf|pages/(?P<b>[0-9a-f-]{36})/.*)$", re.I)
+    r"^(?:pdf/(?P<a>[0-9a-f-]{36})\.pdf|raw/(?P<c>[0-9a-f-]{36})\.txt|pages/(?P<b>[0-9a-f-]{36})/.*)$", re.I)
 
 
 def _list(client, bucket: str, **kw) -> list[tuple[str, int]]:
@@ -57,7 +57,7 @@ def _iter_keys(store) -> list[tuple[str, int]]:
     if client is not None:                                   # S3-compatible
         try:
             out = []
-            for prefix in ("pdf/", "pages/"):
+            for prefix in ("pdf/", "raw/", "pages/"):
                 out += _list(client, store.bucket, Prefix=prefix)
             return out
         except Exception as exc:                             # noqa: BLE001
@@ -69,7 +69,7 @@ def _iter_keys(store) -> list[tuple[str, int]]:
             return _list(client, store.bucket)
     root = store.root                                        # LocalObjectStore
     out = []
-    for prefix in ("pdf", "pages"):
+    for prefix in ("pdf", "raw", "pages"):
         for dirpath, _dirs, files in os.walk(root / prefix):
             for fn in files:
                 full = os.path.join(dirpath, fn)
@@ -267,7 +267,7 @@ def main() -> int:
     for key, size in keys:
         m = _KEY_RE.match(key.replace(os.sep, "/"))
         if m:
-            blobs[(m.group("a") or m.group("b")).lower()].append((key, size))
+            blobs[(m.group("a") or m.group("b") or m.group("c")).lower()].append((key, size))
     if not blobs:
         print("No document-scoped blobs in storage at all.")
         return 0

@@ -1,5 +1,6 @@
 // PDF page images + SVG highlight overlays + click-to-source flash.
 const SVGNS = "http://www.w3.org/2000/svg";
+let CTX = new Set();   // evidence ids of the current entry / tab — applied to rects as they are drawn
 
 export function renderPages(root, pages, evidence) {
   root.innerHTML = "";
@@ -31,7 +32,7 @@ export function renderPages(root, pages, evidence) {
           const rect = document.createElementNS(SVGNS, "rect");
           rect.setAttribute("x", x); rect.setAttribute("y", y);
           rect.setAttribute("width", w); rect.setAttribute("height", h);
-          rect.setAttribute("class", "hl"); rect.dataset.eid = i;
+          rect.setAttribute("class", "hl" + (CTX.has(String(i)) ? " ctx" : "")); rect.dataset.eid = i;
           const t = document.createElementNS(SVGNS, "title");
           t.textContent = ev.snippet || ""; rect.appendChild(t);
           svg.appendChild(rect);
@@ -53,18 +54,32 @@ function clearSelection() {
   document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());
 }
 
+// `eid` may be one evidence index or an array of them (a field cited twice lights both;
+// nothing else). Only the newest selection is ever painted.
 export function jumpToEvidence(page, eid) {
   clearSelection();               // replace the previous highlight — never stack them
-  const rects = [...document.querySelectorAll(`rect.hl[data-eid="${eid}"]`)];
+  const ids = Array.isArray(eid) ? eid : [eid];
+  const rects = ids.flatMap((id) => [...document.querySelectorAll(`rect.hl[data-eid="${id}"]`)]);
   rects.forEach((r) => { r.classList.add("sel", "flash"); setTimeout(() => r.classList.remove("flash"), 1500); });
   scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
+}
+
+// Faintly mark the rects that belong to the CURRENT entry / tab (`.ctx`) so the coder sees
+// where this entry's sources are on the page without the old wall of highlights; the
+// strong `.sel` still marks the one item they clicked. null clears the context.
+export function setContextEvidence(ids) {
+  CTX = new Set((ids || []).map(String));
+  document.querySelectorAll("rect.hl.ctx").forEach((r) => r.classList.remove("ctx"));
+  if (!CTX.size) return;
+  document.querySelectorAll("rect.hl[data-eid]").forEach((r) => { if (CTX.has(r.dataset.eid)) r.classList.add("ctx"); });
 }
 
 // pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value). Like
 // jumpToEvidence it keeps ONLY this selection: ad-hoc rects marked `.located` so the next
 // pick clears them, and they persist (not a 2s fade) until then.
-export function flashRects(page, rects) {
-  clearSelection();
+export function flashRects(page, rects, { keep = false } = {}) {
+  if (keep) document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());   // keep the cited row lit
+  else clearSelection();
   const wrap = document.getElementById(`page-${page}`);
   const svg = wrap && wrap.querySelector("svg.overlay");
   if (!svg) return;
@@ -101,8 +116,10 @@ function scrollToRect(rectEl, page) {
 
 // hover preview — light up the rect(s) for an evidence id without scrolling
 export function showEvidence(eid) {
-  document.querySelectorAll(`rect.hl[data-eid="${eid}"]`).forEach((r) => r.classList.add("hot"));
+  (Array.isArray(eid) ? eid : [eid]).forEach((id) =>
+    document.querySelectorAll(`rect.hl[data-eid="${id}"]`).forEach((r) => r.classList.add("hot")));
 }
 export function hideEvidence(eid) {
-  document.querySelectorAll(`rect.hl[data-eid="${eid}"]`).forEach((r) => r.classList.remove("hot"));
+  (Array.isArray(eid) ? eid : [eid]).forEach((id) =>
+    document.querySelectorAll(`rect.hl[data-eid="${id}"]`).forEach((r) => r.classList.remove("hot")));
 }

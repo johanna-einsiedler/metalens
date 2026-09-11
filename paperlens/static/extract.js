@@ -3,7 +3,7 @@
 // completing a step opens the next. Step 2 mirrors the old version: provider →
 // model (from models.json) → API key + test connection.
 import { api } from "/static/api.js";
-import { esc } from "/static/grammar.js";
+import { esc, renderMarkdown } from "/static/grammar.js";
 import { saveToWorkspace } from "/static/save.js";
 import { getKey, setKey } from "/static/keys.js";
 
@@ -11,6 +11,7 @@ const $ = (s) => document.querySelector(s);
 let task = null;          // extract | label | summarise | workflow
 let presetId = null;
 let presets = [];
+let SETUP = null;    // the saved setup (sub-preset) the builder was opened with, if any
 let MODELS = {};
 let ADD_DATASET = null;   // {id,title,schema_id,prompt,model} when ?dataset= (add-papers mode)
 let USE_CREDITS = false;  // logged-in keyless run on Metalens's server key + fixed model
@@ -68,6 +69,7 @@ async function init() {
   document.querySelectorAll(".mode-btn").forEach((b) => (b.onclick = () => showMode(b.dataset.mode)));
   $("#simpleGen").onclick = genSimple;
   $("#masemUse").onclick = masemUse;
+  $("#masemSetupSave").onclick = saveMasemSetup;
   ["masemEffectSizes", "masemVariables", "masemScaleName", "masemNItems", "masemItems"].forEach((id) => {
     const el = $("#" + id); if (el) { el.addEventListener("input", refreshMasemPreview); el.addEventListener("change", refreshMasemPreview); }
   });
@@ -286,7 +288,12 @@ function selectTask(t, card) {
   document.querySelectorAll(".task-card[data-task]").forEach((x) => x.classList.remove("sel"));
   card.classList.add("sel");
   if (t === "workflow") {
-    const items = presets.filter((p) => p.mode === "extraction");
+    const items = presets.filter((p) => p.mode === "extraction" && !p.setup);
+    const setups = presets.filter((p) => p.setup);
+    // a saved setup sits under the card of its base; the hidden MASEMiner variant's setups
+    // join the visible MASEMiner card (the builder switches variant on its own)
+    const setupsOf = (base) => setups.filter((s) => s.base_preset_id === base.preset_id
+      || (isMasemPreset(s.base_preset_id) && isMasemPreset(base.preset_id)));
     $("#taskdetail").innerHTML =
       `<div class="muted" style="font-size:13px;margin:6px 0 8px">Pick a pre-built method — a complete, tested prompt that skips the prompt-design step:</div>`
       + `<div class="method-grid">` + (items.map((p) =>
@@ -294,20 +301,37 @@ function selectTask(t, card) {
           + `<span class="mc-title">${esc(p.title)}`
           + (p.personal ? ` <span class="mc-badge">${p.owned ? "Personal" : "Shared"}</span>` : "")
           + `</span>`
-          + `<span class="mc-sub">${esc(p.tagline || "")}</span></button>`).join("")
+          + `<span class="mc-sub">${esc(p.tagline || "")}</span></button>`
+          + setupsOf(p).map((s) =>
+            `<button type="button" class="method-card sub" data-pid="${esc(s.base_preset_id)}" data-setup="${esc(s.preset_id)}" data-title="${esc(p.title)}">`
+            + `<span class="mc-title">${esc(p.title)} · ${esc(s.title)} <span class="mc-badge">Setup</span></span>`
+            + `<span class="mc-sub">${esc(setupSummary(s))}</span></button>`).join("")).join("")
           || '<span class="muted">No pre-built methods available.</span>')
       + `</div>`;
     $("#taskdetail").querySelectorAll(".method-card").forEach((b) => (b.onclick = () => {
       presetId = b.dataset.pid;
+      SETUP = b.dataset.setup ? setups.find((s) => s.preset_id === b.dataset.setup) || null : null;
       document.querySelectorAll(".method-card").forEach((x) => x.classList.toggle("sel", x === b));
       const p = presets.find((x) => x.preset_id === presetId);
-      advance(`Workflow: ${p ? p.title : presetId}`);
+      const title = b.dataset.title || (p ? p.title : presetId);   // a setup's base may be a hidden variant
+      advance(`Workflow: ${title}${SETUP ? " · " + SETUP.title : ""}`);
     }));
   } else {
     $("#taskdetail").innerHTML = "";
     advance({ extract: "Extract data", label: "Label a paper", summarise: "Summarise a paper" }[t]);
   }
 }
+// one line that says what a saved setup pins (the picker's sub-card)
+function setupSummary(s) {
+  const p = s.params || {};
+  if (p.scale_name || p.n_items || (p.item_texts || []).length) {
+    return [p.scale_name, p.n_items ? `${p.n_items} items` : "", (p.item_texts || []).length ? "item texts" : ""].filter(Boolean).join(" · ");
+  }
+  const es = (p.effect_sizes || []).map((e) => (typeof e === "string" ? e : e.code)).filter(Boolean);
+  const vs = (p.variables || []).map((v) => v && v.name).filter(Boolean);
+  return [es.length ? `effect sizes: ${es.join(", ")}` : "", vs.length ? `variables: ${vs.join(", ")}` : ""].filter(Boolean).join(" · ") || "saved setup";
+}
+
 // ── step 1 → 2 (describe the task) or straight to 3 when the prompt is pre-built ──
 // The old step 2 (pick a provider/model/key) is gone: extraction runs on the server's
 // default model, and bringing your own key is a disclosure inside step 3.
@@ -322,7 +346,10 @@ async function advance(sum) {
   } else {
     summary(2, "auto (pre-built prompt)"); done(2);
     const pid = task === "summarise" ? "summarize" : presetId;
-    if (pid) { try { $("#prompt").value = (await api.presetPrompt(pid)).prompt; } catch { $("#prompt").value = ""; } }
+    if (pid) {
+      try { PROMPT_RENDERED = (await api.presetPrompt(pid)).prompt; $("#prompt").value = PROMPT_RENDERED; }
+      catch { PROMPT_RENDERED = ""; $("#prompt").value = ""; }
+    }
     openStep(3);
   }
 }
@@ -330,7 +357,12 @@ async function advance(sum) {
 // ── step 3: structured "describe what to extract" designer (substeps) ───────
 let sub = 1;
 let unitChosen = false;   // substep 1: unit block + Next stay hidden until a template is picked
-let lastFieldDefs = null;
+// The declarative preset the Guided/Advanced designer produced for this run, the prompt the
+// SERVER rendered from it (so an edit in step 3 is detectable), the personal preset it was
+// saved as before running, and the schema id the server minted for the round.
+let RUN_SPEC = null, PROMPT_RENDERED = "", RUN_PRESET_ID = null, LAST_SCHEMA_ID = null;
+const PRESET_CACHE = {};  // spec JSON → personal preset id (a re-run of the same design reuses it)
+const promptEdited = () => $("#prompt").value.trim() !== (PROMPT_RENDERED || "").trim();
 // step 3 has three levels: guided (default) · advanced (structured designer) · own prompt
 let MODE = "simple";
 function showMode(m) {
@@ -356,71 +388,53 @@ const MASEM_STARTERS = [
   { id: "masem-indirect", label: "Indirect information", tag: "The paper reports the measurement model — factor loadings and factor correlations." },
 ];
 
-// ── minimal markdown renderer for the prompt preview ────────────────────────────
-// The preset prompts are markdown (# TASK, ## EFFECT SIZES, bullets, fenced JSON), and
-// dumping them into a <pre> made a long wall of monospace nobody reads. No dependency:
-// the CDN isn't reachable from a published page and the rest of this front-end is
-// build-free. Escapes FIRST, so nothing in a prompt can inject markup.
-function renderMarkdown(src) {
-  const esc_ = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = (t) => esc_(t)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
-  const out = [];
-  const lines = String(src || "").split("\n");
-  let list = null;                 // "ul" | "ol" while a list is open
-  let para = [];                   // buffered plain lines
-  let fence = null;                // buffered fenced-code lines
-
-  const flushPara = () => {
-    if (para.length) { out.push(`<p>${para.map(inline).join("<br/>")}</p>`); para = []; }
-  };
-  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  const flush = () => { flushPara(); flushList(); };
-
-  for (const raw of lines) {
-    const line = raw.replace(/\s+$/, "");
-
-    if (fence !== null) {                                  // inside ```…```
-      if (/^\s*```/.test(line)) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
-      else fence.push(raw);
-      continue;
-    }
-    if (/^\s*```/.test(line)) { flush(); fence = []; continue; }
-
-    if (!line.trim()) { flush(); continue; }
-
-    const h = line.match(/^(#{1,4})\s+(.*)$/);            // # heading
-    if (h) { flush(); const n = h[1].length; out.push(`<h${n + 2} class="md-h md-h${n}">${inline(h[2])}</h${n + 2}>`); continue; }
-
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);          // 1. item
-    if (ol) {
-      flushPara();
-      if (list !== "ol") { flushList(); out.push('<ol class="md-list">'); list = "ol"; }
-      out.push(`<li>${inline(ol[1])}</li>`); continue;
-    }
-    const ul = line.match(/^\s*[-*\u2013\u2022]\s+(.*)$/);  // -, *, – or • item
-    if (ul) {
-      flushPara();
-      if (list !== "ul") { flushList(); out.push('<ul class="md-list">'); list = "ul"; }
-      out.push(`<li>${inline(ul[1])}</li>`); continue;
-    }
-
-    flushList();
-    para.push(line);
-  }
-  if (fence !== null) out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`);
-  flush();
-  return out.join("");
-}
-
 async function openMasemBuilder(pid) {
   const ms = document.querySelector(".mode-switch"); if (ms) ms.hidden = true;
   $("#simpleform").hidden = true; $("#structform").hidden = true; $("#pasteflow").hidden = true;
   $("#masemBuilder").hidden = false;
   renderMasemStarters();
   await selectMasemStarter(isMasemPreset(pid) ? pid : "masem-direct", false);
+  if (SETUP && SETUP.base_preset_id === MASEM.starter) {      // a saved setup: its values, editable
+    fillMasemValues(SETUP.params || {});
+    $("#masemSetupName").value = SETUP.title;
+    $("#masemSetupStatus").textContent = "loaded — edit and save under the same name to update";
+    await doMasemPreview();
+  } else {
+    $("#masemSetupName").value = ""; $("#masemSetupStatus").textContent = "";
+  }
+}
+// the form's values (not placeholders) from a saved setup's parameters
+function fillMasemValues(p) {
+  const es = $("#masemEffectSizes"); if (es) es.value = serialiseEffectSizes(p.effect_sizes || []);
+  const vs = $("#masemVariables"); if (vs) vs.value = serialiseVariables(p.variables || []);
+  const sn = $("#masemScaleName"); if (sn) sn.value = (p.scale_name && p.scale_name !== "the target instrument") ? p.scale_name : "";
+  const ni = $("#masemNItems"); if (ni) ni.value = p.n_items || "";
+  const it = $("#masemItems"); if (it) it.value = (p.item_texts || []).map((t, i) => `${i + 1}: ${t}`).join("\n");
+}
+// "Save this setup": the builder's values become a private sub-preset of the current variant;
+// saving under a loaded setup's own name updates it instead
+async function saveMasemSetup() {
+  const name = ($("#masemSetupName").value || "").trim();
+  const st = $("#masemSetupStatus");
+  if (!name) { st.textContent = "give the setup a name first"; $("#masemSetupName").focus(); return; }
+  // only the parameters the preset declares (the form also sends a few historical aliases)
+  const raw = readMasemParams();
+  const params = Object.fromEntries(Object.entries(raw).filter(([k]) => k in (MASEM.defaults || {})));
+  st.textContent = "saving…";
+  try {
+    if (SETUP && SETUP.base_preset_id === MASEM.starter && SETUP.title === name) {
+      const r = await api.updatePreset(SETUP.preset_id, { params });
+      SETUP.params = r.params || params;
+      const row = presets.find((x) => x.preset_id === SETUP.preset_id); if (row) row.params = SETUP.params;
+      st.textContent = "updated";
+    } else {
+      const r = await api.createPreset({ title: name, base_preset_id: MASEM.starter, params, visibility: "private" });
+      SETUP = { preset_id: r.id, title: r.title, tagline: r.tagline, mode: "extraction", setup: true,
+                base_preset_id: MASEM.starter, params: r.params || params, personal: true, owned: true };
+      presets.push(SETUP);
+      st.textContent = "saved — it now appears under MASEMiner in step 1";
+    }
+  } catch (e) { st.textContent = "could not save: " + e.message; }
 }
 function renderMasemStarters() {
   const box = $("#masem-starters"); if (!box) return;
@@ -431,6 +445,9 @@ function renderMasemStarters() {
 }
 async function selectMasemStarter(pid, isUserClick) {
   if (isUserClick && MASEM.starter === pid) return;
+  if (isUserClick && SETUP && SETUP.base_preset_id !== pid) {   // a setup belongs to one variant
+    SETUP = null; $("#masemSetupName").value = ""; $("#masemSetupStatus").textContent = "";
+  }
   let detail = MASEM.cache[pid];
   if (!detail) { try { detail = await api.presetDetail(pid); MASEM.cache[pid] = detail; } catch { return; } }
   MASEM.starter = pid;
@@ -472,6 +489,7 @@ async function doMasemPreview() {
   try {
     const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams() });
     const md = r.prompt || "";
+    PROMPT_RENDERED = md;
     $("#masemPreviewBox").innerHTML = renderMarkdown(md);
     $("#masemPreviewLen").textContent = md.length;
     $("#prompt").value = md;               // the RAW markdown is what the model gets
@@ -752,7 +770,7 @@ function renderSimpleUnits() {
 }
 
 // guided-mode generate: reuse the chosen unit template's fields + a one-sentence
-// context + free-text extra rules → the same assemblePrompt/buildFieldDefs machinery.
+// context + free-text extra rules → the same buildSpec / server-rendered prompt machinery.
 function genSimple() {
   if (!SIMPLE_UNIT) { alert("Pick what you want to extract first."); return; }
   const desc = $("#simple-desc").value.trim();
@@ -765,91 +783,130 @@ function genSimple() {
   $("#sf-context").value = desc
     ? (descRequired() ? `Extract one record per: ${desc}.` : `We are studying: ${desc}.`)
     : "";
-  $("#prompt").value = assemblePrompt();
-  lastFieldDefs = buildFieldDefs();
-  try { window.__lastFieldDefs = lastFieldDefs; } catch { /* */ }
-  summary(2, "Guided"); done(2); openStep(3);
+  commitSpec("Guided");
 }
 
-// generation: prompt (sent) + field_defs (stashed for the deferred review UI) ─
-function assemblePrompt() {
+// ── designer → declarative preset (format 2) ─────────────────────────────────
+// The form is translated into the same document a file preset is written in; the SERVER
+// validates it, renders the prompt (task text + generated schema/evidence/confidence
+// sections) and, at run time, saves it as a personal preset so the review UI knows the
+// fields, tabs and confidence groups. Nothing about the layout is decided in the browser.
+const SPEC_TYPE_WORDS = [
+  [/\b(integer|count|sample size|1-indexed|sequential)\b/i, "integer"],
+  [/\b(number|numeric|coefficient|estimate|p-value|standard error|std\.? ?error|loading|correlation|variance|bound|value\b.*\bnumber)/i, "number"],
+  [/\b(true|false|boolean|yes\/no)\b/i, "boolean"],
+];
+function specScalarType(desc) {
+  for (const [re, t] of SPEC_TYPE_WORDS) if (re.test(desc || "")) return t;
+  return "string";
+}
+function specField(f) {
+  const out = { name: f.name, label: f.name.replace(/_/g, " ") };
+  if (f.desc) out.help = f.desc;
+  if (f.type === "list") out.type = "list";
+  else if (f.type === "table") {
+    out.type = "table";
+    out.columns = (f.columns || []).map((c) => {
+      const col = { name: c.name, type: specScalarType(c.desc) };
+      if (c.desc) col.help = c.desc;
+      return col;
+    });
+    if (!out.columns.length) out.columns = [{ name: "value", type: "string" }];
+  } else out.type = specScalarType(f.desc);
+  return out;
+}
+// a literal "$" in author text would read as a template placeholder server-side
+const specText = (t) => String(t || "").replace(/\$/g, "$$$$");
+function buildSpec() {
+  const guided = MODE === "simple";
+  const unitKey = guided ? SIMPLE_UNIT : null;
   const unit = $("#sf-unit").value.trim() || "record";
   const many = (document.querySelector("input[name='sf-card']:checked") || {}).value !== "one";
-  const idField = $("#sf-id").value.trim();
   const fields = collectFields();
+  const names = new Set(fields.map((f) => f.name));
   const meta = parseFields($("#sf-meta").value);
   const ctx = $("#sf-context").value.trim();
+  const desc = guided ? $("#simple-desc").value.trim() : "";
+  const simpleUnit = SIMPLE_UNITS.find((u) => u.key === unitKey);
 
-  let p = `You are extracting data from an academic paper (PDF).\n\n`;
-  p += `UNIT OF ANALYSIS: each "${unit}" — one row in the final dataset. `;
-  p += many ? `A paper may report MANY; return a top-level array "records", one element per ${unit}.\n\n`
-            : `There is exactly ONE per paper; still return a one-element "records" array.\n\n`;
+  let text = `# TASK\nYou are extracting data from an academic paper (PDF).\n\n`;
+  text += `UNIT OF ANALYSIS: each "${specText(unit)}" — one row in the final dataset. `;
+  text += many ? `A paper may report MANY; return one element per ${specText(unit)}.\n`
+               : `There is exactly ONE per paper; still return a one-element array.\n`;
   // Two different reasons a unit can carry no field list, and they need opposite prompts:
   // "Paper metadata" genuinely has none (everything lives in paper_metadata), whereas
   // "Something else" has none YET — its one-sentence description is the spec, so the model
-  // has to derive the fields. Either way, never emit a dangling "extract:" with nothing
-  // under it.
-  if (!fields.length) {
-    p += (MODE === "simple" && SIMPLE_UNIT === "papermeta")
-      ? `This record carries NO fields of its own — everything of interest belongs in `
-        + `"paper_metadata" below. Return "records": [{}].\n`
-      : `Work out which fields each ${unit} needs from the ADDITIONAL RULES below. Choose `
-        + `concise snake_case keys, and use the SAME keys for every record.\n`;
-  } else {
-    p += `For each ${unit} record, extract:\n`;
+  // has to derive the fields and the schema section is left out rather than shown empty.
+  if (!fields.length && unitKey === "papermeta") {
+    text += `This record carries NO fields of its own — everything of interest belongs in `
+      + `"paper_metadata" (see PAPER METADATA below). Return a single empty record.\n`;
+  } else if (!fields.length) {
+    text += `Work out which fields each ${specText(unit)} needs from the description and the rules `
+      + `below. Choose concise snake_case keys, keep every value a scalar (string, number, `
+      + `boolean or null), and use the SAME keys for every record.\n`;
   }
-  fields.forEach((f) => {
-    if (f.type === "list") {
-      p += `  - "${f.name}": ${f.desc} — return a JSON array of scalar values.\n`;
-    } else if (f.type === "table") {
-      const cols = (f.columns || []).map((c) => `"${c.name}" (${c.desc})`).join(", ") || "the relevant columns";
-      p += `  - "${f.name}": ${f.desc}. Return as {"_table": [ … ]} — one object per row, each row with keys: ${cols}.\n`;
-    } else {
-      p += `  - "${f.name}": ${f.desc}\n`;
-    }
-  });
-  if (idField) p += `\nUse "${idField}" as each record's identifier (it becomes sample_id).\n`;
-  p += `\nAlso return "paper_metadata" with: title, doi, year, authors, journal, volume, issue, pages`;
-  if (meta.length) { p += `, plus:`; meta.forEach((f) => (p += `\n    - "${f.name}": ${f.desc}`)); }
-  p += `.\n`;
-  if (ctx) p += `\nADDITIONAL RULES:\n${ctx}\n`;
-  const tableF = fields.find((f) => f.type === "table");
-  const evField = tableF ? `records[0].${tableF.name}._table[0]` : fields[0] ? `records[0].${fields[0].name}` : `records[0]`;
-  p += `\nReturn ONLY one JSON object — no prose, no markdown fences: { "records": [...], "paper_metadata": {...}, "evidence": [...] }.\n`;
-  p += `EVIDENCE: a top-level array; each element has EXACTLY "snippet" (verbatim PDF text), "page" (1-indexed PDF page number), "source" (e.g. "Table 2" or null), "field" (JSON path, e.g. "${evField}"). Quote snippets character-for-character; never omit "page".`;
-  return p;
-}
-function buildFieldDefs() {
-  const fields = collectFields();
+  if (ctx) text += `\nADDITIONAL RULES:\n${specText(ctx)}\n`;
+
+  const spec = {
+    format: 2,
+    meta: {
+      title: guided ? `Guided · ${simpleUnit ? simpleUnit.label : cap(unit)}` : `Custom · ${cap(unit)}`,
+      tagline: (desc || ctx || `One row per ${unit}.`).slice(0, 200),
+      mode: "extraction",
+    },
+    prompt: { text, generate: fields.length
+      ? ["paper_metadata", "output_schema", "evidence", "confidence", "return_format"]
+      : ["paper_metadata", "evidence", "confidence", "return_format"] },
+    paper: { fields: meta.filter((f) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(f.name)).map((f) => specField({ ...f, type: "value" })) },
+    entries: { key: "records", label: cap(unit), cardinality: many ? "many" : "one",
+               fields: fields.map(specField) },
+    confidence: { levels: ["high", "medium", "low"], notes: true, groups: [] },
+    display: { entries: "cards", triage: "low_confidence_first" },
+  };
+  const idField = $("#sf-id").value.trim();
+  if (idField && names.has(idField)) spec.entries.id_field = idField;
+  const title = $("#sf-label").value.trim();
+  if (title && [...title.matchAll(/\{([A-Za-z_#][A-Za-z0-9_]*)\}/g)].every((m) => names.has(m[1]))) spec.entries.title = title;
+  // review tabs → display tabs, each with its own confidence group (the model rates the
+  // tab's fields together, which is how a coder checks them)
   const byTab = {};
   fields.forEach((f) => { (byTab[f.tab] ||= []).push(f.name); });
-  const order = TABS.filter((t) => byTab[t.id]).map((t) => t.id);
-  const used = order.length ? order : ["details"];
-  const sub_views = used.map((id) => {
-    const t = TABS.find((x) => x.id === id) || { id, label: cap(id) };
-    return { id, label: t.label, include_keys: ["sample_id", ...(byTab[id] || [])],
-             evidence_keys: byTab[id] || [], confidence_keys: byTab[id] || [] };
-  });
-  return {
-    preset_id: null, mode: "extraction", sub_views,
-    evidence_keys: [...new Set(sub_views.flatMap((s) => s.evidence_keys))].sort(),
-    confidence_keys: [...new Set(sub_views.flatMap((s) => s.confidence_keys))].sort(),
-    core_keys: [...new Set(fields.map((f) => f.name))].sort(),
-    unit_label: $("#sf-unit").value.trim() || "record",
-    sample_id_field: $("#sf-id").value.trim() || null,
-    sidebar_label: $("#sf-label").value.trim() || null,
-  };
+  const tabs = TABS.filter((t) => byTab[t.id]);
+  if (tabs.length > 1) spec.display.tabs = tabs.map((t) => ({ id: t.id, label: t.label, fields: byTab[t.id] }));
+  if (fields.length) {
+    spec.confidence.groups = tabs.length > 1
+      ? tabs.map((t) => ({ id: t.id, label: t.label, scope: "entry", help: `the ${t.label} fields of this ${unit}` }))
+      : [{ id: "record", label: cap(unit), scope: "entry", help: `all fields of this ${unit}` }];
+    const groupOf = {}; tabs.forEach((t) => byTab[t.id].forEach((n) => (groupOf[n] = t.id)));
+    spec.entries.fields.forEach((f) => (f.confidence = tabs.length > 1 ? (groupOf[f.name] || tabs[0].id) : "record"));
+  }
+  if (spec.paper.fields.length) {
+    spec.confidence.groups.push({ id: "paper_fields", label: "Paper details", scope: "paper" });
+    spec.paper.fields.forEach((f) => (f.confidence = "paper_fields"));
+  }
+  return spec;
+}
+// Validate + render server-side, then move on to step 3 with the rendered prompt.
+async function commitSpec(label) {
+  const spec = buildSpec();
+  let r;
+  try { r = await api.validatePreset(spec); }
+  catch (e) { alert("Could not build the prompt: " + e.message); return; }
+  if (!r.ok) { alert("The design has problems:\n\n" + (r.errors || []).join("\n")); return; }
+  RUN_SPEC = spec;
+  RUN_PRESET_ID = PRESET_CACHE[JSON.stringify(spec)] || null;
+  PROMPT_RENDERED = r.prompt || "";
+  $("#prompt").value = PROMPT_RENDERED;
+  summary(2, label); done(2); openStep(3);
 }
 function genStruct() {
   if (!collectFields().length) { alert("Add at least one field (or pick a unit template)."); openSub(2); return; }
-  $("#prompt").value = assemblePrompt();
-  lastFieldDefs = buildFieldDefs();
-  try { window.__lastFieldDefs = lastFieldDefs; } catch { /* */ }
-  summary(2, "Custom prompt (structured)"); done(2); openStep(3);
+  commitSpec("Custom prompt (structured)");
 }
 function usePaste() {
   const p = $("#pastebox").value.trim();
   if (!p) { alert("Write or paste your prompt."); return; }
+  RUN_SPEC = null; RUN_PRESET_ID = null; PROMPT_RENDERED = "";
   $("#prompt").value = p;
   summary(2, "Custom prompt"); done(2); openStep(3);
 }
@@ -905,6 +962,8 @@ async function run() {
     const allowed = applyFileCap(); renderFiles();
     if (!allowed) { $("#run").disabled = false; return; }   // status already explains why
     if (!FILES.length) { setStatus("add at least one PDF"); $("#run").disabled = false; return; }
+    try { await ensurePreset(); }                    // the design becomes a real preset first
+    catch (e) { setStatus("could not save the preset: " + e.message); $("#run").disabled = false; return; }
     const keep = await screenDuplicates();         // resolve any already-extracted papers
     if (keep === null) { setStatus("cancelled"); $("#run").disabled = false; return; }
     if (!keep.length) { setStatus("all selected papers were already extracted — nothing to run"); $("#run").disabled = false; return; }
@@ -923,6 +982,22 @@ async function sha256Hex(file) {
 // Flag papers whose EXACT PDF was already extracted; let the user skip or re-extract each.
 // Returns the FILES indices to actually run (non-duplicates always kept), or null if
 // cancelled. A failed check never blocks — it just runs everything.
+// Which preset this run is under: a built-in (workflow / summarise), the personal preset
+// the designer's spec is saved as (created here, once per design), or none (own prompt).
+function runPresetId() {
+  if (ADD_DATASET) return null;                                   // the dataset's own schema row
+  if (task === "workflow" && presetId) return presetId;
+  if (task === "summarise") return "summarize";
+  return RUN_PRESET_ID;
+}
+async function ensurePreset() {
+  if (ADD_DATASET || !RUN_SPEC || RUN_PRESET_ID) return runPresetId();
+  const key = JSON.stringify(RUN_SPEC);
+  if (PRESET_CACHE[key]) return (RUN_PRESET_ID = PRESET_CACHE[key]);
+  const r = await api.createPreset({ spec: RUN_SPEC, visibility: "private" });
+  PRESET_CACHE[key] = r.id;
+  return (RUN_PRESET_ID = r.id);
+}
 async function screenDuplicates() {
   const all = FILES.map((_, i) => i);
   const schemaId = ADD_DATASET ? (ADD_DATASET.schema_id || schemaIdFor()) : schemaIdFor();
@@ -931,7 +1006,9 @@ async function screenDuplicates() {
     const hashes = await Promise.all(FILES.map(sha256Hex));
     FILES.forEach((f, i) => (f._sha = hashes[i]));
     // a duplicate = same PDF AND same preset (schema_id) → different preset re-extracts freely
-    const resp = await api.checkDuplicates([...new Set(hashes)], schemaId);
+    // a duplicate = same PDF AND same preset (any version of it) → a different preset re-extracts freely
+    const pid = runPresetId();
+    const resp = await api.checkDuplicates([...new Set(hashes)], pid ? null : schemaId, pid);
     dupMap = (resp && resp.duplicates) || {};
   } catch { return all; }
   const dupIdx = all.filter((i) => (dupMap[FILES[i]._sha] || []).length);
@@ -1012,7 +1089,13 @@ async function runBatch(indices, reset) {
     STATUS[i] = { state: "extracting" }; renderResults();
     const fd = new FormData();
     fd.append("pdf", FILES[i]);
-    fd.append("prompt", $("#prompt").value);
+    // The server renders the prompt from the preset (+ params) and mints the schema id; an
+    // edited prompt is sent as-is (and recorded as edited). Add-papers keeps the dataset's
+    // own schema row; an own-written prompt has no preset at all.
+    const pid = runPresetId();
+    if (pid) fd.append("preset_id", pid);
+    if (!pid || promptEdited() || ADD_DATASET) fd.append("prompt", $("#prompt").value);
+    if (task === "workflow" && isMasemPreset(presetId) && !ADD_DATASET) fd.append("params", JSON.stringify(readMasemParams()));
     fd.append("schema_id", schemaId);
     if (ADD_DATASET) fd.append("dataset_id", ADD_DATASET.id);   // server attaches the result
     if (USE_CREDITS) {
@@ -1026,6 +1109,7 @@ async function runBatch(indices, reset) {
     }
     try {
       const data = await api.extract(fd);
+      if (data.schema_id) LAST_SCHEMA_ID = data.schema_id;
       if (data.queued) {
         anyQueued = true;
         if (data.job_id) jobIds.push(data.job_id);   // stays "extracting"; the panel tracks it
@@ -1111,7 +1195,7 @@ async function doSave(out) {
       return;
     }
     // Capture the round's recipe onto the new dataset (its default for adding papers).
-    const recipe = { prompt: $("#prompt").value, model: $("#model").value, schema_id: schemaIdFor() };
+    const recipe = { prompt: $("#prompt").value, model: $("#model").value, schema_id: LAST_SCHEMA_ID || schemaIdFor() };
     const ds = await saveToWorkspace(docIds,
       { defaultName: (out[0].name || "").replace(/\.pdf$/i, ""), recipe });
     if (ds) {

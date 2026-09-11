@@ -1,18 +1,30 @@
 // Workspace — PDF pages + highlight overlays alongside the extracted records,
 // with click-to-source, verify/flag, and edit-in-place (corrections route to
 // the verification layer). Uses the shared grammar + pdfview modules.
+//
+// The review layout is DECLARED by the preset (DATA.spec, via spec.js): paper-level fields,
+// entries, sub-entries, tabs, and which confidence group each field belongs to. Documents
+// extracted before the declarative format arrive with a spec the server inferred from
+// their old grammar + data (VM.legacy) and keep the data-driven behaviours that existed
+// only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
-import { renderValue, renderConfidence, esc } from "/static/grammar.js";
-import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects } from "/static/pdfview.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, esc, formatKey } from "/static/grammar.js";
+import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
+import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, entryNeeds,
+         undeclared, seedEntry, orderedEntries, gridColumns, gridRows } from "/static/spec.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
-let PANEL_SEL = null;   // multi-entry panel nav: null(default→"study") | "study" | record index
+let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
 let ACCOUNT = false;  // logged in? JSON/CSV export is an account feature — anon can review, not download
+let VM = null, EV = null;   // the preset's view model + the evidence index for the loaded document
+let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
+let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
+try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
 // Drag the splitter to resize the entries panel; width persists across sessions.
 function mountSplitter() {
@@ -38,6 +50,7 @@ function mountSplitter() {
 
 async function init() {
   mountSplitter();
+  mountKeys();
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
   PROJECT = q.get("project") || null;
@@ -53,7 +66,6 @@ async function init() {
   // Data-review landing (no dataset, round, or specific doc): fall through to load
   // ALL of the user's documents — the most recent (last run) is auto-selected below,
   // and if there are none the empty-state shows a "Turn a paper into data" button.
-  // (Pick a specific dataset to review from My Workspace instead of a chooser here.)
   try {
     if (PROJECT) {
       DOCS = (await api.documents({ dataset: PROJECT })).documents || [];
@@ -173,31 +185,6 @@ function startJobTracking(jobIds, since) {
   tick().then(loop);                                   // first check immediately, not after 8s
 }
 
-// Data-review entry: if the user has datasets, let them pick which to review; if
-// they have only loose extractions, fall through and load them; if nothing, extract.
-async function landingChooser() {
-  let mine = [], docs = [];
-  try {
-    const me = await api.me();
-    const all = (await api.myDatasets()).datasets || [];
-    mine = (me && me.id) ? all.filter((d) => d.owner_user_id === me.id) : [];
-    docs = (await api.documents({})).documents || [];
-  } catch { return false; }
-  if (!mine.length && !docs.length) { location.href = "/extract"; return true; }
-  if (!mine.length) return false;                       // loose docs only → load them
-  const dsTiles = mine.map((d) =>
-    `<a class="rv-ds" href="/workspace?project=${esc(d.id)}"><div class="rv-ds-t">${esc(d.title || "untitled")}</div>`
-    + `<div class="rv-ds-m">${d.n_records} record${d.n_records === 1 ? "" : "s"} · ${esc(d.visibility)}</div></a>`).join("");
-  const loose = docs.length
-    ? `<a class="rv-ds" href="/workspace?doc=${esc(docs[0].document_id)}"><div class="rv-ds-t">All my papers</div>`
-      + `<div class="rv-ds-m">${docs.length} document${docs.length === 1 ? "" : "s"}</div></a>` : "";
-  $("#doctabs").innerHTML = ""; $("#panelbody").innerHTML = "";
-  $("#pages").innerHTML = `<div class="rv-choose"><h3 style="margin:0 0 12px">Choose a dataset to review</h3>`
-    + `<div class="rv-ds-grid">${dsTiles}${loose}</div>`
-    + `<p class="muted" style="margin-top:16px"><a href="/extract">＋ Extract new papers</a></p></div>`;
-  return true;
-}
-
 // paper switcher — a tab per document, above the records
 function renderDocTabs() {
   const strip = $("#doctabs"); if (!strip) return;
@@ -210,7 +197,8 @@ function renderDocTabs() {
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}" data-id="${d.document_id}" title="${esc(nm)}">`
-      + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`;
+      + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`
+      + (d.document_id === DOCID ? docSubList() : "");     // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
   // Hidden until the first status check (JOBS_POLLED) so a refresh of already-finished
@@ -225,8 +213,30 @@ function renderDocTabs() {
       + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
+  strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
   strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
   strip.querySelectorAll(".jobstop[data-jobid]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cancelJob(b.dataset.jobid, b); }));
+}
+
+// Under the open paper in the sidebar: "Paper" + one line per entry (an experiment, a
+// sample …) in the panel's triage order, each with its review status. Clicking one shows
+// that part in the panel — the same navigation as the tabs above the cards.
+function docSubList() {
+  if (!DATA || !VM || !Array.isArray(DATA.records) || DATA.document_id !== DOCID || !DATA.records.length) return "";
+  const ordered = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues);
+  const many = DATA.records.length > 1;
+  const cur = !many ? null : PANEL_SEL === null ? (TRIAGE === "order" ? "paper" : ordered[0].i) : PANEL_SEL;
+  const item = (sel, label, status) =>
+    `<button class="docsub-item${cur === sel ? " active" : ""}" data-sel="${sel}" title="${esc(label)}${status ? " · " + esc(status) : ""}">`
+    + `<span class="docsub-title">${esc(shortTitle(label))}</span>${status ? `<span class="st-dot ${esc(status)}"></span>` : ""}</button>`;
+  return `<div class="docsub">` + item("paper", "📄 Paper", "")
+    + ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join("") + `</div>`;
+}
+
+// "Experiment PRISMA · Appraise systematic reviews …" → "Experiment PRISMA" for the narrow sidebar
+function shortTitle(title) {
+  const head = String(title || "").split(" · ")[0].trim();
+  return head || title;
 }
 
 // Stop a queued/running extraction and drop its tab.
@@ -279,6 +289,9 @@ async function load(docId) {
   DATA._sentinel = (DATA.records || []).find((r) => r.screened_empty) || null;
   DATA._screened = !!DATA._sentinel;
   DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
+  VM = viewModel(DATA);
+  EV = indexEvidence(DATA, VM);
+  if (!localStorage.getItem("metalens_triage") && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   renderPanel();
   if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
@@ -287,6 +300,8 @@ async function load(docId) {
 // Scroll to a specific record's card, pulse it, and flash its first evidence (from a
 // chart deep-link, /workspace?doc=&rec=).
 function focusRecord(rec) {
+  const idx = (DATA.records || []).findIndex((x) => x.id === rec);
+  if (idx >= 0 && DATA.records.length > 1) { PANEL_SEL = idx; renderPanel(); }
   const card = document.querySelector(`.record[data-rid="${rec}"]`);
   if (card) {
     card.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -307,23 +322,23 @@ function recordEvidence(rec) {
 }
 
 // Evidence the model never tied to a specific record (no record_id, no entry_index —
-// e.g. a masem `field:"records"` with no samples[i] prefix). Used as a fallback so
-// value cells still link to *some* source page instead of being dead on click.
+// e.g. a masem `field:"records"` with no samples[i] prefix). Listed under "Uncited
+// sources"; never attached to cells (it used to make every cell look sourced).
 function orphanEvidence() {
-  return DATA.evidence
-    .map((ev, i) => ({ ev, i }))
-    .filter(({ ev }) => ev.record_id == null && (ev.entry_index === null || ev.entry_index === undefined));
+  return (EV ? EV.orphans : []).map((i) => ({ ev: DATA.evidence[i], i }));
 }
 
-// Fields whose value is IDENTICAL across every record → shown once in the study panel
+// ── legacy documents: the data-driven layout that predates declared presets ─────────
+// Fields whose value is IDENTICAL across every record → shown once in the paper panel
 // (with >1 record only; a single record keeps everything in the entry). Recomputed per
 // document load. CONSTANT maps key → shared value; entry views drop these keys.
 let CONSTANT = {};
 function computeConstant() {
   CONSTANT = {};
+  if (!VM || !VM.legacy) return;
   const recs = DATA.records || [];
   if (recs.length <= 1) return;
-  const skip = new Set(["evidence", "extraction_confidence"]);
+  const skip = new Set(["evidence", "extraction_confidence", "confidence"]);
   const keys = new Set();
   recs.forEach((r) => Object.keys(r.field_values || {}).forEach((k) => { if (!skip.has(k)) keys.add(k); }));
   for (const k of keys) {
@@ -336,9 +351,6 @@ function computeConstant() {
 }
 const _isConstant = (k) => Object.prototype.hasOwnProperty.call(CONSTANT, k);
 
-// Group an extracted record into the schema's sub_views as tabs, when the preset
-// defines them; else render flat. Constant-across-entries keys are dropped (they live
-// in the study panel).
 function _subViews() {
   const sv = DATA.field_defs && DATA.field_defs.sub_views;
   return Array.isArray(sv) && sv.length > 1 ? sv : null;
@@ -346,31 +358,29 @@ function _subViews() {
 function entryFields(fv) {
   const out = {};
   for (const [k, v] of Object.entries(fv || {})) {
-    if (k === "evidence" || k === "extraction_confidence" || _isConstant(k)) continue;
+    if (k === "evidence" || k === "extraction_confidence" || k === "confidence" || _isConstant(k)) continue;
     out[k] = v;
   }
   return out;
 }
 function _fieldsForView(fv, view) {
-  const skip = new Set(["evidence", "extraction_confidence"]);
+  const skip = new Set(["evidence", "extraction_confidence", "confidence"]);
   const inc = Array.isArray(view.include_keys) && view.include_keys.length ? new Set(view.include_keys) : null;
   const exc = new Set(view.exclude_keys || []);
   const out = {};
   for (const [k, v] of Object.entries(fv || {})) {
-    if (skip.has(k) || _isConstant(k)) continue;   // constant → study panel, not the entry
+    if (skip.has(k) || _isConstant(k)) continue;   // constant → paper panel, not the entry
     if (inc ? inc.has(k) : !exc.has(k)) out[k] = v;
   }
   return out;
 }
-// per-field control metadata (dropdown/multi-select options) declared by the preset
 function fieldTypes() { return (DATA.field_defs && DATA.field_defs.field_types) || {}; }
 function renderHints() { return (DATA.field_defs && DATA.field_defs.render_hints) || {}; }
 
-function renderRecordBody(rec) {
+function renderLegacyBody(rec) {
   const eopts = { editable: true, fieldTypes: fieldTypes(), renderHints: renderHints() };
   const views = _subViews();
   if (!views) return renderValue(entryFields(rec.field_values), eopts);
-  // only show tabs that actually have fields for this record
   const present = views.filter((v) => Object.keys(_fieldsForView(rec.field_values, v)).length);
   if (present.length < 2) return renderValue(entryFields(rec.field_values), eopts);
   const tabs = present.map((v, i) =>
@@ -380,17 +390,22 @@ function renderRecordBody(rec) {
   return `<div class="subtabs">${tabs}</div><div class="subpanels">${panels}</div>`;
 }
 
-// Study panel shown ONCE above the entries: (a) paper identity (editable → the paper
-// record) + (b) any field identical across all entries (editable → propagates to every
-// entry). Single entry → identity only.
-function renderStudyBlock(panel) {
+// ── the paper panel ────────────────────────────────────────────────────────────
+// Shown ONCE above the entries: (a) paper identity (editable → the paper record),
+// (b) the preset's declared paper-level fields (editable → paper_metadata, audited),
+// (c) legacy: any field identical across all entries (editable → propagates to every entry),
+// (d) evidence the model never tied to an entry ("Uncited sources").
+function renderPaperPanel(panel) {
   const p = DATA.paper || {};
+  const pm = DATA.paper_metadata || {};
   const hasIdent = p.title || (Array.isArray(p.authors) ? p.authors.length : p.authors) || p.year || p.journal || p.doi;
   const hasConst = Object.keys(CONSTANT).length > 0;
-  if (!hasIdent && !hasConst) return;
+  const paperFields = VM.paper.fields;
+  const extraKeys = VM.legacy ? [] : undeclared(VM, "paper", pm).filter((k) => typeof pm[k] !== "object" || pm[k] === null);
+  const orphans = orphanEvidence();
+  if (!hasIdent && !hasConst && !paperFields.length && !extraKeys.length && !orphans.length) return;
   const box = document.createElement("details");
-  box.className = "study-block"; box.open = true;
-  // identity — Title/Year/Venue/Authors editable (persist to the paper record); DOI read-only
+  box.className = "study-block"; box.open = VM.paperPanel !== "collapsed";
   const identRows = [
     identRow("Title", "title", p.title, false),
     identRow("Authors", "authors", Array.isArray(p.authors) ? p.authors.join("; ") : (p.authors || ""), false),
@@ -399,17 +414,44 @@ function renderStudyBlock(panel) {
     p.doi ? `<div class="rv-row"><div class="rv-key">DOI</div><div class="rv-val"><span class="rv-cell">${esc(p.doi)}</span></div></div>` : "",
   ].join("");
   let body = `<div class="rv-root"><div class="rv-obj">${identRows}</div></div>`;
+  if (paperFields.length) {
+    const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper");
+    const badges = pgroups.map((g) => renderConfBadge(g.id, g, (DATA.paper_confidence || {})[g.id], VM.levels)).join("");
+    body += `<div class="paper-fields">${badges ? `<div class="group-head">${badges}</div>` : ""}`
+      + `<div class="rv-root">${renderFields(paperFields, pm, "", { editable: true })}</div></div>`;
+  }
+  if (extraKeys.length) {
+    const extra = {}; extraKeys.forEach((k) => (extra[k] = pm[k]));
+    body += `<div class="study-shared"><div class="study-sub">Other paper-level values</div>`
+      + `${renderValue(extra, { editable: false })}</div>`;
+  }
   if (hasConst) {
     body += `<div class="study-shared"><div class="study-sub">Shared across all ${(DATA.records || []).length} entries</div>`
       + `${renderValue(CONSTANT, { editable: true, fieldTypes: fieldTypes() })}</div>`;
   }
-  box.innerHTML = `<summary>📄 Study information</summary><div class="study-body">${body}</div>`;
+  if (orphans.length) {
+    body += `<div class="study-shared"><div class="study-sub">Uncited sources — ${orphans.length}</div><div class="uncited-list">`
+      + orphans.map(({ ev, i }) => `<button type="button" class="ev-cite" data-eid="${i}" data-page="${ev.page || 1}" title="${esc(ev.snippet || "")}">`
+        + `p.${ev.page || "?"}${ev.source ? ` · ${esc(ev.source)}` : ""} · ${esc(String(ev.snippet || "").slice(0, 40))}${(ev.snippet || "").length > 40 ? "…" : ""}</button>`).join("")
+      + `</div></div>`;
+  }
+  box.innerHTML = `<summary>📄 Paper</summary><div class="study-body">${body}</div>`;
   panel.appendChild(box);
   wireStudyIdentity(box);
-  const shared = box.querySelector(".study-shared");
-  if (shared) wireControls(shared, saveStudyField, true);   // a constant edit → every entry
-  // constant fields carry the same evidence on every record → link them to their source
-  linkValueCells(box, DATA.evidence.map((ev, i) => ({ ev, i })));
+  const pf = box.querySelector(".paper-fields");
+  if (pf) {
+    wireControls(pf, savePaperField, true);
+    wireConfBadges(pf);
+    linkPaperCells(pf);
+  }
+  const shared = box.querySelector(".study-shared .rv-root");
+  if (shared && hasConst) wireControls(shared.closest(".study-shared"), saveStudyField, true);   // a constant edit → every entry
+  if (VM.legacy) linkValueCells(box, DATA.evidence.map((ev, i) => ({ ev, i })));   // legacy: constant fields share evidence
+  box.querySelectorAll(".uncited-list .ev-cite").forEach((b) => {
+    b.onclick = () => jumpToEvidence(+b.dataset.page, +b.dataset.eid);
+    b.onmouseenter = () => showEvidence(+b.dataset.eid);
+    b.onmouseleave = () => hideEvidence(+b.dataset.eid);
+  });
 }
 
 // one editable paper-identity row (persists to the paper record on blur)
@@ -438,6 +480,13 @@ function wireStudyIdentity(box) {
   });
 }
 
+// A declared paper-level field edit → paper_metadata.<name> on THIS document (audited).
+function savePaperField(path, value) {
+  return api.updatePaper(DATA.document_id, { fields: { [path]: value } })
+    .then((r) => { if (r && r.paper_metadata) DATA.paper_metadata = r.paper_metadata; })
+    .catch((e) => alert("save failed: " + e.message));
+}
+
 // A study-constant edit writes to EVERY record (one call) + syncs in-memory records/CONSTANT.
 function saveStudyField(key, value) {
   return api.setDocumentField(DATA.document_id, key, value)
@@ -448,11 +497,44 @@ function saveStudyField(key, value) {
     .catch((e) => alert("save failed: " + e.message));
 }
 
+// paper-level cells link to paper_metadata.<field> evidence
+function linkPaperCells(box) {
+  box.querySelectorAll("[data-path]").forEach((cell) => {
+    const p = cell.dataset.path;
+    const ids = (DATA.evidence || []).map((ev, i) => ({ ev, i }))
+      .filter(({ ev }) => ev.field_path === `paper_metadata.${p}`).map(({ i }) => i);
+    const def = (VM.fieldIndex.get(p) || {}).field;
+    if (ids.length) {
+      cell.classList.add(cell.classList.contains("rv-editable") ? "rv-cited" : "rv-linked");
+      cell.addEventListener("mouseenter", () => showEvidence(ids));
+      cell.addEventListener("mouseleave", () => hideEvidence(ids));
+      cell.addEventListener("click", () => verifyAndJump(cell, { ids, page: DATA.evidence[ids[0]].page, exact: true }));
+    } else if (def && def.evidence === "value" && (DATA.paper_metadata || {})[p] != null && cell.classList.contains("rv-editable")) {
+      cell.classList.add("rv-uncited");
+    }
+  });
+}
+
+// ── the panel ──────────────────────────────────────────────────────────────────
+function docProgress() {
+  const recs = DATA.records || [];
+  const reviewed = recs.filter((r) => r.verification_status === "verified" || r.verification_status === "flagged").length;
+  const flagged = recs.filter((r) => r.verification_status === "flagged").length;
+  return { reviewed, total: recs.length, flagged, done: recs.length > 0 && reviewed === recs.length };
+}
+
 function renderPanel() {
   computeConstant();
   const panel = $("#panelbody");
-  panel.innerHTML = `<div class="panelhead"><span><b>${DATA.records.length}</b> records · `
-    + `<code>${esc(DATA.schema_id || "—")}</code></span>`
+  const pr = docProgress();
+  const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
+  const triage = (DATA.records || []).length > 1
+    ? `<select class="triage" id="triage" title="order of the entries">`
+      + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"]]
+        .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
+  panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
+    + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
+    + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code> ${triage}</span>`
     + `<span class="dlbtns">`
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
@@ -462,24 +544,31 @@ function renderPanel() {
           + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
         : `<a class="btn btn-ghost dl-locked" href="/account?next=${encodeURIComponent(location.pathname + location.search)}"`
           + ` title="Create a free account to download your extracted data as JSON or CSV">🔒 Download</a>`)
-    + `<button class="btn btn-ghost" id="addfinding" title="add a manual finding">＋ Finding</button>`
+    + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
       paper_metadata: DATA.paper_metadata || DATA.paper || null,
-      records: (DATA.records || []).map((r) => r.field_values),
+      [VM.entries.key]: (DATA.records || []).map((r) => ({ ...r.field_values, ...(Object.keys(r.confidence || {}).length ? { confidence: r.confidence } : {}) })),
       evidence: DATA.evidence || [],
     };
     const box = document.createElement("div");
     box.className = "record";
-    box.innerHTML = `<div class="rectitle">raw extraction output</div>`
+    box.innerHTML = `<div class="rectitle">stored extraction <span class="muted" style="font-weight:400">(rebuilt from the stored records and evidence)</span>`
+      + `<button class="btn btn-ghost" id="dlrawresp" title="the model's verbatim response, exactly as stored at extraction time">⬇ model response</button></div>`
       + `<pre class="rawjson">${esc(JSON.stringify(raw, null, 2))}</pre>`;
     panel.appendChild(box);
+    $("#dlrawresp").onclick = async (e) => {
+      const b = e.currentTarget;
+      const t = await api.rawResponse(DATA.document_id);
+      if (t == null) { b.textContent = "no stored response (extracted before responses were kept)"; b.disabled = true; return; }
+      download(`${baseName()}-model-response.txt`, t, "text/plain");
+    };
     wirePanelHead();
     return;
   }
   if (!DATA.records.length) {           // 0-record doc: clear empty state + hand-entry button
-    renderStudyBlock(panel);            // paper info above the empty state
+    renderPaperPanel(panel);            // paper info above the empty state
     const box = document.createElement("div");
     box.className = "empty-records";
     const confirmed = DATA._sentinel && DATA._sentinel.verification_status === "verified";
@@ -493,10 +582,10 @@ function renderPanel() {
           : `<button class="btn btn-ghost" id="noconfirm">✓ Confirm — no records here</button>`)
       : "";
     box.innerHTML = screened
-      + `<p class="muted" style="padding:8px 2px 12px">No records were extracted from this document — nothing matched the `
-      + `<code>${esc(DATA.schema_id || "")}</code> preset (this paper may not contain the kind of data it targets). `
+      + `<p class="muted" style="padding:8px 2px 12px">No ${esc(VM.entries.label.toLowerCase())} records were extracted from this document — nothing matched the `
+      + `<code>${esc(label)}</code> preset (this paper may not contain the kind of data it targets). `
       + `You can still enter the data by hand, or re-process with a different preset.</p>`
-      + `<div class="empty-actions"><button class="btn btn-primary" id="empty-add">＋ Add a finding manually</button>`
+      + `<div class="empty-actions"><button class="btn btn-primary" id="empty-add">＋ Add a ${esc(VM.entries.label.toLowerCase())} manually</button>`
       + confirmBtn + `</div>`;
     panel.appendChild(box);
     wirePanelHead();
@@ -505,64 +594,121 @@ function renderPanel() {
     if (nc && DATA._sentinel && !confirmed) nc.onclick = () => confirmNoRecords(nc);
     return;
   }
-  if (GRID) { renderStudyBlock(panel); renderGridInto(panel); wirePanelHead(); return; }
+  if (GRID) { renderPaperPanel(panel); renderGridInto(panel); wirePanelHead(); return; }
   const recs = DATA.records;
   if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
-    if (PANEL_SEL === null) PANEL_SEL = "study";
-    renderRecordNav(panel, recs);
-    if (PANEL_SEL === "study" || !recs[PANEL_SEL]) renderStudyBlock(panel);
-    else renderRecordCard(panel, recs[PANEL_SEL]);
+    if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
+    renderEntryNav(panel, recs);
+    if (PANEL_SEL === "paper" || !recs[PANEL_SEL]) { renderPaperPanel(panel); setContextEvidence(null); }
+    else { renderRecordCard(panel, recs[PANEL_SEL]); setContextEvidence(EV.byRecord.get(recs[PANEL_SEL].id) || []); }
   } else {
-    renderStudyBlock(panel);
+    renderPaperPanel(panel);
     recs.forEach((rec) => renderRecordCard(panel, rec));
+    setContextEvidence(EV.byRecord.get(recs[0].id) || []);
   }
   wirePanelHead();
+  renderDocTabs();                       // the sidebar's sub-list follows the selection / statuses
 }
 
-// A sub-navigation above the entries: "Study information" + one entry per record (its
-// table_id when present) — so a multi-table paper shows one at a time, not all at once.
-function renderRecordNav(panel, recs) {
-  const lbl = (rec, i) => {
-    const fv = rec.field_values || {};
-    return esc(fv.table_id || fv.title || `Entry ${rec.entry_index != null ? rec.entry_index : i + 1}`);
-  };
+// A sub-navigation above the entries: "Paper" + one entry per record, titled by the
+// preset's template, in triage order, each with its review status and worst confidence.
+function renderEntryNav(panel, recs) {
   const nav = document.createElement("div");
   nav.className = "rnav";
-  nav.innerHTML = `<button class="rnav-tab${PANEL_SEL === "study" ? " active" : ""}" data-sel="study">Study information</button>`
-    + recs.map((rec, i) => `<button class="rnav-tab${PANEL_SEL === i ? " active" : ""}" data-sel="${i}">${lbl(rec, i)}</button>`).join("");
+  const ordered = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues);
+  nav.innerHTML = `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>`
+    + ordered.map(({ rec, i }) => {
+      const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+      const needs = entryNeeds(VM, EV, rec, DATA.issues);
+      return `<button class="rnav-tab${PANEL_SEL === i ? " active" : ""}" data-sel="${i}" title="${esc(rec.verification_status)}${needs ? ` · ${needs} to check` : ""}">`
+        + `${esc(entryTitle(VM, rec, i))}<span class="st-dot ${esc(rec.verification_status)}"></span>`
+        + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+        + (needs && rec.verification_status !== "verified" ? `<span class="needs">${needs}</span>` : "") + `</button>`;
+    }).join("");
   panel.appendChild(nav);
-  nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => {
-    PANEL_SEL = b.dataset.sel === "study" ? "study" : +b.dataset.sel;
-    renderPanel();
-    if (PANEL_SEL !== "study" && recs[PANEL_SEL]) jumpToTable(recs[PANEL_SEL]);
-  }));
+  nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
 }
 
-// Selecting a table tab jumps to that table in the PDF. The table's own citation
-// (field:"tables[i]" → empty stripped path, covering the whole table) points at the caption /
-// table region; fall back to the record's first evidence.
-function jumpToTable(rec) {
-  const evs = recordEvidence(rec);
-  if (!evs.length) return;
-  const cap = evs.find(({ ev }) => stripCore(ev.field_path) === "") || evs[0];
-  jumpToEvidence(cap.ev.page, cap.i);
+function selectEntry(sel) {
+  PANEL_SEL = sel;
+  renderPanel();
+  const rec = sel !== "paper" ? (DATA.records || [])[sel] : null;
+  // a single-entry paper shows paper + card together: scroll to the part that was picked
+  const target = rec ? document.querySelector(`.record[data-rid="${rec.id}"]`) : document.querySelector("#panel .study-block");
+  if (target && target.scrollIntoView) target.scrollIntoView({ block: "start", behavior: "smooth" });
+  if (rec) jumpToEntry(rec);
+}
+
+// Selecting an entry jumps to it in the PDF: its own identifying citation (field "key[i]")
+// when the model gave one, else its first evidence.
+function jumpToEntry(rec) {
+  const ids = EV.entryCites.get(rec.id) || EV.byRecord.get(rec.id) || [];
+  if (!ids.length) return;
+  jumpToEvidence(DATA.evidence[ids[0]].page, ids[0]);
 }
 
 function renderRecordCard(panel, rec) {
   const card = document.createElement("div");
   card.className = "record"; card.dataset.rid = rec.id;
+  const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+  const myIssues = (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
   card.innerHTML =
-    `<div class="rectitle">entry ${rec.entry_index}`
+    `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
     + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
+    + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
-    + `<button class="recdel" title="delete this finding">🗑</button></div>`
+    + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
     + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
-    + renderConfidence(rec.field_values && rec.field_values.extraction_confidence)
-    + renderRecordBody(rec)
+    + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
+    + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
     + `<div class="histbody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
+}
+
+// Legacy documents: whatever ratings the old per-sample block carried, as badges.
+function renderLegacyConf(rec) {
+  const entries = Object.entries(rec.confidence || {});
+  if (!entries.length) return "";
+  return `<div class="group-head">${entries.map(([gid, r]) => renderConfBadge(gid, VM.groups[gid] || { label: formatKey(gid) }, r, VM.levels)).join("")}</div>`;
+}
+
+// The declared layout: tabs → (group badges → fields → sub-entries) per tab, an "Other"
+// tab for anything undeclared the model returned. Every declared field appears, a missing
+// one visibly so.
+function renderEntryBody(rec) {
+  const fv = rec.field_values || {};
+  const eopts = { editable: true };
+  const tabs = VM.tabs.map((t) => {
+    const defs = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
+    const children = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "child_key").map((x) => x.child);
+    // child-scope groups are rated per sub-entry and shown on each card, not on the tab
+    const badges = (t.groups || []).filter((gid) => (VM.groups[gid] || {}).scope !== "child")
+      .map((gid) => renderConfBadge(gid, VM.groups[gid], (rec.confidence || {})[gid], VM.levels)).join("");
+    let html = badges ? `<div class="group-head">${badges}</div>` : "";
+    if (defs.length) html += `<div class="rv-root">${renderFields(defs, fv, "", eopts)}</div>`;
+    for (const ch of children) {
+      const cites = EV.tableCites.get(`${rec.id}|${ch.key}`);
+      html += `<div class="rv-row rv-row-block rv-decl" data-field="${esc(ch.key)}"><div class="rv-key" data-path="${esc(ch.key)}" title="${esc(ch.help || "")}">`
+        + `${esc(ch.label || formatKey(ch.key))}${Array.isArray(fv[ch.key]) ? ` <span class="muted">(${fv[ch.key].length})</span>` : ""}`
+        + (cites ? ` <button type="button" class="ev-cite" data-eids="${cites.join(",")}" data-page="${DATA.evidence[cites[0]].page || 1}">p.${DATA.evidence[cites[0]].page || "?"}</button>` : "")
+        + `</div><div class="rv-val rv-nested">${renderChild(ch, fv[ch.key], eopts)}</div></div>`;
+    }
+    return { t, html };
+  });
+  const other = undeclared(VM, "entry", fv);
+  if (other.length) {
+    const extra = {}; other.forEach((k) => (extra[k] = fv[k]));
+    tabs.push({ t: { id: "_extra", label: "Other" }, html: `<p class="muted" style="font-size:12px;margin:0 0 6px">Returned by the model but not declared by the preset.</p>${renderValue(extra, eopts)}` });
+  }
+  if (tabs.length === 1) return `<div class="subpanels"><div class="subpanel" data-vi="0">${tabs[0].html}</div></div>`;
+  const strip = tabs.map(({ t }, i) => {
+    const worst = worstLevel(VM, Object.fromEntries((t.groups || []).map((g) => [g, (rec.confidence || {})[g]]).filter(([, v]) => v)));
+    return `<button class="subtab${i === 0 ? " active" : ""}" data-vi="${i}">${esc(t.label)}${worst && isLow(VM, worst) ? renderConfDot(worst, VM.levels, "low confidence here") : ""}</button>`;
+  }).join("");
+  const panels = tabs.map(({ html }, i) => `<div class="subpanel${i === 0 ? "" : " hidden"}" data-vi="${i}">${html}</div>`).join("");
+  return `<div class="subtabs">${strip}</div><div class="subpanels">${panels}</div>`;
 }
 
 function wirePanelHead() {
@@ -573,6 +719,10 @@ function wirePanelHead() {
   $("#deldoc").onclick = doDelete;
   $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
   const g = $("#gridtoggle"); if (g) g.onclick = () => { GRID = !GRID; renderPanel(); };
+  const tr = $("#triage"); if (tr) tr.onchange = () => {
+    TRIAGE = tr.value; try { localStorage.setItem("metalens_triage", TRIAGE); } catch { /* */ }
+    renderPanel();
+  };
 }
 
 // Cross-record spreadsheet of the current document's records. Rendered in the
@@ -581,11 +731,19 @@ function wirePanelHead() {
 function renderGridInto(panel) {
   const host = document.createElement("div");
   panel.appendChild(host);
+  const order = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues).map(({ rec }) => rec);
+  // a declared preset flattens to the unit display.grid_rows names (entry / sub-entry /
+  // table row); a legacy document keeps its sub_views columns
+  const specMode = !VM.legacy;
   renderGrid(host, {
-    records: DATA.records,
-    subViews: (DATA.field_defs && DATA.field_defs.sub_views) || [],
-    evidenceFor: (rec) => recordEvidence(rec).concat(orphanEvidence())
+    records: order,
+    ...(specMode ? { columns: gridColumns(VM), rows: gridRows(VM, order) }
+                 : { subViews: (DATA.field_defs && DATA.field_defs.sub_views) || [] }),
+    evidenceFor: (rec) => recordEvidence(rec)
       .map(({ ev, i }) => ({ i, page: ev.page, path: stripCore(ev.field_path) })),
+    confidenceFor: specMode ? (row) => worstLevel(VM, row.conf || {})
+                            : (rec) => worstLevel(VM, rec.confidence || {}),
+    levels: VM.levels,
     onCellClick: (rec, col, cov, e) => { if (cov) gridCellClick(e.currentTarget, cov); },
   });
   host.querySelectorAll(".grid-linked[data-eid]").forEach((td) => {
@@ -623,27 +781,26 @@ async function reloadDoc() {
 }
 
 async function doDeleteRecord(rec) {
-  if (!confirm(`Delete finding (entry ${rec.entry_index})? This cannot be undone.`)) return;
+  if (!confirm(`Delete ${VM.entries.label.toLowerCase()} "${entryTitle(VM, rec, rec.entry_index)}"? This cannot be undone.`)) return;
   try { await api.deleteRecord(rec.id); await reloadDoc(); }
   catch (e) { alert("delete failed: " + e.message); }
 }
 
-// Add a manual finding: seed it with the current schema's top-level keys (blanked)
-// so its cells are immediately editable; edits route through the verify layer.
+// Add a manual entry: seed a COMPLETE blank form from the preset's declaration (typed
+// blanks: [] for tables / sub-entries / multi, null for booleans) so its cells are
+// immediately editable; edits route through the verify layer.
 async function doAddFinding() {
-  const template = {};
-  // Seed a COMPLETE blank form from the preset's entry setup: every field named across
-  // its sub-views, so a manual finding starts as a full blank form even on a fresh doc.
-  const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
-  views.forEach((v) => (v.include_keys || []).forEach((k) => { if (!(k in template)) template[k] = ""; }));
-  // Union with keys any existing record actually carries (covers presets without
-  // sub_views, and fields outside include_keys), preserving nested shape as empty.
-  (DATA.records || []).forEach((r) => {
-    for (const [k, v] of Object.entries(r.field_values || {})) {
-      if (k === "evidence" || k === "extraction_confidence" || (k in template)) continue;
-      template[k] = (v && typeof v === "object") ? (Array.isArray(v) ? [] : {}) : "";
-    }
-  });
+  const template = VM.legacy ? {} : seedEntry(VM);
+  if (VM.legacy) {
+    const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
+    views.forEach((v) => (v.include_keys || []).forEach((k) => { if (!(k in template)) template[k] = ""; }));
+    (DATA.records || []).forEach((r) => {
+      for (const [k, v] of Object.entries(r.field_values || {})) {
+        if (k === "evidence" || k === "extraction_confidence" || k === "confidence" || (k in template)) continue;
+        template[k] = (v && typeof v === "object") ? (Array.isArray(v) ? [] : {}) : "";
+      }
+    });
+  }
   try { await api.addRecord(DATA.document_id, { field_values: template }); await reloadDoc(); }
   catch (e) { alert("add failed: " + e.message); }
 }
@@ -668,8 +825,8 @@ async function doSave() {
       + `They'll be saved as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
   b.disabled = true;
   try {
-    // record the recipe (schema/preset + model) so re-opening the dataset can add
-    // papers with the same preset without re-choosing it.
+    // record the recipe (schema/preset + model + the exact prompt) so re-opening the
+    // dataset can add papers with the same preset without re-choosing it.
     const model = (DATA.records || []).map((r) => r.extraction && r.extraction.model).find(Boolean) || null;
     const recipe = { schema_id: DATA.schema_id || null, model };
     const ds = await saveToWorkspace(ids, { defaultName: (DATA.paper && DATA.paper.title) || "", recipe });
@@ -691,24 +848,88 @@ function wireCard(card, rec) {
     card.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === b));
     card.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("hidden", p.dataset.vi !== vi));
   }));
-  card.querySelectorAll(".chip").forEach((b) => {
-    const eid = +b.dataset.eid, page = +b.dataset.page;
-    b.onclick = () => jumpToEvidence(page, eid);
-    b.onmouseenter = () => showEvidence(eid);
-    b.onmouseleave = () => hideEvidence(eid);
-  });
-  linkValueCells(card, recordEvidence(rec).concat(orphanEvidence()));
+  wireConfBadges(card);
+  if (VM.legacy) linkValueCells(card, recordEvidence(rec));
+  else linkCells(card, rec);
   card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   wireControls(card, (path, val) => saveFieldEdit(rec, card, path, val, curVal(rec, path)), true);
 }
 
+// A badge's notes open on click — the notes are what tell the coder what to check.
+function wireConfBadges(root) {
+  root.querySelectorAll("button.conf-badge").forEach((b) => (b.onclick = () => {
+    const notes = b.nextElementSibling;
+    if (!notes || !notes.classList.contains("conf-notes")) return;
+    notes.hidden = !notes.hidden;
+    b.setAttribute("aria-expanded", String(!notes.hidden));
+  }));
+}
+
 async function sendVerify(card, rec, status) {
   card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = true));
-  try { await api.verify(rec.id, { status }); setStatus(card, status); }
+  try {
+    await api.verify(rec.id, { status });
+    rec.verification_status = status;
+    setStatus(card, status);
+    refreshNavState();
+    if (AUTOADV && (DATA.records || []).length > 1) nextEntry(true);
+  }
   catch (e) { alert("verify failed: " + e.message); }
   finally { card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = false)); }
+}
+
+// keep the nav dots + progress in step without re-rendering the whole panel
+function refreshNavState() {
+  const pr = docProgress();
+  const el = $(".progress");
+  if (el) {
+    el.classList.toggle("done", pr.done);
+    el.textContent = pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`;
+  }
+  document.querySelectorAll(".rnav-tab[data-sel]").forEach((b) => {
+    if (b.dataset.sel === "paper") return;
+    const rec = (DATA.records || [])[+b.dataset.sel]; if (!rec) return;
+    const dot = b.querySelector(".st-dot"); if (dot) dot.className = `st-dot ${rec.verification_status}`;
+  });
+}
+
+// Move to the next entry in triage order (skipping reviewed ones when `unreviewedOnly`).
+function nextEntry(unreviewedOnly, dir = 1) {
+  const recs = DATA.records || [];
+  if (recs.length < 2) return;
+  const order = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues).map(({ i }) => i);
+  const cur = PANEL_SEL === "paper" || PANEL_SEL === null ? -1 : order.indexOf(PANEL_SEL);
+  for (let step = 1; step <= order.length; step++) {
+    const j = order[(cur + dir * step + order.length * step) % order.length];
+    const st = recs[j].verification_status;
+    if (!unreviewedOnly || (st !== "verified" && st !== "flagged")) { selectEntry(j); return; }
+  }
+}
+
+// Keyboard flow: j/k next/prev entry, n next unreviewed, v verify, f flag, 1-9 tabs, ? help.
+function mountKeys() {
+  document.addEventListener("keydown", (e) => {
+    if (!DATA || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+    const card = document.querySelector(".record[data-rid]");
+    if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
+    else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
+    else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
+    else if (e.key === "v" && card) { const b = card.querySelector('.vbtn[data-status="verified"]'); if (b) b.click(); }
+    else if (e.key === "f" && card) { const b = card.querySelector('.vbtn[data-status="flagged"]'); if (b) b.click(); }
+    else if (/^[1-9]$/.test(e.key) && card) { const b = card.querySelectorAll(".subtab")[+e.key - 1]; if (b) b.click(); }
+    else if (e.key === "?") {
+      const old = $(".kbd-help"); if (old) { old.remove(); return; }
+      const h = document.createElement("div"); h.className = "kbd-help";
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab · <kbd>?</kbd> close`
+        + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
+      document.body.appendChild(h);
+      $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
+    }
+  });
 }
 
 // Confirm a screened (0-record) paper genuinely has no entries — verify its sentinel.
@@ -752,14 +973,18 @@ function fmtEvent(e) {
 // grammar value cells carry a record-relative data-path. Strip the core prefix.
 function stripCore(fp) {
   if (!fp) return "";
-  return fp.replace(/^[a-zA-Z_][a-zA-Z0-9_]*\[\d+\]\.?/, "");
+  return fp.replace(/^[a-zA-Z_][a-zA-Z0-9_]*(?:\._table)?\[\d+\]\.?/, "").replace(/\._table\[/g, "[");
 }
 
-// Set a value at a record-relative data-path — "a", "a.b", "a[0].b", "a._table[0].c" —
-// creating intermediate objects/arrays as needed. Inverse of the paths grammar.js emits.
-function setByPath(obj, path, value) {
+// Tokenise a record-relative data-path — "a", "a.b", "a[0].b", "a._table[0].c" — into keys
+// and indices. Declared field names never contain "." or "[", so this is exact for them.
+function pathTokens(path) {
   const toks = [];
   String(path).replace(/[^.[\]]+|\[(\d+)\]/g, (m, idx) => (toks.push(idx !== undefined ? Number(idx) : m), ""));
+  return toks;
+}
+function setByPath(obj, path, value) {
+  const toks = pathTokens(path);
   if (!toks.length) return;
   let cur = obj;
   for (let k = 0; k < toks.length - 1; k++) {
@@ -768,6 +993,11 @@ function setByPath(obj, path, value) {
     cur = cur[key];
   }
   cur[toks[toks.length - 1]] = value;
+}
+function getByPath(obj, path) {
+  let cur = obj;
+  for (const t of pathTokens(path)) { if (cur == null || typeof cur !== "object") return undefined; cur = cur[t]; }
+  return cur;
 }
 
 // Persist ONE field correction: apply newVal at `path` on a copy of the entry's
@@ -786,12 +1016,12 @@ function saveFieldEdit(rec, card, path, newVal, origVal) {
   }).then(() => { rec.field_values = fv; })
     .catch((e) => alert("save failed: " + e.message));
 }
-// current stored value at a (top-level) field path — used as the diff's original_value
-function curVal(rec, path) { return (rec.field_values || {})[path]; }
+// current stored value at a record-relative path (nested paths included) — the diff's original_value
+function curVal(rec, path) { return getByPath(rec.field_values || {}, path); }
 
 // Wire the typed controls (+ free-text cells when textToo) inside a container to
-// onSave(path, value). Shared by record cards (per-record save) and the study panel
-// (propagate-to-all save). Handles select, allow_other, and multi-select (array value).
+// onSave(path, value). Shared by record cards (per-record save), the paper panel and the
+// legacy constant block. Handles select, allow_other, boolean selects, and multi-select.
 function wireControls(container, onSave, textToo) {
   if (textToo) container.querySelectorAll(".rv-editable").forEach((cell) => {
     if (cell.classList.contains("study-ident")) return;   // identity has its own handler
@@ -806,11 +1036,15 @@ function wireControls(container, onSave, textToo) {
   });
   container.querySelectorAll(".rv-selwrap").forEach((wrap) => {
     const path = wrap.dataset.path, sel = wrap.querySelector(".rv-select"), other = wrap.querySelector(".rv-other");
+    const isBool = wrap.classList.contains("rv-bool");
     const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
     sel.onchange = () => {
       if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
       if (other) other.hidden = true;
-      commit(sel.value || null);
+      if (isBool) { commit(sel.value === "" ? null : sel.value === "true"); return; }
+      // keep the declared option's own type (1 stays a number, "rct" a string)
+      const raw = sel.value || null;
+      commit(raw !== null && /^-?\d+(\.\d+)?$/.test(raw) && [...sel.options].some((o) => o.value === raw && !isNaN(Number(raw))) ? Number(raw) : raw);
     };
     if (other) other.addEventListener("blur", () => { if (sel.value === "__other__") commit(other.value.trim() || null); });
   });
@@ -832,6 +1066,97 @@ function isPageRef(path) {
   return leaf === "page" || leaf === "evidence_page" || leaf.endsWith("_page");
 }
 
+// Declared documents: bind every cell to the most specific evidence that supports it —
+// its own citation, else its row's, its table's, its entry's — and mark its citation
+// state. A declared "value" field with nothing is visibly uncited. Orphans never attach.
+function linkCells(card, rec) {
+  card.querySelectorAll("[data-path]").forEach((cell) => {
+    const p = cell.dataset.path;
+    const leaf = p.split(".").pop().replace(/\[\d+\]$/, "");
+    const info = VM.fieldIndex.get(leaf);
+    const def = info && info.field ? info.field : null;
+    const hit = evidenceFor(EV, VM, rec.id, p);
+    const isControl = cell.classList.contains("rv-selwrap") || cell.classList.contains("rv-multi");
+    const editable = cell.classList.contains("rv-editable") || isControl;
+    const isKey = cell.classList.contains("rv-key");
+    const hasValue = !isKey && (cell.classList.contains("rv-editable") || cell.classList.contains("rv-cell") || isControl)
+      && !cell.classList.contains("rv-missing") && (isControl || cell.textContent.trim() !== "");
+    // A field declared `evidence: value` must carry its OWN citation; the entry's or row's
+    // identifying snippet covers `row` fields, not a number the coder has to check.
+    const wantsOwn = def && def.evidence === "value";
+    if (hit) {
+      const exact = hit.kind === "exact";
+      const anyRect = hit.ids.some((i) => EV.hasRect[i]);
+      if (isKey) cell.classList.add("rv-linked");
+      else if (exact) cell.classList.add(anyRect ? "rv-cited" : "rv-cited-nofix");
+      else if (wantsOwn && hasValue) cell.classList.add("rv-uncited", "rv-covered");
+      else cell.classList.add("rv-covered");
+      cell.addEventListener("mouseenter", () => showEvidence(hit.ids));
+      cell.addEventListener("mouseleave", () => hideEvidence(hit.ids));
+      cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[hit.ids[0]].page, exact, kind: hit.kind }));
+      return;
+    }
+    if (wantsOwn && hasValue) cell.classList.add("rv-uncited");
+    // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay
+    // clickable-to-locate; a text value with no cited snippet has nothing to jump to.
+    if (cell.classList.contains("rv-num") && !isPageRef(p) && (!def || def.evidence !== "none")) {
+      if (!editable) cell.classList.add("rv-probe");
+      cell.addEventListener("click", () => locateAndFlash(cell));
+    }
+  });
+  // row / table citation chips
+  card.querySelectorAll(".rv-rowcite[data-rowpath]").forEach((slot) => {
+    const rp = slot.dataset.rowpath;
+    const ids = EV.rowCites.get(`${rec.id}|${rp}`);
+    const cconf = (rec.child_confidence || {})[rp];
+    let html = "";
+    if (ids) html += `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${DATA.evidence[ids[0]].page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p.${DATA.evidence[ids[0]].page || "?"}</button>`;
+    else html += `<span class="ev-cite ev-none" title="no citation for this row">–</span>`;
+    if (cconf) {
+      const worst = worstLevel(VM, cconf);
+      html += renderConfDot(worst, VM.levels, Object.entries(cconf).map(([g, r]) => `${(VM.groups[g] || {}).label || g}: ${r.level}${r.notes ? ` — ${r.notes}` : ""}`).join("\n"));
+    }
+    slot.innerHTML = html;
+  });
+  card.querySelectorAll(".rc-conf[data-rowpath]").forEach((slot) => {
+    const cconf = (rec.child_confidence || {})[slot.dataset.rowpath];
+    if (!cconf) return;
+    slot.innerHTML = Object.entries(cconf).map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("");
+  });
+  wireConfBadges(card);
+  card.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map(Number);
+    b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids);
+    b.onmouseleave = () => hideEvidence(ids);
+  });
+  // low-confidence fields: the coder looks there first
+  card.querySelectorAll("[data-group]").forEach((el) => {
+    const r = (rec.confidence || {})[el.dataset.group];
+    if (!r || r.level == null) return;
+    if (isLow(VM, r.level)) el.classList.add("rv-low");
+    else if (VM.levels.indexOf(String(r.level)) > 0) el.classList.add("rv-medium");
+  });
+  // per sub-entry card (a condition …): what has NO evidence, summarised where the coder
+  // looks — not only as markers on the individual cells
+  card.querySelectorAll(".rv-card.rv-childrow[data-rowpath]").forEach((cc) => {
+    const rp = cc.dataset.rowpath;
+    const pre = `${rec.id}|${rp}`;
+    const has = (m) => [...m.keys()].some((k) => k === pre || k.startsWith(pre + ".") || k.startsWith(pre + "["));
+    const wrap = cc.closest("[data-child]");
+    const info = wrap ? VM.fieldIndex.get(wrap.dataset.child) : null;
+    const what = ((info && info.child && info.child.label) || "sub-entry").toLowerCase();
+    const uv = cc.querySelectorAll(".rv-uncited").length;
+    const ur = [...cc.querySelectorAll(".rv-rowcite[data-rowpath] .ev-none")].filter((e) => e.closest(".rv-rowcite").dataset.rowpath !== rp).length;
+    cc.querySelectorAll(".rc-evsum").forEach((e) => e.remove());
+    let msg = "";
+    if (!has(EV.exact) && !has(EV.rowCites) && !has(EV.tableCites)) msg = `no evidence cited for this ${what}`;
+    else if (uv || ur) msg = [uv ? `${uv} value${uv === 1 ? "" : "s"}` : "", ur ? `${ur} row${ur === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ") + " without evidence";
+    if (msg) cc.querySelector(".rc-head").insertAdjacentHTML("afterend", `<div class="rc-evsum" title="cells marked “no evidence” have no citation of their own">⚠ ${esc(msg)}</div>`);
+  });
+}
+
+// Legacy documents: the longest-prefix path match that predates declared evidence policy.
 function linkValueCells(card, evs) {
   const linkable = evs.map(({ ev, i }) => ({ i, page: ev.page, path: stripCore(ev.field_path) }));
   card.querySelectorAll("[data-path]").forEach((cell) => {
@@ -846,17 +1171,10 @@ function linkValueCells(card, evs) {
     if (best) {
       cell.addEventListener("mouseenter", () => showEvidence(best.i));
       cell.addEventListener("mouseleave", () => hideEvidence(best.i));
-      // read-only cells get the "link" affordance; editable cells keep the text cursor
-      // + dashed underline so they still read as editable.
       if (!editable) cell.classList.add("rv-linked");
-      // Click ANY covered cell — value, dropdown/checkbox control, or the field-name key —
-      // to jump to its evidence. TEXT/categorical → the cited snippet; NUMBER → refine to
-      // the exact number. On a control the same click still opens/toggles it.
-      cell.addEventListener("click", () => verifyAndJump(cell, best));
+      cell.addEventListener("click", () => verifyAndJump(cell, { ids: [best.i], page: best.page, exact: best.path === p }));
       return;
     }
-    // No cited evidence. Verbatim value-search is NUMERIC-only, so only numbers stay
-    // clickable-to-locate; a text value with no cited snippet has nothing to jump to.
     if (cell.classList.contains("rv-num") && !isPageRef(p)) {
       if (!editable) cell.classList.add("rv-probe");
       cell.addEventListener("click", () => locateAndFlash(cell));
@@ -882,23 +1200,34 @@ async function locateAndFlash(cell) {
 //       (numbers are what readers verify); fall back to the snippet if it isn't there
 //       verbatim (rounded / transformed / computed — a soft note, not an error).
 const NUM_RE = /^-?\d[\d,]*(\.\d+)?%?$/;
-async function verifyAndJump(cell, best) {
+async function verifyAndJump(cell, hit) {
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();
   // Jump to the cited snippet IMMEDIATELY — the rects are already in the DOM, so this is
   // instant. For a number we then refine to its exact location once the server search
   // returns; the user never waits on that round-trip to see the evidence.
-  jumpToEvidence(best.page, best.i);
+  jumpToEvidence(hit.page, hit.ids);
   const txt = cell.textContent.trim();
-  // Only hunt for the exact number when the evidence points AT THIS cell (its field_path
-  // matches). A broad, table-level citation (e.g. "jump to Table 4" / a shared caption, or a
-  // headline-snippet citation) just lands on that snippet — never chase the number, which in
-  // dense tables (or a page number like "2") would light up every matching digit in the PDF.
-  if (best.path !== cell.dataset.path || !NUM_RE.test(txt) || isPageRef(cell.dataset.path)) return;
+  if (!NUM_RE.test(txt) || isPageRef(cell.dataset.path)) return;
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
+  if (!hit.exact) {
+    // A row citation: pinpoint the number INSIDE the cited row band(s) only — never the
+    // whole page, which in a dense table would light up every matching digit. The row
+    // stays lit; the number is marked on top of it. A table/entry-level citation just
+    // lands on its snippet.
+    if (hit.kind !== "row") return;
+    const bands = hit.ids.flatMap((i) => (DATA.evidence[i].page === hit.page ? (DATA.evidence[i].rect || []) : []))
+      .map(([, y, , h]) => `${Math.round(y)}:${Math.round(y + h)}`);
+    if (!bands.length) return;
+    try {
+      const r = await api.locateValue(DATA.document_id, num, hit.page, bands.join(","));
+      if (r && r.found) flashRects(hit.page, r.rects, { keep: true });
+    } catch { /* the row highlight stands */ }
+    return;
+  }
   try {
-    const r = await api.locateValue(DATA.document_id, num, best.page);    // (b) refine to the number
-    if (r && r.found) { flashRects(r.page || best.page, r.rects); return; }   // highlight where it actually is
+    const r = await api.locateValue(DATA.document_id, num, hit.page);    // (b) refine to the number
+    if (r && r.found) { flashRects(r.page || hit.page, r.rects); return; }   // highlight where it actually is
     if (r && r.no_pdf) return;                        // no PDF to search — the snippet jump stands
   } catch { return; }                                // network hiccup — the snippet jump stands
   // number isn't in the source verbatim → keep the snippet jump + a soft note
@@ -916,10 +1245,12 @@ function download(name, text, type) {
 function baseName() { return (DATA.schema_id || "records").replace(/[^a-z0-9]+/gi, "_"); }
 function downloadJSON() {
   const out = {
-    schema_id: DATA.schema_id, paper: DATA.paper,
+    schema_id: DATA.schema_id, paper: DATA.paper, paper_metadata: DATA.paper_metadata,
     records: DATA.records.map((r) => r.field_values),
-    // provenance parallel to records[]: review status + any human corrections (original→final,
-    // who, when) so a consumer can tell model-extracted values from human-corrected ones.
+    // the model's self-assessment per entry, and provenance parallel to records[]: review
+    // status + any human corrections (original→final, who, when) so a consumer can tell
+    // model-extracted values from human-corrected ones.
+    confidence: DATA.records.map((r) => ({ entry_index: r.entry_index, ...(r.confidence || {}), ...(Object.keys(r.child_confidence || {}).length ? { children: r.child_confidence } : {}) })),
     provenance: DATA.records.map((r) => ({
       entry_index: r.entry_index,
       verification_status: r.verification_status,
@@ -933,7 +1264,7 @@ function flattenRecord(fv) {
   const out = {};
   (function walk(obj, prefix) {
     Object.entries(obj || {}).forEach(([k, v]) => {
-      if (k === "evidence" || k === "extraction_confidence") return;
+      if (k === "evidence" || k === "extraction_confidence" || k === "confidence") return;
       const key = prefix ? `${prefix}.${k}` : k;
       if (v && typeof v === "object" && !Array.isArray(v) && !("_table" in v)) walk(v, key);
       else out[key] = v && typeof v === "object" ? JSON.stringify(v) : v;
@@ -941,10 +1272,28 @@ function flattenRecord(fv) {
   })(fv, "");
   return out;
 }
+const csvCell = (v) => Array.isArray(v) ? v.map((x) => (x && typeof x === "object" ? JSON.stringify(x) : x)).join("; ")
+  : (v && typeof v === "object" ? JSON.stringify(v) : v);
 function downloadCSV() {
-  const rows = DATA.records.map((r) => {
-    const flat = flattenRecord(r.field_values);
-    flat.verification_status = r.verification_status || "";        // provenance columns, appended last
+  const pm = DATA.paper_metadata || {};
+  const paperCols = VM.paper.fields.map((f) => f.name);
+  // the same rows as the grid: one per entry / sub-entry / table row (display.grid_rows),
+  // parent values repeated, so the file is the flat table a meta-analysis consumes
+  const rows = !VM.legacy ? gridRows(VM, DATA.records).map((row) => {
+    const flat = {};
+    paperCols.forEach((k) => (flat[`paper.${k}`] = pm[k]));            // paper-level fields on every row
+    flat.entry = row.idx;                                             // "0", "0.1", "0.1.2"
+    gridColumns(VM).forEach((c) => (flat[c.key] = csvCell(row.values[c.key])));
+    Object.entries(row.conf || {}).forEach(([g, v]) => (flat[`confidence.${g}`] = v && v.level));
+    flat.verification_status = row.rec.verification_status || "";    // provenance columns, appended last
+    flat.corrected_fields = (row.rec.corrections || []).map((c) => c.field_path).join("; ");
+    return flat;
+  }) : DATA.records.map((r) => {
+    const flat = {};
+    paperCols.forEach((k) => (flat[`paper.${k}`] = pm[k]));
+    Object.assign(flat, flattenRecord(r.field_values));
+    Object.entries(r.confidence || {}).forEach(([g, v]) => (flat[`confidence.${g}`] = v && v.level));
+    flat.verification_status = r.verification_status || "";
     flat.corrected_fields = (r.corrections || []).map((c) => c.field_path).join("; ");
     return flat;
   });

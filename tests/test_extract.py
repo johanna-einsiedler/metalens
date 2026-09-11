@@ -108,6 +108,9 @@ def test_full_extraction_chain() -> None:
         for key in out["page_image_keys"]:
             assert store.exists(key) and store.get(key)[:2] == b"\xff\xd8"  # JPEG magic
         assert len(out["page_image_keys"]) == 3
+        # the model's verbatim response is kept next to the PDF (what a coder debugs against)
+        raw = store.get(storage.raw_key(out["document_id"])).decode("utf-8")
+        assert '"sample_id": "S1"' in raw and store.exists(storage.raw_key(out["document_id"]))
 
     conn.close()
 
@@ -185,3 +188,196 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+# ── the server decides prompt + schema id (declarative presets) ───────────────
+
+_V2_FAKE_JSON = """{
+  "paper_metadata": {"title": "Video games and activity", "doi": null, "year": 2023, "authors": ["Lee C"], "journal": null},
+  "samples": [
+    {"sample_id": "S1", "pubyear": 2023, "country": "KR", "continent": "Asia", "lang": "ko", "pubtype": 1,
+     "female": 51.0, "age": 14.2, "clinical": 0, "notes": "",
+     "records": [{"var1": "pa", "var2": "vg", "desc1": "steps", "desc2": "hours", "es": -0.21, "type": "r",
+                  "n": 147, "rel1": 0.8, "rel2": null, "rel1_type": "alpha", "rel2_type": null,
+                  "instr1": "pedometer", "instr2": "self-report"}],
+     "confidence": {"effect_sizes": {"level": "high", "notes": "Table 2"},
+                    "reliabilities": {"level": "medium", "notes": "rel2 not reported"},
+                    "metadata": {"level": "low", "notes": "age inferred"}}}
+  ],
+  "evidence": [
+    {"snippet": "N = 147 participants", "page": 1, "source": null, "field": "samples[0]"},
+    {"snippet": "Table 2. Rotated factor matrix", "page": 3, "source": "Table 2", "field": "samples[0].records[0]"}
+  ]
+}"""
+
+
+def _fake_v2(pdf_bytes, prompt, *, model="", api_key="", base_url=None, use_text=False):
+    return extract.LLMResult(text=_V2_FAKE_JSON, finish_reason="stop", usage={}, resolved_model="fake")
+
+
+def test_run_with_a_spec_records_confidence_and_issues() -> None:
+    """A run under a format-2 preset: the declared core array drives ingest, per-sample
+    confidence reaches the view payload, structural issues are stored for triage, and the
+    exact prompt is remembered."""
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    from paperlens import presets, records
+    conn = records.connect(); records.init_db(conn)
+    run = presets.resolve_run(conn, preset_id="masem-direct")
+    assert run.schema_id == presets.schema_id_for("masem-direct") and run.entries_key == "samples"
+    assert run.prompt.startswith("# TASK") and not run.prompt_edited
+    with conn.transaction():
+        records.upsert_schema(conn, run.schema_id, run.field_defs)
+    with tempfile.TemporaryDirectory() as d:
+        out = extract.run_extraction(
+            conn, _make_pdf(_PAGES), prompt=run.prompt, model="gpt-4o", api_key="",
+            schema_id=run.schema_id, session_id="sess-v2", spec=run.spec, params=run.params,
+            complete=_fake_v2, store=storage.LocalObjectStore(root=d))
+    assert out["schema_id"] == run.schema_id and out["n_records"] == 1
+    view = records.document_view(conn, out["document_id"])
+    assert view["spec"]["entries"]["key"] == "samples" and view["field_defs"]["format"] == 2
+    rec = view["records"][0]
+    assert rec["confidence"]["metadata"] == {"level": "low", "notes": "age inferred"}
+    assert "confidence" not in rec["field_values"]
+    assert rec["extraction"]["prompt_sha256"] and rec["extraction"]["prompt_edited"] is False
+    # MASEMiner writes its own evidence rules (frozen prompt): no generated coverage rule,
+    # so an uncited value is not an issue here — see test_preset_spec for the generated case
+    assert not any(i["code"] == "uncited_value" for i in view["issues"])
+    assert not any(i["code"] == "missing_confidence" for i in view["issues"])
+    conn.close()
+
+
+def test_stale_and_unknown_schema_ids_resolve_sanely() -> None:
+    """A client still posting ``<preset>@v1`` lands on the preset's real (hashed) row; an
+    unknown id stays an 'auto' row; an EXISTING row is kept exactly."""
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    from paperlens import presets, records
+    conn = records.connect(); records.init_db(conn)
+    stale = presets.resolve_run(conn, schema_id="masem-direct@v1", prompt="my own text")
+    assert stale.schema_id == presets.schema_id_for("masem-direct") and stale.prompt_edited
+    assert stale.prompt == "my own text"
+    auto = presets.resolve_run(conn, schema_id="extract@v1", prompt="custom")
+    assert auto.schema_id == "extract@v1" and auto.field_defs is None and auto.spec is None
+    with conn.transaction():
+        records.upsert_schema(conn, "masem@v3", None)      # an old row with no grammar
+    kept = presets.resolve_run(conn, schema_id="masem@v3")
+    assert kept.schema_id == "masem@v3" and kept.prompt.startswith("# TASK")   # prompt via the alias
+    # the aliased legacy id renders the CURRENT preset's prompt when a preset_id is given
+    assert presets.resolve_run(conn, preset_id="masem").schema_id == presets.schema_id_for("masem-direct")
+    conn.close()
+
+
+def test_extract_endpoint_with_preset_id_returns_hashed_schema_id() -> None:
+    from paperlens import worker as wk
+    if not (_db_ok() and wk.redis_available()):
+        import pytest
+        pytest.skip("no Postgres/Redis available")
+    import asyncio, warnings
+    warnings.filterwarnings("ignore")
+    from arq import create_pool
+    from fastapi.testclient import TestClient
+    from paperlens import presets, records
+    from paperlens.app import app
+    c = TestClient(app)
+    r = c.post("/api/extract",
+               data={"preset_id": "masem-direct", "model": "gpt-4o", "api_key": "sk-test",
+                     "params": '{"effect_sizes": [{"code": "smd", "label": "SMD"}]}'},
+               files={"pdf": ("p.pdf", _make_pdf(_PAGES), "application/pdf")},
+               headers={"X-Session-Id": "s-v2"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["queued"] is True and body["schema_id"] == presets.schema_id_for("masem-direct")
+    conn = records.connect()
+    row = records.get_schema(conn, body["schema_id"])
+    assert row and row["field_defs"]["format"] == 2 and row["field_defs"]["schema_id"] == body["schema_id"]
+    conn.close()
+    # a malformed params blob is a 422, not a crash
+    r2 = c.post("/api/extract", data={"preset_id": "masem-direct", "model": "gpt-4o", "api_key": "k",
+                                      "params": "not json"},
+                files={"pdf": ("p.pdf", _make_pdf(_PAGES), "application/pdf")},
+                headers={"X-Session-Id": "s-v2"})
+    assert r2.status_code == 422
+
+    async def _flush():
+        pool = await create_pool(wk.redis_settings())
+        await pool.flushall(); await pool.aclose()
+    asyncio.run(_flush())
+
+
+def _table_pdf() -> bytes:
+    """One page, a three-panel table: the SAME row label in every panel, different cells,
+    and the en-dash of every interval encoded as the letter "e" the way some publishers'
+    text layers do ("(0.88e0.93)a" where the page shows "(0.88–0.93)a")."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    y = 100
+    for tool, cells in (("PRISMA", ["0.90 (0.88e0.93)a", "1878/1989 (94%, 93%e96%)a", "954/2943 (32%, 30%e34%)a"]),
+                        ("AMSTAR", ["0.92 (0.89e0.94)a", "798/837 (95%, 94%e97%)a", "362/1199 (30%, 28%e33%)a"]),
+                        ("PRECIS-2", ["0.73 (0.62e0.83)", "106/127 (83%, 77%e90%)", "377/504 (75%, 72%e78%)"])):
+        page.insert_text((40, y), f"Table 3 {tool}", fontsize=9)
+        y += 16
+        page.insert_text((40, y), "(4) Human Rater 1 & Claude-3-Opus", fontsize=8)
+        for k, cell in enumerate(cells):
+            page.insert_text((230 + 120 * k, y), cell, fontsize=8)
+        y += 60
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+_ROW = "(4) Human Rater 1 & Claude-3-Opus 0.90 (0.88–0.93)a 1878/1989 (94%, 93%–96%)a 954/2943 (32%, 30%–34%)a"
+
+
+def test_table_row_citation_lights_the_whole_row() -> None:
+    """A row citation whose snippet cannot match as one string (cells are separate spans,
+    the dashes differ) used to highlight only the row LABEL — three times, once per panel.
+    Now the whole row lights up, and the snippet's own numbers pick the right panel."""
+    scale = pdf_utils.DISPLAY_DPI / 72.0
+    pdf = _table_pdf()
+    row_cite = {"page": 1, "snippet": _ROW, "field": "experiments[0].conditions[0].measures[0]", "source": "Table 3"}
+    _pages, hl, _ = pdf_utils.pdf_to_pages_with_rects(pdf, [row_cite], render_pages=False)
+    assert _pages == [] and len(hl) == 1
+    rects = hl[0]["rects"]
+    assert len(rects) == 1, rects                          # the PRISMA row only: its numbers are there
+    x, y, w, h = rects[0]
+    assert x + w > 470 * scale and 100 * scale < y < 125 * scale   # label through the last cell, first panel
+
+    # the same snippet cited for ONE value: no expansion (the label anchors, three panels)
+    value_cite = dict(row_cite, field="experiments[0].conditions[0].AI_Type")
+    _p, hl, _ = pdf_utils.pdf_to_pages_with_rects(pdf, [value_cite], render_pages=False)
+    assert len(hl[0]["rects"]) == 3 and all(r[2] < 200 * scale for r in hl[0]["rects"])
+
+    # numbers that match no panel: every candidate row lights up whole (the coder decides)
+    vague = dict(row_cite, snippet="(4) Human Rater 1 & Claude-3-Opus 0.55 (0.50–0.60) 5/9 (55%)")
+    _p, hl, _ = pdf_utils.pdf_to_pages_with_rects(pdf, [vague], render_pages=False)
+    assert len(hl[0]["rects"]) == 3 and all(r[0] + r[2] > 470 * scale for r in hl[0]["rects"])
+
+
+def test_evidence_fields_list_expands_and_bands_filter() -> None:
+    items = pdf_utils.evidence_items_from_result(
+        '{"evidence": [{"snippet": "deferred to a second rater", "page": 2, "source": null,'
+        ' "field": ["experiments[0].conditions[0].Final_Decision", "experiments[0].conditions[1].Final_Decision"]},'
+        ' {"snippet": "no path", "page": 2, "source": null, "field": []}]}')
+    assert [i["field"] for i in items] == ["experiments[0].conditions[0].Final_Decision",
+                                           "experiments[0].conditions[1].Final_Decision", None]
+    assert pdf_utils.parse_bands("722:738,1002.4:1018") == [(722.0, 738.0), (1002.4, 1018.0)]
+    rects = [[903, 722, 40, 16], [906, 770, 40, 16], [912, 793, 40, 16]]
+    assert pdf_utils.rects_in_bands(rects, [(720, 740)]) == [[903, 722, 40, 16]]
+    assert pdf_utils.rects_in_bands(rects, []) == rects
+
+
+def test_number_locator_prefers_whole_numbers() -> None:
+    """"94" must land on the "94%" cell, not inside "2943" or "1994" on the same line."""
+    import fitz
+    doc = fitz.open(); page = doc.new_page()
+    page.insert_text((60, 100), "1878/1989 (94%, 93%e96%)a   954/2943 (32%)   since 1994", fontsize=10)
+    pdf = doc.tobytes(); doc.close()
+    scale = pdf_utils.DISPLAY_DPI / 72.0
+    rects = pdf_utils.locate_value_rects(pdf, 1, "94")
+    assert len(rects) == 1 and 60 * scale < rects[0][0] < 200 * scale, rects
+    assert len(pdf_utils.locate_value_rects(pdf, 1, "2943")) == 1
+    assert len(pdf_utils.locate_value_rects(pdf, 1, "1994")) == 1

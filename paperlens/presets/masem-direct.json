@@ -1,74 +1,379 @@
 {
+  "format": 2,
   "id": "masem-direct",
-  "title": "MASEMiner",
-  "tagline": "Extract effect sizes or factor loadings for Meta-Analytic SEM — choose direct or indirect information on the next step.",
-  "description": "MASEMiner — direct-information variant. Extracts pairwise effect sizes (and the reliability + instrument metadata reported with them) into a flat `records[]` array per sample, plus coded study metadata. Use it when papers report the effect sizes themselves (correlation matrices, prose-reported correlations, other bivariate statistics). The sibling indirect-information variant extracts factor loadings and inter-factor correlations instead.",
-  "mode": "extraction",
-  "default_provider": "openai",
-  "default_model": "gpt-4o",
-  "task_description": "Extract every reported pairwise effect size (with canonical and verbatim variable labels, sample size, reliability, and instrument metadata) and coded study/sample metadata for every sample reported in the paper.",
-  "context": "MASEMiner workflow for primary studies that report effect sizes DIRECTLY — correlation matrices, prose-reported correlations, or other bivariate effect-size statistics.",
-  "prompt_template_file": "masem-effect-sizes.template.md",
-  "template_params": {
-    "scale_name": "the target instrument",
-    "instrument_name": "the target instrument",
-    "instrument_name_long": "the target instrument",
-    "n_items": 0,
-    "n_factors": 0,
-    "factor_naming": [],
-    "cfa_item_assignment": {},
-    "data_sources": [
-      "records"
-    ],
-    "content_scope": "concrete_items",
-    "include_item_texts": false,
-    "item_texts": [],
-    "variables": [],
-    "effect_sizes": [
+  "version": 2,
+  "meta": {
+    "title": "MASEMiner",
+    "tagline": "Extract effect sizes or factor loadings for Meta-Analytic SEM — choose direct or indirect information on the next step.",
+    "description": "Direct-information variant: pairwise effect sizes (with reliability + instrument metadata) per sample, plus coded sample metadata. Use it when papers report the effect sizes themselves — correlation matrices, prose-reported correlations, other bivariate statistics. The sibling indirect-information variant extracts factor loadings and inter-factor correlations instead.",
+    "mode": "extraction",
+    "hidden": false
+  },
+  "prompt": {
+    "file": "masem-direct.prompt.md",
+    "params": {
+      "effect_sizes": {
+        "type": "table",
+        "columns": [
+          "code",
+          "label"
+        ],
+        "label": "Effect sizes",
+        "help": "canonical effect-size codes to extract (one per line: code: label)",
+        "default": [
+          {
+            "code": "r",
+            "label": "Correlation"
+          },
+          {
+            "code": "or",
+            "label": "Odds ratios"
+          }
+        ],
+        "empty": "(no canonical effect sizes defined — extract any reported pairwise effect size)"
+      },
+      "variables": {
+        "type": "table",
+        "columns": [
+          "name",
+          "definition",
+          "synonyms"
+        ],
+        "label": "Variables",
+        "help": "canonical variable codes with a definition; everything else is ignored",
+        "default": [],
+        "empty": "(no variables defined — extract every reported pairwise effect size)"
+      }
+    },
+    "generate": []
+  },
+  "paper": {
+    "fields": []
+  },
+  "entries": {
+    "key": "samples",
+    "label": "Sample",
+    "help": "an analytically distinct group (independent cohort, subgroup, wave); not robustness checks or repeated mentions of the same participants",
+    "cardinality": "many",
+    "id_field": "sample_id",
+    "title": "Sample {sample_id}",
+    "evidence": "row",
+    "fields": [
       {
-        "code": "r",
-        "label": "Correlation"
+        "name": "sample_id",
+        "type": "string",
+        "required": true,
+        "label": "Sample id",
+        "help": "the paper's own label for the sample, e.g. 'Study 1 – adolescents'",
+        "evidence": "row"
       },
       {
-        "code": "or",
-        "label": "Odds ratios"
+        "name": "pubyear",
+        "type": "integer",
+        "label": "Publication year",
+        "evidence": "value",
+        "confidence": "metadata"
+      },
+      {
+        "name": "country",
+        "type": "string",
+        "label": "Country",
+        "help": "country of the sample",
+        "evidence": "value",
+        "confidence": "metadata"
+      },
+      {
+        "name": "continent",
+        "type": "string",
+        "label": "Continent",
+        "evidence": "row",
+        "confidence": "metadata"
+      },
+      {
+        "name": "lang",
+        "type": "string",
+        "label": "Language",
+        "help": "language of respondents",
+        "evidence": "value",
+        "confidence": "metadata"
+      },
+      {
+        "name": "pubtype",
+        "type": "enum",
+        "label": "Publication type",
+        "evidence": "row",
+        "confidence": "metadata",
+        "options": [
+          {
+            "value": 1,
+            "label": "journal article"
+          },
+          {
+            "value": 2,
+            "label": "book"
+          },
+          {
+            "value": 3,
+            "label": "thesis/dissertation"
+          },
+          {
+            "value": 4,
+            "label": "proceedings/presentation"
+          },
+          {
+            "value": 5,
+            "label": "other"
+          }
+        ]
+      },
+      {
+        "name": "female",
+        "type": "number",
+        "label": "% female",
+        "range": [
+          0,
+          100
+        ],
+        "evidence": "value",
+        "confidence": "metadata"
+      },
+      {
+        "name": "age",
+        "type": "number",
+        "label": "Mean age",
+        "help": "in years",
+        "evidence": "value",
+        "confidence": "metadata"
+      },
+      {
+        "name": "clinical",
+        "type": "enum",
+        "label": "Clinical status",
+        "evidence": "value",
+        "confidence": "metadata",
+        "options": [
+          {
+            "value": 0,
+            "label": "nonclinical sample"
+          },
+          {
+            "value": 1,
+            "label": "clinical sample"
+          },
+          {
+            "value": 2,
+            "label": "mixed clinical/nonclinical sample"
+          }
+        ]
+      },
+      {
+        "name": "notes",
+        "type": "text",
+        "label": "Notes",
+        "help": "anything a coder must know: other reported reliabilities, exclusions, ambiguities",
+        "evidence": "none"
       }
     ],
-    "study_characteristics_text": ""
+    "children": [
+      {
+        "key": "records",
+        "label": "Effect size",
+        "help": "one explicitly reported zero-order association between two canonical variables",
+        "title": "{var1} – {var2}",
+        "evidence": "row",
+        "layout": "table",
+        "fields": [
+          {
+            "name": "var1",
+            "type": "enum",
+            "options": "${variables}",
+            "required": true,
+            "label": "Variable 1",
+            "help": "canonical code of the first variable (alphabetical order)",
+            "evidence": "row",
+            "confidence": "effect_sizes"
+          },
+          {
+            "name": "var2",
+            "type": "enum",
+            "options": "${variables}",
+            "required": true,
+            "label": "Variable 2",
+            "help": "canonical code of the second variable",
+            "evidence": "row",
+            "confidence": "effect_sizes"
+          },
+          {
+            "name": "desc1",
+            "type": "string",
+            "label": "Operationalisation 1",
+            "help": "how the paper measured var1",
+            "evidence": "row"
+          },
+          {
+            "name": "desc2",
+            "type": "string",
+            "label": "Operationalisation 2",
+            "help": "how the paper measured var2",
+            "evidence": "row"
+          },
+          {
+            "name": "es",
+            "type": "number",
+            "required": true,
+            "label": "Effect size",
+            "range": [
+              -1,
+              1
+            ],
+            "help": "the reported statistic, exactly as printed",
+            "evidence": "value",
+            "confidence": "effect_sizes"
+          },
+          {
+            "name": "type",
+            "type": "enum",
+            "options": "${effect_sizes}",
+            "required": true,
+            "label": "Effect-size type",
+            "evidence": "row",
+            "confidence": "effect_sizes"
+          },
+          {
+            "name": "n",
+            "type": "integer",
+            "label": "N",
+            "help": "sample size for this statistic",
+            "evidence": "value",
+            "confidence": "effect_sizes"
+          },
+          {
+            "name": "rel1",
+            "type": "number",
+            "label": "Reliability 1",
+            "range": [
+              0,
+              1
+            ],
+            "help": "reliability of var1 in this sample",
+            "evidence": "value",
+            "confidence": "reliabilities"
+          },
+          {
+            "name": "rel2",
+            "type": "number",
+            "label": "Reliability 2",
+            "range": [
+              0,
+              1
+            ],
+            "help": "reliability of var2 in this sample",
+            "evidence": "value",
+            "confidence": "reliabilities"
+          },
+          {
+            "name": "rel1_type",
+            "type": "enum",
+            "label": "Reliability type 1",
+            "options": [
+              "alpha",
+              "omega",
+              "icc",
+              "kappa",
+              "other"
+            ],
+            "evidence": "row",
+            "confidence": "reliabilities"
+          },
+          {
+            "name": "rel2_type",
+            "type": "enum",
+            "label": "Reliability type 2",
+            "options": [
+              "alpha",
+              "omega",
+              "icc",
+              "kappa",
+              "other"
+            ],
+            "evidence": "row",
+            "confidence": "reliabilities"
+          },
+          {
+            "name": "instr1",
+            "type": "string",
+            "label": "Instrument 1",
+            "help": "instrument measuring var1",
+            "evidence": "row"
+          },
+          {
+            "name": "instr2",
+            "type": "string",
+            "label": "Instrument 2",
+            "help": "instrument measuring var2",
+            "evidence": "row"
+          }
+        ]
+      }
+    ]
   },
-  "sub_views": [
-    {
-      "id": "effectsizes",
-      "label": "Effect sizes",
-      "include_keys": [
-        "sample_id",
-        "records"
-      ],
-      "evidence_keys": [
-        "records"
-      ],
-      "confidence_keys": [
-        "effect_sizes",
-        "reliabilities"
-      ]
-    },
-    {
-      "id": "descriptives",
-      "label": "Descriptives",
-      "exclude_keys": [
-        "records",
-        "effect_sizes",
-        "reliabilities",
-        "factor_loadings",
-        "factor_correlations",
-        "correlation_matrix",
-        "single_correlations"
-      ],
-      "confidence_keys": [
-        "metadata"
-      ]
-    }
-  ],
-  "skip_to": "setup",
-  "accent_color": "#1d4a8c"
+  "confidence": {
+    "levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "notes": true,
+    "groups": [
+      {
+        "id": "effect_sizes",
+        "label": "Effect sizes",
+        "scope": "entry",
+        "help": "correct var1/var2 mapping and correct numeric values"
+      },
+      {
+        "id": "reliabilities",
+        "label": "Reliabilities",
+        "scope": "entry",
+        "help": "rel1/rel2 and their types"
+      },
+      {
+        "id": "metadata",
+        "label": "Sample metadata",
+        "scope": "entry",
+        "help": "the sample metadata block"
+      }
+    ]
+  },
+  "display": {
+    "tabs": [
+      {
+        "id": "effectsizes",
+        "label": "Effect sizes",
+        "fields": [
+          "records"
+        ]
+      },
+      {
+        "id": "descriptives",
+        "label": "Descriptives",
+        "fields": [
+          "sample_id",
+          "pubyear",
+          "country",
+          "continent",
+          "lang",
+          "pubtype",
+          "female",
+          "age",
+          "clinical",
+          "notes"
+        ]
+      }
+    ],
+    "entries": "cards",
+    "grid_rows": "records",
+    "triage": "low_confidence_first",
+    "paper_panel": "open"
+  }
 }

@@ -81,8 +81,69 @@ MASEM_RICH_JSON = """{
   }
 }"""
 
+# Format-2 document: declared paper field + paper-scope confidence, samples with a
+# sub-entry array (records) that carries its own confidence, per-sample confidence,
+# and top-level evidence addressing sub-entries by path.
+MASEM_V2_JSON = """{
+  "paper_metadata": {"title": "Video-game use and physical activity in adolescents", "doi": "10.1000/vg.2023.001", "year": 2023, "authors": ["Lee C", "Park D"], "journal": "J Behav Med",
+                     "preregistered": true,
+                     "confidence": {"design": {"level": "high", "notes": "stated in methods"}}},
+  "samples": [
+    {"sample_id": "S1", "pubyear": 2023, "country": "KR", "n": 412,
+     "records": [
+        {"var1": "pa", "var2": "vg", "es": -0.21, "type": "r", "n": 412, "confidence": {"row_check": {"level": "high", "notes": "Table 2 row 3"}}},
+        {"var1": "bm", "var2": "vg", "es": 0.08, "type": "r", "n": 412}
+     ],
+     "confidence": {"effect_sizes": {"level": "high", "notes": "all from Table 2"}, "metadata": {"level": "medium", "notes": "n inferred from df"}}},
+    {"sample_id": "S2", "pubyear": 2023, "country": "KR", "n": 198,
+     "records": [{"var1": "pa", "var2": "vg", "es": -0.17, "type": "r", "n": 198}],
+     "confidence": {"effect_sizes": {"level": "medium", "notes": "correlation read from figure"}, "metadata": {"level": "high", "notes": ""}}}
+  ],
+  "evidence": [
+    {"snippet": "Study 1 (N = 412)", "page": 3, "source": null, "field": "samples[0]"},
+    {"snippet": "r = -.21", "page": 5, "source": "Table 2", "field": "samples[0].records[0].es"},
+    {"snippet": "r = .08", "page": 5, "source": "Table 2", "field": "samples[0].records[1].es"},
+    {"snippet": "Study 2 (N = 198)", "page": 7, "source": null, "field": "samples[1]"},
+    {"snippet": "r = -.17", "page": 8, "source": "Figure 3", "field": "samples[1].records[0].es"}
+  ]
+}"""
+
+# What the shipping MASEM prompts actually produce: a PER-SAMPLE ``extraction_confidence``
+# block of bare strings. Ingest used to drop it while strip_to_publishable kept it, so the
+# round-trip invariant silently failed for every real MASEM document.
+MASEM_LEGACY_ENTRY_CONF_JSON = """{
+  "paper_metadata": {"title": "Need for Cognition, Sample X", "doi": "10.5555/ncs.2020.7", "year": 2020, "authors": ["Q R"]},
+  "samples": [
+    {"sample_id": "S1", "n": 300, "nfac": 1,
+     "extraction_confidence": {"factor_loadings": "high", "factor_correlations": "low", "metadata": "medium"},
+     "evidence": [{"snippet": "N = 300", "page": 2, "source": null, "field": "samples[0].n"}]}
+  ]
+}"""
+
+# One quote reused for several values: ``field`` is a LIST of paths. The spine stores one
+# span per path, and the publishable form is the expanded list — so the model can cite the
+# shared design sentence once for every condition instead of dropping the later ones.
+HAC_LINKED_EVIDENCE_JSON = """{
+  "paper_metadata": {"title": "Benchmarking human-AI collaboration", "doi": null, "year": 2024, "authors": ["Woelfle T"], "journal": "J Clin Epidemiol"},
+  "experiments": [
+    {"Exp_ID": "PRISMA", "Task_Type": "Decide",
+     "conditions": [
+        {"Condition_Name": "Human Rater 1 & Claude-3-Opus", "Final_Decision": "AI", "measures": [{"Perf_Metric": "Agreement (%)", "Avg_Perf_HumanAI": 94}]},
+        {"Condition_Name": "Human Rater 1 & GPT-4", "Final_Decision": "AI", "measures": [{"Perf_Metric": "Agreement (%)", "Avg_Perf_HumanAI": 89}]}
+     ],
+     "confidence": {"design": {"level": "high", "notes": ""}}}
+  ],
+  "evidence": [
+    {"snippet": "Ratings were marked as deferred (undecided) in case of inconsistency", "page": 1, "source": null,
+     "field": ["experiments[0].conditions[0].Final_Decision", "experiments[0].conditions[1].Final_Decision"]},
+    {"snippet": "(4) Human Rater 1 & Claude-3-Opus 1878/1989 (94%)", "page": 7, "source": "Table 3", "field": "experiments[0].conditions[0].measures[0]"}
+  ]
+}"""
+
 ALL_FIXTURES = {
     "forestplot": FORESTPLOT_JSON,
     "masem": MASEM_JSON,
     "masem_rich": MASEM_RICH_JSON,
+    "masem_v2": MASEM_V2_JSON,
+    "masem_legacy_entry_conf": MASEM_LEGACY_ENTRY_CONF_JSON,
 }

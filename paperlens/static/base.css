@@ -117,6 +117,13 @@ main.split { display: flex; height: calc(100vh - 53px); }
 .doctab:hover { border-color: var(--accent-3); }
 .doctab.active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; }
 .doctab .dt-n { font-size: 11px; background: var(--bg); border-radius: 8px; padding: 0 6px; }
+/* the open paper's parts: Paper + one line per entry, under its tab */
+.docsub { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 8px 10px; padding-left: 8px; border-left: 2px solid var(--border); }
+.docsub-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0; background: none;
+  font-size: 12px; padding: 3px 6px; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; }
+.docsub-item .docsub-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docsub-item:hover { background: var(--bg); color: var(--text); }
+.docsub-item.active { background: var(--accent-wash); color: var(--accent); font-weight: 600; }
 /* this-round jobs still processing / failed, shown alongside the document tabs */
 .doctab.jobpend { color: var(--text-muted); font-size: 12px; cursor: default; justify-content: space-between; }
 .jobstop { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px;
@@ -176,7 +183,7 @@ main.split { display: flex; height: calc(100vh - 53px); }
 /* dataset activity feed: icon | what changed | when */
 .ds-activity:empty { display: none; }
 .act-head { padding: 0 0 8px; font-size: 12px; }
-.act-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 1px solid var(--line, #eee); font-size: 13px; }
+.act-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; }
 .act-icon { width: 1.2em; text-align: center; opacity: .6; flex: none; }
 .act-main { flex: 1; min-width: 0; }
 .act-when { flex: none; font-size: 12px; white-space: nowrap; }
@@ -465,6 +472,9 @@ a.acct:hover { color: var(--accent); }
 .radio { display: flex; align-items: center; gap: 7px; font-size: 13px; margin: 5px 0; cursor: pointer; }
 .radio-row { display: flex; gap: 20px; align-items: center; margin-top: 4px; }
 .radio-row .radio { margin: 0; }
+/* a radio inside a labelled field keeps its inline layout (the block label rule above would stack it) */
+.wf-field .radio { display: flex; font-weight: 400; margin: 0; white-space: nowrap; }
+.wf-field .radio input { width: auto; padding: 0; margin: 0; flex: none; }
 /* hover-for-concrete-example tooltip on field headlines (positioned by JS to the
    side of the content column; light popover, not white-on-dark) */
 .hl { cursor: help; border-bottom: 1px dotted var(--text-muted); }
@@ -507,6 +517,9 @@ a.acct:hover { color: var(--accent); }
   border-radius: var(--radius-sm); padding: 11px 13px; background: var(--surface); cursor: pointer; }
 .method-card:hover { border-color: var(--accent-3); }
 .method-card.sel { border-color: var(--accent); background: var(--accent-wash); }
+.method-card.sub { border-style: dashed; margin-left: 14px; }           /* a saved setup under its base */
+.masem-setup-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.masem-setup-row input { max-width: 260px; }
 .method-card .mc-title { font-weight: 600; font-size: 13px; color: var(--text); }
 .method-card .mc-sub { font-size: 11.5px; color: var(--text-muted); }
 
@@ -637,3 +650,13 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
   border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
   font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
   color: var(--text-muted); }
+
+/* ── preset editor: live validation + preview ───────────────────────────────── */
+.pe-check { margin: 4px 0 12px; font-size: 13px; }
+.pe-ok { color: var(--success); }
+.pe-warn { color: var(--conf-med); margin-top: 4px; }
+.pe-warn ul, .pe-err ul { margin: 4px 0 0; padding-left: 18px; }
+.pe-err { color: var(--error); background: var(--error-bg); border: 1px solid var(--error); border-radius: var(--radius-sm); padding: 8px 12px; }
+.pe-preview { margin: 0 0 14px; }
+.pe-preview > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.pe-preview .md-preview { margin-top: 8px; max-height: 420px; }

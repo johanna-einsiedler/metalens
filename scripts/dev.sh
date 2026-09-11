@@ -9,6 +9,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The package must come from THIS checkout, whatever the venv's launchers point at (a copied
+# .venv keeps the original repo's interpreter and its editable install of the original code —
+# the worker then runs stale code while uvicorn, which adds the cwd itself, runs the new one).
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+
 # --- load local secrets / overrides (credit provider key, DB/Redis, …) ----------
 if [ -f .env ]; then set -a; . ./.env; set +a; echo "· loaded .env"; fi
 

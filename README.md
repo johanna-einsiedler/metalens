@@ -21,8 +21,8 @@ as a **frozen spec**, not code to evolve.
 | `paperlens/principal.py` | The identity seam (`Principal{session_id, user_id}`) — resolved per request: anonymous via `X-Session-Id`, authenticated via the session cookie. |
 | `paperlens/auth.py` | Phase 2 accounts: bcrypt email+password, opaque cookie sessions, and claim-on-login (hand an anon session's records + datasets to the user). Holds no API keys. |
 | `paperlens/enrich.py` | DOI enrichment (Crossref→Unpaywall→OpenAlex + JEL prediction + DOI-prefix link typing), each field tagged with `paper_field_provenance`. HTTP injected for offline tests. |
-| `paperlens/presets.py` | Facade over `presets_loader`: `prompt_for()` (rendered extraction prompt) + `emit_schema_row()` (resolved `sub_views` → `schema.field_defs`; presets stay source of truth). |
-| `paperlens/presets_loader.py` | **Vendored** from the archive — preset discovery + the full prompt-template rendering (`<id>.template.md` + `template_params`) for all presets. |
+| `paperlens/presets.py` | The one facade over presets (built-in files + personal DB rows): `get()`, `prompt_for()`, `render()`, `emit_schema_row()` (→ `schema.field_defs`), `schema_id_for()`, `is_visible()`. Presets stay the source of truth. |
+| `paperlens/preset_spec.py` | The declarative preset format (format 2): one JSON document per task — prompt + typed params, metadata, paper / entries / sub-entry fields, evidence and confidence policy, display. Validation, content-addressed schema ids, and the GENERATED prompt sections (output schema, evidence, confidence, return format) so prompt and review UI cannot disagree. `presets_legacy.py` upgrades pre-format rows on read. |
 | `paperlens/worker.py` | Arq task queue: `extract_job` / `enrich_paper_task` / `ingest_task` (restart-safe), `RedisSettings`, and sync `enqueue`/`job_status` helpers for the API. |
 | `paperlens/storage.py` | Object storage for PDFs / page images — `LocalObjectStore` (default) + `S3ObjectStore` (R2/S3, boto3 lazy-imported), chosen by env via `get_store()`. |
 | `paperlens/extract.py` | PDF extraction orchestrator: render → (injectable) LLM → parse → evidence-rect highlight → ingest into records → store page images + attach rects. |
@@ -69,8 +69,8 @@ records). The extraction LLM step is injectable, so the full chain is proven wit
 generated PDF + a fake provider — real runs supply a browser-side key per request.
 
 All extraction presets render end-to-end: `POST /api/extract -F schema_id=<preset>@<ver>`
-pulls the rendered prompt (masem / econ-headline / ai-findings / masem-ncs18 / forestplot
-/ summarize) — no hand-written prompt needed. Supply `model` + `api_key` (browser-side).
+pulls the rendered prompt (masem-direct / masem-indirect / human-ai-collab / summarize)
+— no hand-written prompt needed. Supply `model` + `api_key` (browser-side).
 
 **Phase 2 (accounts + persistent owned datasets) is done:** owned, principal-scoped
 `dataset`s (`dataset_id` no longer floats `NULL`); email+password accounts with cookie

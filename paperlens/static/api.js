@@ -12,15 +12,24 @@ function sid() {
 }
 
 async function req(path, opts = {}) {
+  // opts first: a caller's own headers (content-type) MERGE with the session header
+  // rather than replacing it, otherwise every JSON POST would arrive anonymous.
   const r = await fetch(path, {
     credentials: "same-origin",
-    headers: { "X-Session-Id": sid(), ...(opts.headers || {}) },
     ...opts,
+    headers: { "X-Session-Id": sid(), ...(opts.headers || {}) },
   });
   if (!r.ok) {
-    let msg = r.statusText;
-    try { msg = (await r.json()).detail || msg; } catch { /* ignore */ }
-    throw new Error(`${r.status} ${msg}`);
+    let msg = r.statusText, detail = null;
+    try {
+      detail = (await r.json()).detail;
+      // a structured detail ({message, errors}) keeps its shape on the error for callers
+      // that can show it (the preset editor lists every validation problem)
+      msg = (typeof detail === "string" ? detail : detail && detail.message) || msg;
+    } catch { /* ignore */ }
+    const err = new Error(`${r.status} ${msg}`);
+    err.detail = detail;
+    throw err;
   }
   const ct = r.headers.get("content-type") || "";
   return ct.includes("json") ? r.json() : r.text();
@@ -67,14 +76,21 @@ export const api = {
   documents: (f) => req(`/api/documents${qs(f)}`),
   myPapers: () => req(`/api/papers/mine`),
   deletePaper: (sha) => req(`/api/papers/mine/${encodeURIComponent(sha)}`, { method: "DELETE" }),
-  checkDuplicates: (hashes, schemaId) => req(`/api/documents/check-duplicates`, json({ hashes, schema_id: schemaId })),
+  checkDuplicates: (hashes, schemaId, presetId) => req(`/api/documents/check-duplicates`,
+    json({ hashes, schema_id: schemaId, preset_id: presetId || null })),
   setDocumentField: (docId, key, value) => req(`/api/documents/${docId}/set-field`, json({ key, value })),
   updatePaper: (docId, fields) => req(`/api/documents/${docId}/paper`, { method: "PATCH",
     headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
   documentView: (id) => req(`/api/documents/${id}/view`),
   recordEvents: (id) => req(`/api/records/${id}/events`),
-  locateValue: (id, value, page) =>
-    req(`/api/documents/${id}/locate?value=${encodeURIComponent(value)}&page=${page}`),
+  // `bands` ("y0:y1,…", image pixels of `page`) restricts the search to the cited table row(s)
+  locateValue: (id, value, page, bands) =>
+    req(`/api/documents/${id}/locate?value=${encodeURIComponent(value)}&page=${page}${bands ? `&bands=${encodeURIComponent(bands)}` : ""}`),
+  // the model's verbatim response as stored at extraction time; null when none was kept
+  rawResponse: async (id) => {
+    const r = await fetch(`/api/documents/${id}/raw`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });
+    return r.ok ? r.text() : null;
+  },
   documentText: (id, page) =>
     req(`/api/documents/${id}/text${page != null ? `?page=${page}` : ""}`),
   aggregate: (body) => req(`/api/aggregate`, json(body)),
@@ -88,17 +104,20 @@ export const api = {
   analysisRows: (viewId) => req(`/api/analyses/${viewId}/rows`),
   proposeFigures: (body) => req(`/api/analyses/propose-figures`, json(body)),
   presets: () => req(`/api/presets`),
+  ingest: (body) => req(`/api/ingest`, json(body)),                    // JSON only, no PDF
+  schema: (id) => req(`/api/schemas/${encodeURIComponent(id)}`),
   myPresets: () => req(`/api/presets/mine`),
   presetPrompt: (id) => req(`/api/presets/${id}/prompt`),
   presetDetail: (id) => req(`/api/presets/${encodeURIComponent(id)}/detail`),
   createPreset: (body) => req(`/api/presets`, json(body)),
+  validatePreset: (spec) => req(`/api/presets/validate`, json({ spec })),
+  renderPreset: (id, params) => req(`/api/presets/${encodeURIComponent(id)}/render`, json({ params: params || {} })),
   updatePreset: (id, body) => req(`/api/presets/${encodeURIComponent(id)}`,
     { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   deletePreset: (id) => req(`/api/presets/${encodeURIComponent(id)}`, { method: "DELETE" }),
   buildPresetPrompt: (body) => req(`/api/build-preset-prompt`, json(body)),
   models: () => req(`/static/models.json`),
   testKey: (body) => req(`/api/providers/test`, json(body)),
-  designPrompt: (body) => req(`/api/design-prompt`, json(body)),
   extract: (formData) => req(`/api/extract`, { method: "POST", body: formData }),
   ingestPdf: (formData) => req(`/api/ingest-pdf`, { method: "POST", body: formData }),
   ingest: (body) => req(`/api/ingest`, json(body)),

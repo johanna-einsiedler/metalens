@@ -163,3 +163,8 @@ def pdf_key(doc_id: str) -> str:
 
 def page_image_key(doc_id: str, page: int) -> str:
     return f"pages/{doc_id}/{page}.jpg"
+
+
+def raw_key(doc_id: str) -> str:
+    """The model's verbatim response (or the JSON that was imported), as text."""
+    return f"raw/{doc_id}.txt"

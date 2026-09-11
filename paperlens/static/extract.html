@@ -111,6 +111,13 @@
 
                 <div class="wf-field"><label>Live preview <span class="muted"><span id="masemPreviewLen">0</span> characters</span></label>
                   <div id="masemPreviewBox" class="md-preview"></div></div>
+                <div class="wf-field masem-setup"><label>Save this setup <span class="muted">(private to you)</span></label>
+                  <div class="sf-help">Keep these values as a sub-preset of MASEMiner — next time pick it in step 1 instead of pasting the scale again.</div>
+                  <div class="masem-setup-row">
+                    <input id="masemSetupName" type="text" placeholder="e.g. NCS-18"/>
+                    <button type="button" class="btn btn-ghost" id="masemSetupSave">Save setup</button>
+                    <span id="masemSetupStatus" class="muted"></span>
+                  </div></div>
                 <div class="wf-actions">
                   <button type="button" class="btn btn-ghost" data-back="1">Back</button>
                   <button type="button" class="btn btn-primary" id="masemUse">Use this prompt →</button>

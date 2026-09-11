@@ -16,6 +16,7 @@ extraction supplies a browser-side key per request (never persisted server-side)
 from __future__ import annotations
 
 import base64
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -87,9 +88,22 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                    api_key: str = "", base_url: str | None = None, use_text: bool = False,
                    schema_id: str | None = None, session_id: str | None = None,
                    owner_user_id: str | None = None, source_job_id: str | None = None,
-                   filename: str | None = None,
+                   filename: str | None = None, params: dict | None = None,
+                   entries_key: str | None = None, spec: dict | None = None,
+                   prompt_edited: bool = False,
                    complete: CompleteFn | None = None, store=None) -> dict:
+    """``spec`` is the preset declaration the run was made with (gives ingest the declared
+    core array and lets the result be validated for triage); ``params`` the parameter
+    values it used (stored for provenance); ``prompt_edited`` whether the caller replaced
+    the generated prompt with its own text. Without a spec the schema row is consulted."""
     store = store or storage.get_store()
+    if spec is None and schema_id:
+        try:
+            spec = records.schema_spec(conn, schema_id)
+        except Exception:                  # never let grammar lookup fail an extraction
+            spec = None
+    if spec is not None and not entries_key:
+        entries_key = (spec.get("entries") or {}).get("key")
     complete = complete or _default_complete
 
     llm = complete(pdf_bytes, prompt, model=model, api_key=api_key,
@@ -112,15 +126,28 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     page_images, highlights, scanned = pdf_utils.pdf_to_pages_with_rects(pdf_bytes, evidence_items)
 
     # normalize -> records
-    res = ingest(llm.text)
+    res = ingest(llm.text, entries_key=entries_key)
+    # What the model got structurally wrong, for the coder's triage — never a failure.
+    issues = None
+    if spec is not None and not (spec.get("prompt") or {}).get("generate") == []:
+        try:
+            from . import preset_spec
+            issues = preset_spec.validate_result(parse_result_json(llm.text), spec, params)
+        except Exception:
+            issues = None
+    # the exact prompt is provenance: a preset can change wording without re-versioning
+    # its schema, so each document remembers what it was actually asked
+    prompt_sha256 = hashlib.sha256((prompt or "").encode("utf-8")).hexdigest()
     extraction = {"model": model, "resolved_model": llm.resolved_model,
                   "finish_reason": llm.finish_reason, "usage": llm.usage,
-                  "n_pages": len(page_images)}
+                  "n_pages": len(page_images), "prompt_sha256": prompt_sha256,
+                  "prompt_edited": bool(prompt_edited)}
     from . import parsed
     sha = parsed.pdf_sha256(pdf_bytes)
     doc_id = records.persist(conn, res, schema_id=schema_id, session_id=session_id,
                              owner_user_id=owner_user_id, source_job_id=source_job_id,
-                             extraction=extraction, filename=filename, pdf_sha256=sha)
+                             extraction=extraction, filename=filename, pdf_sha256=sha,
+                             prompt_sha256=prompt_sha256, params=params, issues=issues)
     paper_id = conn.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)).fetchone()[0]
     # End the implicit read transaction opened by the SELECT above, so attach_rects'
@@ -131,6 +158,10 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     # durable artifacts: source PDF (enables re-highlight without re-calling the LLM)
     # + rendered page images (survive restarts; power click-to-source highlights)
     store.put(storage.pdf_key(doc_id), pdf_bytes, "application/pdf")
+    # + the model's verbatim response: everything downstream is derived from it, and a
+    # coder debugging "why is this value / evidence missing" needs the original, not the
+    # reconstruction from stored rows
+    store.put(storage.raw_key(doc_id), (llm.text or "").encode("utf-8"), "text/plain; charset=utf-8")
     page_keys: list[str] = []
     for n, b64 in enumerate(page_images, start=1):
         key = storage.page_image_key(doc_id, n)
@@ -146,7 +177,8 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     except Exception:
         pass
 
-    return {"document_id": doc_id, "paper_id": str(paper_id),
+    return {"document_id": doc_id, "paper_id": str(paper_id), "schema_id": schema_id,
             "n_records": len(res.records), "n_pages": len(page_images),
             "n_highlights": len(highlights), "scanned_pages": scanned,
-            "page_image_keys": page_keys, "doi": res.doi}
+            "page_image_keys": page_keys, "doi": res.doi,
+            "n_issues": len(issues) if issues else 0}

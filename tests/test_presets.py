@@ -1,9 +1,5 @@
-"""Preset -> schema-row emission (plan §3 schema entity).
-
-Verifies the ported view-grammar resolution: declared sub_views win, data_sources
-auto-derive tabs + a Descriptives tab, and emit_schema_row produces faithful
-field_defs. Stdlib-only for the core; the persistence check skips without a DB.
-"""
+"""Built-in presets in the declarative format: discovery, the schema row they emit, legacy
+id aliases, and content-addressed schema ids. Stdlib-only; no DB."""
 from __future__ import annotations
 
 import os
@@ -15,109 +11,91 @@ for p in (_ROOT, _HERE):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from paperlens import presets  # noqa: E402
+from paperlens import preset_spec as ps, presets  # noqa: E402
 
 
 def test_all_presets_discovered() -> None:
-    # The globbed FILE presets. The human-AI presets live under presets/_library/
-    # (seeded as personal DB presets), so they are intentionally NOT in this set.
-    ids = set(presets.load_all())
-    assert ids == {"masem-direct", "masem-indirect", "summarize"}
+    assert set(presets.load_all()) == {"masem-direct", "masem-indirect", "summarize", "human-ai-collab"}
 
 
-def test_declared_sub_views_win() -> None:
-    # masem-direct declares sub_views explicitly -> used verbatim (not auto-derived).
+def test_schema_row_carries_spec_and_legacy_grammar() -> None:
     fd = presets.emit_schema_row("masem-direct")
-    labels = [sv["label"] for sv in fd["sub_views"]]
-    assert "Effect sizes" in labels
-    assert fd["mode"] == "extraction"
+    assert fd["format"] == 2 and fd["spec"]["entries"]["key"] == "samples"
+    assert [c["key"] for c in fd["spec"]["entries"]["children"]] == ["records"]
+    # the grammar the current review UI reads is synthesised from the same declaration
+    assert [sv["label"] for sv in fd["sub_views"]] == ["Effect sizes", "Descriptives"]
+    assert "records" in fd["sub_views"][0]["include_keys"]
+    assert fd["field_types"]["pubtype"]["type"] == "select" and 1 in fd["field_types"]["pubtype"]["options"]
+    assert fd["confidence_keys"] == ["effect_sizes", "reliabilities", "metadata"]
+    assert fd["mode"] == "extraction" and fd["schema_id"] == ps.schema_id(fd["spec"])
 
 
-def test_data_sources_auto_derive_tabs_and_descriptives() -> None:
+def test_indirect_uses_long_format_tables() -> None:
     fd = presets.emit_schema_row("masem-indirect")
-    ids = [sv["id"] for sv in fd["sub_views"]]
-    assert "loadings" in ids and "correlations" in ids
-    assert ids[-1] == "descriptives"            # Descriptives always appended last
-    # evidence/confidence unions are surfaced for the renderer/validators
-    assert "factor_loadings" in fd["evidence_keys"]
-    assert "factor_loadings" in fd["confidence_keys"]
-    assert "factor_loadings" in fd["core_keys"] and "sample_id" not in fd["core_keys"]
+    fields = {f["name"]: f for f in fd["spec"]["entries"]["fields"]}
+    assert fields["factor_loadings"]["type"] == "table"
+    assert [c["name"] for c in fields["factor_loadings"]["columns"]] == ["item", "factor", "loading"]
+    assert [c["name"] for c in fields["factor_correlations"]["columns"]] == ["factor_a", "factor_b", "r"]
+    assert [t["id"] for t in fd["spec"]["display"]["tabs"]] == ["loadings", "correlations", "descriptives"]
+    assert fd["spec"]["meta"]["hidden"] is True          # reached from the MASEMiner builder, not the picker
 
 
 def test_legacy_preset_ids_still_resolve() -> None:
     # Documents extracted before the rename carry `masem@v3` / `masem-ncs18@v1` in
-    # record.schema_id, and add-papers re-resolves the prompt by that id — so the old
-    # names must keep resolving to the renamed presets forever.
+    # record.schema_id, and add-papers re-resolves the prompt by that id.
     assert presets.get("masem")["id"] == "masem-direct"
     assert presets.get("masem-ncs18")["id"] == "masem-indirect"
     assert presets.emit_schema_row("masem")["preset_id"] == "masem-direct"
     assert presets.prompt_for("masem-ncs18")
+    for pid in presets.ADAPTER_ONLY_IDS:
+        assert presets.get(pid) is None                  # files gone; rows served by the adapter
 
 
 def test_indirect_preset_is_scale_agnostic() -> None:
-    # The indirect variant used to be named for one instrument (NCS-18). It ships no
-    # scale of its own — the builder supplies scale_name / items per run.
     tp = presets.get("masem-indirect")["template_params"]
-    assert not tp.get("scale_name") and not tp.get("item_texts")
-    assert not tp.get("n_items")
+    # the generic placeholder the original template used; the builder treats it as "unset"
+    assert tp.get("scale_name") == "the target instrument" and tp.get("item_texts") == [] and tp.get("n_items") is None
+
+
+def test_masem_prompts_are_frozen_and_declared_presets_generate() -> None:
+    # MASEMiner keeps its original, hand-written prompt: no generated section at all, the
+    # original schema / evidence / confidence sections verbatim.
+    p = presets.prompt_for("masem-direct")
+    assert p.startswith("# TASK") and "(generated" not in p
+    for section in ("# EVIDENCE RULES", "# SELF-ASSESS EXTRACTION CONFIDENCE", "# OUTPUT SCHEMA", "# VALIDATION RULES"):
+        assert section in p
+    assert "samples[0].records[2].es" in p and '"effect_sizes":' in p and '"reliabilities":' in p
+    q = presets.prompt_for("masem-indirect")
+    assert "(generated" not in q and '"factor_loadings": [' in q and "F1.2" not in q
+    # a preset built on the declaration gets the generated sections
+    h = presets.prompt_for("human-ai-collab")
+    for section in ("# OUTPUT SCHEMA (generated", "# EVIDENCE (generated)", "# CONFIDENCE (generated)",
+                    "# RETURN FORMAT (generated)"):
+        assert section in h
+    # builder parameters flow into the author text
+    custom = presets.prompt_for("masem-direct", params={
+        "effect_sizes": [{"code": "smd", "label": "Standardised mean difference"}],
+        "variables": [{"name": "bm", "definition": "body mass", "synonyms": ["BMI"]}]})
+    assert '- "smd" = Standardised mean difference' in custom
+    assert '"bm"' in custom and "BMI" in custom
+    assert "bm" in custom.split("# EXTRACTION RULES")[0]  # in the DOMAIN CONFIGURATION block
+
+
+def test_schema_id_is_content_addressed() -> None:
+    spec = presets.load_all()["masem-direct"]
+    sid = ps.schema_id(spec)
+    assert sid.startswith("masem-direct@") and len(sid.split("@")[1]) == 8
+    assert sid == presets.schema_id_for("masem-direct") == presets.schema_id_for("masem")
+    # wording and layout do not re-version; the data contract does
+    import copy
+    same = copy.deepcopy(spec); same["display"]["tabs"][0]["label"] = "ES"; same["meta"]["title"] = "X"
+    same["entries"]["fields"][0]["help"] = "other words"; same["prompt"]["text"] = "different"
+    assert ps.schema_id(same) == sid
+    changed = copy.deepcopy(spec); changed["entries"]["fields"].append({"name": "extra", "type": "string"})
+    assert ps.schema_id(ps.normalize(changed)) != sid
 
 
 def test_unknown_preset_returns_none() -> None:
     assert presets.emit_schema_row("does-not-exist") is None
-
-
-# ── persistence: upsert_schema fills field_defs from the preset (needs DB) ─────
-
-def _db_ok() -> bool:
-    try:
-        from paperlens import records
-        c = records.connect(); c.close()
-        return True
-    except Exception:
-        return False
-
-
-def test_upsert_schema_fills_field_defs() -> None:
-    if not _db_ok():
-        import pytest
-        pytest.skip("no Postgres available")
-    from paperlens import records
-    conn = records.connect()
-    records.init_db(conn)
-    records.upsert_schema(conn, "masem@v3")
-    conn.commit()
-    s = records.get_schema(conn, "masem@v3")
-    assert s["source"] == "preset"
-    assert s["preset_id"] == "masem" and s["schema_version"] == "v3"
-    assert s["field_defs"]["sub_views"]            # populated, not a NULL stub
-    assert "Effect sizes" in [sv["label"] for sv in s["field_defs"]["sub_views"]]
-    conn.close()
-
-
-def _main() -> int:
-    failures = 0
-    tests = [
-        ("presets:discovered", test_all_presets_discovered),
-        ("presets:declared-win", test_declared_sub_views_win),
-        ("presets:auto-derive", test_data_sources_auto_derive_tabs_and_descriptives),
-        ("presets:econ-grammar", test_econ_headline_grammar),
-        ("presets:forestplot-min", test_forestplot_minimal_grammar),
-        ("presets:unknown-none", test_unknown_preset_returns_none),
-        ("presets:upsert-fills", test_upsert_schema_fills_field_defs),
-    ]
-    for label, fn in tests:
-        try:
-            fn()
-            print(f"  PASS  {label}")
-        except Exception as exc:  # noqa: BLE001
-            if exc.__class__.__name__ == "Skipped":
-                print(f"  SKIP  {label}: {exc}")
-                continue
-            failures += 1
-            print(f"  FAIL  {label}: {exc!r}")
-    print(f"\n{'OK' if not failures else 'FAILURES: ' + str(failures)}")
-    return 1 if failures else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(_main())
+    assert presets.prompt_for("does-not-exist") is None
+    assert presets.render("does-not-exist") is None

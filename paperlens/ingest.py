@@ -10,8 +10,11 @@ into the normalized pieces the Postgres spine stores:
   * M ``evidence_span`` rows — every ``{snippet, page, source, field}`` item,
     tagged with its PLACEMENT (nested in an entry vs the flat top-level array)
     and routed to an entry where determinable,
-  * K ``field_confidence`` rows — the (non-publishable) ``extraction_confidence``
-    blocks.
+  * K ``field_confidence`` rows — every ``confidence`` block, tagged with the
+    instance it rates (``paper`` / ``entry`` / ``child``) so the review UI can badge
+    the right group and reconstruct can re-nest it; legacy ``extraction_confidence``
+    blocks (root-level ``top``, or the per-sample ``entry_legacy`` form the older MASEM
+    prompts demanded) are kept for the credibility system but never published.
 
 The decomposition is loss-free for the publishable subset: ``reconstruct.py``
 rebuilds exactly ``strip_to_publishable(original)``. Placement is preserved so
@@ -42,9 +45,14 @@ class EvidenceSpan:
 
 @dataclass
 class FieldConfidence:
-    block: str                     # the extraction_confidence key (a confidence_keys block)
+    block: str                     # the group id (a preset confidence group)
     level: str | None              # high | medium | low
     notes: str | None
+    placement: str = "top"         # paper | entry | child | top (legacy root) | entry_legacy
+    entry_index: int | None = None # which record it rates (entry / child / entry_legacy)
+    field_path: str | None = None  # the rated instance: "paper_metadata", "samples[0]",
+                                   # "samples[0].records[2]"; None for legacy root blocks
+    ord: int = 0                   # encounter order, so re-nesting keeps the group order
 
 
 @dataclass
@@ -74,29 +82,9 @@ class IngestResult:
 
 # ── core-array detection ──────────────────────────────────────────────────────
 
-def detect_core(obj: dict) -> tuple[str, str, list[dict]]:
-    """Find the per-entry array. Returns (core_key, shape, entries).
-
-    shape is "list" (value is a JSON array) or "table" (value is
-    ``{"_table": [...]}``). Raises ValueError if no core array is present.
-    """
-    for key in contract.CORE_ARRAY_CANDIDATES:
-        if key not in obj:
-            continue
-        val = obj[key]
-        if isinstance(val, list):
-            return key, "list", val
-        if isinstance(val, dict) and isinstance(val.get("_table"), list):
-            return key, "table", val["_table"]
-    # Generic fallback: any non-meta top-level key that looks like an entry array.
-    for key, val in obj.items():
-        if key in contract._NON_CORE_META_KEYS:
-            continue
-        if isinstance(val, list):
-            return key, "list", val
-        if isinstance(val, dict) and isinstance(val.get("_table"), list):
-            return key, "table", val["_table"]
-    raise ValueError("no core per-entry array found in canonical record")
+# The core-array finder lives in ``contract`` (strip_to_publishable needs the same rule);
+# re-exported here for callers that always knew it as ``ingest.detect_core``.
+detect_core = contract.detect_core
 
 
 def _entry_index_from_field(field_path: str | None, core_key: str) -> int | None:
@@ -107,7 +95,10 @@ def _entry_index_from_field(field_path: str | None, core_key: str) -> int | None
     """
     if not field_path:
         return None
-    m = re.search(rf"{re.escape(core_key)}(?:\._table)?\[(\d+)\]", field_path)
+    # Anchored first: the declared entries key at the START of the path is the contract.
+    # The unanchored search stays as leniency for legacy descriptive paths.
+    m = (re.match(rf"\s*{re.escape(core_key)}(?:\._table)?\[(\d+)\]", field_path)
+         or re.search(rf"{re.escape(core_key)}(?:\._table)?\[(\d+)\]", field_path))
     return int(m.group(1)) if m else None
 
 
@@ -141,52 +132,97 @@ def _normalize_doi(doi: str) -> str:
 
 # ── the decomposition ─────────────────────────────────────────────────────────
 
-def ingest(result: str | dict) -> IngestResult:
+def ingest(result: str | dict, *, entries_key: str | None = None) -> IngestResult:
+    """Decompose one canonical document. ``entries_key`` is the core array the preset
+    DECLARED (it wins over detection when present); None keeps the legacy detection."""
     obj = contract.parse_result_json(result)
     if not isinstance(obj, dict):
         raise ValueError("canonical record must parse to a JSON object")
 
-    core_key, core_shape, entries = detect_core(obj)
+    core_key, core_shape, entries = detect_core(obj, preferred=entries_key)
 
     records: list[Record] = []
     evidence: list[EvidenceSpan] = []
+    confidence: list[FieldConfidence] = []
+    conf_ord = 0   # one counter across every block, so group order is reproducible
     entry_ord = 0  # order counter for nested (entry-placement) evidence
+
+    def _take_confidence(node: dict, key: str, *, placement: str, entry_index: int | None,
+                         field_path: str | None) -> None:
+        """Pop a confidence block off ``node`` (in place) into FieldConfidence rows."""
+        nonlocal conf_ord
+        block = node.get(key)
+        if key == contract.CONFIDENCE_KEY and not contract.looks_like_confidence(block):
+            return                                   # a data field that happens to share the name
+        node.pop(key, None)
+        for group, val in (contract.normalize_confidence(block) or {}).items():
+            confidence.append(FieldConfidence(
+                block=group, level=val["level"], notes=val["notes"], placement=placement,
+                entry_index=entry_index, field_path=field_path, ord=conf_ord))
+            conf_ord += 1
+
+    # paper-level: identity + declared paper fields, and their confidence block
+    paper_metadata_raw = obj.get("paper_metadata")
+    if isinstance(paper_metadata_raw, dict):
+        paper_metadata_raw = copy.deepcopy(paper_metadata_raw)
+        paper_metadata_raw.pop(contract.LEGACY_CONFIDENCE_KEY, None)
+        _take_confidence(paper_metadata_raw, contract.CONFIDENCE_KEY, placement="paper",
+                         entry_index=None, field_path="paper_metadata")
+    else:
+        paper_metadata_raw = None
 
     for i, entry in enumerate(entries):
         entry = entry if isinstance(entry, dict) else {"_value": entry}
         nested = entry.get("evidence")
-        field_values = {k: v for k, v in entry.items()
-                        if k not in ("evidence", "extraction_confidence")}
-        records.append(Record(entry_index=i, field_values=copy.deepcopy(field_values)))
+        fv = copy.deepcopy({k: v for k, v in entry.items() if k != "evidence"})
+        here = f"{core_key}[{i}]"
+        # the declared block, then the legacy per-sample one (bare strings) — both leave
+        # field_values, only the declared one is ever re-nested
+        _take_confidence(fv, contract.CONFIDENCE_KEY, placement="entry",
+                         entry_index=i, field_path=here)
+        _take_confidence(fv, contract.LEGACY_CONFIDENCE_KEY, placement="entry_legacy",
+                         entry_index=i, field_path=here)
+        # sub-entries: a list of objects carrying their own confidence block
+        for k, v in fv.items():
+            if not isinstance(v, list):
+                continue
+            for j, child in enumerate(v):
+                if isinstance(child, dict) and contract.CONFIDENCE_KEY in child:
+                    _take_confidence(child, contract.CONFIDENCE_KEY, placement="child",
+                                     entry_index=i, field_path=f"{here}.{k}[{j}]")
+        records.append(Record(entry_index=i, field_values=fv))
         if isinstance(nested, list):
             for ev in nested:
                 if not isinstance(ev, dict):
                     continue
-                evidence.append(EvidenceSpan(
-                    ord=entry_ord, placement="entry", entry_index=i,
-                    field_path=ev.get("field"),
-                    snippet=str(ev.get("snippet")) if ev.get("snippet") is not None else None,
-                    page=_as_int(ev.get("page")),
-                    source=ev.get("source"),
-                ))
-                entry_ord += 1
+                for fp in _fields_of(ev):
+                    evidence.append(EvidenceSpan(
+                        ord=entry_ord, placement="entry", entry_index=i,
+                        field_path=fp,
+                        snippet=str(ev.get("snippet")) if ev.get("snippet") is not None else None,
+                        page=_as_int(ev.get("page")),
+                        source=ev.get("source"),
+                    ))
+                    entry_ord += 1
 
     # Flat top-level evidence array (forestplot convention).
     top_ev = obj.get("evidence")
     had_top_evidence = isinstance(top_ev, list)
     if had_top_evidence:
-        for j, ev in enumerate(top_ev):
+        top_ord = 0
+        for ev in top_ev:
             if not isinstance(ev, dict):
                 continue
-            fp = ev.get("field")
-            evidence.append(EvidenceSpan(
-                ord=j, placement="top",
-                entry_index=_entry_index_from_field(fp, core_key),
-                field_path=fp,
-                snippet=str(ev.get("snippet")) if ev.get("snippet") is not None else None,
-                page=_as_int(ev.get("page")),
-                source=ev.get("source"),
-            ))
+            for fp in _fields_of(ev):
+                evidence.append(EvidenceSpan(
+                    ord=top_ord, placement="top",
+                    entry_index=_entry_index_from_field(fp, core_key),
+                    field_path=fp,
+                    snippet=str(ev.get("snippet")) if ev.get("snippet") is not None else None,
+                    page=_as_int(ev.get("page")),
+                    source=ev.get("source"),
+                ))
+                top_ord += 1
 
     # Inline evidence: some models cite a snippet in-place inside the entry — an object with
     # an ``evidence_snippet`` (+ sibling ``evidence_page``) rather than a top-level evidence[]
@@ -210,18 +246,18 @@ def ingest(result: str | dict) -> IngestResult:
             ))
             ord_ctr += 1
 
-    # extraction_confidence (non-publishable, kept for the credibility system).
-    confidence: list[FieldConfidence] = []
-    conf = obj.get("extraction_confidence")
-    if isinstance(conf, dict):
-        for block, val in conf.items():
-            if isinstance(val, dict):
+    # Root-level blocks: the legacy ``extraction_confidence`` and a root ``confidence``
+    # (which no preset asks for). Both are 'top' — kept for the credibility system, never
+    # published.
+    for key in (contract.LEGACY_CONFIDENCE_KEY, contract.CONFIDENCE_KEY):
+        block = obj.get(key)
+        if isinstance(block, dict) and contract.looks_like_confidence(block):
+            for group, val in (contract.normalize_confidence(block) or {}).items():
                 confidence.append(FieldConfidence(
-                    block=block, level=val.get("level"), notes=val.get("notes")))
-            else:
-                confidence.append(FieldConfidence(block=block, level=None, notes=None))
+                    block=group, level=val["level"], notes=val["notes"], placement="top",
+                    entry_index=None, field_path=None, ord=conf_ord))
+                conf_ord += 1
 
-    paper_metadata_raw = obj.get("paper_metadata")
     paper_typed = _typed_paper(paper_metadata_raw)
 
     # Leftover publishable scalars carried verbatim (metric / notes / schema_version
@@ -229,7 +265,7 @@ def ingest(result: str | dict) -> IngestResult:
     # and evidence — those are handled structurally above.
     top_extras = {
         k: copy.deepcopy(v) for k, v in obj.items()
-        if k in contract.PUBLISH_TOP_LEVEL_KEYS
+        if k in contract.publishable_keys(core_key)
         and k not in ("paper_metadata", "evidence", core_key)
     }
 
@@ -239,12 +275,25 @@ def ingest(result: str | dict) -> IngestResult:
         records=records,
         evidence=evidence,
         confidence=confidence,
-        paper_metadata_raw=copy.deepcopy(paper_metadata_raw) if isinstance(paper_metadata_raw, dict) else None,
+        paper_metadata_raw=paper_metadata_raw,
         paper_typed=paper_typed,
         top_extras=top_extras,
         schema_version=obj.get("schema_version"),
         had_top_evidence=had_top_evidence,
     )
+
+
+def _fields_of(ev: dict) -> list:
+    """The path(s) one evidence item supports: ``field`` as a string, or as a LIST when the
+    model reused one quote for several values (``fields`` accepted too). The spine stores one
+    span per path — ``strip_to_publishable`` canonicalises the same way, so the round-trip
+    invariant holds for either form."""
+    fp = ev.get("field")
+    if fp is None and isinstance(ev.get("fields"), list):
+        fp = ev["fields"]
+    if isinstance(fp, list):
+        return [f for f in fp if isinstance(f, str)] or [None]
+    return [fp]
 
 
 def _harvest_inline_evidence(field_values: dict, core_key: str, entry_index: int):
@@ -265,7 +314,7 @@ def _harvest_inline_evidence(field_values: dict, core_key: str, entry_index: int
                 page = node.get("evidence_page", node.get("page"))
                 out.append((f"{prefix}.{leaf}", snip, page, node.get("evidence_section")))
             for k, v in node.items():
-                if k in ("evidence", "extraction_confidence"):
+                if k in ("evidence", contract.LEGACY_CONFIDENCE_KEY, contract.CONFIDENCE_KEY):
                     continue
                 walk(v, f"{path}.{k}" if path else k)
         elif isinstance(node, list):

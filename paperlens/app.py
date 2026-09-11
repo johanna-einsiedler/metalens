@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import os
 import time
+import uuid
 
 from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException,
                      Query, Response, UploadFile)
@@ -24,7 +25,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, credits, enrich, extract, figures_spec, presets, presets_loader, providers, records, storage, worker
+from . import auth, credits, enrich, extract, figures_spec, presets, providers, records, storage, worker
 from .ingest import ingest
 from .principal import Principal
 
@@ -265,19 +266,34 @@ class IngestBody(BaseModel):
     result: Any                       # canonical JSON (object or stringified)
     schema_id: str | None = None
     source_job_id: str | None = None
+    dataset_id: str | None = None     # add the document to this (owned) dataset
 
 
 @app.post("/api/ingest")
 def ingest_endpoint(body: IngestBody, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
+    if body.dataset_id and not records.is_dataset_owner(db, body.dataset_id, who):
+        raise HTTPException(status_code=403, detail="You don't own that dataset.")
+    run = presets.resolve_run(db, schema_id=body.schema_id)
     try:
-        res = ingest(body.result)
+        res = ingest(body.result, entries_key=run.entries_key)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if run.schema_id:
+        with db.transaction():
+            records.upsert_schema(db, run.schema_id, run.field_defs)
     doc_id = records.persist(
-        db, res, schema_id=body.schema_id, source_job_id=body.source_job_id,
+        db, res, schema_id=run.schema_id, source_job_id=body.source_job_id,
         session_id=who.session_id,
     )
+    try:      # keep what was imported verbatim — the counterpart of a live run's model response
+        import json as _json
+        raw = body.result if isinstance(body.result, str) else _json.dumps(body.result, ensure_ascii=False, indent=2)
+        storage.get_store().put(storage.raw_key(doc_id), raw.encode("utf-8"), "text/plain; charset=utf-8")
+    except Exception:  # noqa: BLE001 - never fail an import over the debugging copy
+        pass
+    if body.dataset_id:
+        records.assign_document_to_dataset(db, body.dataset_id, doc_id)
     paper_id = db.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)
     ).fetchone()[0]
@@ -333,12 +349,16 @@ def document_view(document_id: str, db=Depends(get_db),
 
 
 @app.get("/api/documents/{document_id}/locate")
-def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
-                 who: Principal = Depends(principal)) -> dict:
+def locate_value(document_id: str, value: str, page: int, bands: str | None = None,
+                 db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner-only: find ``value`` in the source PDF so the workspace can pinpoint-
     highlight it — tries an exact numeric match first, then a literal text search so a
     non-numeric field the model didn't cite still highlights. `found=false` = not there
-    verbatim (may be transformed/rounded/paraphrased) — a soft signal, not an error."""
+    verbatim (may be transformed/rounded/paraphrased) — a soft signal, not an error.
+
+    ``bands`` (``y0:y1,…`` in image pixels of ``page``) restricts the search to the cited
+    table row(s): a value covered only by a row citation is pinpointed INSIDE that row,
+    never anywhere else on the page."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
@@ -347,15 +367,34 @@ def locate_value(document_id: str, value: str, page: int, db=Depends(get_db),
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
     pdf_bytes = store.get(key)
+    if bands:
+        rows = pdf_utils.parse_bands(bands)
+        rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
+        return {"rects": rects, "found": bool(rects), "page": page}
     found_page, rects = pdf_utils.locate_value_rects_any(pdf_bytes, value, prefer_page=page)
     if not rects:                       # not a number (or not found) → try literal text
         found_page, rects = pdf_utils.locate_text_rects_any(pdf_bytes, value, prefer_page=page)
     return {"rects": rects, "found": bool(rects), "page": found_page}
 
 
+@app.get("/api/documents/{document_id}/raw")
+def document_raw_response(document_id: str, db=Depends(get_db),
+                          who: Principal = Depends(principal)) -> Response:
+    """Owner-only: the model's verbatim response for this document (or the JSON that was
+    imported), exactly as stored at extraction time. 404 for documents from before it was kept."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    store = storage.get_store()
+    key = storage.raw_key(document_id)
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="No stored model response for this document.")
+    return Response(content=store.get(key), media_type="text/plain; charset=utf-8")
+
+
 class DuplicateCheck(BaseModel):
     hashes: list[str] = []
-    schema_id: str | None = None       # only flag docs extracted with THIS preset
+    schema_id: str | None = None       # only flag docs extracted with THIS exact schema row
+    preset_id: str | None = None       # …or with ANY version of this preset
 
 
 @app.post("/api/documents/check-duplicates")
@@ -366,7 +405,7 @@ def check_duplicates(body: DuplicateCheck, db=Depends(get_db),
     only when re-running the identical PDF through the identical preset. Principal-scoped."""
     matches = records.documents_by_hashes(
         db, body.hashes or [], owner_user_id=who.user_id, session_id=who.session_id,
-        schema_id=body.schema_id)
+        schema_id=body.schema_id, preset_id=body.preset_id)
     return {"duplicates": matches}
 
 
@@ -428,8 +467,9 @@ class DatasetAdd(BaseModel):
 def create_dataset(body: DatasetCreate, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
     """Create an owned dataset (owner = logged-in user, else the anon session)."""
+    schema_id = presets.resolve_run(db, schema_id=body.schema_id).schema_id if body.schema_id else None
     return records.create_dataset(
-        db, title=body.title, description=body.description, schema_id=body.schema_id,
+        db, title=body.title, description=body.description, schema_id=schema_id,
         visibility=body.visibility, owner_user_id=who.user_id, session_id=who.session_id,
         prompt=body.prompt, model=body.model)
 
@@ -586,6 +626,7 @@ class PaperEdit(BaseModel):
     year: int | None = None
     journal: str | None = None
     authors: list[str] | None = None
+    fields: dict | None = None         # declared paper-level fields → paper_metadata.<name>
 
 
 @app.patch("/api/documents/{document_id}/paper")
@@ -596,16 +637,33 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
     that shares the paper."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
-    row = db.execute("SELECT paper_id FROM extraction_document WHERE id = %s::uuid",
+    row = db.execute("SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
                      (document_id,)).fetchone()
-    if not row or not row[0]:
-        raise HTTPException(status_code=400, detail="Document has no paper record.")
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    out: dict = {}
     fields = {}
     for k in ("title", "year", "journal", "authors"):
         v = getattr(body, k)
         if v is not None:
             fields[k] = v
-    return {"paper": records.update_paper_fields(db, str(row[0]), fields)}
+    if fields:
+        if not row[0]:
+            raise HTTPException(status_code=400, detail="Document has no paper record.")
+        out["paper"] = records.update_paper_fields(db, str(row[0]), fields)
+    if body.fields:
+        # only fields the document's preset DECLARED at paper level are editable here —
+        # anything else would silently invent a column in the export
+        spec = records.schema_spec(db, row[1]) if row[1] else None
+        declared = {f["name"] for f in ((spec or {}).get("paper") or {}).get("fields") or []}
+        unknown = sorted(set(body.fields) - declared)
+        if unknown:
+            raise HTTPException(status_code=422, detail=(
+                f"Not declared paper-level fields of this preset: {', '.join(unknown)}"))
+        out.update(records.set_paper_metadata_fields(
+            db, document_id, body.fields, verifier_user_id=who.user_id,
+            verifier_kind="maintainer" if who.user_id else "community"))
+    return out
 
 
 @app.delete("/api/datasets/{dataset_id}")
@@ -1073,29 +1131,40 @@ def extract_endpoint(
     schema_id: str | None = Form(None),
     use_credits: bool = Form(False),
     dataset_id: str | None = Form(None),
+    params: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
     """Upload a PDF -> extract into records. Browser supplies the model + api_key
-    per request (never persisted). The prompt comes from `prompt` if given, else
-    from the preset (`preset_id`, or the preset implied by `schema_id`). Enqueues
-    when Redis is up (restart-safe), else runs synchronously. When ``dataset_id`` is
-    given (add-papers), the finished document is attached to that dataset server-side
-    — so queued papers land in it even though the browser has no document_id yet."""
+    per request (never persisted). The SERVER decides the prompt and the schema row:
+    ``preset_id`` (+ JSON ``params``) renders the preset's prompt and mints its
+    content-addressed schema id; an existing ``schema_id`` is kept as is; a posted
+    ``prompt`` always wins (and is flagged as edited). Enqueues when Redis is up
+    (restart-safe), else runs synchronously. When ``dataset_id`` is given (add-papers),
+    the finished document is attached to that dataset server-side — so queued papers
+    land in it even though the browser has no document_id yet."""
     data = pdf.file.read()
     fname = pdf.filename or None
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
 
+    try:
+        run = presets.resolve_run(db, preset_id=preset_id, schema_id=schema_id,
+                                  params=params, prompt=prompt)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    prompt = run.prompt
+    schema_id = run.schema_id
     if not prompt.strip():
         pid = preset_id or (schema_id.split("@")[0] if schema_id else None)
-        prompt = presets.prompt_for(pid, conn=db) or ""
-        if not prompt:
-            raise HTTPException(status_code=422, detail=(
-                f"No `prompt` given and preset {pid!r} has no inline prompt. Pass a "
-                "`prompt` with full canonical-JSON instructions (it must ask the model "
-                "for an `evidence` array), or use one of the built-in presets "
-                "(masem-direct / masem-indirect / summarize)."))
+        raise HTTPException(status_code=422, detail=(
+            f"No `prompt` given and preset {pid!r} is unknown. Pass a `prompt` with full "
+            "canonical-JSON instructions (it must ask the model for an `evidence` array), "
+            "or use one of the built-in presets (masem-direct / masem-indirect / summarize)."))
+    if schema_id:
+        # mint the row NOW, before the worker needs it, so a queued job never races it
+        with db.transaction():
+            records.upsert_schema(db, schema_id, run.field_defs)
 
     own_key = bool(api_key.strip())
 
@@ -1125,15 +1194,17 @@ def extract_endpoint(
             "extract_job", base64.b64encode(data).decode(), prompt,
             model=server_model, api_key="", base_url=None, use_text=use_text,
             schema_id=schema_id, session_id=who.session_id, owner_user_id=None,
-            filename=fname, use_credits=True, credit_user_id=None,
+            filename=fname, params=run.params, prompt_edited=run.prompt_edited,
+            use_credits=True, credit_user_id=None,
             dataset_id=dataset_id, _expires=1800)
         if job_id:
-            return {"queued": True, "job_id": job_id}
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
         try:                                   # Redis down → run it inline
             result = extract.run_extraction(
                 db, data, prompt, model=server_model, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
-                owner_user_id=None, filename=fname)
+                owner_user_id=None, filename=fname, spec=run.spec, params=run.params,
+                prompt_edited=run.prompt_edited)
             if dataset_id:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         except ValueError as exc:
@@ -1170,15 +1241,17 @@ def extract_endpoint(
             "extract_job", base64.b64encode(data).decode(), prompt,
             model=cmodel, api_key="", base_url=None, use_text=use_text, schema_id=schema_id,
             session_id=who.session_id, owner_user_id=who.user_id, filename=fname,
+            params=run.params, prompt_edited=run.prompt_edited,
             use_credits=True, credit_user_id=who.user_id, dataset_id=dataset_id, _expires=1800)
         if job_id:
-            return {"queued": True, "job_id": job_id}
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
         # Redis down → run synchronously (no Redis payload to protect anyway)
         try:
             result = extract.run_extraction(
                 db, data, prompt, model=cmodel, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
-                owner_user_id=who.user_id, filename=fname)
+                owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
+                prompt_edited=run.prompt_edited)
             if dataset_id:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         except ValueError as exc:
@@ -1195,18 +1268,20 @@ def extract_endpoint(
         model=model, api_key=api_key, base_url=base_url, use_text=use_text,
         schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
         filename=fname, dataset_id=dataset_id,
+        params=run.params, prompt_edited=run.prompt_edited,
         # discard the job if no worker consumes it within 30 min (avoid running a
         # long-stale extraction the user has already abandoned — see delayed=… logs)
         _expires=1800)
     if job_id:
-        return {"queued": True, "job_id": job_id}
+        return {"queued": True, "job_id": job_id, "schema_id": schema_id}
 
     # Synchronous fallback (Redis down): translate failures into clean responses.
     try:
         result = extract.run_extraction(
             db, data, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=who.session_id,
-            owner_user_id=who.user_id, filename=fname)
+            owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
+                prompt_edited=run.prompt_edited)
         if dataset_id:
             records.assign_document_to_dataset(db, dataset_id, result["document_id"])
     except ValueError as exc:                 # bad/empty PDF, unparseable model output
@@ -1244,6 +1319,11 @@ def ingest_pdf_endpoint(
                  and isinstance(obj.get("extraction"), dict) else obj)
     text = _json.dumps(canonical)
     usage = (obj.get("usage") if isinstance(obj, dict) else None) or {}
+    run = presets.resolve_run(db, schema_id=schema_id)
+    schema_id = run.schema_id
+    if schema_id:
+        with db.transaction():
+            records.upsert_schema(db, schema_id, run.field_defs)
 
     def _supplied(pdf_bytes, prompt, **kw):
         return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model="imported")
@@ -1251,7 +1331,8 @@ def ingest_pdf_endpoint(
     try:
         res = extract.run_extraction(
             db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
-            owner_user_id=who.user_id, filename=pdf.filename, complete=_supplied)
+            owner_user_id=who.user_id, filename=pdf.filename, complete=_supplied,
+            spec=run.spec)
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -1279,24 +1360,29 @@ def list_presets(db=Depends(get_db), who: Principal = Depends(principal)) -> dic
     allp = presets.load_all()
     rows = []
     for pid in sorted(allp):
-        if (allp[pid] or {}).get("landing_hidden"):
+        if (allp[pid].get("meta") or {}).get("hidden"):
             continue
         row = presets.emit_schema_row(pid)
         if row:
             row.update(personal=False, owned=False)
             rows.append(row)
     for p in records.list_personal_presets(db, owner_user_id=who.user_id, session_id=who.session_id):
+        if p["id"] in allp:            # a built-in shadows a same-id personal row (seeded copies of old presets)
+            continue
         row = presets.emit_schema_row(p["id"], conn=db)
         if row:
             row.update(personal=True, visibility=p["visibility"],
                        owned=records._owns(who, p["owner_user_id"], p["session_id"]))
+            if p.get("base_preset_id"):        # a saved setup: shown under its base, run as the base
+                row.update(preset_id=p["id"], title=p["title"], tagline=p.get("tagline"),
+                           setup=True, base_preset_id=p["base_preset_id"], params=p.get("params") or {})
             rows.append(row)
     return {"presets": rows}
 
 
 class PresetBody(BaseModel):
-    title: str
-    prompt: str
+    title: str | None = None
+    prompt: str | None = None
     tagline: str | None = None
     description: str | None = None
     mode: str = "extraction"
@@ -1304,22 +1390,108 @@ class PresetBody(BaseModel):
     template_params: dict | None = None
     accent_color: str | None = None
     visibility: str = "private"
+    spec: dict | None = None            # the declarative preset document (preferred)
+    base_preset_id: str | None = None   # a saved setup: values for a built-in preset's parameters
+    params: dict | None = None
+
+
+def _validated_spec(doc: dict, preset_id: str) -> dict:
+    """Normalise + validate a posted spec under the row id it will live at; 422 with the
+    full error list otherwise (the editor shows them all at once)."""
+    from . import preset_spec
+    doc = dict(doc or {})
+    doc["id"] = preset_id
+    doc.setdefault("format", preset_spec.FORMAT)
+    try:
+        return preset_spec.normalize(doc)
+    except preset_spec.SpecError as exc:
+        raise HTTPException(status_code=422, detail={"message": "Invalid preset spec",
+                                                     "errors": exc.errors})
 
 
 @app.post("/api/presets")
 def create_preset(body: PresetBody, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Create a personal preset owned by the principal (user, or anon session claimable
-    on login). Usable immediately in the extract picker."""
-    if not body.title.strip() or not body.prompt.strip():
-        raise HTTPException(status_code=422, detail="title and prompt are required.")
+    on login). Usable immediately in the extract picker. Post a ``spec`` (the declarative
+    document; the server assigns its id and renders its prompt) or, legacy, a bare
+    ``title`` + ``prompt``."""
     if body.visibility not in ("public", "private"):
         raise HTTPException(status_code=422, detail="visibility must be public|private")
+    if body.base_preset_id:
+        return _create_setup(db, who, body)
+    if body.spec is not None:
+        from . import preset_spec
+        title = ((body.spec.get("meta") or {}).get("title") or body.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="spec.meta.title is required.")
+        pid = f"{records._slugify(title)}-{uuid.uuid4().hex[:8]}"
+        spec = _validated_spec(body.spec, pid)
+        records.create_personal_preset(
+            db, preset_id=pid, title=spec["meta"]["title"], prompt=preset_spec.render_prompt(spec),
+            tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
+            mode=spec["meta"]["mode"], spec=spec, owner_user_id=who.user_id,
+            session_id=who.session_id, visibility=body.visibility)
+        return presets.get(pid, conn=db)
+    if not (body.title or "").strip() or not (body.prompt or "").strip():
+        raise HTTPException(status_code=422, detail="title and prompt are required.")
     return records.create_personal_preset(
         db, title=body.title, prompt=body.prompt, tagline=body.tagline,
         description=body.description, mode=body.mode, sub_views=body.sub_views,
         template_params=body.template_params, accent_color=body.accent_color,
         owner_user_id=who.user_id, session_id=who.session_id, visibility=body.visibility)
+
+
+def _setup_params(base_id: str, params: dict | None) -> tuple[dict, dict]:
+    """(base spec, the declared subset of params); 422 on an unknown base or parameter."""
+    base = presets.load_all().get(presets.resolve_id(base_id))
+    if base is None:
+        raise HTTPException(status_code=422, detail="base_preset_id must name a built-in preset.")
+    decl = (base.get("prompt") or {}).get("params") or {}
+    if not decl:
+        raise HTTPException(status_code=422, detail=f"{base['id']} has no parameters to save.")
+    unknown = sorted(set(params or {}) - set(decl))
+    if unknown:
+        raise HTTPException(status_code=422,
+                            detail=f"unknown parameters for {base['id']}: {', '.join(unknown)}")
+    return base, {k: v for k, v in (params or {}).items() if k in decl}
+
+
+def _create_setup(db, who: Principal, body: PresetBody) -> dict:
+    """A saved setup (sub-preset): a name + parameter values for a built-in preset. Private
+    to its creator for now; runs resolve the live base, so the setup only pins the values."""
+    base, params = _setup_params(body.base_preset_id, body.params)
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title is required.")
+    pid = f"{records._slugify(title)}-{uuid.uuid4().hex[:8]}"
+    rendered = presets.render(base["id"], params)["prompt"]
+    records.create_personal_preset(
+        db, preset_id=pid, title=title, prompt=rendered,
+        tagline=body.tagline or f"Saved setup of {base['meta'].get('title') or base['id']}",
+        mode=base["meta"].get("mode", "extraction"), base_preset_id=base["id"], params=params,
+        owner_user_id=who.user_id, session_id=who.session_id, visibility="private")
+    return presets.get(pid, conn=db)
+
+
+class SpecBody(BaseModel):
+    spec: dict
+
+
+@app.post("/api/presets/validate")
+def validate_preset(body: SpecBody) -> dict:
+    """Check a spec without saving it: every error and warning at once, and the schema
+    id it would run under (the editor's live feedback)."""
+    from . import preset_spec
+    doc = dict(body.spec or {}); doc.setdefault("format", preset_spec.FORMAT)
+    doc.setdefault("id", "draft")
+    try:
+        spec = preset_spec.normalize(doc)
+    except preset_spec.SpecError as exc:
+        return {"ok": False, "errors": exc.errors, "warnings": [], "schema_id": None}
+    _errs, warns = preset_spec.validate(spec)
+    return {"ok": True, "errors": [], "warnings": warns, "schema_id": preset_spec.schema_id(spec),
+            "prompt": preset_spec.render_prompt(spec)}
 
 
 @app.get("/api/presets/mine")
@@ -1339,6 +1511,8 @@ class PresetPatch(BaseModel):
     template_params: dict | None = None
     accent_color: str | None = None
     visibility: str | None = None
+    spec: dict | None = None            # replaces the whole declaration (re-renders the prompt)
+    params: dict | None = None          # a saved setup's values (re-renders its prompt)
 
 
 @app.patch("/api/presets/{preset_id}")
@@ -1348,12 +1522,27 @@ def update_preset(preset_id: str, body: PresetPatch, db=Depends(get_db),
         raise HTTPException(status_code=403, detail="Not authorized.")
     if body.visibility is not None and body.visibility not in ("public", "private"):
         raise HTTPException(status_code=422, detail="visibility must be public|private")
+    row = records.get_personal_preset(db, preset_id) or {}
+    if row.get("base_preset_id") and body.visibility == "public":
+        raise HTTPException(status_code=422, detail="Saved setups are private for now.")
+    if body.params is not None and not row.get("base_preset_id"):
+        raise HTTPException(status_code=422, detail="params can only be set on a saved setup.")
     fields = {k: v for k, v in {
         "title": body.title, "prompt": body.prompt, "tagline": body.tagline,
         "description": body.description, "mode": body.mode, "sub_views": body.sub_views,
         "template_params": body.template_params, "accent_color": body.accent_color,
         "visibility": body.visibility}.items() if v is not None}
-    return records.update_personal_preset(db, preset_id, **fields)
+    if body.spec is not None:
+        from . import preset_spec
+        spec = _validated_spec(body.spec, preset_id)
+        fields.update(spec=spec, prompt=preset_spec.render_prompt(spec), title=spec["meta"]["title"],
+                      tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
+                      mode=spec["meta"]["mode"])
+    if body.params is not None:
+        base, params = _setup_params(row["base_preset_id"], body.params)
+        fields.update(params=params, prompt=presets.render(base["id"], params)["prompt"])
+    records.update_personal_preset(db, preset_id, **fields)
+    return presets.get(preset_id, conn=db)
 
 
 @app.delete("/api/presets/{preset_id}")
@@ -1364,9 +1553,30 @@ def delete_preset(preset_id: str, db=Depends(get_db),
     return records.delete_personal_preset(db, preset_id)
 
 
+class RenderBody(BaseModel):
+    params: dict = {}
+
+
+@app.post("/api/presets/{preset_id}/render")
+def render_preset(preset_id: str, body: RenderBody, db=Depends(get_db),
+                  who: Principal = Depends(principal)) -> dict:
+    """The prompt (+ schema id) this preset produces for ``params`` — what a run will use."""
+    if not presets.is_visible(db, preset_id, who):
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    out = presets.render(preset_id, body.params or {}, conn=db)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    return {"prompt": out["prompt"], "schema_id": out["schema_id"], "params": out["params"],
+            "sub_views": out["sub_views"]}
+
+
 @app.get("/api/presets/{preset_id}/prompt")
-def preset_prompt(preset_id: str, db=Depends(get_db)) -> dict:
-    """The fully-rendered extraction prompt for a preset (for the Review-prompt step)."""
+def preset_prompt(preset_id: str, db=Depends(get_db),
+                  who: Principal = Depends(principal)) -> dict:
+    """The fully-rendered extraction prompt for a preset (for the Review-prompt step).
+    Owner-or-public: a private personal preset must not be readable by id."""
+    if not presets.is_visible(db, preset_id, who):
+        raise HTTPException(status_code=404, detail="Preset not found.")
     p = presets.prompt_for(preset_id, conn=db)
     if p is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
@@ -1374,9 +1584,13 @@ def preset_prompt(preset_id: str, db=Depends(get_db)) -> dict:
 
 
 @app.get("/api/presets/{preset_id}/detail")
-def preset_detail(preset_id: str, db=Depends(get_db)) -> dict:
+def preset_detail(preset_id: str, db=Depends(get_db),
+                  who: Principal = Depends(principal)) -> dict:
     """Full preset meta incl. ``template_params`` (MASEMiner builder seeds its form
-    from these) or the raw fields of a personal preset (the preset editor loads these)."""
+    from these) or the raw fields of a personal preset (the preset editor loads these).
+    Owner-or-public, like the picker."""
+    if not presets.is_visible(db, preset_id, who):
+        raise HTTPException(status_code=404, detail="Preset not found.")
     meta = presets.get(preset_id, conn=db)
     if meta is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
@@ -1385,25 +1599,24 @@ def preset_detail(preset_id: str, db=Depends(get_db)) -> dict:
 
 class BuildPresetBody(BaseModel):
     preset_id: str
-    template_params: dict = {}
+    template_params: dict = {}     # alias kept for the MASEMiner builder
+    params: dict | None = None
 
 
 @app.post("/api/build-preset-prompt")
-def build_preset_prompt(body: BuildPresetBody) -> dict:
-    """Re-render a preset's template with user-supplied ``template_params`` (the
-    MASEMiner builder posts here on every form change for the live preview). Form
-    values merge over the preset defaults, so only changed fields need be sent."""
-    meta = presets_loader.get(body.preset_id)
-    if meta is None:
+def build_preset_prompt(body: BuildPresetBody, db=Depends(get_db),
+                        who: Principal = Depends(principal)) -> dict:
+    """Render a preset's prompt with user-supplied parameter values (the MASEMiner
+    builder posts here on every form change for the live preview). Values merge over the
+    preset's declared defaults, so only changed fields need be sent. Works for built-in
+    and (visible) personal presets alike."""
+    if not presets.is_visible(db, body.preset_id, who):
         raise HTTPException(status_code=404, detail="Preset not found.")
-    template = presets_loader.read_template_for(body.preset_id)
-    if template is None:
-        raise HTTPException(status_code=400, detail="This preset does not use a parameterised template.")
-    params = dict(meta.get("template_params") or {})
-    params.update(body.template_params or {})
-    prompt = presets_loader.render_template(template, params)
-    sub_views = (presets.emit_schema_row(body.preset_id) or {}).get("sub_views", [])
-    return {"prompt": prompt, "sub_views": sub_views}
+    out = presets.render(body.preset_id, body.params or body.template_params or {}, conn=db)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    return {"prompt": out["prompt"], "sub_views": out["sub_views"],
+            "schema_id": out["schema_id"], "params": out["params"]}
 
 
 class TestKeyBody(BaseModel):
@@ -1419,42 +1632,6 @@ def providers_test(body: TestKeyBody) -> dict:
     try:
         providers.generate_text(body.model, body.api_key, "ping", base_url=body.base_url)
         return {"ok": True}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": providers.extract_provider_message(exc)}
-
-
-_DESIGN_META = """You are designing a data-extraction prompt for another AI that will read an \
-academic paper (PDF). Write a single, clear, self-contained prompt that instructs that AI to \
-perform the task below.
-
-TASK:
-{task}
-
-The prompt you write MUST instruct the model to return ONLY one JSON object (no prose, no markdown \
-fences) containing:
-- a top-level array named "records" — one element per extracted/labelled item, with sensible field names;
-- a top-level "evidence" array where each element has EXACTLY: "snippet" (verbatim text from the PDF), \
-"page" (1-indexed PDF page number), "source" (e.g. "Table 2" or null), "field" (the JSON path it supports, \
-e.g. "records[0]"). Snippets must be quoted character-for-character; "page" must never be omitted.
-
-Output ONLY the prompt text — nothing else."""
-
-
-class DesignPromptBody(BaseModel):
-    task: str
-    model: str
-    api_key: str
-    base_url: str | None = None
-
-
-@app.post("/api/design-prompt")
-def design_prompt(body: DesignPromptBody) -> dict:
-    """AI-write an extraction prompt from a free-text task description (the
-    "Create prompt" path). Uses the browser-supplied key once; never stored."""
-    try:
-        prompt = providers.generate_text(
-            body.model, body.api_key, _DESIGN_META.format(task=body.task), base_url=body.base_url)
-        return {"ok": True, "prompt": prompt}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": providers.extract_provider_message(exc)}
 
@@ -1517,4 +1694,5 @@ def get_schema(schema_id: str, db=Depends(get_db)) -> dict:
     s = records.get_schema(db, schema_id)
     if s is None:
         raise HTTPException(status_code=404, detail="Schema not found.")
+    s["spec"] = records.schema_spec(db, schema_id)
     return s

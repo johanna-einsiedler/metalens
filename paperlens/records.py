@@ -115,17 +115,17 @@ def upsert_schema(conn: psycopg.Connection, schema_id: str,
     if field_defs is None:
         # pass conn so a DB-backed personal preset resolves its grammar here too
         field_defs = presets.emit_schema_row(preset_id, conn=conn)
+    if isinstance(field_defs, dict) and field_defs.get("format") == 2:
+        # the row is addressed by the id the caller chose; never let the stored copy claim another
+        field_defs = {**field_defs, "schema_id": schema_id}
     source = "preset" if field_defs is not None else "auto"
-    # File presets are immutable (frozen grammar protects published data's provenance).
-    # Personal (DB) presets are still being developed, so refresh their grammar on each
-    # ingest — edits to the preset's sub_views take effect on the next extraction.
-    on_conflict = ("DO UPDATE SET field_defs = EXCLUDED.field_defs"
-                   if preset_id and get_personal_preset(conn, preset_id) is not None
-                   else "DO NOTHING")
+    # Immutable for EVERY source: a schema row is what already-extracted (and maybe
+    # published) records were verified against. Editing a preset mints a new,
+    # content-addressed id instead of rewriting the grammar under old documents.
     conn.execute(
-        f"""INSERT INTO schema (id, preset_id, schema_version, field_defs, source)
+        """INSERT INTO schema (id, preset_id, schema_version, field_defs, source)
             VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (id) {on_conflict}""",
+            ON CONFLICT (id) DO NOTHING""",
         (schema_id, preset_id or None, schema_version or None,
          Json(field_defs) if field_defs is not None else None, source),
     )
@@ -135,8 +135,10 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             schema_id: str | None = None, source_job_id: str | None = None,
             session_id: str | None = None, owner_user_id: str | None = None,
             extraction: dict | None = None, filename: str | None = None,
-            pdf_sha256: str | None = None) -> str:
-    """Persist a full ingest result in one transaction. Returns document id."""
+            pdf_sha256: str | None = None, prompt_sha256: str | None = None,
+            params: dict | None = None, issues: list | None = None) -> str:
+    """Persist a full ingest result in one transaction. Returns document id.
+    ``prompt_sha256`` / ``params`` record exactly what the extraction ran with."""
     with conn.transaction():
         if schema_id:
             upsert_schema(conn, schema_id)
@@ -147,12 +149,14 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             """INSERT INTO extraction_document
                  (id, paper_id, schema_id, source_job_id, core_key, core_shape,
                   had_top_evidence, top_extras, paper_metadata_raw, owner_user_id,
-                  session_id, filename, pdf_sha256)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s)""",
+                  session_id, filename, pdf_sha256, prompt_sha256, params, issues)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s)""",
             (doc_id, paper_id, schema_id, source_job_id, res.core_key, res.core_shape,
              res.had_top_evidence, Json(res.top_extras),
              Json(res.paper_metadata_raw) if res.paper_metadata_raw is not None else None,
-             owner_user_id, session_id, filename, pdf_sha256),
+             owner_user_id, session_id, filename, pdf_sha256, prompt_sha256,
+             Json(params) if params is not None else None,
+             Json(issues) if issues is not None else None),
         )
 
         # records, keeping entry_index -> record_id
@@ -181,10 +185,14 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             )
 
         for c in res.confidence:
+            rid = rec_ids.get(c.entry_index) if c.entry_index is not None else None
             conn.execute(
-                """INSERT INTO field_confidence (id, document_id, record_id, block, level, notes)
-                   VALUES (%s, %s, NULL, %s, %s, %s)""",
-                (_new_id(), doc_id, c.block, c.level, c.notes),
+                """INSERT INTO field_confidence
+                     (id, document_id, record_id, placement, entry_index, field_path, ord,
+                      block, level, notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (_new_id(), doc_id, rid, c.placement, c.entry_index, c.field_path, c.ord,
+                 c.block, c.level, c.notes),
             )
 
     return doc_id
@@ -222,10 +230,13 @@ def load(conn: psycopg.Connection, doc_id: str) -> IngestResult:
     ]
 
     cf_rows = conn.execute(
-        "SELECT block, level, notes FROM field_confidence WHERE document_id = %s",
+        """SELECT block, level, notes, placement, entry_index, field_path, ord
+           FROM field_confidence WHERE document_id = %s ORDER BY ord""",
         (doc_id,),
     ).fetchall()
-    confidence = [FieldConfidence(block=b, level=lv, notes=nt) for (b, lv, nt) in cf_rows]
+    confidence = [FieldConfidence(block=b, level=lv, notes=nt, placement=pl, entry_index=ei,
+                                  field_path=fp, ord=o)
+                  for (b, lv, nt, pl, ei, fp, o) in cf_rows]
 
     return IngestResult(
         core_key=core_key,
@@ -529,13 +540,13 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
     schema grammar, page-image urls, records, and evidence spans (with rects)."""
     from . import storage
     doc = conn.execute(
-        "SELECT paper_id, schema_id, filename, paper_metadata_raw "
-        "FROM extraction_document WHERE id = %s",
+        "SELECT paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, "
+        "params, issues FROM extraction_document WHERE id = %s",
         (document_id,),
     ).fetchone()
     if doc is None:
         return None
-    paper_id, schema_id, filename, paper_metadata_raw = doc
+    paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, params, issues = doc
 
     paper = None
     if paper_id:
@@ -578,10 +589,15 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
                     "final_value": d.get("final_value"),
                     "editor": email or kind, "at": created.isoformat() if created else None,
                 })
+    conf = document_confidence(conn, document_id)
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
          "verification_status": vs, "extraction": _ex, "screened_empty": bool(_se),
-         "corrections": corrections_by_rec.get(str(rid), [])}
+         "corrections": corrections_by_rec.get(str(rid), []),
+         # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
+         # sub-entries — the badges the review UI shows next to each group's fields
+         "confidence": conf["by_record"].get(str(rid), {}),
+         "child_confidence": conf["by_child"].get(str(rid), {})}
         for (rid, ei, fv, vs, _ex, _se) in rec_rows
     ]
     n_pages = 0
@@ -620,11 +636,105 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
     pages = [{"page": i, "url": store.url(storage.page_image_key(document_id, i))}
              for i in range(1, n_pages + 1)]
 
+    # The declaration the review UI renders from. A format-2 row carries it; a legacy row
+    # (or a designer run with none) is upgraded from its old grammar + the data, at read
+    # time, never written back.
+    field_defs = _upgraded_field_defs(field_defs, core_key, core_shape, records_out,
+                                      conn=conn, schema_id=schema_id)
     return {"document_id": document_id, "paper_id": str(paper_id) if paper_id else None,
             "schema_id": schema_id, "filename": filename, "paper": paper,
             "paper_metadata": paper_metadata_raw if isinstance(paper_metadata_raw, dict) else None,
-            "field_defs": field_defs, "pages": pages, "records": records_out,
-            "evidence": evidence_out}
+            "field_defs": field_defs, "spec": (field_defs or {}).get("spec"),
+            "params": params, "issues": issues or [],
+            "pages": pages, "records": records_out,
+            "evidence": evidence_out,
+            "paper_confidence": conf["paper"],          # paper-scope groups
+            "document_confidence": conf["top"]}         # legacy root-level blocks
+
+
+def _upgraded_field_defs(field_defs: dict | None, core_key: str | None, core_shape: str | None,
+                         records: list[dict], *, conn=None, schema_id: str | None = None) -> dict | None:
+    """``field_defs`` with a ``spec`` in it, whatever generation the row is from. For a
+    format-2 row, the live preset's ``display`` block is overlaid when its data contract
+    still hashes the same (a tab relabel reaches old documents; a field change does not).
+    A legacy row missing grammar its preset does carry (typed controls added after the row
+    was minted) borrows it from the preset — the row itself is never rewritten."""
+    from . import presets, presets_legacy, preset_spec   # lazy: records <-> presets cycle
+    if isinstance(field_defs, dict) and field_defs.get("format") == 2 and field_defs.get("spec"):
+        spec = field_defs["spec"]
+        try:
+            live = presets.get(spec.get("id"))
+        except Exception:                      # a broken file must never take the viewer down
+            live = None
+        if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == field_defs.get("hash"):
+            spec = {**spec, "display": live["spec"].get("display", spec.get("display"))}
+        return {**field_defs, "spec": spec}
+    if core_key is None and field_defs is None:
+        return None
+    if conn is not None and schema_id:
+        pid = schema_id.partition("@")[0]
+        try:
+            live = presets.get(pid, conn) if pid else None
+        except Exception:
+            live = None
+        if live:
+            base = (presets_legacy.legacy_schema_row(live) if live.get("legacy")
+                    else preset_spec.field_defs_for(live["spec"]))
+            merged = dict(field_defs or {})
+            for k in ("sub_views", "field_types", "render_hints", "title", "tagline", "mode"):
+                if not merged.get(k) and base.get(k):
+                    merged[k] = base[k]
+            field_defs = merged
+    return presets_legacy.upgrade_field_defs(field_defs, core_key or "records",
+                                             core_shape or "list", records)
+
+
+def schema_spec(conn: psycopg.Connection, schema_id: str) -> dict | None:
+    """The spec a schema row implies — exact for format-2 rows, inferred (from the row's
+    grammar and one of its documents) for legacy ones. None if the row is unknown."""
+    row = conn.execute("SELECT field_defs, preset_id FROM schema WHERE id = %s", (schema_id,)).fetchone()
+    if row is None:
+        return None
+    fd = row[0]
+    doc = conn.execute(
+        """SELECT d.id, d.core_key, d.core_shape FROM extraction_document d
+           WHERE d.schema_id = %s ORDER BY d.created_at DESC LIMIT 1""", (schema_id,)).fetchone()
+    recs = []
+    core_key, core_shape = (doc[1], doc[2]) if doc else (None, None)
+    if doc:
+        recs = [{"field_values": fv} for (fv,) in conn.execute(
+            "SELECT field_values FROM record WHERE document_id = %s ORDER BY entry_index LIMIT 50",
+            (doc[0],)).fetchall()]
+    up = _upgraded_field_defs(fd, core_key, core_shape, recs, conn=conn, schema_id=schema_id)
+    return (up or {}).get("spec")
+
+
+def document_confidence(conn: psycopg.Connection, document_id: str) -> dict:
+    """Every confidence rating of a document, grouped by what it rates:
+    ``by_record[record_id][group]``, ``by_child[record_id]["<child>[j]"][group]``,
+    ``paper[group]`` and the legacy root blocks ``top[group]``. The declared per-entry
+    block wins over a legacy per-sample one on the same group."""
+    rows = conn.execute(
+        """SELECT record_id, placement, field_path, block, level, notes
+           FROM field_confidence WHERE document_id = %s ORDER BY ord""",
+        (document_id,),
+    ).fetchall()
+    out: dict = {"by_record": {}, "by_child": {}, "paper": {}, "top": {}}
+    for (rid, placement, field_path, block, level, notes) in rows:
+        val = {"level": level, "notes": notes}
+        rid = str(rid) if rid else None
+        if placement == "paper":
+            out["paper"][block] = val
+        elif placement == "top":
+            out["top"][block] = val
+        elif placement in ("entry", "entry_legacy") and rid:
+            bucket = out["by_record"].setdefault(rid, {})
+            if placement == "entry" or block not in bucket:
+                bucket[block] = val
+        elif placement == "child" and rid and field_path:
+            rel = field_path.split("].", 1)[1] if "]." in field_path else field_path
+            out["by_child"].setdefault(rid, {}).setdefault(rel, {})[block] = val
+    return out
 
 
 # ── verification / credibility (Phase 3) ──────────────────────────────────────
@@ -1572,7 +1682,8 @@ def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
 def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
                         owner_user_id: str | None = None,
                         session_id: str | None = None,
-                        schema_id: str | None = None) -> dict[str, list[dict]]:
+                        schema_id: str | None = None,
+                        preset_id: str | None = None) -> dict[str, list[dict]]:
     """For each pdf_sha256 in ``hashes``, the caller's existing documents with that exact
     content hash that are STILL LIVE IN A DATASET under the given preset — powers the
     "already extracted" warning when adding papers. A duplicate is the SAME PDF, extracted
@@ -1585,6 +1696,13 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
     hs = [h for h in (hashes or []) if h]
     if not hs or (owner_user_id is None and session_id is None):
         return {}
+    # ``preset_id`` matches EVERY version of that preset (and the ids it was renamed from):
+    # re-running the same PDF through a re-versioned preset is still a duplicate.
+    bases: list[str] | None = None
+    if preset_id:
+        from . import presets_legacy
+        pid = presets_legacy.resolve_id(preset_id)
+        bases = [pid] + [old for old, new in presets_legacy.LEGACY_IDS.items() if new == pid]
     # JOIN (not LEFT JOIN) record + dataset so only papers with real records in a still-
     # existing dataset surface. record.dataset_id has no FK, so JOIN dataset (not just
     # dataset_id IS NOT NULL) is required to exclude dangling links to deleted datasets.
@@ -1595,11 +1713,12 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
            JOIN dataset ds ON ds.id = r.dataset_id
            WHERE d.pdf_sha256 = ANY(%s)
              AND (%s::text IS NULL OR d.schema_id = %s)
+             AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[]))
              AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
                OR (%s::text IS NOT NULL AND d.session_id = %s))
            GROUP BY d.id
            ORDER BY d.created_at DESC""",
-        (hs, schema_id, schema_id, owner_user_id, owner_user_id, session_id, session_id),
+        (hs, schema_id, schema_id, bases, bases, owner_user_id, owner_user_id, session_id, session_id),
     ).fetchall()
     out: dict[str, list[dict]] = {}
     for sha, did, fn, created, nrec in rows:
@@ -1666,6 +1785,36 @@ def update_paper_fields(conn: psycopg.Connection, paper_id: str, fields: dict) -
             "journal": row[4], "authors": row[5]}
 
 
+def set_paper_metadata_fields(conn: psycopg.Connection, document_id: str, fields: dict, *,
+                              verifier_user_id: str | None = None,
+                              verifier_kind: str = "maintainer") -> dict:
+    """Correct declared paper-level fields (``paper_metadata.<name>``) of ONE document, logging
+    a document-level ``corrected`` event with the diff — same audit trail as a record edit,
+    minus a record. Returns {"paper_metadata", "changed": [names]}."""
+    row = conn.execute("SELECT paper_metadata_raw FROM extraction_document WHERE id = %s::uuid",
+                       (document_id,)).fetchone()
+    if row is None:
+        raise KeyError(document_id)
+    raw = dict(row[0]) if isinstance(row[0], dict) else {}
+    diff = []
+    for name, value in (fields or {}).items():
+        if raw.get(name) == value:
+            continue
+        diff.append({"field_path": f"paper_metadata.{name}", "original_value": raw.get(name),
+                     "final_value": value})
+        raw[name] = value
+    if diff:
+        with conn.transaction():
+            conn.execute("UPDATE extraction_document SET paper_metadata_raw = %s WHERE id = %s::uuid",
+                         (Json(raw), document_id))
+            conn.execute(
+                """INSERT INTO verification_event
+                     (id, record_id, document_id, verifier_user_id, verifier_kind, status, diff)
+                   VALUES (%s::uuid, NULL, %s::uuid, %s::uuid, %s, 'corrected', %s)""",
+                (_new_id(), document_id, verifier_user_id, verifier_kind, Json(diff)))
+    return {"paper_metadata": raw, "changed": [d["field_path"].split(".", 1)[1] for d in diff]}
+
+
 def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     """Delete a document — cascades its records/evidence/confidence (FK ON DELETE
     CASCADE) — then its stored PDF + page images. Returns {"deleted": n}.
@@ -1700,6 +1849,7 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
         # to prefix deletion only when the page count is unknown (no cached parse).
         for label, op in (
             ("pdf", lambda: store.delete(storage.pdf_key(document_id))),
+            ("raw", lambda: store.delete(storage.raw_key(document_id))),
             ("pages", (lambda: store.delete_keys(pages)) if pages
                       else (lambda: store.delete_prefix(f"pages/{document_id}/"))),
         ):
@@ -1863,11 +2013,14 @@ def _preset_meta_from_row(r) -> dict:
             "title": r[4], "tagline": r[5], "description": r[6], "mode": r[7],
             "prompt": r[8], "sub_views": r[9], "template_params": r[10],
             "accent_color": r[11], "created_at": r[12].isoformat() if r[12] else None,
+            "spec": r[13],                       # the format-2 document (None for old rows)
+            "base_preset_id": r[14], "params": r[15],   # set on a saved setup (sub-preset)
             "source": "personal"}
 
 
 _PRESET_COLS = ("id, owner_user_id::text, session_id, visibility, title, tagline, "
-                "description, mode, prompt, sub_views, template_params, accent_color, created_at")
+                "description, mode, prompt, sub_views, template_params, accent_color, created_at, spec, "
+                "base_preset_id, params")
 
 
 def create_personal_preset(conn: psycopg.Connection, *, title: str, prompt: str,
@@ -1875,17 +2028,21 @@ def create_personal_preset(conn: psycopg.Connection, *, title: str, prompt: str,
                            mode: str = "extraction", sub_views=None, template_params=None,
                            accent_color: str | None = None, owner_user_id: str | None = None,
                            session_id: str | None = None, visibility: str = "private",
-                           preset_id: str | None = None) -> dict:
+                           preset_id: str | None = None, spec: dict | None = None,
+                           base_preset_id: str | None = None, params: dict | None = None) -> dict:
     pid = preset_id or f"{_slugify(title)}-{_new_id()[:8]}"
     with conn.transaction():
         conn.execute(
             """INSERT INTO personal_preset
                  (id, owner_user_id, session_id, visibility, title, tagline, description,
-                  mode, prompt, sub_views, template_params, accent_color, updated_at)
-               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
+                  mode, prompt, sub_views, template_params, accent_color, spec,
+                  base_preset_id, params, updated_at)
+               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
             (pid, owner_user_id, session_id, visibility, title, tagline, description, mode,
              prompt, Json(sub_views) if sub_views is not None else None,
-             Json(template_params) if template_params is not None else None, accent_color),
+             Json(template_params) if template_params is not None else None, accent_color,
+             Json(spec) if spec is not None else None,
+             base_preset_id, Json(params) if params is not None else None),
         )
     return get_personal_preset(conn, pid)
 
@@ -1922,12 +2079,12 @@ def is_preset_owner(conn: psycopg.Connection, preset_id: str, principal) -> bool
 
 def update_personal_preset(conn: psycopg.Connection, preset_id: str, **fields) -> dict | None:
     allowed = {"title", "tagline", "description", "mode", "prompt", "sub_views",
-               "template_params", "accent_color", "visibility"}
+               "template_params", "accent_color", "visibility", "spec", "params"}
     sets, vals = [], []
     for k, v in fields.items():
         if k not in allowed or v is None:
             continue
-        vals.append(Json(v) if k in ("sub_views", "template_params") else v)
+        vals.append(Json(v) if k in ("sub_views", "template_params", "spec", "params") else v)
         sets.append(f"{k} = %s")
     if sets:
         sets.append("updated_at = now()")

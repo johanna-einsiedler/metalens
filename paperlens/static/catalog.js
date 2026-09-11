@@ -3,7 +3,7 @@
 // route (/catalog/record/{id}). The URL holds the filter state (store.js).
 import { api } from "/static/api.js";
 import { createStore } from "/static/store.js";
-import { renderValue, renderConfidence, renderEvidenceList, esc } from "/static/grammar.js";
+import { renderValue, renderConfBadge, renderEvidenceList, esc, formatKey } from "/static/grammar.js";
 
 const app = document.getElementById("app");
 const PAGE = 25;
@@ -115,6 +115,14 @@ function pager(res, f) {
 }
 
 // ── record detail ───────────────────────────────────────────────────────────
+// The model's self-assessment for this record (per group), when the API carries it.
+function _confRow(conf) {
+  const entries = Object.entries(conf || {});
+  if (!entries.length) return "";
+  return `<div class="group-head">${entries.map(([gid, r]) =>
+    renderConfBadge(gid, { label: formatKey(gid) }, r, ["high", "medium", "low"])).join("")}</div>`;
+}
+
 async function renderDetail(rid) {
   app.innerHTML = '<p class="muted">Loading record…</p>';
   let d;
@@ -135,7 +143,7 @@ async function renderDetail(rid) {
         ${p.oa_pdf_url ? `· <a href="${esc(p.oa_pdf_url)}" target="_blank" rel="noopener">OA PDF</a>` : ""}</p>
       <div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>
         <button class="vbtn flag" data-status="flagged">⚑ flag</button></div>
-      ${renderConfidence(d.record.field_values && d.record.field_values.extraction_confidence)}
+      ${_confRow(d.record.confidence)}
       ${renderValue(d.record.field_values)}
       <div class="section-h">Evidence</div>
       ${renderEvidenceList(d.evidence) || '<p class="muted">No evidence spans.</p>'}

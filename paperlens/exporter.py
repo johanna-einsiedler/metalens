@@ -14,6 +14,19 @@ from __future__ import annotations
 from . import reconstruct, records
 
 
+def _preset_block(conn, schema_id: str | None) -> dict | None:
+    if not schema_id:
+        return None
+    row = records.get_schema(conn, schema_id)
+    if row is None:
+        return None
+    fd = row.get("field_defs") or {}
+    return {"schema_id": schema_id, "preset_id": row.get("preset_id"),
+            "label": fd.get("label") if isinstance(fd, dict) else None,
+            "format": fd.get("format") if isinstance(fd, dict) else None,
+            "spec": records.schema_spec(conn, schema_id)}
+
+
 def materialize_dataset(conn, dataset_id: str) -> dict:
     ov = records.dataset_overview(conn, dataset_id)
     if ov is None:
@@ -29,6 +42,10 @@ def materialize_dataset(conn, dataset_id: str) -> dict:
         "recipe": ov.get("recipe"),
         "stats": ov.get("stats"),
         "credibility": ov.get("credibility"),
+        # The preset travels WITH the data: a consumer can rebuild the review grammar
+        # (fields, tabs, evidence + confidence policy) without this server. Inferred for
+        # datasets extracted before the declarative format existed.
+        "preset": _preset_block(conn, ov.get("schema_id")),
     }
 
     doc_rows = conn.execute(

@@ -90,7 +90,7 @@ def test_page_images_are_deleted_without_listing(monkeypatch) -> None:
                                       headers={"X-Session-Id": sess})
     assert r.status_code == 200, r.text
     assert r.json() == {"deleted": 1, "blobs_orphaned": False}
-    assert store.deleted == [f"pdf/{doc_id}.pdf"] + [
+    assert store.deleted == [f"pdf/{doc_id}.pdf", f"raw/{doc_id}.txt"] + [
         f"pages/{doc_id}/{i}.jpg" for i in (1, 2, 3)]
 
 

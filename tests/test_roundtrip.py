@@ -80,6 +80,105 @@ def test_decomposition_shapes() -> None:
     assert mr.top_extras.get("schema_version") == "masem-v3"
 
 
+def test_roundtrip_masem_v2() -> None:
+    _check_roundtrip("masem_v2", fixtures.MASEM_V2_JSON)
+
+
+def test_roundtrip_legacy_entry_confidence() -> None:
+    """Per-sample bare-string ``extraction_confidence`` (the shipping MASEM prompts) must
+    round-trip: it is stripped on BOTH sides now, instead of only by ingest."""
+    _check_roundtrip("masem_legacy_entry_conf", fixtures.MASEM_LEGACY_ENTRY_CONF_JSON)
+    res = ingest(fixtures.MASEM_LEGACY_ENTRY_CONF_JSON)
+    legacy = [c for c in res.confidence if c.placement == "entry_legacy"]
+    assert {c.block: c.level for c in legacy} == {
+        "factor_loadings": "high", "factor_correlations": "low", "metadata": "medium"}
+    assert all(c.entry_index == 0 and c.field_path == "samples[0]" for c in legacy)
+    assert "extraction_confidence" not in res.records[0].field_values
+    # never re-nested: legacy blocks are not part of the publishable document
+    assert "extraction_confidence" not in reconstruct_publishable(res)["samples"][0]
+    assert "confidence" not in reconstruct_publishable(res)["samples"][0]
+
+
+def test_v2_confidence_has_a_home() -> None:
+    """Declared confidence blocks are routed to the instance they rate — paper, entry,
+    sub-entry — leave field_values, and come back in canonical form on reconstruct."""
+    res = ingest(fixtures.MASEM_V2_JSON)
+    by = {(c.placement, c.field_path, c.block): c for c in res.confidence}
+    assert by[("paper", "paper_metadata", "design")].level == "high"
+    assert by[("entry", "samples[0]", "effect_sizes")].entry_index == 0
+    assert by[("entry", "samples[1]", "metadata")].entry_index == 1
+    child = by[("child", "samples[0].records[0]", "row_check")]
+    assert child.entry_index == 0 and child.notes == "Table 2 row 3"
+    # stripped from what the spine stores…
+    assert "confidence" not in res.records[0].field_values
+    assert "confidence" not in res.records[0].field_values["records"][0]
+    assert "confidence" not in res.paper_metadata_raw
+    assert res.paper_metadata_raw["preregistered"] is True      # declared paper field kept
+    # …and re-nested verbatim (canonical form) on the way out
+    out = reconstruct_publishable(res)
+    assert out["paper_metadata"]["confidence"] == {"design": {"level": "high", "notes": "stated in methods"}}
+    assert out["samples"][0]["records"][0]["confidence"] == {"row_check": {"level": "high", "notes": "Table 2 row 3"}}
+    assert "confidence" not in out["samples"][0]["records"][1]
+    assert list(out["samples"][0]["confidence"]) == ["effect_sizes", "metadata"]   # group order kept
+    # evidence addressing a sub-entry routes to its entry
+    routed = {s.field_path: s.entry_index for s in res.evidence}
+    assert routed["samples[1].records[0].es"] == 1
+
+
+def test_bare_string_confidence_is_canonicalised() -> None:
+    """``{"g": "high"}`` and ``{"g": {"level": "high"}}`` are the same rating; an empty
+    block is the same as no block."""
+    import json
+    raw = json.dumps({"samples": [{"sample_id": "a", "confidence": {"g": "high"}},
+                                  {"sample_id": "b", "confidence": {}}]})
+    res = ingest(raw)
+    assert [(c.block, c.level, c.notes) for c in res.confidence] == [("g", "high", None)]
+    out = reconstruct_publishable(res)
+    assert out["samples"][0]["confidence"] == {"g": {"level": "high", "notes": None}}
+    assert "confidence" not in out["samples"][1]
+    assert out == strip_to_publishable(raw)
+
+
+def test_data_field_named_confidence_survives() -> None:
+    """A field that merely shares the name (a number, a list) is data, not a rating."""
+    import json
+    raw = json.dumps({"records": [{"x": 1, "confidence": 0.95}, {"x": 2, "confidence": [1, 2]}]})
+    res = ingest(raw)
+    assert res.confidence == []
+    assert res.records[0].field_values["confidence"] == 0.95
+    assert reconstruct_publishable(res) == strip_to_publishable(raw)
+
+
+def test_root_confidence_blocks_are_top_and_unpublished() -> None:
+    res = ingest(fixtures.MASEM_RICH_JSON)          # root-level extraction_confidence
+    assert {c.placement for c in res.confidence} == {"top"}
+    assert all(c.entry_index is None and c.field_path is None for c in res.confidence)
+    assert "extraction_confidence" not in reconstruct_publishable(res)
+
+
+def test_declared_entries_key_wins_over_detection() -> None:
+    import json
+    raw = json.dumps({"records": [{"a": 1}], "samples": [{"b": 2}, {"b": 3}]})
+    assert ingest(raw).core_key == "samples"                        # candidate order
+    assert ingest(raw, entries_key="records").core_key == "records" # the declared key
+    assert len(ingest(raw, entries_key="records").records) == 1
+    # a declared key the model ignored falls back to detection
+    assert ingest(raw, entries_key="tables").core_key == "samples"
+
+
+def test_any_core_key_is_publishable() -> None:
+    """A document whose spine is called ``tables`` used to fall out of the publishable
+    set entirely (the invariant was untestable for it). The core array is part of the
+    contract whatever its name."""
+    import json
+    raw = json.dumps({"tables": [{"table_id": "T1", "regressions": [{"column": "1"}]}],
+                      "paper_metadata": {"title": "t"}})
+    res = ingest(raw)
+    assert res.core_key == "tables"
+    assert reconstruct_publishable(res) == strip_to_publishable(raw)
+    assert "tables" in strip_to_publishable(raw)
+
+
 def test_inline_evidence_harvested_but_excluded_from_roundtrip() -> None:
     """A snippet cited IN PLACE (an object with evidence_snippet/evidence_page nested in an
     entry, not in a top-level evidence[]) is harvested into a highlight-only 'inline' span so
@@ -126,6 +225,14 @@ def _main() -> int:
         ("roundtrip:masem", test_roundtrip_masem),
         ("roundtrip:masem_rich", test_roundtrip_masem_rich),
         ("decomposition:shapes", test_decomposition_shapes),
+        ("roundtrip:masem_v2", test_roundtrip_masem_v2),
+        ("roundtrip:legacy-entry-confidence", test_roundtrip_legacy_entry_confidence),
+        ("confidence:v2-home", test_v2_confidence_has_a_home),
+        ("confidence:canonical", test_bare_string_confidence_is_canonicalised),
+        ("confidence:data-field", test_data_field_named_confidence_survives),
+        ("confidence:root-top", test_root_confidence_blocks_are_top_and_unpublished),
+        ("core:declared-key", test_declared_entries_key_wins_over_detection),
+        ("core:any-key-publishable", test_any_core_key_is_publishable),
     ]
     for label, fn in tests:
         try:
@@ -140,3 +247,18 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+def test_linked_evidence_round_trips_as_one_item_per_path() -> None:
+    """``field`` may be a LIST (one quote reused for several values). Ingest stores one span
+    per path; the publishable form is the same expansion, so the invariant holds."""
+    raw = fixtures.HAC_LINKED_EVIDENCE_JSON
+    _check_roundtrip("hac_linked", raw)
+    res = ingest(raw)
+    assert [s.field_path for s in res.evidence] == [
+        "experiments[0].conditions[0].Final_Decision",
+        "experiments[0].conditions[1].Final_Decision",
+        "experiments[0].conditions[0].measures[0]"]
+    assert [s.ord for s in res.evidence] == [0, 1, 2]
+    pub = strip_to_publishable(raw)["evidence"]
+    assert len(pub) == 3 and pub[0]["snippet"] == pub[1]["snippet"] and all(isinstance(e["field"], str) for e in pub)

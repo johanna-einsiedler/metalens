@@ -16,8 +16,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paperlens import records          # noqa: E402
-from paperlens.ingest import ingest    # noqa: E402
+from paperlens import preset_spec, records   # noqa: E402
+from paperlens.ingest import ingest          # noqa: E402
 
 
 def adapt_ai_findings(paper: dict) -> dict:
@@ -70,7 +70,23 @@ def import_one(conn, repo: str, dirname: str, schema_id: str, adapt) -> None:
         meta = json.load(fh)
     with open(os.path.join(base, "results.json")) as fh:
         res = json.load(fh)
-    records.upsert_schema(conn, schema_id)   # the dataset FK needs the schema row to exist
+    # A dataset published under the declarative format carries its preset; re-mint the
+    # exact schema row from it so the review grammar (fields, tabs, evidence, confidence)
+    # survives the round trip. Older exports fall back to the id alone.
+    entries_key = None
+    preset = meta.get("preset") or {}
+    if isinstance(preset.get("spec"), dict):
+        try:
+            spec = preset_spec.normalize(preset["spec"])
+            schema_id = preset.get("schema_id") or preset_spec.schema_id(spec)
+            records.upsert_schema(conn, schema_id, preset_spec.field_defs_for(spec))
+            entries_key = spec["entries"]["key"]
+            print(f"  preset restored from metadata: {schema_id}")
+        except preset_spec.SpecError as exc:
+            print(f"  metadata.preset.spec invalid ({exc}); using {schema_id}")
+            records.upsert_schema(conn, schema_id)
+    else:
+        records.upsert_schema(conn, schema_id)   # the dataset FK needs the schema row to exist
     ds = records.create_dataset(conn, title=meta["title"], description=meta.get("description"),
                                 schema_id=schema_id, visibility="public")
     n_ok = n_rec = n_skip = 0
@@ -83,7 +99,7 @@ def import_one(conn, repo: str, dirname: str, schema_id: str, adapt) -> None:
             n_skip += 1
             continue
         try:
-            r = ingest(norm)
+            r = ingest(norm, entries_key=entries_key)
         except Exception as exc:                      # noqa: BLE001
             print(f"    skip {paper.get('filename')}: {exc}")
             n_skip += 1

@@ -78,7 +78,8 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
                       session_id: str | None = None, owner_user_id: str | None = None,
                       filename: str | None = None, use_credits: bool = False,
                       credit_user_id: str | None = None,
-                      dataset_id: str | None = None) -> dict:
+                      dataset_id: str | None = None, params: dict | None = None,
+                      prompt_edited: bool = False) -> dict:
     """Full PDF extraction as a durable job (render -> LLM -> highlight -> records).
 
     For ``use_credits`` runs the api_key is EMPTY in the payload — resolved here from the
@@ -117,7 +118,7 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
             conn, pdf_bytes, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=session_id,
             owner_user_id=owner_user_id, source_job_id=ctx.get("job_id"),
-            filename=filename)
+            filename=filename, params=params, prompt_edited=prompt_edited)
     except Exception:
         if use_credits and credit_user_id and ctx.get("job_try", 1) >= _EXTRACT_MAX_TRIES:
             from . import credits

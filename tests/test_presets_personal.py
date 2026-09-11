@@ -144,6 +144,14 @@ def test_picker_endpoint() -> None:
     assert stranger.request("PATCH", f"/api/presets/{pid}", json={"title": "hax"},
                             headers={"X-Session-Id": "z"}).status_code == 403
     assert stranger.delete(f"/api/presets/{pid}", headers={"X-Session-Id": "z"}).status_code == 403
+    # …nor READ it by id: the prompt and detail routes hide a private preset (404), while
+    # the owner sees it, a built-in preset is global, and publishing opens it up.
+    for route in ("detail", "prompt"):
+        assert owner.get(f"/api/presets/{pid}/{route}").status_code == 200
+        assert stranger.get(f"/api/presets/{pid}/{route}", headers={"X-Session-Id": "z"}).status_code == 404
+        assert stranger.get(f"/api/presets/masem-direct/{route}", headers={"X-Session-Id": "z"}).status_code == 200
+    assert owner.request("PATCH", f"/api/presets/{pid}", json={"visibility": "public"}).status_code == 200
+    assert stranger.get(f"/api/presets/{pid}/detail", headers={"X-Session-Id": "z"}).status_code == 200
 
 
 def _main() -> int:
@@ -167,3 +175,124 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+_MINI_SPEC = {
+    "format": 2, "meta": {"title": "Screening codebook"},
+    "prompt": {"text": "Screen the paper."},
+    "paper": {"fields": [{"name": "design", "type": "enum", "options": ["rct", "obs"], "confidence": "dq"}]},
+    "entries": {"key": "records", "label": "Record", "cardinality": "one",
+                "fields": [{"name": "include", "type": "boolean"}, {"name": "reason", "type": "text", "evidence": "none"}]},
+    "confidence": {"groups": [{"id": "dq", "label": "Design", "scope": "paper"}]},
+}
+
+
+def test_spec_presets_api() -> None:
+    """Create / validate / edit a declarative personal preset over HTTP: the server assigns
+    the id, renders the prompt, mints the schema id, and refuses an invalid spec with the
+    full error list."""
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    records.init_db(records.connect())
+    c = TestClient(app)
+    sid = f"s-{uuid.uuid4().hex[:6]}"
+    assert c.post("/api/auth/register", json={"email": f"sp{uuid.uuid4().hex[:8]}", "password": "pw"},
+                  headers={"X-Session-Id": sid}).status_code == 200
+    made = c.post("/api/presets", json={"spec": _MINI_SPEC, "visibility": "private"})
+    assert made.status_code == 200, made.text
+    p = made.json()
+    pid = p["id"]
+    assert pid.startswith("screening-codebook-") and p["spec"]["id"] == pid
+    assert p["schema_id"].startswith(pid + "@") and "# OUTPUT SCHEMA (generated" in p["prompt"]
+    assert p["title"] == "Screening codebook" and p["source"] == "personal"
+    # the picker + detail carry the format-2 row
+    assert any(r.get("preset_id") == pid and r.get("format") == 2 for r in c.get("/api/presets").json()["presets"])
+    assert c.get(f"/api/presets/{pid}/detail").json()["spec"]["entries"]["key"] == "records"
+    # validate without saving: errors are listed, warnings don't block
+    bad = dict(_MINI_SPEC); bad["entries"] = {"key": "records", "fields": [{"name": "F1.2"}]}
+    v = c.post("/api/presets/validate", json={"spec": bad}).json()
+    assert v["ok"] is False and any("name" in e for e in v["errors"])
+    ok = c.post("/api/presets/validate", json={"spec": _MINI_SPEC}).json()
+    assert ok["ok"] is True and ok["schema_id"].startswith("draft@") and ok["prompt"]
+    # an invalid spec is refused on create, with the error list
+    r = c.post("/api/presets", json={"spec": bad})
+    assert r.status_code == 422 and r.json()["detail"]["errors"]
+    # editing the data contract mints a NEW schema id; the old row is untouched
+    edited = dict(_MINI_SPEC); edited["entries"] = dict(_MINI_SPEC["entries"])
+    edited["entries"]["fields"] = _MINI_SPEC["entries"]["fields"] + [{"name": "score", "type": "number"}]
+    r = c.request("PATCH", f"/api/presets/{pid}", json={"spec": edited})
+    assert r.status_code == 200 and r.json()["schema_id"] != p["schema_id"]
+    assert "score" in r.json()["prompt"]
+    conn = records.connect()
+    assert presets.schema_id_for(pid, conn) == r.json()["schema_id"]
+    conn.close()
+
+
+def test_schema_rows_are_immutable_for_personal_presets_too() -> None:
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    conn = records.connect(); records.init_db(conn)
+    sid = f"row-{uuid.uuid4().hex[:8]}@v1"
+    with conn.transaction():
+        records.upsert_schema(conn, sid, {"sub_views": [{"id": "a", "label": "A", "include_keys": ["x"]}]})
+        records.upsert_schema(conn, sid, {"sub_views": [{"id": "b", "label": "B", "include_keys": ["y"]}]})
+    assert records.get_schema(conn, sid)["field_defs"]["sub_views"][0]["id"] == "a"
+    conn.close()
+
+
+def test_saved_setups_resolve_to_the_base_with_their_values() -> None:
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    conn = records.connect(); records.init_db(conn)
+    sid = "setup-" + uuid.uuid4().hex[:8]
+    row = records.create_personal_preset(
+        conn, title="NCS-18", prompt="", base_preset_id="masem-indirect",
+        params={"scale_name": "Need for Cognition Scale", "n_items": 18,
+                "item_texts": ["I would prefer complex to simple problems"]},
+        session_id=sid, visibility="private")
+    meta = presets.get(row["id"], conn)
+    assert meta["setup"] is True and meta["id"] == row["id"] and meta["base_preset_id"] == "masem-indirect"
+    assert meta["schema_id"] == presets.schema_id_for("masem-indirect")      # same data contract
+    assert meta["template_params"]["scale_name"] == "Need for Cognition Scale"
+    assert "Need for Cognition Scale" in meta["prompt"] and "I would prefer complex to simple problems" in meta["prompt"]
+    run = presets.resolve_run(conn, preset_id=row["id"])
+    assert run.schema_id == presets.schema_id_for("masem-indirect") and run.params["n_items"] == 18
+    assert presets.is_visible(conn, row["id"], Principal(session_id=sid, user_id=None))
+    assert not presets.is_visible(conn, row["id"], Principal(session_id="someone-else", user_id=None))
+    records.delete_personal_preset(conn, row["id"]); conn.close()
+
+
+def test_saved_setup_api_create_list_update_private() -> None:
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    sid = "setup-api-" + uuid.uuid4().hex[:6]
+    c = TestClient(app); h = {"X-Session-Id": sid}
+    r = c.post("/api/presets", json={"title": "TAS-20", "base_preset_id": "masem-indirect",
+                                     "params": {"scale_name": "TAS-20", "n_items": 20}}, headers=h)
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    assert r.json()["setup"] is True and r.json()["visibility"] == "private"
+    bad = c.post("/api/presets", json={"title": "x", "base_preset_id": "masem-indirect", "params": {"nope": 1}}, headers=h)
+    assert bad.status_code == 422
+    rows = c.get("/api/presets", headers=h).json()["presets"]
+    me = next(p for p in rows if p["preset_id"] == pid)
+    assert me["setup"] and me["base_preset_id"] == "masem-indirect" and me["personal"] and me["owned"]
+    assert me["params"]["n_items"] == 20 and me["title"] == "TAS-20"
+    other = c.get("/api/presets", headers={"X-Session-Id": "other-" + sid}).json()["presets"]
+    assert all(p["preset_id"] != pid for p in other)                         # private
+    r = c.patch(f"/api/presets/{pid}", json={"params": {"scale_name": "TAS-20", "n_items": 20,
+                "item_texts": ["I am often confused about what emotion I am feeling"]}}, headers=h)
+    assert r.status_code == 200 and "confused about what emotion" in r.json()["prompt"]
+    assert c.patch(f"/api/presets/{pid}", json={"visibility": "public"}, headers=h).status_code == 422
+    rendered = c.post(f"/api/presets/{pid}/render", json={"params": {}}, headers=h).json()
+    assert rendered["schema_id"] == presets.schema_id_for("masem-indirect")
+    assert c.get(f"/api/presets/{pid}/detail", headers={"X-Session-Id": "other-" + sid}).status_code == 404
+    assert c.delete(f"/api/presets/{pid}", headers=h).status_code == 200

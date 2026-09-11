@@ -24,14 +24,16 @@
   </header>
   <main class="wrap" style="padding-top:24px; max-width:760px">
     <h2 style="margin:0 0 4px">Import extractions</h2>
-    <p class="muted" style="margin:0 0 18px">Already have extraction JSON from your own pipeline? Drop it here with the
-      source PDFs (paired by filename) — Metalens renders the pages and highlights each citation from the JSON's evidence,
-      so you get the full viewer with source highlighting. No model is called.</p>
+    <p class="muted" style="margin:0 0 18px">Already have extraction JSON — from your own pipeline, an earlier Metalens run,
+      or a whole dataset export? Drop it here with the source PDFs (paired by filename, or assign them below) — Metalens renders
+      the pages and highlights each citation from the JSON's evidence, so you get the full viewer. Papers without a PDF are
+      imported too, just without page images. No model is called.</p>
 
     <div class="dropzone" id="dz">
       <div class="dz-title">Drag &amp; drop your .json + .pdf files here</div>
-      <div class="dz-sub">or click to browse — pair by name, e.g. <code>paper1.json</code> + <code>paper1.pdf</code>
-        (a <code>.gemini.json</code> suffix and a <code>{ "extraction": … }</code> wrapper are handled automatically)</div>
+      <div class="dz-sub">or click to browse — pair by name, e.g. <code>paper1.json</code> + <code>paper1.pdf</code>.
+        Accepted: a single-paper result, a workspace export, a dataset export (split into its papers),
+        a <code>.gemini.json</code> suffix or an <code>{ "extraction": … }</code> wrapper.</div>
       <input id="files" type="file" accept=".json,application/json,.pdf,application/pdf" multiple hidden/>
     </div>
 
@@ -45,10 +47,13 @@
       <span class="muted" style="font-size:11.5px">a new dataset shows only these uploads; pick an existing one to merge</span>
     </div>
     <div style="margin:0 0 14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
-      <label class="muted" style="font-size:12.5px; min-width:88px">Preset schema</label>
-      <input id="schema" value="masem-direct@v1"
-             style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; min-width:220px"/>
-      <span class="muted" style="font-size:11.5px">the schema whose layout to render with (leave as-is for econ regressions)</span>
+      <label class="muted" style="font-size:12.5px; min-width:88px">Review as</label>
+      <select id="schema" style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; min-width:220px">
+        <option value="__custom__">Other schema id…</option>
+      </select>
+      <input id="schemaCustom" placeholder="e.g. human-ai-collab@v1" hidden
+             style="padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; min-width:200px"/>
+      <span class="muted" style="font-size:11.5px" id="schemaHint">the preset whose fields, tabs and evidence rules the review uses — an export's own schema id is picked up automatically</span>
     </div>
 
     <div id="pairs" class="import-pairs"></div>

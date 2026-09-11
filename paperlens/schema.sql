@@ -327,3 +327,36 @@ CREATE TABLE IF NOT EXISTS personal_preset (
 );
 CREATE INDEX IF NOT EXISTS personal_preset_owner_idx   ON personal_preset(owner_user_id);
 CREATE INDEX IF NOT EXISTS personal_preset_session_idx ON personal_preset(session_id);
+
+-- ── declarative presets (format 2) + confidence with a home ──────────────────
+-- The whole preset document (prompt, metadata, display, evidence + confidence policy,
+-- paper/entry/sub-entry structure) lives in ONE jsonb for DB presets; file presets carry
+-- the identical document. The older columns stay as read-only mirrors for one release.
+ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS spec jsonb;
+
+-- A confidence rating now says WHICH instance it rates (paper / entry / sub-entry) and
+-- where it sat in the model output, so the review UI can badge the right group and
+-- reconstruct can re-nest it verbatim. Existing rows were all root-level blocks → 'top'.
+ALTER TABLE field_confidence ADD COLUMN IF NOT EXISTS placement   text NOT NULL DEFAULT 'top';
+ALTER TABLE field_confidence ADD COLUMN IF NOT EXISTS entry_index integer;
+ALTER TABLE field_confidence ADD COLUMN IF NOT EXISTS field_path  text;
+ALTER TABLE field_confidence ADD COLUMN IF NOT EXISTS ord         integer NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS confidence_record_idx ON field_confidence(record_id);
+
+-- Run provenance: the exact prompt (as a hash) and the parameter values an extraction ran
+-- with, plus post-extraction validation findings for triage.
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS prompt_sha256 text;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS params        jsonb;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS issues        jsonb;
+
+-- Paper-level field edits (declared paper fields) log an event against the document.
+ALTER TABLE verification_event ADD COLUMN IF NOT EXISTS document_id uuid
+    REFERENCES extraction_document(id) ON DELETE CASCADE;
+-- a paper-level edit has no record: the event hangs off the document instead
+ALTER TABLE verification_event ALTER COLUMN record_id DROP NOT NULL;
+
+-- A saved setup ("sub-preset"): a named set of parameter values for a built-in preset —
+-- the MASEMiner builder's "Save this setup". Not a copy of the preset: runs resolve the live
+-- base, so the setup only pins the values (scale name, items, effect sizes …).
+ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS base_preset_id text;
+ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS params jsonb;

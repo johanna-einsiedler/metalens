@@ -1,16 +1,47 @@
 {
-  "id":                "summarize",
-  "title":             "Summarise a paper",
-  "tagline":           "Structured per-section summaries — background, methods, findings, limitations — anchored to verifiable page-cited quotes",
-  "description":       "Reads each PDF and emits a four-section academic summary (background / methods / findings / limitations) with verbatim evidence snippets pinned to PDF pages, so every claim is click-to-verifiable in the result viewer.",
-  "mode":              "summarize",
-  "default_provider":  "openai",
-  "default_model":     "gpt-4o",
-  "task_description":  "Produce a structured per-section summary of each paper, with verbatim page-anchored evidence supporting every section.",
-  "context":           "Empirical or review papers.  Multi-study papers should yield one summary per study; single-study papers yield exactly one summary.",
-  "prompt_template_file": "summarize.template.md",
-  "template_params":   {},
-  "schema_version":    "summarize-v1",
-  "skip_to":           "setup",
-  "accent_color":      "#34548a"
+  "format": 2,
+  "id": "summarize",
+  "version": 2,
+  "meta": {
+    "title": "Summarise a paper",
+    "tagline": "Structured per-section summaries — background, methods, findings, limitations — anchored to verifiable page-cited quotes",
+    "description": "Reads each PDF and emits a four-section academic summary (background / methods / findings / limitations) with verbatim evidence snippets pinned to PDF pages, so every claim is click-to-verifiable in the result viewer.",
+    "mode": "summarize",
+    "hidden": false
+  },
+  "prompt": {
+    "file": "summarize.prompt.md",
+    "params": {},
+    "generate": ["paper_metadata", "output_schema", "evidence", "confidence", "return_format"]
+  },
+  "paper": { "fields": [] },
+  "entries": {
+    "key": "summaries",
+    "label": "Study",
+    "help": "one distinct empirical study; single-study papers yield exactly one",
+    "cardinality": "many",
+    "title": "{study_id}",
+    "evidence": "none",
+    "fields": [
+      { "name": "study_id", "type": "string", "label": "Study", "help": "the paper's own label, e.g. 'Study 1'; null for a single-study paper", "evidence": "none" },
+      { "name": "background", "type": "text", "label": "Background", "help": "research question, motivation, prior-work positioning", "evidence": "value", "confidence": "summary" },
+      { "name": "methods", "type": "text", "label": "Methods", "help": "design, sample, measures, analytic strategy", "evidence": "value", "confidence": "summary" },
+      { "name": "findings", "type": "text", "label": "Findings", "help": "main results with effect sizes / significance exactly as reported", "evidence": "value", "confidence": "summary" },
+      { "name": "limitations", "type": "text", "label": "Limitations", "help": "constraints and caveats; prefix '(implied)' when not discussed by the authors", "evidence": "value", "confidence": "summary" }
+    ],
+    "children": []
+  },
+  "confidence": {
+    "levels": ["high", "medium", "low"],
+    "notes": true,
+    "groups": [
+      { "id": "summary", "label": "Summary faithfulness", "scope": "entry", "help": "how closely each section tracks what the paper actually says" }
+    ]
+  },
+  "display": {
+    "entries": "cards",
+    "grid_rows": "entries",
+    "triage": "declaration",
+    "paper_panel": "collapsed"
+  }
 }

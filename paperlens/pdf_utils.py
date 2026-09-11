@@ -192,7 +192,7 @@ def _find_rects_on_page(page, cands, scale) -> list[list[float]]:
     for c in cands:                                   # 1. fast path: contiguous literal
         rects = page.search_for(c)
         if rects:
-            return scaled(rects)
+            return scaled(_whole_number_hits(page, c, rects))
 
     # 2. character-level reconstruction. Math-typeset tables (Econometrica, AER …) split
     #    a number across glyphs and encode the decimal point in a MathType font whose
@@ -224,6 +224,24 @@ def _find_rects_on_page(page, cands, scale) -> list[list[float]]:
                 return scaled([_R(min(b[0] for b in seg), min(b[1] for b in seg),
                                   max(b[2] for b in seg), max(b[3] for b in seg))])
     return []
+
+
+def _whole_number_hits(page, cand: str, rects: list) -> list:
+    """``search_for`` matches substrings: "94" lights up inside "2943" and "1994" too. Keep
+    the hits where the candidate is a whole number in its word (digits may be followed by
+    "%", ")" …, never by another digit); fall back to all hits when no word can be told."""
+    words = page.get_text("words")
+    if not words:
+        return rects
+    pat = re.compile(r"(?<![\d.,])" + re.escape(_norm_num(cand)) + r"(?![\d])")
+    keep = []
+    for r in rects:
+        around = [w for w in words if w[0] < r.x1 and w[2] > r.x0 and w[1] < r.y1 and w[3] > r.y0]
+        if not around:
+            keep.append(r)                               # matched across words — cannot judge
+        elif any(pat.search(_norm_num(w[4])) for w in around):
+            keep.append(r)
+    return keep or rects
 
 
 def _canon_char(ch: str) -> str:
@@ -1010,6 +1028,82 @@ def _prose_word_rects(page, norm: str) -> list:
     return []
 
 
+_ROW_CITE_RE = re.compile(r"\]\s*$")
+
+
+def _is_row_citation(field) -> bool:
+    """A path naming a whole instance — ``samples[0].records[2]``,
+    ``experiments[0].conditions[1].measures[0]`` — rather than one value (``…[2].es``)."""
+    return isinstance(field, str) and bool(_ROW_CITE_RE.search(field.strip()))
+
+
+def _numeric_token(tok: str) -> bool:
+    """A table cell rather than a word: mostly digits once punctuation is stripped
+    ("(0.88e0.93)a", "1878/1989", "(94%," all count; "Claude-3-Opus" does not)."""
+    t = _tok(tok)
+    return bool(t) and sum(c.isdigit() for c in t) / len(t) >= 0.6
+
+
+def _looks_like_table_row(norm: str, source) -> bool:
+    """A snippet quoting one line of a table: several numeric cells, or a table named as
+    its source plus at least two numbers."""
+    toks = norm.split()
+    nums = sum(1 for t in toks if _numeric_token(t))
+    if nums < 2:
+        return False
+    if isinstance(source, str) and _TABLE_REF_RE.search(source):
+        return True
+    return nums >= 3 and nums / max(len(toks), 1) >= 0.3
+
+
+def _expand_to_row_bands(page, anchor_rects: list, norm: str, matched: str | None) -> list:
+    """``anchor_rects`` mark where PART of a table-row snippet was found (usually its row
+    label: the cells are separate spans, and dashes / superscripts differ in the text layer,
+    so the whole line never matches). Return one rect per row band covering the WHOLE row —
+    label through the last cell — so the numbers a coder checks sit inside the highlight.
+
+    The same label often recurs in every panel of a multi-part table ("(4) Human Rater 1 &
+    Claude-3-Opus" once per tool); when the snippet's own numbers are found in some bands
+    and not others, keep only the band(s) they point at, else keep them all."""
+    import fitz
+    words = page.get_text("words")
+    if not words or not anchor_rects:
+        return []
+    bands: list = []                                   # a two-line label → one band
+    for r in sorted(anchor_rects, key=lambda r: (r.y0, r.x0)):
+        if bands and r.y0 <= bands[-1].y1 + 3:
+            bands[-1] |= r
+        else:
+            bands.append(fitz.Rect(r))
+    anchor_toks = {_tok(w) for w in (matched or "").split()}
+    want = {_tok(t) for t in norm.split() if _numeric_token(t)} - anchor_toks - {""}
+    scored: list[tuple[int, object]] = []
+    for b in bands:
+        h = b.y1 - b.y0
+        row = sorted((w for w in words if w[0] >= b.x0 - 2
+                      and min(w[3], b.y1) - max(w[1], b.y0) >= 0.5 * min(w[3] - w[1], h)),
+                     key=lambda w: w[0])
+        kept, prose_run, seen_num = [], 0, False
+        for w in row:
+            if w[2] > b.x1 + 1:                        # past the anchor: the row's cells
+                if _numeric_token(w[4]):
+                    seen_num, prose_run = True, 0
+                else:
+                    prose_run += 1
+                    if seen_num and prose_run >= 3:    # a neighbouring text column, not cells
+                        kept = kept[:len(kept) - (prose_run - 1)]
+                        break
+            kept.append(w)
+        rect = fitz.Rect(b)
+        for w in kept:
+            rect |= fitz.Rect(w[0], w[1], w[2], w[3])
+        score = len({_tok(w[4]) for w in kept} & want)
+        scored.append((score, rect))
+    best = max(s for s, _ in scored)
+    keep = [r for s, r in scored if best == 0 or s >= max(1, best / 2)]
+    return keep
+
+
 def _find_table_caption(page, table_num: str):
     """Locate the caption rect for 'Table N' on the page, if present.
 
@@ -1235,6 +1329,8 @@ def pdf_to_pages_with_rects(
     pdf_bytes: bytes,
     evidence_items: list[dict],
     dpi: int = DISPLAY_DPI,
+    *,
+    render_pages: bool = True,
 ) -> tuple[list[str], list[dict], list[int]]:
     """Render plain JPEG page images PLUS rect metadata for each evidence
     entry's location, so the client can overlay highlights selectively
@@ -1377,6 +1473,15 @@ def pdf_to_pages_with_rects(
                 if rects:
                     matched_via = "prose:word-seq"
 
+            # A row citation whose snippet did not match as a whole anchors on the part that
+            # did. Light up the WHOLE row(s) — the values the coder checks are in the cells.
+            if rects and _is_row_citation(ev.get("field")) and _looks_like_table_row(norm, ev.get("source")) \
+                    and (matched_via or "").strip(" \t\n.,;:") != norm.strip(" \t\n.,;:"):
+                rows = _expand_to_row_bands(page, list(rects), norm,
+                                            None if matched_via == "prose:word-seq" else matched_via)
+                if rows:
+                    rects, matched_via = rows, f"{matched_via} +row"
+
             if _DEBUG_HL:
                 tag = f"p{page_1idx} field={ev.get('field')!r}"
                 if rects:
@@ -1420,10 +1525,12 @@ def pdf_to_pages_with_rects(
                     "rects":   pixel_rects,
                 })
 
-        # Render this page WITHOUT highlight annotations
-        pix       = page.get_pixmap(matrix=mat)
-        img_bytes = pix.tobytes("jpeg", jpg_quality=85)
-        pages.append(base64.b64encode(img_bytes).decode())
+        # Render this page WITHOUT highlight annotations (skipped when only the rects are
+        # wanted, e.g. re-highlighting an existing document after a matcher improvement)
+        if render_pages:
+            pix       = page.get_pixmap(matrix=mat)
+            img_bytes = pix.tobytes("jpeg", jpg_quality=85)
+            pages.append(base64.b64encode(img_bytes).decode())
 
     if _DEBUG_HL:
         print(
@@ -1435,6 +1542,40 @@ def pdf_to_pages_with_rects(
 
     doc.close()
     return pages, highlights, scanned_pages
+
+
+def evidence_fields(item: dict) -> list:
+    """The path(s) an evidence item supports. ``field`` is one path, or a LIST of paths when
+    the model reused one quote for several values (``fields`` accepted too); an item with no
+    usable path yields ``[None]`` so the snippet still gets located."""
+    fp = item.get("field")
+    if fp is None and isinstance(item.get("fields"), list):
+        fp = item["fields"]
+    if isinstance(fp, list):
+        return [f for f in fp if isinstance(f, str)] or [None]
+    return [fp]
+
+
+def parse_bands(spec: str | None) -> list[tuple[float, float]]:
+    """``"y0:y1,y0:y1"`` (image-pixel rows of a cited table row) → [(y0, y1), …]."""
+    out: list[tuple[float, float]] = []
+    for part in (spec or "").split(","):
+        if ":" not in part:
+            continue
+        a, b = part.split(":", 1)
+        try:
+            y0, y1 = float(a), float(b)
+        except ValueError:
+            continue
+        out.append((min(y0, y1), max(y0, y1)))
+    return out
+
+
+def rects_in_bands(rects: list[list[float]], bands: list[tuple[float, float]], tol: float = 2.0) -> list[list[float]]:
+    """Keep the ``[x, y, w, h]`` rects whose vertical centre falls inside one of the bands."""
+    if not bands:
+        return rects
+    return [r for r in rects if any(y0 - tol <= r[1] + r[3] / 2 <= y1 + tol for y0, y1 in bands)]
 
 
 def evidence_items_from_result(result_text: str) -> list[dict]:
@@ -1456,12 +1597,13 @@ def evidence_items_from_result(result_text: str) -> list[dict]:
                 try:
                     page_num = int(float(page))
                     if page_num > 0:
-                        out.append({
-                            "page":    page_num,
-                            "snippet": str(snip),
-                            "field":   obj.get("field"),
-                            "source":  obj.get("source"),
-                        })
+                        for field in evidence_fields(obj):
+                            out.append({
+                                "page":    page_num,
+                                "snippet": str(snip),
+                                "field":   field,
+                                "source":  obj.get("source"),
+                            })
                 except (TypeError, ValueError):
                     pass
             for v in obj.values():

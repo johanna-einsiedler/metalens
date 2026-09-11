@@ -152,15 +152,160 @@ function renderCards(arr, path, opts, hint) {
   }).join("");
 }
 
-export function renderConfidence(conf) {
-  if (!conf || typeof conf !== "object") return "";
-  const badges = Object.entries(conf).map(([block, v]) => {
-    const lvl = (v && v.level) || "medium";
-    const notes = (v && v.notes) || "";
-    return `<span class="confidence-badge confidence-${esc(lvl)}" title="${esc(notes)}">`
-      + `${esc(formatKey(block))}: ${esc(lvl)}</span>`;
+// ── spec-driven rendering (declarative presets) ──────────────────────────────
+// A declared field renders by its TYPE, not by the shape of the value the model happened
+// to return: an enum is a dropdown even when the value is a stray string, a number gets
+// tabular numerals even when it arrived as text, a missing declared field is visibly
+// missing. Undeclared keys still render by shape (renderNode) so nothing is hidden.
+
+const _opts = (f) => (Array.isArray(f.options) ? f.options : []).map((o) =>
+  (o && typeof o === "object") ? { value: o.value, label: o.label != null ? String(o.label) : String(o.value) }
+                               : { value: o, label: String(o) });
+
+function renderTypedValue(f, v, path, opts) {
+  const t = f.type || "string";
+  const editable = !!opts.editable;
+  if (t === "table") return renderTypedTable(f, v, path, opts);
+  if (v === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>`;
+  if (t === "enum" && editable && (Array.isArray(f.options) ? f.options.length : false)) {
+    const options = _opts(f);
+    const val = v == null ? "" : String(v);
+    const known = options.map((o) => String(o.value));
+    const isOther = !!f.allow_other && val !== "" && !known.includes(val);
+    const optionsHtml = [`<option value="">—</option>`]
+      .concat(options.map((o) => `<option value="${esc(o.value)}"${String(o.value) === val ? " selected" : ""}>${esc(o.label)}</option>`))
+      .concat(f.allow_other ? [`<option value="__other__"${isOther ? " selected" : ""}>Other…</option>`] : []).join("");
+    const other = f.allow_other
+      ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>` : "";
+    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select">${optionsHtml}</select>${other}</span>`;
+  }
+  if (t === "enum" && !editable) {
+    const hit = _opts(f).find((o) => String(o.value) === String(v));
+    return `<span class="rv-cell" data-path="${esc(path)}">${v == null ? '<span class="rv-null">—</span>' : esc(hit ? hit.label : String(v))}</span>`;
+  }
+  if (t === "multi" && editable && (Array.isArray(f.options) ? f.options.length : false)) {
+    const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
+    const boxes = _opts(f).map((o) =>
+      `<label class="rv-chk"><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
+    return `<span class="rv-multi" data-path="${esc(path)}">${boxes}</span>`;
+  }
+  if (t === "boolean" && editable) {
+    const val = v === true ? "true" : v === false ? "false" : "";
+    return `<span class="rv-selwrap rv-bool" data-path="${esc(path)}"><select class="rv-select">`
+      + `<option value=""${val === "" ? " selected" : ""}>—</option><option value="true"${val === "true" ? " selected" : ""}>true</option>`
+      + `<option value="false"${val === "false" ? " selected" : ""}>false</option></select></span>`;
+  }
+  if (v === null) return `<span class="rv-null" data-path="${esc(path)}">—</span>`;
+  if (t === "list" || (t === "multi" && Array.isArray(v))) {
+    const items = Array.isArray(v) ? v : [v];
+    if (!items.length) return `<span class="rv-null">[]</span>`;
+    return `<span class="rv-cell rv-list" data-path="${esc(path)}">${items.map((x) => `<span class="rv-chip">${esc(String(x))}</span>`).join(" ")}</span>`;
+  }
+  if (typeof v === "object") return renderNode(v, path, opts);       // shape mismatch: show it anyway
+  const num = t === "integer" || t === "number" || typeof v === "number";
+  if (editable) {
+    return `<span contenteditable="plaintext-only" class="rv-editable${num ? " rv-num" : ""}${t === "text" ? " rv-text" : ""}"`
+      + ` data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(String(v))}</span>`;
+  }
+  return `<span class="rv-cell${num ? " rv-num" : ""}${t === "text" ? " rv-text" : ""}" data-path="${esc(path)}">${esc(String(v))}</span>`;
+}
+
+// A table-typed field: typed columns in declared order, one row per element. A legacy
+// dotted-key object (factor_loadings: {"F1.2": …}) is shown read-only as key/value rows —
+// editing those keys is exactly what used to corrupt the record.
+function renderTypedTable(f, v, path, opts) {
+  const cols = f.columns || [];
+  if (v && typeof v === "object" && !Array.isArray(v) && !Array.isArray(v._table)) {
+    const rows = Object.entries(v).map(([k, x]) =>
+      `<tr><td class="rv-cell">${esc(k)}</td><td>${renderNode(x, `${path}.${k}`, { ...opts, editable: false })}</td></tr>`).join("");
+    return `<div class="rv-tablewrap"><table class="rv-table rv-kv"><thead><tr><th>key</th><th>value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  const rows = Array.isArray(v) ? v : (v && Array.isArray(v._table) ? v._table : null);
+  if (rows === null || rows === undefined) return `<span class="rv-missing">—</span>`;
+  if (!rows.length) return `<span class="rv-null">empty</span>`;
+  const names = cols.map((c) => c.name);
+  const extra = [...new Set(rows.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
+  const head = cols.map((c) => `<th title="${esc(c.help || "")}">${esc(c.label || formatKey(c.name))}</th>`).join("")
+    + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
+  const body = rows.map((r, i) => {
+    const base = `${path}[${i}]`;
+    const cells = cols.map((c) => `<td>${renderTypedValue(c, r ? r[c.name] : undefined, `${base}.${c.name}`, opts)}</td>`).join("")
+      + extra.map((k) => `<td>${renderNode(r ? r[k] : null, `${base}.${k}`, opts)}</td>`).join("");
+    return `<tr data-row="${i}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
   }).join("");
-  return badges ? `<div class="confidence-row">${badges}</div>` : "";
+  return `<div class="rv-tablewrap"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
+    + `<tbody>${body}</tbody></table></div>`;
+}
+
+// Declared fields of one object level, in declaration order. `defs` is the field list,
+// `obj` the values, `basePath` "" for an entry, "records[2]" for a sub-entry row.
+export function renderFields(defs, obj, basePath, opts) {
+  const rows = defs.map((f) => {
+    const path = basePath ? `${basePath}.${f.name}` : f.name;
+    const v = obj ? obj[f.name] : undefined;
+    const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
+    const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
+    return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
+      + `<div class="rv-key" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}</div>`
+      + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
+  }).join("");
+  return `<div class="rv-obj">${rows}</div>`;
+}
+
+// A sub-entry array: a typed table (one row per element, row-citation cell first) or one
+// card per element with its title. Paths keep the child index so evidence + edits bind.
+export function renderChild(child, rows, opts) {
+  const key = child.key;
+  const list = Array.isArray(rows) ? rows : (rows && Array.isArray(rows._table) ? rows._table : null);
+  if (list === null || list === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>`;
+  if (!list.length) return `<span class="rv-null">none</span>`;
+  const defs = child.fields || [];
+  if ((child.layout || "table") === "table") {
+    const names = defs.map((f) => f.name);
+    const extra = [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
+    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
+      + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
+    const body = list.map((r, k) => {
+      const base = `${key}[${k}]`;
+      const cells = defs.map((f) => `<td${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${renderTypedValue(f, r ? r[f.name] : undefined, `${base}.${f.name}`, opts)}</td>`).join("")
+        + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("");
+      return `<tr class="rv-childrow" data-rowpath="${esc(base)}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
+    }).join("");
+    return `<div class="rv-tablewrap rv-child" data-child="${esc(key)}"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
+      + `<tbody>${body}</tbody></table></div>`;
+  }
+  return `<div class="rv-child rv-childcards" data-child="${esc(key)}">` + list.map((r, k) => {
+    const base = `${key}[${k}]`;
+    const title = (child.title || "").replace(/\{(#|[A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) =>
+      n === "#" ? String(k + 1) : (r && r[n] != null && typeof r[n] !== "object" ? String(r[n]) : "")).trim() || `${child.label || key} ${k + 1}`;
+    return `<div class="rv-card rv-childrow" data-rowpath="${esc(base)}"><div class="rc-head"><span class="rv-rowcite" data-rowpath="${esc(base)}"></span>`
+      + `<span class="rc-h">${esc(title)}</span><span class="rc-conf" data-rowpath="${esc(base)}"></span></div>${renderFields(defs, r, base, opts)}</div>`;
+  }).join("") + `</div>`;
+}
+
+// A confidence badge for one group: level + a click-to-open notes line. The notes are what
+// tell the coder WHAT to check, so they're one click away, never tooltip-only.
+export function renderConfBadge(gid, group, rating, levels) {
+  if (!rating) return `<span class="conf-badge conf-none" data-gid="${esc(gid)}" title="not rated">${esc(group ? group.label : formatKey(gid))} · —</span>`;
+  const lv = rating.level == null ? "" : String(rating.level);
+  const cls = _levelClass(lv, levels);
+  const notes = rating.notes ? String(rating.notes) : "";
+  return `<button type="button" class="conf-badge ${cls}" data-gid="${esc(gid)}" aria-expanded="false"`
+    + ` title="${esc(group && group.help ? group.help : "")}">${esc(group ? group.label : formatKey(gid))} · ${esc(lv || "?")}`
+    + (notes ? ` <span class="conf-caret">▾</span>` : "") + `</button>`
+    + (notes ? `<div class="conf-notes" hidden>${esc(notes)}</div>` : "");
+}
+export function renderConfDot(level, levels, title) {
+  if (level == null) return "";
+  return `<span class="conf-dot ${_levelClass(String(level), levels)}" title="${esc(title || String(level))}"></span>`;
+}
+function _levelClass(lv, levels) {
+  const ls = levels || ["high", "medium", "low"];
+  const i = ls.indexOf(lv);
+  if (i < 0) return "conf-unknown";
+  if (i === 0) return "conf-high";
+  if (i === ls.length - 1) return "conf-low";
+  return "conf-medium";
 }
 
 export function renderEvidenceList(evidence) {
@@ -180,3 +325,63 @@ export function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+
+// ── minimal markdown renderer for the prompt preview ────────────────────────────
+// The preset prompts are markdown (# TASK, ## EFFECT SIZES, bullets, fenced JSON), and
+// dumping them into a <pre> made a long wall of monospace nobody reads. No dependency:
+// the CDN isn't reachable from a published page and the rest of this front-end is
+// build-free. Escapes FIRST, so nothing in a prompt can inject markup.
+export function renderMarkdown(src) {
+  const esc_ = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (t) => esc_(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+  const out = [];
+  const lines = String(src || "").split("\n");
+  let list = null;                 // "ul" | "ol" while a list is open
+  let para = [];                   // buffered plain lines
+  let fence = null;                // buffered fenced-code lines
+
+  const flushPara = () => {
+    if (para.length) { out.push(`<p>${para.map(inline).join("<br/>")}</p>`); para = []; }
+  };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const flush = () => { flushPara(); flushList(); };
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+
+    if (fence !== null) {                                  // inside ```…```
+      if (/^\s*```/.test(line)) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
+      else fence.push(raw);
+      continue;
+    }
+    if (/^\s*```/.test(line)) { flush(); fence = []; continue; }
+
+    if (!line.trim()) { flush(); continue; }
+
+    const h = line.match(/^(#{1,4})\s+(.*)$/);            // # heading
+    if (h) { flush(); const n = h[1].length; out.push(`<h${n + 2} class="md-h md-h${n}">${inline(h[2])}</h${n + 2}>`); continue; }
+
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);          // 1. item
+    if (ol) {
+      flushPara();
+      if (list !== "ol") { flushList(); out.push('<ol class="md-list">'); list = "ol"; }
+      out.push(`<li>${inline(ol[1])}</li>`); continue;
+    }
+    const ul = line.match(/^\s*[-*\u2013\u2022]\s+(.*)$/);  // -, *, – or • item
+    if (ul) {
+      flushPara();
+      if (list !== "ul") { flushList(); out.push('<ul class="md-list">'); list = "ul"; }
+      out.push(`<li>${inline(ul[1])}</li>`); continue;
+    }
+
+    flushList();
+    para.push(line);
+  }
+  if (fence !== null) out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`);
+  flush();
+  return out.join("");
+}
+

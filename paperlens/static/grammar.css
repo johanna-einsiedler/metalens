@@ -117,11 +117,12 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); s
 .recdel:hover { opacity: 1; }
 
 /* sub-view tabs (metadata / correlations / effect sizes …) inside a record card */
-.subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; border-bottom: 1px solid var(--border); }
-.subtab { font-size: 11.5px; border: 1px solid transparent; border-bottom: none; background: none; cursor: pointer;
-  padding: 4px 10px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--text-muted); margin-bottom: -1px; }
-.subtab:hover { color: var(--text); }
-.subtab.active { color: var(--accent); border-color: var(--border); background: var(--surface); font-weight: 600; }
+.subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 12px; border-bottom: 1px solid var(--border); }
+/* every tab is a visible chip (not only the active one) so a reviewer sees there are more */
+.subtab { font-size: 13px; font-weight: 600; border: 1px solid var(--border); border-bottom: none; background: var(--bg); cursor: pointer;
+  padding: 6px 14px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--text-muted); margin-bottom: -1px; }
+.subtab:hover { color: var(--text); background: var(--surface); }
+.subtab.active { color: var(--accent); background: var(--surface); border-color: var(--border); }
 .subpanel.hidden { display: none; }
 .verify { display: flex; gap: 6px; margin-bottom: 10px; }
 .vbtn { font-size: 11px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
@@ -130,3 +131,71 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); s
 .vbtn.flag:hover { background: var(--error-bg); border-color: var(--error); color: var(--error); }
 .vbtn:disabled { opacity: .5; cursor: default; }
 .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ── declarative presets: typed fields, citation state, confidence ─────────── */
+.rv-missing { color: var(--text-muted); font-style: italic; border-bottom: 1px dotted var(--conf-med-bd); cursor: help; }
+.rv-row-missing .rv-key { color: var(--conf-med); }
+.rv-text { white-space: pre-wrap; display: inline-block; max-width: 100%; }
+.rv-chip { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--bg);
+  border: 1px solid var(--border); font-size: 12px; margin: 1px 0; }
+.rv-table.rv-typed td, .rv-table.rv-typed th { vertical-align: middle; }
+.rv-kv td:first-child { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+/* a value's citation state — where its evidence is, at a glance */
+.rv-cited { border-bottom: 1px dotted var(--accent-3); cursor: pointer; }
+.rv-cited:hover { background: var(--highlight); }
+.rv-cited-nofix { border-bottom: 1px dotted var(--conf-med-bd); cursor: pointer; }
+.rv-covered { cursor: pointer; }
+.rv-covered:hover { background: var(--highlight); }
+.rv-uncited { box-shadow: inset 0 -2px 0 var(--conf-low-bg); }
+.rv-uncited::after { content: "no evidence"; font-size: 10px; color: var(--conf-low); margin-left: 6px; font-style: italic; }
+/* one citation chip per sub-entry row / table row / table */
+.rv-rowcite { width: 20px; text-align: center; padding: 3px 4px !important; }
+.ev-cite { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; padding: 1px 6px;
+  border-radius: 999px; background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent-3);
+  cursor: pointer; white-space: nowrap; font-family: var(--font-mono); }
+.ev-cite:hover { background: var(--highlight); }
+.ev-cite.ev-none { background: var(--bg); color: var(--text-muted); border-color: var(--border); cursor: default; }
+.uncited-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+/* confidence: a badge per group next to its fields, a dot for rollups, low = look here first */
+.group-head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 10px 0 4px; }
+.conf-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px;
+  font: inherit; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); background: var(--bg);
+  color: var(--text-muted); cursor: default; }
+button.conf-badge { cursor: pointer; }
+.conf-high { background: var(--conf-high-bg); border-color: var(--conf-high-bd); color: var(--conf-high); }
+.conf-medium { background: var(--conf-med-bg); border-color: var(--conf-med-bd); color: var(--conf-med); }
+.conf-low { background: var(--conf-low-bg); border-color: var(--conf-low-bd); color: var(--conf-low); }
+.conf-caret { opacity: .7; font-size: 10px; }
+.conf-notes { flex-basis: 100%; font-size: 12.5px; color: var(--text); background: var(--surface);
+  border-left: 3px solid var(--border); padding: 4px 10px; margin: 2px 0 6px; }
+.conf-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; vertical-align: middle;
+  border: 1px solid transparent; }
+.conf-dot.conf-high { background: var(--conf-high-bd); }
+.conf-dot.conf-medium { background: var(--conf-med-bd); }
+.conf-dot.conf-low { background: var(--conf-low-bd); }
+.conf-dot.conf-unknown { background: var(--border); }
+.rv-row.rv-low { border-left: 3px solid var(--conf-low-bd); padding-left: 8px; margin-left: -11px; }
+.rv-row.rv-low > .rv-key { color: var(--conf-low); }
+.rv-row.rv-medium { border-left: 3px solid var(--conf-med-bd); padding-left: 8px; margin-left: -11px; }
+td.rv-low { box-shadow: inset 3px 0 0 var(--conf-low-bd); }
+.subtab .conf-dot { margin-left: 4px; }
+.rc-conf { margin-left: auto; }
+.rc-evsum { font-size: 12px; color: var(--conf-med); margin: -2px 0 8px; }
+/* faint context: this entry's sources on the page; the clicked one stays strong */
+rect.hl.ctx { fill: var(--highlight); stroke: none; }
+/* entry nav: status + confidence at a glance, needs-attention count */
+.rnav-tab .st-dot, .docsub-item .st-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; background: var(--border); vertical-align: middle; flex: none; }
+.rnav-tab .st-dot.verified, .docsub-item .st-dot.verified { background: var(--success); }
+.rnav-tab .st-dot.flagged, .docsub-item .st-dot.flagged { background: var(--error); }
+.rnav-tab .needs { font-size: 10px; font-weight: 700; color: var(--conf-low); margin-left: 4px; }
+/* progress + triage in the panel head */
+.progress { font-weight: 600; color: var(--text-muted); }
+.progress.done { color: var(--success); }
+.triage { font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); padding: 3px 6px; }
+.kbd-help { position: fixed; right: 16px; bottom: 16px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 10px 14px; font-size: 12px; z-index: 50; }
+.kbd-help kbd { font-family: var(--font-mono); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0 5px; }
+.paper-fields { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.issue-note { font-size: 12px; color: var(--conf-med); margin: 4px 0 8px; }
