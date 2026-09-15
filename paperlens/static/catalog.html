@@ -9,22 +9,9 @@
   <link rel="stylesheet" href="/static/grammar.css"/>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
-    <nav class="nav-shared">
-      <a href="/catalog">Data Catalogue</a>
-      <a href="/observatory">Examples</a>
-    </nav>
-    <span class="spacer"></span>
-    <nav class="nav-personal">
-      <a href="/extract">Process papers</a>
-      <a href="/import">Import</a>
-      <a href="/workspace">Data review</a>
-    </nav>
-    <span id="account" class="account"></span>
-  </header>
+  <header class="topbar" data-chrome></header>
   <div class="wrap"><div id="app"></div></div>
   <script type="module" src="/static/catalog.js"></script>
-  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
 </body>
 </html>

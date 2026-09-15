@@ -27,7 +27,11 @@ function renderNode(v, path, opts) {
   // cramped nested-table shape) → render as cards automatically. This gives custom prompts
   // (which can't declare render_hints) the readable layout; simple tables stay tables.
   if (!rh && Array.isArray(v) && v.length && isCardShape(v)) return renderCards(v, path, opts, autoCardHint(v));
-  if (v === null || v === undefined) return `<span class="rv-null">—</span>`;
+  if (v === null || v === undefined) {
+    // an empty value the coder can fill in: same cell as an extracted one, just blank
+    if (opts.editable && path) return `<span contenteditable="plaintext-only" class="rv-editable rv-empty" data-path="${esc(path)}"></span>`;
+    return `<span class="rv-null">—</span>`;
+  }
   if (Array.isArray(v)) return renderArray(v, path, opts);
   if (typeof v === "object") {
     if (Array.isArray(v._table)) return renderTable(v._table, `${path}._table`, opts);
@@ -195,7 +199,14 @@ function renderTypedValue(f, v, path, opts) {
       + `<option value=""${val === "" ? " selected" : ""}>—</option><option value="true"${val === "true" ? " selected" : ""}>true</option>`
       + `<option value="false"${val === "false" ? " selected" : ""}>false</option></select></span>`;
   }
-  if (v === null) return `<span class="rv-null" data-path="${esc(path)}">—</span>`;
+  if (v === null) {
+    const num = t === "integer" || t === "number";
+    if (editable && t !== "list" && t !== "multi") {   // a blank the coder can type into (the model left it null)
+      return `<span contenteditable="plaintext-only" class="rv-editable rv-empty${num ? " rv-num" : ""}${t === "text" ? " rv-text" : ""}"`
+        + ` data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}></span>`;
+    }
+    return `<span class="rv-null" data-path="${esc(path)}">—</span>`;
+  }
   if (t === "list" || (t === "multi" && Array.isArray(v))) {
     const items = Array.isArray(v) ? v : [v];
     if (!items.length) return `<span class="rv-null">[]</span>`;

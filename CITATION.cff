@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use MASEMiner or the Metalens engine in your research, please cite it as below and record the engine version, preset schema id and model id from your export's metadata."
+type: software
+title: "Metalens / MASEMiner: AI-assisted data extraction from research papers with human review"
+authors:
+  - family-names: Einsiedler
+    given-names: Johanna
+version: 0.1.0
+date-released: 2026-09-15
+license: MIT
+repository-code: "https://github.com/johanna-einsiedler/metalens"
+keywords:
+  - meta-analysis
+  - MASEM
+  - data extraction
+  - systematic review
+  - large language models

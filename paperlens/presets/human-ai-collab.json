@@ -7,7 +7,8 @@
     "tagline": "Humans alone vs. AI alone vs. humans + AI on decision tasks — the Vaccaro, Almaatouq & Malone (2024) extraction protocol, extended for generative AI.",
     "description": "One experiment per entry, one human–AI condition per sub-entry, one performance measure per table row. Extracts the study design, the task, the participants, the AI system and how it was presented, and the mean / SD / N of human-alone, AI-alone and human–AI performance, so that synergy (human–AI vs. the better of the two) can be computed downstream. Field names follow the original codebook (Exp_Design, Comp_Type, Avg_Perf_HumanAI, …) so exports merge with the existing dataset. Two variables go beyond it: LLM_Model and Interaction_Mode; N_AI is added for AI systems evaluated over several runs.",
     "mode": "extraction",
-    "hidden": false
+    "hidden": false,
+    "brands": ["metalens"]
   },
   "prompt": {
     "file": "human-ai-collab.prompt.md"
@@ -286,9 +287,9 @@
                 "help": "Up if higher is better; Down if lower is better (errors, time)",
                 "options": ["Up", "Down"]
               },
-              {"name": "N_Human", "type": "integer", "label": "N human", "help": "participants behind the human-alone value"},
-              {"name": "N_AI", "type": "integer", "label": "N AI", "help": "(beyond the original codebook) observations behind the AI-alone value: runs × cases, or evaluated items; null for a single deterministic run"},
-              {"name": "N_HumanAI", "type": "integer", "label": "N human–AI", "help": "participants in this condition behind the human–AI value"},
+              {"name": "N_Human", "type": "integer", "label": "N human", "help": "number of human PARTICIPANTS behind the human-alone value (people, never cases, items or ratings — put those in Notes)"},
+              {"name": "N_AI", "type": "integer", "label": "N AI", "help": "(beyond the original codebook) number of independent AI RUNS behind the AI-alone value: 1 for a single deterministic run, 5 when each case was prompted five times — never the number of cases or items (put those in Notes)"},
+              {"name": "N_HumanAI", "type": "integer", "label": "N human–AI", "help": "number of human PARTICIPANTS in this condition behind the human–AI value (people, never cases, items or ratings)"},
               {"name": "Avg_Perf_Human", "type": "number", "label": "Mean human", "help": "human-alone mean"},
               {"name": "Avg_Perf_AI", "type": "number", "label": "Mean AI", "help": "AI-alone mean"},
               {"name": "Avg_Perf_HumanAI", "type": "number", "label": "Mean human–AI", "help": "mean in this condition"},

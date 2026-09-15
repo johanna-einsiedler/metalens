@@ -1,103 +1,85 @@
-# PaperLens — record spine (Phase 1)
+# Metalens · MASEMiner
 
-Clean rebuild of the PaperLens record layer per
-[the build strategy](../../../../.claude/plans/1-look-at-the-wiggly-rabbit.md).
-This is **Phase 1: the record spine** — the canonical extraction contract,
-normalized into Postgres, with a faithful round-trip back to the publishable
-format and a paper coverage/passport read path.
+One engine, two products, for turning research papers into structured, verifiable data.
 
-The archived reference pipeline lives in [`_archive/`](_archive/) and is treated
-as a **frozen spec**, not code to evolve.
+- **Metalens** ([beta.metalens.tech](https://beta.metalens.tech)) — the general platform:
+  extract, label or summarise papers with any preset, review every value against the
+  highlighted passage it came from, build datasets, publish them.
+- **MASEMiner** — the focused product for meta-analytic structural equation modelling:
+  correlations, correlation matrices, factor loadings and study metadata from primary
+  studies, with the same review workflow. Hosted on its own hostname, and installable as a
+  one-command local app (`maseminer`) that keeps PDFs and API keys on your machine.
 
-## What's here (the §5 vertical slice)
+Both are this repository. A *brand* is a landing page, page chrome and a preset filter,
+chosen per request from the hostname (`paperlens/brands.py`); everything else — the
+extraction pipeline, the review UI, the database schema, the presets — is shared, so a local
+MASEMiner run and a hosted one of the same version are the same extraction.
+
+## Run MASEMiner locally
+
+Python 3.11 or newer. No database to install: PostgreSQL is embedded (`pgserver`).
+
+```bash
+pipx install maseminer        # or: uvx maseminer  ·  or, from a checkout: uv run maseminer
+maseminer                     # data in ~/.maseminer, opens http://127.0.0.1:8765
+maseminer --data-dir ./study  # keep everything next to a project
+maseminer --brand metalens    # the general surface instead of MASEMiner
+```
+
+What runs locally: the web app, an embedded PostgreSQL in `<data>/pg`, PDFs and page
+images in `<data>/artifacts`, extractions inline in the request. There are no accounts and
+no credits; you bring an API key for OpenAI, Google, Anthropic, Mistral or DeepSeek, or point
+a custom base URL at a local model (Ollama, vLLM, LM Studio). Nothing leaves the machine
+except the model call. Back up by copying the data folder while the app is stopped. Presets
+placed in `<data>/presets/` (a `<id>.json` plus `<id>.prompt.md`) are loaded next to the
+built-in ones, so an extraction setup can be exchanged as files.
+
+Docker alternative: `docker compose up` (see `docker-compose.yml`).
+
+## Run the hosted stack (development)
+
+```bash
+uv sync --extra dev
+createdb paperlens                     # local Postgres; PAPERLENS_DATABASE_URL to override
+scripts/dev.sh                         # web (uvicorn --reload) + arq worker, loads .env
+```
+
+Then open http://127.0.0.1:8000. `PAPERLENS_BRAND=maseminer` pins the MASEMiner surface
+locally; in deployment the Host header selects it (`PAPERLENS_BRAND_HOSTS` extends the
+patterns). Credits (keyless extraction on the operator's key) appear only when
+`PAPERLENS_CREDIT_MODEL` and a provider key are set. `.env.example` lists every variable.
+
+Tests: `PYTHONPATH="$PWD" uv run pytest -q` (database-backed tests skip without Postgres).
+
+## Cite and reproduce
+
+Every export records what produced it: `metadata.engine` (version, commit),
+`metadata.preset` (the preset's declarative spec and its content-addressed schema id such as
+`masem-direct@eb5f0287`), and per paper the model, resolved model id, prompt hash,
+parameters and extraction time. Cite the engine (see `CITATION.cff`) together with the
+engine version, the schema id and the model id from your export. `docs/REPRODUCIBILITY.md`
+explains how to re-run an extraction later, including on an open-weights model when a
+hosted model has been retired.
+
+## What's in the engine
 
 | Module | Role |
 |---|---|
-| `paperlens/contract.py` | The frozen canonical-record contract: JSON parse/repair + the publishable-key subset (`strip_to_publishable`). |
-| `paperlens/ingest.py` | Decomposes one canonical document → `paper` + N `record`s + `evidence_span`s + `field_confidence`. Handles both evidence conventions (forestplot's flat top-level array, masem's per-entry nested) and routes evidence to entries by field-path. |
-| `paperlens/reconstruct.py` | Rebuilds the publishable form from the decomposition. Proves no information loss. |
-| `paperlens/records.py` | Postgres persistence (psycopg): `persist`/`load`, DOI-dedupe `upsert_paper`, schema upsert, and the `paper_coverage` passport query. |
-| `paperlens/schema.sql` | Full §3 spine schema, **auth-ready** (nullable `owner_user_id`/`session_id` on every ownable row). |
-| `paperlens/principal.py` | The identity seam (`Principal{session_id, user_id}`) — resolved per request: anonymous via `X-Session-Id`, authenticated via the session cookie. |
-| `paperlens/auth.py` | Phase 2 accounts: bcrypt email+password, opaque cookie sessions, and claim-on-login (hand an anon session's records + datasets to the user). Holds no API keys. |
-| `paperlens/enrich.py` | DOI enrichment (Crossref→Unpaywall→OpenAlex + JEL prediction + DOI-prefix link typing), each field tagged with `paper_field_provenance`. HTTP injected for offline tests. |
-| `paperlens/presets.py` | The one facade over presets (built-in files + personal DB rows): `get()`, `prompt_for()`, `render()`, `emit_schema_row()` (→ `schema.field_defs`), `schema_id_for()`, `is_visible()`. Presets stay the source of truth. |
-| `paperlens/preset_spec.py` | The declarative preset format (format 2): one JSON document per task — prompt + typed params, metadata, paper / entries / sub-entry fields, evidence and confidence policy, display. Validation, content-addressed schema ids, and the GENERATED prompt sections (output schema, evidence, confidence, return format) so prompt and review UI cannot disagree. `presets_legacy.py` upgrades pre-format rows on read. |
-| `paperlens/worker.py` | Arq task queue: `extract_job` / `enrich_paper_task` / `ingest_task` (restart-safe), `RedisSettings`, and sync `enqueue`/`job_status` helpers for the API. |
-| `paperlens/storage.py` | Object storage for PDFs / page images — `LocalObjectStore` (default) + `S3ObjectStore` (R2/S3, boto3 lazy-imported), chosen by env via `get_store()`. |
-| `paperlens/extract.py` | PDF extraction orchestrator: render → (injectable) LLM → parse → evidence-rect highlight → ingest into records → store page images + attach rects. |
-| `paperlens/pdf_utils.py` | **Vendored** from the archive (PyMuPDF render + the hard text→rect highlighting + fuzzy orphan recovery). |
-| `paperlens/providers.py` | **Vendored** LLM abstraction (OpenAI/Gemini/Mistral/DeepSeek/vLLM) — browser-side keys, never persisted. |
-| `paperlens/app.py` | FastAPI. **Pages:** `/` landing, `/catalog` (+ `/catalog/record/{id}`), `/workspace`, `/observatory`. **Catalog API:** `/api/search`, `/api/facets`, `/api/papers/search`, `/api/datasets/public`, `/api/records/{id}`, `POST /api/aggregate`. Plus extraction, papers (lookup/enrich/provenance), datasets, verification, views, accounts. |
-| `paperlens/static/` | Themed vanilla front-end (no build): `theme.css` (token palette — the only place with raw color), `base.css` (chrome), `grammar.css`+`grammar.js` (the `rv-*`/`ev-*` record grammar + yellow highlight, edit-in-place), `api.js`, `store.js` (URL-as-state), `pdfview.js`, and the page scripts `landing.js` / `catalog.js` / `workspace.js` / `observatory.js`. |
-| `paperlens/static/observatory.*` | The flagship public view (vanilla): a saved `view` rendered as a live SVG chart, recomputed from records on each load. |
+| `paperlens/app.py` | FastAPI app: pages, API, auth, credits, brands, jobs. |
+| `paperlens/brands.py` | Product surfaces (Metalens, MASEMiner) resolved from the hostname or `PAPERLENS_BRAND`. |
+| `paperlens/local.py`, `paperlens/localmode.py` | The `maseminer` launcher and the single-user local mode switches. |
+| `paperlens/preset_spec.py`, `paperlens/presets.py`, `paperlens/presets/` | The declarative preset format: prompt + typed parameters, fields, evidence and confidence policy, display; validation, content-addressed schema ids, generated prompt sections. |
+| `paperlens/extract.py`, `paperlens/providers.py`, `paperlens/pdf_utils.py` | Render pages, call the model (vision or text), parse, locate every cited passage in the PDF, ingest. |
+| `paperlens/contract.py`, `paperlens/ingest.py`, `paperlens/reconstruct.py`, `paperlens/records.py`, `paperlens/schema.sql` | The canonical record contract and its lossless round trip through Postgres. |
+| `paperlens/exporter.py` | Dataset exports with preset and engine provenance. |
+| `paperlens/retention.py` | Idle-timeout deletion for logged-out sessions; trial accounting. |
+| `paperlens/worker.py` | arq queue for hosted runs (extraction, enrichment, publishing) and the retention cron; optional. |
+| `paperlens/storage.py` | Object storage: local filesystem or S3/R2. |
+| `paperlens/static/` | The no-build ES-module front end (review workspace, extract flow, import, datasets, chrome). |
 
-The core invariant: **`reconstruct(ingest(x)) == strip_to_publishable(x)`** across
-both evidence conventions — verified at the pure-Python level *and* through Postgres.
+Deployment of the hosted service is described in `docs/DEPLOYMENT.md`; the legal pages the
+hosted service shows are `docs/TERMS.md`, `docs/PRIVACY.md`, `docs/DMCA.md`.
 
-## Run it
+## License
 
-```bash
-uv sync --extra dev                 # install
-createdb paperlens                  # local Postgres (PAPERLENS_DATABASE_URL to override)
-
-python3 tests/test_roundtrip.py     # stdlib-only contract round-trip (no DB, no install)
-uv run pytest -q                    # full suite (DB / Redis tests skip if unavailable)
-uv run uvicorn paperlens.app:app --reload   # serve the API + viewer
-
-# then open the read-only viewer in a browser:
-#   http://127.0.0.1:8000/        (pick a document -> PDF pages with highlight
-#                                  overlays, extracted records, click-to-source)
-
-# background queue (restart-safe extraction/enrichment jobs):
-redis-server --daemonize yes        # or: brew services start redis
-uv run arq paperlens.worker.WorkerSettings   # run the worker in another shell
-```
-
-Env: `PAPERLENS_REDIS_URL` (default `redis://localhost:6379`), `PAPERLENS_CONTACT_EMAIL`
-(polite-pool / Unpaywall identity), `PAPERLENS_STORAGE=local|s3` (+ `PAPERLENS_S3_*` for R2).
-The enrich endpoint enqueues when Redis is up and falls back to running synchronously otherwise.
-
-## Deliberately preserved / deferred
-
-- **Browser-side API keys** stay client-side — there is no `api_key` column anywhere.
-- **Anonymous flow** preserved via `X-Session-Id`; accounts (email+password, GitHub OAuth) land in **Phase 2** and only populate the already-present `owner_user_id`.
-All of Phase 1 is implemented and verified offline: the record spine + round-trip,
-universal `paper` + DOI enrichment + provenance, preset→schema emission, the Arq
-queue, object storage, and the **PDF extraction core** (render → LLM → highlight →
-records). The extraction LLM step is injectable, so the full chain is proven with a
-generated PDF + a fake provider — real runs supply a browser-side key per request.
-
-All extraction presets render end-to-end: `POST /api/extract -F schema_id=<preset>@<ver>`
-pulls the rendered prompt (masem-direct / masem-indirect / human-ai-collab / summarize)
-— no hand-written prompt needed. Supply `model` + `api_key` (browser-side).
-
-**Phase 2 (accounts + persistent owned datasets) is done:** owned, principal-scoped
-`dataset`s (`dataset_id` no longer floats `NULL`); email+password accounts with cookie
-sessions; the `owner_user_id` seam is populated, and an anon session's work is claimed
-on login. The anonymous flow + browser-side keys are untouched.
-
-**All four planned phases are done.** Phase 3 (credibility): record-level
-`verification_event`s, `record.verification_status` projection, **computed** dataset badges
-(AI-only → sample-verified `X% audited · Y% agree` w/ Wilson CI → human-verified), viewer
-verify/flag controls. Phase 4 (views as data): a `saved_view` = `{dataset_ids, query,
-viz_config}` that **recomputes from records on every read** (aggregate count/mean, dotted
-field paths, verified-only filter), surfaced as the `/observatory` chart — the OWID-style
-"query across datasets". `theme` tokens are stored for later org branding.
-
-**Public catalog + themed UI are done.** A **catalog query layer** (cross-dataset full-text
-search wiring the previously-dead FTS index, faceted filtering, fuzzy paper search, a
-public-datasets-with-badges index in one query, record detail, and a generalized
-`aggregate` that `run_view` now delegates to). A **cohesive themed front-end** on a single
-swappable token layer (`theme.css`; default = teal-navy+mint, the proven metalens look):
-`/` landing (sans/neutral), `/catalog` (tool-faithful browser with search + facet rail +
-dataset badges + record detail), `/workspace` (PDF + yellow highlights + the ported
-`rv-*`/`ev-*` grammar + verify/edit-in-place), `/observatory`. URL-as-state (no framework);
-no raw color outside `theme.css` (grep-gated).
-
-Known follow-ups (not blockers): the browser key still transits the Redis job payload for
-`extract_job` — productionize with a short-TTL token or encrypted job args; session cookie
-`secure=True` behind HTTPS; add GitHub OAuth alongside email+password. Deferred per the
-plan: a heavier **report/dashboard builder** (interactive editing), the `metalens-datasets`
-publication layer (ingest-on-PR-merge), versioned snapshots/Zenodo, org-themed embeds with
-attribution backlinks, richer observatory chart types, a generic factor-loadings variant.
+MIT — see `LICENSE`.

@@ -1483,6 +1483,60 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     }
 
 
+def _paper_key(doi: str | None, title: str | None, filename: str | None) -> str | None:
+    """What makes two documents 'the same paper': the DOI when both have one, else the
+    title (case/punctuation-insensitive), else the uploaded filename without its extension.
+    Re-importing a corrected JSON is the common way duplicates arise, and those keep the
+    filename and title even when the DOI was never extracted."""
+    import re as _re
+    d = (doi or "").strip().lower()
+    d = _re.sub(r"^https?://(dx\.)?doi\.org/", "", d)
+    if d:
+        return "doi:" + d
+    t = _re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+    if t:
+        return "title:" + t
+    f = _re.sub(r"\.(pdf|json)$", "", (filename or "").strip().lower())
+    return ("file:" + f) if f else None
+
+
+def dataset_duplicates(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
+    """Groups of documents in a dataset that are the same paper (see ``_paper_key``), each
+    group newest first: ``[{key, documents: [{document_id, filename, title, doi, created_at,
+    n_records}, …]}]``. Only groups with more than one document are returned."""
+    rows = conn.execute(
+        """SELECT ed.id, ed.filename, ed.created_at, p.title, p.doi, count(r.id)
+           FROM extraction_document ed
+           LEFT JOIN paper p ON p.id = ed.paper_id
+           JOIN record r ON r.document_id = ed.id AND r.dataset_id = %s::uuid
+           GROUP BY ed.id, ed.filename, ed.created_at, p.title, p.doi
+           ORDER BY ed.created_at DESC""",
+        (dataset_id,),
+    ).fetchall()
+    groups: dict[str, list[dict]] = {}
+    for did, fn, ca, title, doi, n in rows:
+        key = _paper_key(doi, title, fn)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append({
+            "document_id": str(did), "filename": fn, "title": title, "doi": doi,
+            "created_at": ca.isoformat() if ca else None, "n_records": int(n)})
+    return [{"key": k, "documents": v} for k, v in groups.items() if len(v) > 1]
+
+
+def dedupe_dataset(conn: psycopg.Connection, dataset_id: str) -> dict:
+    """Remove every document of a duplicated paper except the NEWEST one (the re-import
+    that superseded the others). Deletion goes through ``delete_document`` so records,
+    evidence and stored blobs go with it. Returns what was kept and removed."""
+    kept, removed = [], []
+    for g in dataset_duplicates(conn, dataset_id):
+        kept.append(g["documents"][0]["document_id"])
+        for d in g["documents"][1:]:
+            delete_document(conn, d["document_id"])
+            removed.append(d["document_id"])
+    return {"kept": kept, "removed": removed, "n_removed": len(removed)}
+
+
 def dataset_activity(conn: psycopg.Connection, dataset_id: str, *, limit: int = 100) -> list[dict]:
     """Merged, newest-first history of everything that has happened to a dataset.
 
@@ -2015,12 +2069,13 @@ def _preset_meta_from_row(r) -> dict:
             "accent_color": r[11], "created_at": r[12].isoformat() if r[12] else None,
             "spec": r[13],                       # the format-2 document (None for old rows)
             "base_preset_id": r[14], "params": r[15],   # set on a saved setup (sub-preset)
+            "brand": r[16],                             # product surface it was created on
             "source": "personal"}
 
 
 _PRESET_COLS = ("id, owner_user_id::text, session_id, visibility, title, tagline, "
                 "description, mode, prompt, sub_views, template_params, accent_color, created_at, spec, "
-                "base_preset_id, params")
+                "base_preset_id, params, brand")
 
 
 def create_personal_preset(conn: psycopg.Connection, *, title: str, prompt: str,
@@ -2029,20 +2084,21 @@ def create_personal_preset(conn: psycopg.Connection, *, title: str, prompt: str,
                            accent_color: str | None = None, owner_user_id: str | None = None,
                            session_id: str | None = None, visibility: str = "private",
                            preset_id: str | None = None, spec: dict | None = None,
-                           base_preset_id: str | None = None, params: dict | None = None) -> dict:
+                           base_preset_id: str | None = None, params: dict | None = None,
+                           brand: str | None = None) -> dict:
     pid = preset_id or f"{_slugify(title)}-{_new_id()[:8]}"
     with conn.transaction():
         conn.execute(
             """INSERT INTO personal_preset
                  (id, owner_user_id, session_id, visibility, title, tagline, description,
                   mode, prompt, sub_views, template_params, accent_color, spec,
-                  base_preset_id, params, updated_at)
-               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
+                  base_preset_id, params, brand, updated_at)
+               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
             (pid, owner_user_id, session_id, visibility, title, tagline, description, mode,
              prompt, Json(sub_views) if sub_views is not None else None,
              Json(template_params) if template_params is not None else None, accent_color,
              Json(spec) if spec is not None else None,
-             base_preset_id, Json(params) if params is not None else None),
+             base_preset_id, Json(params) if params is not None else None, brand),
         )
     return get_personal_preset(conn, pid)
 
@@ -2056,16 +2112,20 @@ def get_personal_preset(conn: psycopg.Connection, preset_id: str) -> dict | None
 
 
 def list_personal_presets(conn: psycopg.Connection, *, owner_user_id: str | None = None,
-                          session_id: str | None = None, owned_only: bool = False) -> list[dict]:
+                          session_id: str | None = None, owned_only: bool = False,
+                          brand: str | None = None) -> list[dict]:
     """Personal presets visible to the principal. owned_only → just theirs (My Workspace);
-    else theirs + everyone's public (the extract picker)."""
-    public = "" if owned_only else "visibility = 'public' OR "
+    else theirs + everyone's public (the extract picker). A public preset is listed on the
+    product surface it was created on (``brand``; rows without one show everywhere); the
+    owner sees their own presets on every surface."""
+    public = "" if owned_only else "(visibility = 'public' AND (brand IS NULL OR %s::text IS NULL OR brand = %s::text)) OR "
+    args = () if owned_only else (brand, brand)
     rows = conn.execute(
         f"""SELECT {_PRESET_COLS} FROM personal_preset
             WHERE {public}(%s::text IS NOT NULL AND owner_user_id::text = %s::text)
                OR (%s::text IS NOT NULL AND session_id = %s::text)
             ORDER BY created_at DESC""",
-        (owner_user_id, owner_user_id, session_id, session_id),
+        (*args, owner_user_id, owner_user_id, session_id, session_id),
     ).fetchall()
     return [_preset_meta_from_row(r) for r in rows]
 

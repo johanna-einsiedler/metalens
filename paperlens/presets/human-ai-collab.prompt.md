@@ -103,14 +103,25 @@ ineligible.
 - When several human–AI conditions are compared against ONE human-alone arm and ONE
   AI-alone run, repeat those reference values in every condition's rows. When a reference
   arm is missing, leave its values null and say so in Exp_Notes.
+- N_Human and N_HumanAI count human PARTICIPANTS (people), exactly as in the original
+  codebook — never cases, trials, items or ratings, even when the printed mean and SD are
+  computed over those units (two raters scoring 3,024 items is N_Human = 1 per rater arm,
+  not 3,024). Give the number of units the statistic covers in Notes instead.
 - For within-subjects designs N_Human = N_HumanAI (the same people).
 - Perf_Dir is Down for errors, error rates and time. Do not negate values.
 - SD: the reported SD. If only an SE or a CI is given you may compute SD (SE × √n; CI
   half-width × √n / 1.96) — then set Est_ES = true and show the computation in Notes. A
   deterministic AI reported as a single value gets Sd_Perf_AI = 0, as in the original
   codebook.
-- Generative AI evaluated over repeated runs ("the model was prompted five times per
-  case"): Avg_Perf_AI is the mean over runs, Sd_Perf_AI its SD, N_AI = runs × cases.
+- N_AI is the number of independent AI RUNS: 1 for a single deterministic pass over the
+  material (however many items it scored), 5 when "the model was prompted five times per
+  case" — never the number of cases or items. Over repeated runs Avg_Perf_AI is the mean
+  and Sd_Perf_AI the SD across runs; give runs × cases in Notes.
+- Several AI CONFIGURATIONS evaluated alone (different prompts, models or settings) against
+  one human–AI arm are separate results, not repeated runs: never average across them. Give
+  each configuration its own measure row — same human-alone and human–AI values, its own
+  AI-alone value, the configuration named at the end of Perf_Metric ("… — AI alone: basic
+  prompt") — and say in Notes which configuration is closest to what participants used.
 - Values that appear only in a figure: estimate only when the figure prints the numbers;
   otherwise leave null and describe what the figure shows in Notes. Any estimated or
   computed value makes Est_ES true.

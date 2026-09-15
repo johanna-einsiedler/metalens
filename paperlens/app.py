@@ -19,13 +19,13 @@ import os
 import time
 import uuid
 
-from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException,
+from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request,
                      Query, Response, UploadFile)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, credits, enrich, extract, figures_spec, presets, providers, records, storage, worker
+from . import auth, brands, credits, enrich, extract, figures_spec, localmode, presets, providers, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -77,8 +77,9 @@ async def _beta_password_gate(request, call_next):
             except Exception:
                 ok = False
         if not ok:
+            realm = brands.resolve(request.headers.get("host")).title
             return Response(status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="Metalens beta"'})
+                            headers={"WWW-Authenticate": f'Basic realm="{realm} beta"'})
     return await call_next(request)
 
 
@@ -115,10 +116,51 @@ def _page(name: str) -> FileResponse:
                         headers={"Cache-Control": "no-cache"})
 
 
+def brand(request: Request) -> brands.Brand:
+    """The product surface this request belongs to (Host header, or PAPERLENS_BRAND)."""
+    return brands.resolve(request.headers.get("host"))
+
+
 @app.get("/")
-def landing() -> FileResponse:
-    """Public entry (L2 sans/neutral)."""
-    return _page("landing.html")
+def landing(b: brands.Brand = Depends(brand)) -> FileResponse:
+    """Public entry — the brand's own landing page."""
+    return _page(b.landing)
+
+
+@app.get("/maseminer")
+def maseminer_landing() -> FileResponse:
+    """The MASEMiner landing, reachable on every host (its own host serves it at /)."""
+    return _page("maseminer.html")
+
+
+@app.get("/api/version")
+def version_info() -> dict:
+    """What to cite: engine version + commit, and each built-in preset's content-addressed
+    schema id (the data contract a run was made under)."""
+    from . import __version__, preset_spec
+    return {"version": __version__, "git_sha": _git_sha(),
+            "presets": {pid: preset_spec.schema_id(spec) for pid, spec in presets.load_all().items()},
+            "local_mode": localmode.enabled()}
+
+
+def _git_sha() -> str | None:
+    sha = os.environ.get("PAPERLENS_GIT_SHA")
+    if sha:
+        return sha
+    head = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".git", "HEAD")
+    try:
+        ref = open(head).read().strip()
+        if ref.startswith("ref: "):
+            return open(os.path.join(os.path.dirname(head), ref[5:])).read().strip()[:12]
+        return ref[:12]
+    except OSError:
+        return None
+
+
+@app.get("/api/brand")
+def brand_info(b: brands.Brand = Depends(brand)) -> dict:
+    """Public, no DB: what the page chrome needs — title, logo, nav, links, default preset."""
+    return b.as_json()
 
 
 @app.get("/catalog")
@@ -208,12 +250,46 @@ def principal(
 ) -> Principal:
     """Resolve the acting principal: anonymous via X-Session-Id, authenticated via
     the session cookie (Phase 2). Both coexist — logged-out flow is unchanged."""
+    if localmode.enabled():                # one machine, one owner: every request is them
+        return Principal(session_id=x_session_id, user_id=localmode.local_user_id())
     user_id = auth.resolve_session(db, pl_session)
+    try:                                   # activity clock for logged-out retention; never fatal
+        retention.touch(db, x_session_id, user_id)
+    except Exception:  # noqa: BLE001
+        pass
     return Principal(session_id=x_session_id, user_id=user_id)
 
 
+def _no_accounts_locally() -> None:
+    if localmode.enabled():
+        raise HTTPException(status_code=404, detail="Accounts do not exist in local mode.")
+
+
+@app.post("/api/session/forget")
+def session_forget(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
+    """'Delete my data now' for a logged-out session: everything the anonymous session
+    owns goes immediately (a signed-in user's rows are never touched)."""
+    if who.user_id or not who.session_id:
+        return {"deleted": False, "reason": "signed in — delete papers from your workspace"}
+    out = retention.forget_session(db, who.session_id)
+    retention.remove_orphans(db, storage.get_store())
+    return {"deleted": True, **out}
+
+
 # ── owner-gated artifact serving (replaces the old public StaticFiles mount) ──
-_ARTIFACT_SECRET = os.environ.get("PAPERLENS_SECRET", "dev-artifact-secret").encode()
+def _secret() -> bytes:
+    """PAPERLENS_SECRET signs artifact URLs and salts the trial hashes. A dev checkout may run
+    without one; a deployment that stores blobs in S3/R2 or sets secure cookies may not."""
+    s = os.environ.get("PAPERLENS_SECRET", "")
+    if not s:
+        prod = os.environ.get("PAPERLENS_STORAGE", "local").lower() == "s3" or os.environ.get("PAPERLENS_SECURE_COOKIES") == "1"
+        if prod:
+            raise RuntimeError("PAPERLENS_SECRET is not set: `fly secrets set PAPERLENS_SECRET=$(openssl rand -hex 32)`.")
+        s = "dev-artifact-secret"
+    return s.encode()
+
+
+_ARTIFACT_SECRET = _secret()
 
 
 def _sign_artifact(doc_id: str, ttl: int = 3600) -> str:
@@ -284,7 +360,7 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
             records.upsert_schema(db, run.schema_id, run.field_defs)
     doc_id = records.persist(
         db, res, schema_id=run.schema_id, source_job_id=body.source_job_id,
-        session_id=who.session_id,
+        session_id=who.session_id, owner_user_id=who.user_id,
     )
     try:      # keep what was imported verbatim — the counterpart of a live run's model response
         import json as _json
@@ -666,6 +742,25 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
     return out
 
 
+@app.get("/api/datasets/{dataset_id}/duplicates")
+def dataset_duplicates_endpoint(dataset_id: str, db=Depends(get_db),
+                                who: Principal = Depends(principal)) -> dict:
+    """Owner-only: papers that appear more than once in the dataset (same DOI, title or
+    filename), each group newest first — what a re-import of a corrected file leaves behind."""
+    if not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return {"groups": records.dataset_duplicates(db, dataset_id)}
+
+
+@app.post("/api/datasets/{dataset_id}/dedupe")
+def dataset_dedupe_endpoint(dataset_id: str, db=Depends(get_db),
+                            who: Principal = Depends(principal)) -> dict:
+    """Owner-only: delete the older copies of every duplicated paper, keeping the newest."""
+    if not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return records.dedupe_dataset(db, dataset_id)
+
+
 @app.delete("/api/datasets/{dataset_id}")
 def delete_dataset(dataset_id: str, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
@@ -954,6 +1049,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def register(body: Credentials, response: Response, db=Depends(get_db),
              who: Principal = Depends(principal)) -> dict:
     """Create an account, start a session, and claim the anon session's work."""
+    _no_accounts_locally()
     try:
         user = auth.create_user(db, body.email, body.password)
     except ValueError as exc:
@@ -966,6 +1062,7 @@ def register(body: Credentials, response: Response, db=Depends(get_db),
 @app.post("/api/auth/login")
 def login(body: Credentials, response: Response, db=Depends(get_db),
           who: Principal = Depends(principal)) -> dict:
+    _no_accounts_locally()
     uid = auth.authenticate(db, body.email, body.password)
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
@@ -977,6 +1074,7 @@ def login(body: Credentials, response: Response, db=Depends(get_db),
 @app.post("/api/auth/logout")
 def logout(response: Response, pl_session: str | None = Cookie(default=None),
            db=Depends(get_db)) -> dict:
+    _no_accounts_locally()
     auth.delete_session(db, pl_session)
     response.delete_cookie(_SESSION_COOKIE, path="/")
     return {"ok": True}
@@ -986,6 +1084,8 @@ def logout(response: Response, pl_session: str | None = Cookie(default=None),
 def me(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
     if not who.user_id:
         raise HTTPException(status_code=401, detail="Not logged in.")
+    if localmode.enabled():                # the fixed local owner; the UI hides the account widget
+        return {"id": who.user_id, "email": localmode.LOCAL_EMAIL, "local_mode": True}
     return auth.get_user(db, who.user_id)
 
 
@@ -1006,12 +1106,17 @@ def extraction_config(who: Principal = Depends(principal), db=Depends(get_db)) -
         "logged_in": bool(who.user_id),
         "anon_free_extractions": ANON_FREE_EXTRACTIONS,
         "anon_extractions_used": 0,
+        "anon_retention_minutes": retention.ANON_RETENTION_MINUTES,
         "can_download": bool(who.user_id),     # exports are an account feature
+        "local_mode": localmode.enabled(),
     }
+    if localmode.enabled():                    # own key or a local model; no credits, no trial
+        out["offered"] = False
+        return out
     if who.user_id:
         out["credits"] = credits.summary(db, who.user_id)
     else:
-        out["anon_extractions_used"] = records.count_documents_for_session(db, who.session_id)
+        out["anon_extractions_used"] = retention.trial_used(db, who.session_id)
     return out
 
 
@@ -1046,6 +1151,7 @@ class PasswordBody(BaseModel):
 
 @app.post("/api/auth/password")
 def change_password(body: PasswordBody, who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
+    _no_accounts_locally()
     if not who.user_id:
         raise HTTPException(status_code=401, detail="Not logged in.")
     if not auth.change_password(db, who.user_id, body.old_password, body.new_password):
@@ -1121,6 +1227,7 @@ def retry_job(job_id: str, db=Depends(get_db), who: Principal = Depends(principa
 
 @app.post("/api/extract")
 def extract_endpoint(
+    request: Request,
     pdf: UploadFile = File(...),
     prompt: str = Form(""),
     preset_id: str | None = Form(None),
@@ -1172,6 +1279,8 @@ def extract_endpoint(
     # gates the whole story: with no server key configured there is nothing to run on, so
     # such a request falls through to the legacy path (enqueue what the caller supplied)
     # rather than being refused something this deployment never promised.
+    if localmode.enabled() and (use_credits or not own_key):
+        raise HTTPException(status_code=422, detail="Local mode runs on your own API key (or a local model): add a key first.")
     keyless_available = not own_key and not use_credits and credits.offered()
 
     # ── logged-out free trial: the server's own key, capped per anonymous session ──
@@ -1183,10 +1292,17 @@ def extract_endpoint(
     if keyless_available and not who.user_id:
         server_model = credits.credit_model()
         server_key = credits.server_key_for(providers.get_provider(server_model, None))
-        if records.count_documents_for_session(db, who.session_id) >= ANON_FREE_EXTRACTIONS:
+        if retention.trial_used(db, who.session_id) >= ANON_FREE_EXTRACTIONS:
             raise HTTPException(status_code=402, detail=(
                 f"You’ve used your free trial ({ANON_FREE_EXTRACTIONS} paper). Create a free "
                 "account to keep extracting, or add your own API key."))
+        # a fresh browser profile is not a fresh trial: cap trials per network per day
+        iph = retention.ip_hash(retention.client_ip(request)) if request is not None else None
+        if retention.ip_trials_today(db, iph) >= retention.ANON_TRIAL_PER_IP_DAY:
+            raise HTTPException(status_code=402, detail=(
+                "The free trial has been used from this network today. Create a free account "
+                "to keep extracting, or add your own API key."))
+        retention.bump_trial(db, who.session_id, iph)
         # use_credits=True tells the WORKER to resolve the server key from its own env, so
         # the key never enters the Redis payload; credit_user_id=None means no ledger entry
         # and nothing to refund — an anonymous trial run spends no credits.
@@ -1352,23 +1468,29 @@ def papers_provenance(doi: str, db=Depends(get_db)) -> dict:
 
 
 @app.get("/api/presets")
-def list_presets(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def list_presets(db=Depends(get_db), who: Principal = Depends(principal),
+                 b: brands.Brand = Depends(brand)) -> dict:
     """The resolved view-grammar for every preset in the picker: global file presets
-    (minus ``landing_hidden`` ones, e.g. the MASEMiner factor-loadings variant) PLUS
-    the principal's own DB-backed personal presets AND everyone's PUBLIC ones. Each row
-    is tagged ``personal``/``owned`` so the UI can label & manage them."""
+    (minus ``landing_hidden`` ones, e.g. the MASEMiner factor-loadings variant, and minus
+    those tagged for another brand) PLUS the principal's own DB-backed personal presets AND
+    the PUBLIC ones created on this brand. Each row is tagged ``personal``/``owned`` so the
+    UI can label & manage them."""
     allp = presets.load_all()
     rows = []
     for pid in sorted(allp):
-        if (allp[pid].get("meta") or {}).get("hidden"):
+        meta = allp[pid].get("meta") or {}
+        if meta.get("hidden") or not b.shows_preset(meta):
             continue
         row = presets.emit_schema_row(pid)
         if row:
             row.update(personal=False, owned=False)
             rows.append(row)
-    for p in records.list_personal_presets(db, owner_user_id=who.user_id, session_id=who.session_id):
+    for p in records.list_personal_presets(db, owner_user_id=who.user_id, session_id=who.session_id, brand=b.id):
         if p["id"] in allp:            # a built-in shadows a same-id personal row (seeded copies of old presets)
             continue
+        base = allp.get(presets.resolve_id(p["base_preset_id"])) if p.get("base_preset_id") else None
+        if base is not None and not b.shows_preset(base.get("meta")):
+            continue                   # a setup of a preset this brand does not offer
         row = presets.emit_schema_row(p["id"], conn=db)
         if row:
             row.update(personal=True, visibility=p["visibility"],
@@ -1411,7 +1533,7 @@ def _validated_spec(doc: dict, preset_id: str) -> dict:
 
 @app.post("/api/presets")
 def create_preset(body: PresetBody, db=Depends(get_db),
-                  who: Principal = Depends(principal)) -> dict:
+                  who: Principal = Depends(principal), b: brands.Brand = Depends(brand)) -> dict:
     """Create a personal preset owned by the principal (user, or anon session claimable
     on login). Usable immediately in the extract picker. Post a ``spec`` (the declarative
     document; the server assigns its id and renders its prompt) or, legacy, a bare
@@ -1419,7 +1541,7 @@ def create_preset(body: PresetBody, db=Depends(get_db),
     if body.visibility not in ("public", "private"):
         raise HTTPException(status_code=422, detail="visibility must be public|private")
     if body.base_preset_id:
-        return _create_setup(db, who, body)
+        return _create_setup(db, who, body, brand_id=b.id)
     if body.spec is not None:
         from . import preset_spec
         title = ((body.spec.get("meta") or {}).get("title") or body.title or "").strip()
@@ -1431,7 +1553,7 @@ def create_preset(body: PresetBody, db=Depends(get_db),
             db, preset_id=pid, title=spec["meta"]["title"], prompt=preset_spec.render_prompt(spec),
             tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
             mode=spec["meta"]["mode"], spec=spec, owner_user_id=who.user_id,
-            session_id=who.session_id, visibility=body.visibility)
+            session_id=who.session_id, visibility=body.visibility, brand=b.id)
         return presets.get(pid, conn=db)
     if not (body.title or "").strip() or not (body.prompt or "").strip():
         raise HTTPException(status_code=422, detail="title and prompt are required.")
@@ -1439,7 +1561,7 @@ def create_preset(body: PresetBody, db=Depends(get_db),
         db, title=body.title, prompt=body.prompt, tagline=body.tagline,
         description=body.description, mode=body.mode, sub_views=body.sub_views,
         template_params=body.template_params, accent_color=body.accent_color,
-        owner_user_id=who.user_id, session_id=who.session_id, visibility=body.visibility)
+        owner_user_id=who.user_id, session_id=who.session_id, visibility=body.visibility, brand=b.id)
 
 
 def _setup_params(base_id: str, params: dict | None) -> tuple[dict, dict]:
@@ -1457,7 +1579,7 @@ def _setup_params(base_id: str, params: dict | None) -> tuple[dict, dict]:
     return base, {k: v for k, v in (params or {}).items() if k in decl}
 
 
-def _create_setup(db, who: Principal, body: PresetBody) -> dict:
+def _create_setup(db, who: Principal, body: PresetBody, *, brand_id: str | None = None) -> dict:
     """A saved setup (sub-preset): a name + parameter values for a built-in preset. Private
     to its creator for now; runs resolve the live base, so the setup only pins the values."""
     base, params = _setup_params(body.base_preset_id, body.params)
@@ -1470,7 +1592,7 @@ def _create_setup(db, who: Principal, body: PresetBody) -> dict:
         db, preset_id=pid, title=title, prompt=rendered,
         tagline=body.tagline or f"Saved setup of {base['meta'].get('title') or base['id']}",
         mode=base["meta"].get("mode", "extraction"), base_preset_id=base["id"], params=params,
-        owner_user_id=who.user_id, session_id=who.session_id, visibility="private")
+        owner_user_id=who.user_id, session_id=who.session_id, visibility="private", brand=brand_id)
     return presets.get(pid, conn=db)
 
 

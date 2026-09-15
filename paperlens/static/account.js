@@ -32,8 +32,8 @@ async function init() {
     </section>
 
     <section class="acct-sec">
-      <h3>Metalens credits</h3>
-      <p class="muted" style="font-size:13px">Run extractions without your own API key — Metalens supplies the model &amp; key, and each run uses one credit.</p>
+      <h3 id="acct-credits-title">Credits</h3>
+      <p class="muted" style="font-size:13px">Run extractions without your own API key — the service supplies the model &amp; key, and each run uses one credit.</p>
       <div id="ac-credits"><p class="muted">Loading…</p></div>
     </section>
 
@@ -96,7 +96,7 @@ async function renderCredits() {
   const head = `<p><b style="font-size:20px">${c.balance}</b> credit${c.balance === 1 ? "" : "s"} left `
     + `<span class="muted">· ${c.used} used of ${c.granted} granted</span></p>`
     + (c.offered
-        ? `<p class="muted" style="font-size:12px">Keyless extraction is available${c.model ? ` (model: ${esc(c.model)})` : ""}. Choose “Metalens credits” on the extract page.</p>`
+        ? `<p class="muted" style="font-size:12px">Keyless extraction is available${c.model ? ` (model: ${esc(c.model)})` : ""}. Choose the credits option on the extract page.</p>`
         : `<p class="muted" style="font-size:12px">Keyless extraction isn’t configured on this server right now.</p>`);
   const led = (c.ledger || []);
   const rows = led.length

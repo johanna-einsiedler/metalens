@@ -21,7 +21,8 @@
 #   fly secrets set PAPERLENS_GITHUB_TOKEN="ghp_…"
 #   fly deploy
 #   fly certs add beta.metalens.tech      # then add the shown CNAME/A records in DNS
-#   fly ssh console -C "python scripts/create_user.py --credits 25"   # seed martin/testtest
+#   fly certs add maseminer.metalens.tech # the MASEMiner surface: same app, brand by hostname
+#   fly ssh console -C "python scripts/create_user.py --email you@example.org --password … --credits 25"
 #
 # Leave PAPERLENS_S3_PUBLIC_URL UNSET so page-image URLs are short-lived presigned GETs.
 

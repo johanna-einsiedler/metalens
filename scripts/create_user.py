@@ -3,7 +3,6 @@
 There is no username in the schema; the identity column is `email`, and no email
 format is enforced, so a bare handle like "martin" is a valid account id.
 
-    uv run python scripts/create_user.py                       # martin / testtest
     uv run python scripts/create_user.py --email a@b.co --password s3cret
     uv run python scripts/create_user.py --credits 25          # + grant credits (needs WS5)
 
@@ -57,8 +56,8 @@ def grant_credits(conn, uid: str, n: int) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Create or reset a Metalens user.")
-    ap.add_argument("--email", default="martin", help="account id (email column); default 'martin'")
-    ap.add_argument("--password", default="testtest", help="password; default 'testtest'")
+    ap.add_argument("--email", required=True, help="account id (email column)")
+    ap.add_argument("--password", required=True, help="password")
     ap.add_argument("--credits", type=int, default=0, help="grant N extraction credits (needs WS5)")
     args = ap.parse_args()
 

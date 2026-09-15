@@ -1,0 +1,31 @@
+name: Mirror to the maseminer repo
+
+# The engine lives in THIS repo. The public `maseminer` repository is a mirror kept for
+# people who bookmarked or cited it: on every release tag (and on demand) the tagged tree is
+# pushed there as `main` plus the tag, so the two never drift. Needs one secret,
+# MASEMINER_PUSH_TOKEN: a fine-grained GitHub token with "Contents: read and write" on the
+# mirror repo (Settings → Developer settings → Fine-grained tokens), stored with
+#   gh secret set MASEMINER_PUSH_TOKEN
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: push the tree to the mirror
+        env:
+          TOKEN: ${{ secrets.MASEMINER_PUSH_TOKEN }}
+          MIRROR: github.com/${{ github.repository_owner }}/maseminer.git
+        run: |
+          [ -n "$TOKEN" ] || { echo "MASEMINER_PUSH_TOKEN is not set"; exit 1; }
+          git remote add mirror "https://x-access-token:${TOKEN}@${MIRROR}"
+          # the mirror's main = whatever this workflow ran on (the tagged commit, or the
+          # current branch head for a manual run); tags travel with it
+          git push --force mirror "HEAD:refs/heads/main"
+          git push --force mirror --tags

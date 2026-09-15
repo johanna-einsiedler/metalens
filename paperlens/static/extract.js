@@ -3,6 +3,7 @@
 // completing a step opens the next. Step 2 mirrors the old version: provider →
 // model (from models.json) → API key + test connection.
 import { api } from "/static/api.js";
+import { getBrand } from "/static/chrome.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 import { saveToWorkspace } from "/static/save.js";
 import { getKey, setKey } from "/static/keys.js";
@@ -16,6 +17,7 @@ let MODELS = {};
 let ADD_DATASET = null;   // {id,title,schema_id,prompt,model} when ?dataset= (add-papers mode)
 let USE_CREDITS = false;  // logged-in keyless run on Metalens's server key + fixed model
 let CFG = null;           // /api/extraction-config: default model + logged-out limits
+let BRAND = null;         // /api/brand: the product surface this host serves (MASEMiner skips the pickers)
 let FILE_CAP = null;      // null = no cap (logged in, or own key); a number = papers still allowed
 
 const PROVIDER_LABEL = { openai: "OpenAI", google: "Google Gemini", anthropic: "Anthropic",
@@ -39,6 +41,16 @@ async function init() {
   if (addingTo) openStep(4);
   try { presets = (await api.presets()).presets || []; } catch { /* */ }
   await loadModels();
+  // A brand with a default preset (MASEMiner) IS that workflow: skip the task/method pickers
+  // and open its builder; the method cards stay reachable from "back to step 1".
+  try { BRAND = await getBrand(); } catch { BRAND = null; }
+  if (BRAND && BRAND.credit_label && $("#credit-label")) $("#credit-label").textContent = BRAND.credit_label;
+  if (BRAND && BRAND.default_preset && !addingTo) {
+    const card = document.querySelector('.task-card[data-task="workflow"]');
+    if (card) selectTask("workflow", card);
+    const p = presets.find((x) => x.preset_id === BRAND.default_preset);
+    if (p) { presetId = p.preset_id; SETUP = null; await advance(`Workflow: ${p.title}`); }
+  }
   document.querySelectorAll(".task-card[data-task]").forEach((c) =>
     (c.onclick = () => {
       if (c.classList.contains("soon")) return;   // not shipping yet — the card says so
@@ -108,7 +120,8 @@ async function setupExtractionConfig() {
       ? `${left} free paper${left === 1 ? "" : "s"} without an account · `
         + `<a href="/account">create one</a> to extract more and download results`
       : `Free trial used · <a href="/account">create a free account</a> to keep extracting, `
-        + `or add your own API key below`;
+        + `or add your own API key below. Your API key is not stored: it passes through our server only to run `
+        + `the extraction (in memory and the job queue for at most 30 minutes) and is then discarded.`;
     an.hidden = false;
   }
 

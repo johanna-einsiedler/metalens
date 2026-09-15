@@ -17,6 +17,9 @@
 .rv-val.rv-nested { width: 100%; padding: 2px 0; }
 .rv-num { color: var(--accent-2); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .rv-null { color: var(--text-muted); font-style: italic; }
+.rv-editable.rv-empty { min-width: 1.6em; display: inline-block; }
+.rv-editable.rv-empty:empty::before { content: "—"; color: var(--text-muted); font-style: italic; }
+.rv-editable.rv-empty:focus:empty::before { content: ""; }
 
 /* wide/nested tables scroll horizontally inside the panel rather than crushing columns */
 .rv-tablewrap { overflow-x: auto; max-width: 100%; }

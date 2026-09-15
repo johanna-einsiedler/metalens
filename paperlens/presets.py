@@ -29,8 +29,20 @@ resolve_id = legacy.resolve_id
 
 
 def load_all() -> dict[str, dict]:
-    """Every built-in preset, keyed by id → normalised spec."""
-    return ps.load_dir(PRESETS_DIR)
+    """Every built-in preset, keyed by id → normalised spec — plus any preset files in the
+    directories named by PAPERLENS_PRESET_DIRS (os.pathsep-separated; the local launcher
+    points it at ``<data>/presets`` so a preset can be exchanged as files). Built-ins win
+    on an id clash."""
+    import os
+    from pathlib import Path
+    out: dict[str, dict] = {}
+    for extra in filter(None, (os.environ.get("PAPERLENS_PRESET_DIRS") or "").split(os.pathsep)):
+        try:
+            out.update(ps.load_dir(Path(extra).expanduser()))
+        except Exception as exc:  # noqa: BLE001 - a broken user preset must not take the app down
+            print(f"[presets] skipping {extra}: {exc}", file=sys.stderr, flush=True)
+    out.update(ps.load_dir(PRESETS_DIR))
+    return out
 
 
 def _meta_from_spec(spec: dict, *, source: str = "file", extra: dict | None = None) -> dict:
@@ -42,6 +54,7 @@ def _meta_from_spec(spec: dict, *, source: str = "file", extra: dict | None = No
         "description": spec["meta"].get("description"),
         "mode": spec["meta"].get("mode"),
         "landing_hidden": bool(spec["meta"].get("hidden")),
+        "brands": list(spec["meta"].get("brands") or []),     # [] = shown on every product surface
         "prompt": ps.render_prompt(spec),
         "template_params": {n: d.get("default") for n, d in (spec["prompt"].get("params") or {}).items()},
         "sub_views": fd["sub_views"],

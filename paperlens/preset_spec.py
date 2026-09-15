@@ -63,7 +63,7 @@ IDENTITY_FIELDS = (
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
-    "meta": {"title", "tagline", "description", "mode", "hidden"},
+    "meta": {"title", "tagline", "description", "mode", "hidden", "brands"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty"},
     "paper": {"fields"},
@@ -286,6 +286,10 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             E("$.meta.mode must be 'extraction' or 'summarize'")
         if not isinstance(meta.get("hidden", False), bool):
             E("$.meta.hidden must be a boolean")
+        # which product surfaces list the preset; empty / absent = every brand
+        brands = meta.get("brands", [])
+        if not (isinstance(brands, list) and all(isinstance(b, str) and b for b in brands)):
+            E("$.meta.brands must be a list of brand ids")
 
     prompt = spec.get("prompt")
     params: dict = {}

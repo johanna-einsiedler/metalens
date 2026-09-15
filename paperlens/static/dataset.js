@@ -53,6 +53,7 @@ function render() {
       ${OV.git_pr_url
         ? `<a class="btn btn-ghost btn-sm" href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">🔗 View PR</a>`
         : `<button class="btn btn-ghost btn-sm" id="ds-github">⬆ Publish to GitHub</button>`}
+      ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
     </div>` : ""}
 
@@ -172,7 +173,30 @@ function paperRow(d) {
     </div></div>`;
 }
 
+// Papers listed more than once (same DOI, else title, else filename) — mirrors the server rule.
+function dupGroups() {
+  const key = (d) => {
+    const doi = String(d.doi || "").trim().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+    if (doi) return "doi:" + doi;
+    const t = String(d.title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (t) return "title:" + t;
+    const f = String(d.filename || "").toLowerCase().replace(/\.(pdf|json)$/, "");
+    return f ? "file:" + f : null;
+  };
+  const groups = {};
+  for (const d of OV.documents || []) { const k = key(d); if (k) (groups[k] ||= []).push(d); }
+  return Object.values(groups).filter((g) => g.length > 1);
+}
+
 function wireActions() {
+  const dd = $("#ds-dedupe");
+  if (dd) dd.onclick = async () => {
+    const n = dupGroups().reduce((k, g) => k + g.length - 1, 0);
+    if (!confirm(`Remove ${n} older duplicate cop${n === 1 ? "y" : "ies"}? The newest copy of each paper stays; the older documents and their records are deleted.`)) return;
+    dd.disabled = true;
+    try { const r = await api.dedupeDataset(id); OV = await api.datasetOverview(id); render(); if (!r.n_removed) alert("Nothing to remove."); }
+    catch (ex) { alert("cleanup failed: " + ex.message); dd.disabled = false; }
+  };
   $("#ds-vis").onclick = async (e) => {
     const next = OV.visibility === "public" ? "private" : "public";
     e.target.disabled = true;

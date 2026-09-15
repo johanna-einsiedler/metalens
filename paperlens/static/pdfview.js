@@ -26,17 +26,29 @@ export function renderPages(root, pages, evidence) {
       if (drawn || !img.naturalWidth) return;
       drawn = true;
       svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+      // The same rectangle is often cited many times (a reference row every condition points
+      // at); nine translucent fills stacked make the text unreadable. Paint each distinct
+      // rectangle ONCE and let it answer to every evidence id that cites it (`data-eids`).
+      const merged = new Map();
       (byPage[pg.page] || []).forEach(({ ev, i }) => {
         (ev.rect || []).forEach((r) => {
-          const [x, y, w, h] = r;
-          const rect = document.createElementNS(SVGNS, "rect");
-          rect.setAttribute("x", x); rect.setAttribute("y", y);
-          rect.setAttribute("width", w); rect.setAttribute("height", h);
-          rect.setAttribute("class", "hl" + (CTX.has(String(i)) ? " ctx" : "")); rect.dataset.eid = i;
-          const t = document.createElementNS(SVGNS, "title");
-          t.textContent = ev.snippet || ""; rect.appendChild(t);
-          svg.appendChild(rect);
+          const key = r.map((v) => Math.round(v)).join(",");
+          const m = merged.get(key) || { r, ids: [], snippets: [] };
+          m.ids.push(String(i));
+          if (ev.snippet && !m.snippets.includes(ev.snippet)) m.snippets.push(ev.snippet);
+          merged.set(key, m);
         });
+      });
+      merged.forEach(({ r, ids, snippets }) => {
+        const [x, y, w, h] = r;
+        const rect = document.createElementNS(SVGNS, "rect");
+        rect.setAttribute("x", x); rect.setAttribute("y", y);
+        rect.setAttribute("width", w); rect.setAttribute("height", h);
+        rect.setAttribute("class", "hl" + (ids.some((id) => CTX.has(id)) ? " ctx" : ""));
+        rect.dataset.eid = ids[0]; rect.dataset.eids = ids.join(" ");
+        const t = document.createElementNS(SVGNS, "title");
+        t.textContent = snippets.join("\n"); rect.appendChild(t);
+        svg.appendChild(rect);
       });
     };
     img.addEventListener("load", draw);
@@ -49,6 +61,9 @@ export function renderPages(root, pages, evidence) {
 
 // Clear the current single selection: unpaint any selected/flashing pre-drawn rect, and
 // remove any ad-hoc located-number rects entirely — so only the NEWEST pick stays visible.
+// the drawn rects that answer to one evidence id (a rect may carry several ids)
+const rectsFor = (id) => document.querySelectorAll(`rect.hl[data-eids~="${id}"]`);
+
 function clearSelection() {
   document.querySelectorAll("rect.hl.sel, rect.hl.flash").forEach((r) => r.classList.remove("sel", "flash"));
   document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());
@@ -59,7 +74,7 @@ function clearSelection() {
 export function jumpToEvidence(page, eid) {
   clearSelection();               // replace the previous highlight — never stack them
   const ids = Array.isArray(eid) ? eid : [eid];
-  const rects = ids.flatMap((id) => [...document.querySelectorAll(`rect.hl[data-eid="${id}"]`)]);
+  const rects = ids.flatMap((id) => [...rectsFor(id)]);
   rects.forEach((r) => { r.classList.add("sel", "flash"); setTimeout(() => r.classList.remove("flash"), 1500); });
   scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
 }
@@ -71,7 +86,7 @@ export function setContextEvidence(ids) {
   CTX = new Set((ids || []).map(String));
   document.querySelectorAll("rect.hl.ctx").forEach((r) => r.classList.remove("ctx"));
   if (!CTX.size) return;
-  document.querySelectorAll("rect.hl[data-eid]").forEach((r) => { if (CTX.has(r.dataset.eid)) r.classList.add("ctx"); });
+  document.querySelectorAll("rect.hl[data-eids]").forEach((r) => { if (r.dataset.eids.split(" ").some((id) => CTX.has(id))) r.classList.add("ctx"); });
 }
 
 // pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value). Like
@@ -117,9 +132,9 @@ function scrollToRect(rectEl, page) {
 // hover preview — light up the rect(s) for an evidence id without scrolling
 export function showEvidence(eid) {
   (Array.isArray(eid) ? eid : [eid]).forEach((id) =>
-    document.querySelectorAll(`rect.hl[data-eid="${id}"]`).forEach((r) => r.classList.add("hot")));
+    rectsFor(id).forEach((r) => r.classList.add("hot")));
 }
 export function hideEvidence(eid) {
   (Array.isArray(eid) ? eid : [eid]).forEach((id) =>
-    document.querySelectorAll(`rect.hl[data-eid="${id}"]`).forEach((r) => r.classList.remove("hot")));
+    rectsFor(id).forEach((r) => r.classList.remove("hot")));
 }

@@ -99,3 +99,12 @@ def test_unknown_preset_returns_none() -> None:
     assert presets.emit_schema_row("does-not-exist") is None
     assert presets.prompt_for("does-not-exist") is None
     assert presets.render("does-not-exist") is None
+
+
+def test_meta_brands_is_validated_and_exposed() -> None:
+    assert presets.get("summarize")["brands"] == ["metalens"]
+    assert presets.get("masem-direct")["brands"] == []                 # untagged: every surface
+    spec = presets.load_all()["summarize"]
+    bad = dict(spec); bad["meta"] = {**spec["meta"], "brands": "metalens"}
+    errs, _ = ps.validate(bad)
+    assert any("meta.brands" in e for e in errs)

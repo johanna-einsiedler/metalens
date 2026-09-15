@@ -671,3 +671,11 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .pe-preview { margin: 0 0 14px; }
 .pe-preview > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .pe-preview .md-preview { margin-top: 8px; max-height: 420px; }
+
+/* logged-out retention note under the topbar */
+.anon-note { font-size: 12.5px; color: var(--text-muted); background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 6px 24px; }
+.anon-note a { color: var(--text); }
+
+/* brand surfaces: MASEMiner's extract page is one workflow — the other task cards stay out of sight */
+.brand-maseminer .task-card[data-task]:not([data-task="workflow"]) { display: none; }

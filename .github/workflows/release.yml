@@ -1,0 +1,65 @@
+name: Release
+
+# On a version tag: build the wheel, publish it to PyPI (trusted publishing — configure the
+# project on pypi.org to trust this repo/workflow, no token needed), and push a byte-exact
+# Docker image to GHCR. The tag must match pyproject's version (`v0.1.0` ↔ `0.1.0`).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write      # PyPI trusted publishing
+  packages: write      # GHCR
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: check the tag matches pyproject
+        run: |
+          v=$(uv run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != pyproject $v"; exit 1; }
+      - run: uv build
+      - run: uv export --frozen --no-dev > requirements-lock.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: "dist/*" }
+      - name: GitHub release with the lock file
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+            requirements-lock.txt
+          generate_release_notes: true
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  image:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: PAPERLENS_GIT_SHA=${{ github.sha }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/maseminer:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/maseminer:latest

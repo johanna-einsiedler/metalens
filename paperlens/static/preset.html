@@ -8,23 +8,11 @@
   <link rel="stylesheet" href="/static/base.css"/>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
-    <nav class="nav-shared">
-      <a href="/catalog">Data Catalogue</a>
-      <a href="/observatory">Examples</a>
-    </nav>
-    <span class="spacer"></span>
-    <nav class="nav-personal">
-      <a href="/extract">Process papers</a>
-      <a href="/workspace">Data review</a>
-    </nav>
-    <span id="account" class="account"></span>
-  </header>
+  <header class="topbar" data-chrome></header>
   <main class="wrap" style="max-width:820px;padding-top:24px">
     <div id="pe-body"><p class="muted">Loading…</p></div>
   </main>
   <script type="module" src="/static/preset.js"></script>
-  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
 </body>
 </html>

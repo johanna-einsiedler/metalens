@@ -4,6 +4,8 @@
 //   • a single-paper result   {paper_metadata, <entries>, evidence}   (or an {extraction: …} wrapper)
 //   • a workspace export      {schema_id, paper_metadata, records, confidence, provenance, evidence}
 //   • a dataset export        {metadata: {schema_id, …}, results: {papers: [{filename, result}]}}
+//   • a dataset file          {recipe: {schema_id}, papers: [{filename, paper, records: [{values}], evidence?}]}
+//                             (the citable download of a dataset page; per-paper "evidence" is optional)
 // Files pair by basename ("paper1.json" + "paper1.pdf"); a dataset export's papers pair by the
 // filename it recorded; anything left over can be assigned a PDF by hand.
 import { api } from "/static/api.js";
@@ -14,6 +16,8 @@ const JSONS = {};    // key -> { name, canonical, schema_id, kind } | { name, er
 const PDFS = {};     // basename -> File
 const MANUAL = {};   // json key -> pdf basename chosen by hand
 const KEYS = {};     // schema id -> entries key (from /api/schemas), for workspace exports
+let EXISTING = null; // documents already in the chosen dataset: [{document_id, filename, title, doi}] (null = new dataset)
+const ACTION = {};   // json key -> "replace" | "skip" for papers already in the dataset (default replace)
 let PRESETS = [];
 let RUNNING = false;
 
@@ -29,7 +33,14 @@ function setupDrop() {
   dz.addEventListener("drop", (e) => addFiles([...e.dataTransfer.files]));
   $("#run").onclick = run;
   const sel = $("#dataset");
-  sel.onchange = () => { $("#dsname").style.display = sel.value === "__new__" ? "" : "none"; };
+  sel.onchange = async () => {
+    $("#dsname").style.display = sel.value === "__new__" ? "" : "none";
+    EXISTING = null;
+    if (sel.value !== "__new__") {
+      try { EXISTING = ((await api.datasetOverview(sel.value)).documents || []); } catch { EXISTING = []; }
+    }
+    renderPairs();
+  };
   const sch = $("#schema");
   sch.onchange = () => { $("#schemaCustom").hidden = sch.value !== "__custom__"; };
   loadDatasets();
@@ -87,6 +98,7 @@ function currentSchemaId() {
 // ── file shapes → one canonical result per paper ────────────────────────────────────────
 function classify(obj) {
   if (obj && obj.results && Array.isArray(obj.results.papers)) return "dataset";
+  if (obj && Array.isArray(obj.papers) && obj.papers.some((p) => p && Array.isArray(p.records))) return "datasetfile";
   if (obj && typeof obj.extraction === "object" && obj.extraction && !Array.isArray(obj.extraction)) return "wrapped";
   if (obj && Array.isArray(obj.records) && (obj.provenance || (obj.schema_id && obj.paper))) return "workspace";
   return "single";
@@ -120,6 +132,23 @@ async function fromWorkspaceExport(obj) {
   return { paper_metadata: obj.paper_metadata || {}, [key]: entries, evidence: obj.evidence || [] };
 }
 
+// The citable dataset file groups records under each paper as {entry_index, values}; a paper
+// may also carry an "evidence" list (hand-added citations, one item per quote, "field" a path
+// or a list of paths). Screened papers (no records) have nothing to review and are skipped.
+async function fromDatasetFile(obj) {
+  const sid = (obj.recipe && obj.recipe.schema_id) || null;
+  const key = (await entriesKey(sid)) || "records";
+  const out = [];
+  for (const paper of obj.papers || []) {
+    const recs = (paper.records || []).filter((r) => r && r.values && typeof r.values === "object");
+    if (!recs.length) continue;
+    recs.sort((a, b) => (a.entry_index ?? 0) - (b.entry_index ?? 0));
+    out.push({ filename: paper.filename, result: normalizeResult({
+      paper_metadata: paper.paper || {}, [key]: recs.map((r) => r.values), evidence: paper.evidence || [] }) });
+  }
+  return { schema_id: sid, papers: out, title: obj.title || null };
+}
+
 async function addFiles(files) {
   for (const f of files) {
     if (/\.json$/i.test(f.name)) {
@@ -127,13 +156,16 @@ async function addFiles(files) {
       try { obj = JSON.parse(await f.text()); }
       catch { JSONS[base(f.name)] = { name: f.name, error: "invalid JSON" }; continue; }
       const kind = classify(obj);
-      if (kind === "dataset") {
-        const sid = (obj.metadata && obj.metadata.schema_id) || null;
-        (obj.results.papers || []).forEach((paper, i) => {
+      if (kind === "dataset" || kind === "datasetfile") {
+        const ds = kind === "dataset" ? { schema_id: (obj.metadata && obj.metadata.schema_id) || null, papers: obj.results.papers || [] }
+                                      : await fromDatasetFile(obj);
+        ds.papers.forEach((paper, i) => {
           const key = base(paper.filename || `${base(f.name)}-paper-${i + 1}`);
-          JSONS[key] = { name: `${f.name} › ${paper.filename || "paper " + (i + 1)}`, canonical: paper.result, schema_id: sid, kind };
+          JSONS[key] = { name: `${f.name} › ${paper.filename || "paper " + (i + 1)}`, canonical: paper.result, schema_id: ds.schema_id, kind: "dataset" };
         });
-        autoSchema(sid);
+        const name = $("#dsname");                                            // suggest the dataset's own name
+        if (ds.title && (!name.value || name.value === name.defaultValue)) name.value = ds.title;
+        autoSchema(ds.schema_id);
       } else {
         const sid = obj.schema_id || (obj.extraction && obj.extraction.schema_id) || null;
         const canonical = normalizeResult(kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj);
@@ -157,6 +189,27 @@ function normalizeResult(obj) {
   if (venue != null && pm.journal == null) pm.journal = venue;
   const { paper, ...rest } = obj;
   return { paper_metadata: pm, ...rest };
+}
+
+// ── already in the dataset? ─────────────────────────────────────────────────────────────
+// Same rule as the server's duplicate check: DOI, else title, else filename. Re-importing a
+// corrected file into the dataset it came from is the normal case — the old copy should go.
+const paperKeys = (doi, title, filename) => {
+  const out = [];
+  const d = String(doi || "").trim().toLowerCase().replace(/^https?:\/\/(dx\.)?doi\.org\//, "");
+  if (d) out.push("doi:" + d);
+  const t = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (t) out.push("title:" + t);
+  const f = base(String(filename || "")).toLowerCase();
+  if (f) out.push("file:" + f);
+  return out;
+};
+function existingFor(key) {
+  if (!EXISTING || !EXISTING.length) return [];
+  const j = JSONS[key]; if (!j || j.error) return [];
+  const pm = (j.canonical && j.canonical.paper_metadata) || {};
+  const mine = new Set(paperKeys(pm.doi, pm.title, key));
+  return EXISTING.filter((d) => paperKeys(d.doi, d.title, d.filename).some((k) => mine.has(k)));
 }
 
 // ── pairing ─────────────────────────────────────────────────────────────────────────────
@@ -194,9 +247,18 @@ function renderPairs() {
           + spare.map((k) => `<option value="${esc(k)}">${esc(k)}.pdf</option>`).join("") + `</select>` : "");
       cls = "ok";
     }
+    const dup = r.json && !r.json.error ? existingFor(r.key) : [];
+    if (dup.length) {
+      const act = ACTION[r.key] || "replace";
+      state += ` · <span class="ir-dup">already in this dataset (${dup.length})</span> <select class="dup-action" data-k="${esc(r.key)}">`
+        + `<option value="replace"${act === "replace" ? " selected" : ""}>replace the old copy</option>`
+        + `<option value="skip"${act === "skip" ? " selected" : ""}>skip this paper</option></select>`;
+      cls = act === "skip" ? "warn" : cls;
+    }
     return `<div class="import-row ${cls}" data-k="${esc(r.key)}">`
       + `<span class="ir-name">${esc(r.json ? r.json.name : r.key + ".pdf")}</span><span class="ir-stat">${state}</span></div>`;
   }).join("") : '<p class="muted" style="padding:8px 0">Drop <code>.json</code> results (single papers, a workspace export, or a dataset export) and their <code>.pdf</code> files.</p>';
+  $("#pairs").querySelectorAll(".dup-action").forEach((sel) => (sel.onchange = () => { ACTION[sel.dataset.k] = sel.value; renderPairs(); }));
   $("#pairs").querySelectorAll(".assign-pdf").forEach((sel) => (sel.onchange = () => {
     if (sel.value) MANUAL[sel.dataset.k] = sel.value; else delete MANUAL[sel.dataset.k];
     renderPairs();
@@ -233,28 +295,44 @@ async function run() {
     return;
   }
 
-  let done = 0;
+  let done = 0, replaced = 0, skipped = 0;
   for (const r of rows) {
+    const dup = existingFor(r.key);
+    if (dup.length && (ACTION[r.key] || "replace") === "skip") { skipped++; setStat(r.key, "skipped — already in the dataset", "warn"); continue; }
     setStat(r.key, '<span class="spin"></span> importing…');
     try {
+      // Replacing: import OUTSIDE the dataset first (the server refuses a second copy of the
+      // same PDF inside one dataset), delete the old copies, then attach the new document —
+      // so the paper is never missing from the dataset, and never in it twice.
+      const target = dup.length ? null : datasetId;
       let res;
       if (r.pdf) {
         const fd = new FormData();
         fd.append("pdf", r.pdf);
         fd.append("result", JSON.stringify(r.json.canonical));
         if (schemaId) fd.append("schema_id", schemaId);
-        if (datasetId) fd.append("dataset_id", datasetId);
+        if (target) fd.append("dataset_id", target);
         res = await api.ingestPdf(fd);
       } else {
-        res = await api.ingest({ result: r.json.canonical, schema_id: schemaId || null, dataset_id: datasetId || null });
+        res = await api.ingest({ result: r.json.canonical, schema_id: schemaId || null, dataset_id: target || null });
       }
       done++;
-      setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${r.pdf ? "" : " · no page images"}`, "ok");
+      let gone = 0;
+      if (dup.length) {
+        for (const d of dup) {
+          if (d.document_id === res.document_id) continue;
+          try { await api.deleteDocument(d.document_id); gone++; } catch { /* leave it; the dataset page can dedupe */ }
+        }
+        if (datasetId) await api.addToDataset(datasetId, { document_id: res.document_id });
+      }
+      if (gone) replaced++;
+      setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${r.pdf ? "" : " · no page images"}${gone ? ` · replaced ${gone} old cop${gone === 1 ? "y" : "ies"}` : ""}`, "ok");
     } catch (e) { setStat(r.key, `✗ ${esc(e.message)}`, "warn"); }
   }
   RUNNING = false; $("#run").disabled = false;
   const go = datasetId ? `/workspace?project=${encodeURIComponent(datasetId)}` : "/workspace";
-  $("#status").innerHTML = `Imported ${done}/${rows.length}. <a href="${go}">Open Data review →</a>`;
+  const extra = (replaced ? `, ${replaced} replaced` : "") + (skipped ? `, ${skipped} skipped` : "");
+  $("#status").innerHTML = `Imported ${done}/${rows.length}${extra}. <a href="${go}">Open Data review →</a>`;
   if (done) setTimeout(() => { location.href = go; }, 800);
 }
 

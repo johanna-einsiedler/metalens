@@ -7,7 +7,8 @@
     "tagline": "Structured per-section summaries — background, methods, findings, limitations — anchored to verifiable page-cited quotes",
     "description": "Reads each PDF and emits a four-section academic summary (background / methods / findings / limitations) with verbatim evidence snippets pinned to PDF pages, so every claim is click-to-verifiable in the result viewer.",
     "mode": "summarize",
-    "hidden": false
+    "hidden": false,
+    "brands": ["metalens"]
   },
   "prompt": {
     "file": "summarize.prompt.md",

@@ -1,8 +1,17 @@
 [project]
-name = "paperlens"
+name = "maseminer"
 version = "0.1.0"
-description = "PaperLens — provenance-tracked extracted-record layer (Phase 1 spine)"
-requires-python = ">=3.9"
+description = "Metalens / MASEMiner — AI-assisted data extraction from research papers with human review; runs hosted or on one machine"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Johanna Einsiedler" }]
+keywords = ["meta-analysis", "MASEM", "data extraction", "systematic review", "LLM"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+]
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
@@ -15,7 +24,15 @@ dependencies = [
     "google-genai>=1.0",
     "python-multipart>=0.0.9",
     "bcrypt>=4.1",
+    "pgserver>=0.1.4",
 ]
+
+[project.scripts]
+maseminer = "paperlens.local:main"
+
+[project.urls]
+Homepage = "https://github.com/johanna-einsiedler/metalens"
+Source = "https://github.com/johanna-einsiedler/metalens"
 
 [project.optional-dependencies]
 dev = [

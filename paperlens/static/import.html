@@ -8,24 +8,11 @@
   <link rel="stylesheet" href="/static/base.css"/>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
-    <nav class="nav-shared">
-      <a href="/catalog">Data Catalogue</a>
-      <a href="/observatory">Examples</a>
-    </nav>
-    <span class="spacer"></span>
-    <nav class="nav-personal">
-      <a href="/extract">Process papers</a>
-      <a href="/import">Import</a>
-      <a href="/workspace">Data review</a>
-    </nav>
-    <span id="account" class="account"></span>
-  </header>
+  <header class="topbar" data-chrome></header>
   <main class="wrap" style="padding-top:24px; max-width:760px">
     <h2 style="margin:0 0 4px">Import extractions</h2>
-    <p class="muted" style="margin:0 0 18px">Already have extraction JSON — from your own pipeline, an earlier Metalens run,
-      or a whole dataset export? Drop it here with the source PDFs (paired by filename, or assign them below) — Metalens renders
+    <p class="muted" style="margin:0 0 18px">Already have extraction JSON — from your own pipeline, an earlier run here,
+      or a whole dataset export? Drop it here with the source PDFs (paired by filename, or assign them below) — the app renders
       the pages and highlights each citation from the JSON's evidence, so you get the full viewer. Papers without a PDF are
       imported too, just without page images. No model is called.</p>
 
@@ -64,6 +51,6 @@
     </div>
   </main>
   <script type="module" src="/static/import.js"></script>
-  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
 </body>
 </html>

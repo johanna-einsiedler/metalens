@@ -1062,7 +1062,10 @@ function wireControls(container, onSave, textToo) {
       const now = cell.textContent;
       if (now === cell.dataset.orig) return;
       cell.classList.add("rv-edited");
-      const val = cell.classList.contains("rv-num") && now.trim() !== "" && !isNaN(Number(now)) ? Number(now) : now;
+      cell.classList.toggle("rv-empty", now.trim() === "");
+      // cleared → null (not ""); a number typed into a numeric cell → number; else text
+      const val = now.trim() === "" ? null
+        : cell.classList.contains("rv-num") && !isNaN(Number(now)) ? Number(now) : now;
       Promise.resolve(onSave(cell.dataset.path, val)).then(() => (cell.dataset.orig = now));
     });
   });
@@ -1125,7 +1128,7 @@ function linkCells(card, rec) {
       else cell.classList.add("rv-covered");
       cell.addEventListener("mouseenter", () => showEvidence(hit.ids));
       cell.addEventListener("mouseleave", () => hideEvidence(hit.ids));
-      cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[hit.ids[0]].page, exact, kind: hit.kind }));
+      cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[citeFor(cell, hit.ids)].page, exact, kind: hit.kind }));
       return;
     }
     if (wantsOwn && hasValue) cell.classList.add("rv-uncited");
@@ -1232,6 +1235,20 @@ async function locateAndFlash(cell) {
 //       (numbers are what readers verify); fall back to the snippet if it isn't there
 //       verbatim (rounded / transformed / computed — a soft note, not an error).
 const NUM_RE = /^-?\d[\d,]*(\.\d+)?%?$/;
+// A row cited several times (the results table, a descriptives table, a methods sentence):
+// a click on a NUMBER lands on the citation whose snippet carries that number, so the
+// band-limited chase below finds it; otherwise the first citation.
+function citeFor(cell, ids) {
+  const txt = cell.textContent.trim().replace(/%$/, "");
+  if (!NUM_RE.test(txt) || ids.length < 2) return ids[0];
+  const bare = txt.replace(/,/g, "");
+  const hit = ids.find((i) => {
+    const sn = String(DATA.evidence[i].snippet || "").replace(/,/g, "");
+    return new RegExp(`(^|[^0-9.])${bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![0-9])`).test(sn);
+  });
+  return hit == null ? ids[0] : hit;
+}
+
 async function verifyAndJump(cell, hit) {
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();

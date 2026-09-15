@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: paperlens
+          POSTGRES_PASSWORD: paperlens
+          POSTGRES_DB: paperlens
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U paperlens"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PAPERLENS_DATABASE_URL: postgresql://paperlens:paperlens@localhost:5432/paperlens
+      PAPERLENS_STORAGE: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --frozen --extra dev
+      - run: PYTHONPATH="$PWD" uv run pytest -q
+
+  local-smoke:
+    name: maseminer launcher (embedded Postgres)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - name: start, probe, stop
+        shell: bash
+        run: |
+          uv run maseminer --data-dir ./mm-ci --port 8765 --no-browser > mm.log 2>&1 &
+          for i in $(seq 1 90); do sleep 1; curl -sf http://127.0.0.1:8765/healthz && break; done
+          curl -sf http://127.0.0.1:8765/api/extraction-config | grep -q '"local_mode":true'
+          curl -sf http://127.0.0.1:8765/api/version
+          kill %1 || true
+          sleep 3
+          cat mm.log

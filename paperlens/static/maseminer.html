@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MASEMiner — data extraction for meta-analytic SEM</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <style>
+    .mm-hero { text-align: center; padding: 44px 0 18px; }
+    .mm-hero img { height: 72px; width: auto; margin: 0 auto 18px; display: block; }
+    .mm-hero h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: -.3px; }
+    .mm-hero .lede { max-width: 680px; margin: 0 auto 22px; }
+    .mm-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin: 26px 0; }
+    .mm-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+    .mm-card h3 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
+    .mm-card ul { margin: 0; padding-left: 18px; }
+    .mm-card li { margin: 5px 0; }
+    .mm-foot { color: var(--text-muted); font-size: 13px; text-align: center; margin: 30px 0 50px; }
+    .mm-foot a { color: var(--text); }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+
+  <div class="wrap" style="max-width:960px">
+    <section class="mm-hero">
+      <img src="/static/maseminer-logo.svg" alt="MASEMiner"/>
+      <h1>Primary-study data for meta-analytic SEM, extracted and verified.</h1>
+      <p class="lede">MASEMiner reads your primary studies and returns correlations, correlation matrices,
+        factor loadings and study metadata as structured data. Every value is shown next to the
+        highlighted passage it came from, so you can check and correct it before you export.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/extract">Extract from PDFs</a>
+        <a class="btn btn-ghost" href="/import">Import earlier results</a>
+      </div>
+    </section>
+
+    <div class="mm-cols">
+      <div class="mm-card">
+        <h3>You'll need</h3>
+        <ul>
+          <li>PDFs of the primary studies (one batch at a time)</li>
+          <li>Your own OpenAI, Google, Anthropic, Mistral or DeepSeek API key, a self-hosted model, or MASEMiner credits with an account</li>
+          <li>A minute or two per paper while the model reads it</li>
+        </ul>
+      </div>
+      <div class="mm-card">
+        <h3>What you'll get back</h3>
+        <ul>
+          <li>Correlations between the constructs you name, per sample, with reliabilities</li>
+          <li>Item-level <strong>factor loadings</strong> and inter-factor correlations for indirect information</li>
+          <li>Study <strong>metadata</strong>: N, age, % female, country, instrument, analysis method</li>
+          <li>Verbatim <strong>evidence</strong> with page references, and a confidence rating per block</li>
+          <li>JSON and CSV export including your corrections, with the preset and model recorded</li>
+        </ul>
+      </div>
+      <div class="mm-card">
+        <h3>How it works</h3>
+        <ul>
+          <li>Name your effect sizes and variables once; save the setup and reuse it across batches</li>
+          <li>Review each paper against the PDF, verify or flag each row, edit values in place</li>
+          <li>Papers imported without a run keep their citations and can be reviewed the same way</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="mm-foot">
+      MASEMiner is a product surface of the open-source <a href="/maseminer" id="mm-parent">Metalens</a> extraction engine.
+      Prefer to keep PDFs on your own machine? <a href="#" id="mm-local">Run MASEMiner locally</a> —
+      one command, no account, your PDFs and API key never leave your computer.
+      Need a different extraction task? <a href="#" id="mm-metalens">Use Metalens</a>.
+    </p>
+  </div>
+
+  <script type="module">
+    import { mountChrome, getBrand } from "/static/chrome.js";
+    mountChrome();
+    getBrand().then((b) => {
+      const links = b.links || {};
+      const set = (id, href) => { const a = document.getElementById(id); if (a && href) a.href = href; };
+      set("mm-local", links.run_locally); set("mm-metalens", links.parent); set("mm-parent", links.source);
+    });
+  </script>
+</body>
+</html>

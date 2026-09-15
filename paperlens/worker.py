@@ -15,7 +15,7 @@ import dataclasses
 import os
 from typing import Any
 
-from arq import create_pool
+from arq import create_pool, cron
 from arq.connections import RedisSettings
 
 from . import enrich, records
@@ -153,8 +153,23 @@ async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
         conn.close()
 
 
+async def sweep_anonymous_task(ctx: dict) -> dict:
+    """Every few minutes: delete what logged-out sessions uploaded once their window has
+    been closed for the retention period (paperlens/retention.py)."""
+    from . import retention, storage
+    conn = records.connect()
+    try:
+        out = retention.sweep(conn, storage.get_store())
+        if out.get("sessions"):
+            print(f"[retention] swept {out}", flush=True)
+        return out
+    finally:
+        conn.close()
+
+
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
+    cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True)]
     redis_settings = redis_settings()
     allow_abort_jobs = True   # let the UI stop an in-progress extraction (Job.abort)
     max_jobs = 10
@@ -179,8 +194,12 @@ async def _enqueue(task: str, *args, **kwargs) -> str | None:
 
 
 def enqueue(task: str, *args, **kwargs) -> str | None:
-    """Enqueue a job from sync code. Returns job id, or None if Redis is down
-    (callers fall back to running synchronously)."""
+    """Enqueue a job from sync code. Returns job id, or None if Redis is down or the
+    process runs jobs inline (PAPERLENS_INLINE_JOBS — the single-user local mode);
+    callers fall back to running synchronously."""
+    from . import localmode
+    if localmode.inline_jobs():
+        return None
     try:
         return asyncio.run(_enqueue(task, *args, **kwargs))
     except Exception:

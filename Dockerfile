@@ -17,6 +17,9 @@ RUN uv sync --frozen --no-dev
 # Put the venv on PATH so `uvicorn` / `arq` / `python` resolve to the app's deps.
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+# the commit an image was built from, reported by /api/version and in exports
+ARG PAPERLENS_GIT_SHA=""
+ENV PAPERLENS_GIT_SHA=$PAPERLENS_GIT_SHA
 
 EXPOSE 8000
 # Default (web) command; the worker process overrides this in fly.toml.

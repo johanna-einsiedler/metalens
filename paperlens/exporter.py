@@ -11,6 +11,8 @@ to reconstruct the exact publishable canonical JSON per document. This produces:
 """
 from __future__ import annotations
 
+import os
+
 from . import reconstruct, records
 
 
@@ -56,15 +58,43 @@ def materialize_dataset(conn, dataset_id: str) -> dict:
         (dataset_id,),
     ).fetchall()
 
+    # What to cite: the engine that produced the file, alongside the preset (above).
+    from . import __version__
+    metadata["engine"] = {"name": "metalens", "version": __version__, "git_sha": _git_sha()}
+
     default_model = (ov.get("recipe") or {}).get("model")
     papers = []
     for (doc_id, filename) in doc_rows:
         pub = reconstruct.reconstruct_publishable(records.load(conn, str(doc_id)))
         mrow = conn.execute(
-            "SELECT extraction ->> 'model' FROM record WHERE document_id = %s LIMIT 1", (doc_id,)
+            "SELECT extraction FROM record WHERE document_id = %s LIMIT 1", (doc_id,)
         ).fetchone()
-        model = (mrow[0] if mrow and mrow[0] else default_model)
+        ex = (mrow[0] if mrow and isinstance(mrow[0], dict) else {}) or {}
+        model = ex.get("model") or default_model
+        drow = conn.execute(
+            "SELECT prompt_sha256, params, created_at, schema_id FROM extraction_document WHERE id = %s", (doc_id,)
+        ).fetchone()
         name = filename or (pub.get("paper_metadata") or {}).get("title") or str(doc_id)
-        papers.append({"filename": name, "model": model, "result": pub})
+        papers.append({"filename": name, "model": model, "result": pub,
+                       # per-paper provenance: enough to re-run the same extraction later
+                       "provenance": {"resolved_model": ex.get("resolved_model"),
+                                      "prompt_sha256": drow[0] if drow else None,
+                                      "params": drow[1] if drow else None,
+                                      "extracted_at": drow[2].isoformat() if drow and drow[2] else None,
+                                      "schema_id": drow[3] if drow else None}})
 
     return {"metadata": metadata, "results": {"papers": papers}}
+
+
+def _git_sha() -> str | None:
+    sha = os.environ.get("PAPERLENS_GIT_SHA")
+    if sha:
+        return sha
+    head = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".git", "HEAD")
+    try:
+        ref = open(head).read().strip()
+        if ref.startswith("ref: "):
+            return open(os.path.join(os.path.dirname(head), ref[5:])).read().strip()[:12]
+        return ref[:12]
+    except OSError:
+        return None

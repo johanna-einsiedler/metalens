@@ -360,3 +360,28 @@ ALTER TABLE verification_event ALTER COLUMN record_id DROP NOT NULL;
 -- base, so the setup only pins the values (scale name, items, effect sizes …).
 ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS base_preset_id text;
 ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS params jsonb;
+-- the product surface (brand) a personal preset was created on; public ones list there only
+ALTER TABLE personal_preset ADD COLUMN IF NOT EXISTS brand text;
+
+
+-- ── logged-out retention (paperlens/retention.py) ──────────────────────────────
+-- One row per anonymous browser session: when it was last seen (request principal +
+-- browser heartbeat), whether a login claimed it, and its free-trial counter — the two
+-- facts that must outlive the sweep that deletes the session's uploads.
+CREATE TABLE IF NOT EXISTS anon_session (
+    session_id text PRIMARY KEY,
+    first_seen timestamptz NOT NULL DEFAULT now(),
+    last_seen  timestamptz NOT NULL DEFAULT now(),
+    claimed_by uuid,                                -- a logged-in principal used this session id
+    trial_used integer NOT NULL DEFAULT 0,          -- free-trial papers run (survives deletion)
+    swept_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS anon_session_last_seen_idx ON anon_session(last_seen);
+-- Free-trial runs per (daily-salted client-address hash, day): caps "clear the browser and
+-- start a new trial" without keeping anything that identifies a person across days.
+CREATE TABLE IF NOT EXISTS anon_trial_ip (
+    ip_hash text NOT NULL,
+    day     date NOT NULL,
+    n       integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (ip_hash, day)
+);

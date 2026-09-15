@@ -11,6 +11,9 @@ function sid() {
   return s;
 }
 
+// Logged-out retention is an idle timeout: every API request refreshes the session's
+// last-seen clock server-side (see paperlens/retention.py); nothing to do here.
+
 async function req(path, opts = {}) {
   // opts first: a caller's own headers (content-type) MERGE with the session header
   // rather than replacing it, otherwise every JSON POST would arrive anonymous.
@@ -61,6 +64,10 @@ export const api = {
   createDataset: (body) => req(`/api/datasets`, json(body)),
   addToDataset: (id, body) => req(`/api/datasets/${id}/add`, json(body)),
   deleteDocument: (id) => req(`/api/documents/${id}`, { method: "DELETE" }),
+  forgetSession: () => req(`/api/session/forget`, { method: "POST" }),
+  brand: () => req(`/api/brand`),
+  datasetDuplicates: (id) => req(`/api/datasets/${id}/duplicates`),
+  dedupeDataset: (id) => req(`/api/datasets/${id}/dedupe`, { method: "POST" }),
   deleteDataset: (id) => req(`/api/datasets/${id}`, { method: "DELETE" }),
   setDatasetVisibility: (id, visibility) =>
     req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },

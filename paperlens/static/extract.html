@@ -8,20 +8,7 @@
   <link rel="stylesheet" href="/static/base.css"/>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><img src="/static/logo.svg" class="brand-logo" alt=""/>Metalens</a>
-    <nav class="nav-shared">
-      <a href="/catalog">Data Catalogue</a>
-      <a href="/observatory">Examples</a>
-    </nav>
-    <span class="spacer"></span>
-    <nav class="nav-personal">
-      <a href="/extract">Process papers</a>
-      <a href="/import">Import</a>
-      <a href="/workspace">Data review</a>
-    </nav>
-    <span id="account" class="account"></span>
-  </header>
+  <header class="topbar" data-chrome></header>
 
   <div class="wrap" style="max-width:1040px">
     <div class="extract-layout">
@@ -243,12 +230,12 @@
               <div id="ownkey-block" class="ml-panel" hidden>
                 <div id="credit-switch" class="credit-switch" hidden>
                   <label class="cs-opt"><input type="radio" name="keymode" value="credits" checked/>
-                    <span>Use my Metalens credits <b id="credit-left"></b> <span class="muted" id="credit-model"></span></span></label>
+                    <span>Use my <span id="credit-label">Metalens credits</span> <b id="credit-left"></b> <span class="muted" id="credit-model"></span></span></label>
                   <label class="cs-opt"><input type="radio" name="keymode" value="own"/>
                     <span>Use my own API key</span></label>
                 </div>
                 <div id="ownkey-fields">
-                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key. Your key is used in your browser and never stored on our servers.</p>
+                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key. Your key is sent to our server only to run this extraction: it is held in memory and in the job queue for at most 30 minutes, then discarded. It is never saved to disk or to your account.</p>
                   <div class="wf-field"><label>Provider</label><div class="select-wrap"><select id="provider"></select></div></div>
                   <div class="wf-field"><label>Model</label><div class="select-wrap"><select id="model"></select></div></div>
                   <div class="wf-field">
@@ -257,7 +244,7 @@
                       <input id="apikey" type="password" placeholder="your API key" autocomplete="off"/>
                       <button class="btn btn-ghost" id="testconn">Test connection</button>
                     </div>
-                    <p class="muted" id="teststatus" style="font-size:12px;margin-top:6px">Your key is sent only to the selected provider and is never stored.</p>
+                    <p class="muted" id="teststatus" style="font-size:12px;margin-top:6px">The test passes your key through our server to the selected provider once and does not keep it.</p>
                   </div>
                 </div>
               </div>
@@ -296,6 +283,6 @@
   </div>
 
   <script type="module" src="/static/extract.js"></script>
-  <script type="module">import { mountAccount } from "/static/auth.js"; mountAccount();</script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
 </body>
 </html>
