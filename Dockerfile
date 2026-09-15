@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 
 # Install dependencies first (cached until pyproject/lock change), then the source.
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY paperlens/ ./paperlens/
 COPY scripts/ ./scripts/
 RUN uv sync --frozen --no-dev

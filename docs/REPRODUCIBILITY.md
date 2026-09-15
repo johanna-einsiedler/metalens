@@ -31,7 +31,7 @@ non-model half of the pipeline is reproducible from the tag alone.
 Cite the software (`CITATION.cff`) with the engine version, and name the preset schema id and
 the model id in the methods section, for example:
 
-> Data were extracted with MASEMiner 0.1.0 (engine commit 0a410b27), preset
+> Data were extracted with MASEMiner 2.0.0 (engine commit 1840ca3b), preset
 > `masem-direct@eb5f0287`, model `gemini-3.5-flash` (resolved `gemini-3.5-flash-001`), and
 > verified by two coders against the source PDFs.
 

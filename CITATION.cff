@@ -5,7 +5,7 @@ title: "Metalens / MASEMiner: AI-assisted data extraction from research papers w
 authors:
   - family-names: Einsiedler
     given-names: Johanna
-version: 0.1.0
+version: 2.0.0
 date-released: 2026-09-15
 license: MIT
 repository-code: "https://github.com/johanna-einsiedler/metalens"

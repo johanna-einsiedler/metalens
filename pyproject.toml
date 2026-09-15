@@ -1,6 +1,6 @@
 [project]
 name = "maseminer"
-version = "0.1.0"
+version = "2.0.0"
 description = "Metalens / MASEMiner — AI-assisted data extraction from research papers with human review; runs hosted or on one machine"
 readme = "README.md"
 license = "MIT"
