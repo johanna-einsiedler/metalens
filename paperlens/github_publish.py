@@ -25,7 +25,7 @@ def token() -> str | None:
 
 
 def repo() -> str:
-    return os.environ.get("PAPERLENS_DATASETS_REPO", "johanna-einsiedler/metalens-datasets")
+    return records.datasets_repo()
 
 
 def _headers() -> dict:

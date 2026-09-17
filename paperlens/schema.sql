@@ -252,6 +252,16 @@ ALTER TABLE dataset ADD COLUMN IF NOT EXISTS readme      text;      -- markdown,
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS keywords    jsonb;     -- ["meta-analysis", …]
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS attribution text;      -- 'named' (default) | 'anonymous'
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS citation    text;      -- a hand-edited citation; null = the suggested one
+-- The datasets repository on GitHub is the source of truth for PUBLISHED datasets:
+--   publish_status  draft | pending (pull request open) | published (merged; listed in the catalogue)
+--   github_source   true for datasets that exist on GitHub only and were imported by the sync (read-only)
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS publish_status     text;
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_at       timestamptz;
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_file_sha text;      -- results.json blob sha on GitHub
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_meta     jsonb;     -- metadata.json as published (badge, preset)
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS github_source      boolean NOT NULL DEFAULT false;
+-- datasets that were public before the GitHub gate existed stay listed
+UPDATE dataset SET publish_status = 'published' WHERE visibility = 'public' AND publish_status IS NULL;
 -- Original upload filename (available at /api/extract as pdf.filename; nicer than title).
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS filename text;
 

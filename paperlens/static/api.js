@@ -80,6 +80,7 @@ export const api = {
     req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
                                  body: JSON.stringify({ title }) }),
   publishDataset: (id) => req(`/api/datasets/${id}/publish`, { method: "POST" }),
+  githubSync: () => req(`/api/github/sync`, { method: "POST" }),
   record: (id) => req(`/api/records/${id}`),
   recordsProvenance: (ids) => req(`/api/records/provenance`, json({ ids })),
   deleteRecord: (id) => req(`/api/records/${id}`, { method: "DELETE" }),

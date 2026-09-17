@@ -86,3 +86,43 @@ def test_owner_name_is_not_exposed_on_an_anonymous_dataset() -> None:
         body = other.get(path, headers={"X-Session-Id": "visitor"}).json()
         assert "owner_citation_name" not in body and body["cite_as"] is None and "Hidden" not in str(body)
     records.delete_dataset(conn, ds["id"]); conn.commit(); conn.close()
+
+
+def test_citation_points_at_the_github_copy_once_published(monkeypatch) -> None:
+    try:
+        conn = records.connect(); records.init_db(conn)
+    except Exception:
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv("PAPERLENS_DATASETS_REPO", "someone/metalens-datasets")
+    c = TestClient(appmod.app)
+    user = auth.create_user(conn, f"gh-{uuid.uuid4().hex[:6]}@example.org", "pw-12345678")
+    auth.update_profile(conn, user["id"], citation_name="Cite, C."); tok = auth.create_session(conn, user["id"]); conn.commit()
+    c.cookies.set("pl_session", tok)
+    ds = c.post("/api/datasets", json={"title": "Cited set", "visibility": "private"}).json()
+    before = c.get(f"/api/datasets/{ds['id']}/overview").json()
+    assert before["published_url"] is None and "/dataset?id=" in before["citation"]
+    # making it public publishes to GitHub when a token is configured (publish itself is mocked)
+    monkeypatch.setattr(github_publish, "token", lambda: "t")
+    def fake_publish(conn_, dataset_id, **kw):
+        github_publish.write_pr_url(conn_, dataset_id, "https://github.com/someone/metalens-datasets/pull/9")
+        return {"pr_url": "https://github.com/someone/metalens-datasets/pull/9", "branch": "x"}
+    monkeypatch.setattr(github_publish, "publish_dataset", fake_publish)
+    r = c.patch(f"/api/datasets/{ds['id']}", json={"visibility": "public"}).json()
+    assert r["github"]["pr_url"].endswith("/pull/9") and r["publish_status"] == "pending"
+    pending = c.get(f"/api/datasets/{ds['id']}/overview").json()
+    assert pending["publish_status"] == "pending" and pending["published_url"] is None   # not merged yet
+    assert ds["id"] not in {d["id"] for d in c.get("/api/datasets/public").json()["datasets"]}
+    records.mark_published(conn, ds["id"], file_sha="r1", meta={})                       # what the sync does after the merge
+    after = c.get(f"/api/datasets/{ds['id']}/overview").json()
+    assert after["published_url"] == f"https://github.com/someone/metalens-datasets/tree/main/datasets/{after['slug']}"
+    assert after["citation"].endswith(after["published_url"]) and after["citation"].startswith("Cite, C. (")
+    pub = next(d for d in c.get("/api/datasets/public").json()["datasets"] if d["id"] == ds["id"])
+    assert pub["published_url"] == after["published_url"]
+    # a GitHub failure never blocks going public
+    ds2 = c.post("/api/datasets", json={"title": "Cited set 2", "visibility": "private"}).json()
+    monkeypatch.setattr(github_publish, "publish_dataset", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = c.patch(f"/api/datasets/{ds2['id']}", json={"visibility": "public"}).json()
+    assert r["visibility"] == "public" and "boom" in r["github_error"]
+    for d in (ds, ds2): records.delete_dataset(conn, d["id"])
+    conn.commit(); conn.close()

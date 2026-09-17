@@ -167,9 +167,27 @@ async def sweep_anonymous_task(ctx: dict) -> dict:
         conn.close()
 
 
+async def github_sync_task(ctx: dict) -> dict:
+    """Hourly: merged pull requests become published datasets; GitHub-only datasets are
+    imported (paperlens/github_sync.py)."""
+    from . import github_sync
+    conn = records.connect()
+    try:
+        out = github_sync.sync(conn)
+        if out.get("published") or out.get("imported") or out.get("reimported"):
+            print(f"[github-sync] {out}", flush=True)
+        return out
+    except Exception as exc:  # noqa: BLE001 - GitHub down is not a worker failure
+        print(f"[github-sync] skipped: {exc}", flush=True)
+        return {"error": str(exc)[:200]}
+    finally:
+        conn.close()
+
+
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
-    cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True)]
+    cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
+                 cron(github_sync_task, minute={17}, run_at_startup=True)]
     redis_settings = redis_settings()
     allow_abort_jobs = True   # let the UI stop an in-progress extraction (Job.abort)
     max_jobs = 10

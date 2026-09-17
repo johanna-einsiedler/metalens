@@ -1211,10 +1211,10 @@ def public_datasets_with_badges(conn: psycopg.Connection,
         SELECT d.id, d.slug, d.title, d.description, d.schema_id,
                coalesce(rec.n_records, 0), coalesce(rec.audited, 0), coalesce(rec.agreed, 0),
                CASE WHEN d.attribution = 'anonymous' THEN NULL ELSE u.citation_name END,
-               d.keywords
+               d.keywords, d.git_pr_url, d.github_source, d.published_meta, d.published_file_sha
         FROM dataset d LEFT JOIN rec ON rec.dataset_id = d.id
                        LEFT JOIN users u ON u.id = d.owner_user_id
-        WHERE d.visibility = 'public'
+        WHERE d.visibility = 'public' AND d.publish_status = 'published'
           AND (%s::text IS NULL OR d.search_tsv @@ websearch_to_tsquery('english', %s))
         ORDER BY
           CASE WHEN %s::text IS NULL THEN 0
@@ -1223,11 +1223,17 @@ def public_datasets_with_badges(conn: psycopg.Connection,
         LIMIT %s OFFSET %s""",
         (q, q, q, q, limit, offset),
     ).fetchall()
-    return [{
-        "id": str(did), "slug": slug, "title": title, "description": desc,
-        "schema_id": schema_id, "cite_as": cite, "keywords": list(kw or []),
-        "credibility": _badge_from_counts(int(n), int(audited), int(agreed)),
-    } for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw) in rows]
+    out = []
+    for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw, pr, ghs, pmeta, fsha) in rows:
+        badge = _badge_from_counts(int(n), int(audited), int(agreed))
+        if ghs and isinstance(pmeta, dict) and isinstance(pmeta.get("credibility"), dict):
+            badge = {**badge, **{k: v for k, v in pmeta["credibility"].items() if k != "dataset_id"}}   # as published
+        out.append({
+            "id": str(did), "slug": slug, "title": title, "description": desc,
+            "schema_id": schema_id, "cite_as": cite, "keywords": list(kw or []),
+            "published_url": dataset_github_url(slug) if (fsha or pr or ghs) else None,   # a GitHub copy exists
+            "github_source": bool(ghs), "credibility": badge})
+    return out
 
 
 def papers_search(conn: psycopg.Connection, *, q: str | None = None, jel: str | None = None,
@@ -1303,19 +1309,22 @@ def _slugify(s: str) -> str:
 def create_dataset(conn: psycopg.Connection, *, title: str, description: str | None = None,
                    schema_id: str | None = None, owner_user_id: str | None = None,
                    session_id: str | None = None, visibility: str = "private",
-                   prompt: str | None = None, model: str | None = None) -> dict:
+                   prompt: str | None = None, model: str | None = None,
+                   slug: str | None = None, github_source: bool = False) -> dict:
     did = _new_id()
-    slug = f"{_slugify(title)}-{did[:8]}"
+    slug = slug or f"{_slugify(title)}-{did[:8]}"
     with conn.transaction():
         if schema_id:
             upsert_schema(conn, schema_id)     # ensure the FK target exists (avoids a 500)
         conn.execute(
             """INSERT INTO dataset
                  (id, slug, schema_id, title, description, owner_user_id, session_id,
-                  visibility, prompt, model, updated_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())""",
+                  visibility, prompt, model, updated_at, github_source,
+                  publish_status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s,
+                       CASE WHEN %s = 'public' THEN 'published' END)""",
             (did, slug, schema_id, title, description, owner_user_id, session_id,
-             visibility, prompt, model),
+             visibility, prompt, model, github_source, visibility),
         )
     return {"id": did, "slug": slug, "title": title, "description": description,
             "schema_id": schema_id, "visibility": visibility,
@@ -1353,7 +1362,8 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
         """SELECT d.id, d.slug, d.title, d.description, d.schema_id, d.visibility,
                   d.owner_user_id, d.session_id, d.created_at, u.citation_name,
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
-                  d.readme, d.keywords, d.attribution, d.citation, d.version, u.email
+                  d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
+                  d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1363,8 +1373,13 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     attribution = r[16] if r[16] in ("named", "anonymous") else "named"
     author = None if attribution == "anonymous" else (r[9] or None)
     year = r[8].year if r[8] else None
+    status = r[20] or "draft"
+    # the GitHub copy is the published location once the pull request is merged (the sync
+    # flips the status); a legacy public dataset with no GitHub copy has no published_url
+    published_url = dataset_github_url(r[1]) if status == "published" and (r[22] or r[13] or r[23]) else None
     suggested = dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=author,
-                                 anonymous=attribution == "anonymous", year=year, version=r[18] or 1)
+                                 anonymous=attribution == "anonymous", year=year, version=r[18] or 1,
+                                 url=published_url)
     return {"id": str(r[0]), "slug": r[1], "title": r[2], "description": r[3],
             "schema_id": r[4], "visibility": r[5],
             "owner_user_id": str(r[6]) if r[6] else None, "session_id": r[7],
@@ -1372,6 +1387,10 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "cite_as": author, "prompt": r[10], "model": r[11],
             "updated_at": r[12].isoformat() if r[12] else None,
             "git_pr_url": r[13],
+            "published_url": published_url,        # the GitHub copy, once merged
+            "publish_status": status, "published_at": r[21].isoformat() if r[21] else None,
+            "published_file_sha": r[22], "github_source": bool(r[23]),
+            "published_badge": ((r[24] or {}).get("credibility") or None) if r[23] else None,
             # publishing details
             "readme": r[14], "keywords": list(r[15] or []), "attribution": attribution,
             "citation": r[17] or suggested, "citation_suggested": suggested,
@@ -1381,16 +1400,63 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "owner_citation_name": r[9]}
 
 
+DATASETS_REPO_DEFAULT = "johanna-einsiedler/metalens-datasets"
+
+
+def datasets_repo() -> str:
+    return os.environ.get("PAPERLENS_DATASETS_REPO", DATASETS_REPO_DEFAULT)
+
+
+def dataset_github_url(slug: str | None) -> str | None:
+    """Where a published dataset lives: its folder in the datasets repository — versioned,
+    forkable, and independent of this server's hostname. That is what a citation points to."""
+    return f"https://github.com/{datasets_repo()}/tree/main/datasets/{slug}" if slug else None
+
+
+def dataset_by_slug(conn: psycopg.Connection, slug: str) -> dict | None:
+    r = conn.execute("SELECT id FROM dataset WHERE slug = %s", (slug,)).fetchone()
+    return get_dataset(conn, str(r[0])) if r else None
+
+
+def mark_published(conn: psycopg.Connection, dataset_id: str, *, file_sha: str | None, meta: dict | None) -> None:
+    """The dataset's folder is on the datasets repo's default branch: it is published."""
+    with conn.transaction():
+        conn.execute(
+            """UPDATE dataset SET publish_status = 'published', visibility = 'public',
+                      published_at = COALESCE(published_at, now()), published_file_sha = %s,
+                      published_meta = %s, updated_at = now()
+               WHERE id = %s::uuid""",
+            (file_sha, Json(meta) if meta is not None else None, dataset_id))
+
+
+def set_publish_status(conn: psycopg.Connection, dataset_id: str, status: str) -> None:
+    with conn.transaction():
+        conn.execute("UPDATE dataset SET publish_status = %s, updated_at = now() WHERE id = %s::uuid",
+                     (status, dataset_id))
+
+
+def clear_dataset_documents(conn: psycopg.Connection, dataset_id: str) -> int:
+    """Drop every document of a dataset (records, evidence, blobs go with them) — used when a
+    GitHub-only dataset is re-imported after its files changed."""
+    docs = [str(r[0]) for r in conn.execute(
+        "SELECT DISTINCT document_id FROM record WHERE dataset_id = %s::uuid AND document_id IS NOT NULL",
+        (dataset_id,)).fetchall()]
+    for d in docs:
+        delete_document(conn, d)
+    return len(docs)
+
+
 def dataset_citation(*, title: str | None, slug: str | None, dataset_id: str, author: str | None,
-                     anonymous: bool, year: int | None, version: int = 1) -> str:
+                     anonymous: bool, year: int | None, version: int = 1, url: str | None = None) -> str:
     """The suggested way to cite a dataset: author (or Anonymous), year, title, version, the
-    platform, and a stable URL. Editable by the owner; regenerated when nothing custom is set."""
+    platform, and the published location — the GitHub copy once it exists, else this
+    server's page. Editable by the owner; regenerated when nothing custom is set."""
     import datetime as _dt
-    import os as _os
     who = "Anonymous" if anonymous else (author or "[author]")
-    base = _os.environ.get("PAPERLENS_PUBLIC_URL", "https://beta.metalens.tech").rstrip("/")
+    base = os.environ.get("PAPERLENS_PUBLIC_URL", "https://beta.metalens.tech").rstrip("/")
+    where = url or f"{base}/dataset?id={dataset_id}"
     return (f"{who} ({year or _dt.date.today().year}). {title or slug or 'Untitled dataset'} "
-            f"(version {version}) [Data set]. Metalens. {base}/dataset?id={dataset_id}")
+            f"(version {version}) [Data set]. Metalens. {where}")
 
 
 def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> dict:
@@ -2118,10 +2184,15 @@ def rename_dataset(conn: psycopg.Connection, dataset_id: str, title: str) -> dic
 
 
 def set_dataset_visibility(conn: psycopg.Connection, dataset_id: str, visibility: str) -> dict:
+    """Public without a GitHub copy is the legacy 'published' (listed, no link); the app's
+    publish flow overrides the status to 'pending' when it opens a pull request."""
     with conn.transaction():
         cur = conn.execute(
-            "UPDATE dataset SET visibility = %s, updated_at = now() WHERE id = %s::uuid",
-            (visibility, dataset_id))
+            """UPDATE dataset SET visibility = %s, updated_at = now(),
+                      publish_status = CASE WHEN %s = 'public' THEN COALESCE(publish_status, 'published')
+                                            ELSE 'draft' END
+               WHERE id = %s::uuid""",
+            (visibility, visibility, dataset_id))
     return {"updated": cur.rowcount, "visibility": visibility}
 
 

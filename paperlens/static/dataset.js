@@ -39,6 +39,7 @@ function render() {
           <span class="pt-vis ${esc(vis)}">${esc(vis)}</span>
           · ${s.n_papers} paper${s.n_papers === 1 ? "" : "s"} · ${s.n_records} record${s.n_records === 1 ? "" : "s"}
           ${OV.cite_as ? ` · by ${esc(OV.cite_as)}` : (OV.attribution === "anonymous" ? " · published anonymously" : "")}
+          ${publishState()}
         </div>
       </div>
       <span class="badge tier-${esc(cred.tier)}" title="Computed from human verification">${esc(cred.label)}</span>
@@ -48,10 +49,12 @@ function render() {
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true" title="Coming soon">📊 Build dashboard (soon)</span>
-      <button class="btn btn-ghost btn-sm" id="ds-vis">${vis === "public" ? "Make private" : "Publish"}</button>
+      <button class="btn btn-ghost btn-sm" id="ds-vis" title="${vis === "public" ? "unlist the dataset" : "opens a pull request in the datasets repository; listed once merged"}">${vis === "public" ? "Make private" : "Publish"}</button>
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
-      ${OV.git_pr_url
-        ? `<a class="btn btn-ghost btn-sm" href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">🔗 View PR</a>`
+      ${OV.publish_status === "pending" && OV.git_pr_url
+        ? `<a class="btn btn-ghost btn-sm" href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">🔗 Review the pull request</a>
+           <button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>`
+        : OV.publish_status === "published" && OV.published_url ? ""
         : `<button class="btn btn-ghost btn-sm" id="ds-github">⬆ Publish to GitHub</button>`}
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
@@ -157,6 +160,15 @@ async function toggleActivity(btn) {
 function stat(num, label, small) {
   return `<div class="stat"><div class="stat-num${small ? " small" : ""}">${esc(String(num))}</div>`
     + `<div class="stat-lbl">${esc(label)}</div></div>`;
+}
+
+// where the dataset stands on its way to the datasets repository (the source of truth)
+function publishState() {
+  if (OV.github_source) return ` · <a href="${esc(OV.published_url)}" target="_blank" rel="noopener">imported from GitHub ↗</a> (read-only)`;
+  if (OV.publish_status === "published" && OV.published_url) return ` · <a href="${esc(OV.published_url)}" target="_blank" rel="noopener">published on GitHub ↗</a>`;
+  if (OV.publish_status === "pending") return ` · <span title="listed in the catalogue once the pull request is merged">pending review on GitHub</span>`;
+  if (OV.visibility === "public") return " · public here only (not on GitHub yet)";
+  return "";
 }
 
 // ── publishing details: description, README, keywords, attribution, citation ─────────
@@ -276,12 +288,21 @@ function wireActions() {
   $("#ds-vis").onclick = async (e) => {
     const next = OV.visibility === "public" ? "private" : "public";
     e.target.disabled = true;
-    try { await api.setDatasetVisibility(id, next); OV.visibility = next; render(); }
+    try {
+      const r = await api.setDatasetVisibility(id, next);
+      if (r && r.github_error) alert("The dataset is public here, but publishing to GitHub failed: " + r.github_error);
+      OV = await api.datasetOverview(id); render();
+    }
     catch (ex) { alert("update failed: " + ex.message); e.target.disabled = false; }
   };
   const rn = $("#ds-rename"); if (rn) rn.onclick = doRename;
   $("#ds-export").onclick = doExport;
   const gh = $("#ds-github"); if (gh) gh.onclick = () => publishToGithub(gh);
+  const sy = $("#ds-sync"); if (sy) sy.onclick = async () => {
+    sy.disabled = true;
+    try { const r = await api.githubSync(); OV = await api.datasetOverview(id); render(); if (OV.publish_status !== "published") alert(`Not merged yet (repository checked: ${r.seen} dataset${r.seen === 1 ? "" : "s"} on the main branch).`); }
+    catch (ex) { alert(ex.message); sy.disabled = false; }
+  };
   $("#ds-del").onclick = async () => {
     if (!confirm("Delete this dataset? Its records become private again (the underlying documents are kept).")) return;
     try { await api.deleteDataset(id); location.href = "/projects"; }

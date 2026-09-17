@@ -80,7 +80,7 @@ function renderMain(res, pub, f) {
     ${(pub.datasets || []).map((d) => `
       <div class="dataset-card" data-ds="${d.id}">
         <div><div class="ptitle">${esc(d.title || d.slug)}</div>
-          <div class="muted" style="font-size:12px">${d.credibility.n_records} records · ${esc(d.schema_id || "")}${d.cite_as ? ` · by ${esc(d.cite_as)}` : ""}</div>
+          <div class="muted" style="font-size:12px">${d.credibility.n_records} records · ${esc(d.schema_id || "")}${d.cite_as ? ` · by ${esc(d.cite_as)}` : ""}${d.published_url ? ` · <a href="${esc(d.published_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">GitHub ↗</a>` : ""}</div>
           ${(d.keywords || []).length ? `<div class="ds-kws">${(d.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join(" ")}</div>` : ""}</div>
         <span class="badge tier-${d.credibility.tier}">${esc(d.credibility.label)}</span>
       </div>`).join("") || '<p class="muted">No public datasets yet.</p>'}` : "";

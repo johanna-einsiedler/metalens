@@ -848,6 +848,7 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
         raise HTTPException(status_code=422, detail="visibility must be public|private")
     if body.visibility == "public" and not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You can only publish records you own.")
+    before = records.get_dataset(db, dataset_id) or {}          # status BEFORE the visibility flip
     res = {**res, **records.set_dataset_visibility(db, dataset_id, body.visibility)}
     if body.visibility == "public":
         # publishing a dataset also publishes the personal preset it was built with,
@@ -855,7 +856,34 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
         promoted = records.promote_dataset_preset(db, dataset_id, who)
         if promoted:
             res["promoted_preset"] = promoted
+        # …and creates the canonical copy in the datasets repository, which is what the
+        # citation and the catalogue link to. Not having a token, or GitHub failing, must not
+        # stop the dataset from going public here.
+        # The datasets repository is the source of truth: publishing opens a pull request
+        # there and the dataset is 'pending' until it is merged (the sync flips it to
+        # 'published'). Without a token (local mode, a dev checkout) it is listed here only.
+        from . import github_publish
+        if github_publish.token() and before.get("publish_status") != "published":
+            try:
+                res["github"] = github_publish.publish_dataset(db, dataset_id)
+                records.set_publish_status(db, dataset_id, "pending")
+                res["publish_status"] = "pending"
+            except Exception as exc:  # noqa: BLE001 - reported, not fatal
+                res["github_error"] = str(exc)[:300]
     return res
+
+
+@app.post("/api/github/sync")
+def github_sync_now(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Reconcile the catalogue with the datasets repository now (merged pull requests become
+    published; GitHub-only datasets are imported). Runs hourly on the worker as well."""
+    if not who.user_id:
+        raise HTTPException(status_code=401, detail="Sign in to sync.")
+    from . import github_sync
+    try:
+        return github_sync.sync(db)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Sync failed: {exc}")
 
 
 @app.post("/api/datasets/{dataset_id}/publish")
@@ -875,9 +903,12 @@ def publish_dataset(dataset_id: str, db=Depends(get_db),
     records.promote_dataset_preset(db, dataset_id, who)   # share the preset alongside the data
     job_id = worker.enqueue("publish_dataset_task", dataset_id)
     if job_id:
+        records.set_publish_status(db, dataset_id, "pending")
         return {"queued": True, "job_id": job_id}
     try:
-        return {"queued": False, **github_publish.publish_dataset(db, dataset_id)}
+        out = github_publish.publish_dataset(db, dataset_id)
+        records.set_publish_status(db, dataset_id, "pending")
+        return {"queued": False, **out}
     except Exception as exc:                    # network / GitHub API / auth errors
         raise HTTPException(status_code=502, detail=f"Publish failed: {exc}")
 
