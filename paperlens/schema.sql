@@ -247,6 +247,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS citation_name text;
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS prompt     text;
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS model      text;
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+-- Publishing details (dataset page → catalogue, exports, the GitHub README):
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS readme      text;      -- markdown, the long description
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS keywords    jsonb;     -- ["meta-analysis", …]
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS attribution text;      -- 'named' (default) | 'anonymous'
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS citation    text;      -- a hand-edited citation; null = the suggested one
 -- Original upload filename (available at /api/extract as pdf.filename; nicer than title).
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS filename text;
 

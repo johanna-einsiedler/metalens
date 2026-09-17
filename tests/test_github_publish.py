@@ -99,7 +99,7 @@ def test_publish_flow() -> None:
     assert any(c.endswith("/metalens-datasets") and c.startswith("GET") for c in calls)
     assert any("/git/ref/heads/main" in c for c in calls)
     assert any(c.startswith("POST") and c.endswith("/git/refs") for c in calls)
-    assert sum(1 for c in calls if c.startswith("PUT") and "/contents/" in c) == 2   # metadata + results
+    assert sum(1 for c in calls if c.startswith("PUT") and "/contents/" in c) == 3   # metadata + results + README
     assert any(c.startswith("POST") and c.endswith("/pulls") for c in calls)
     # PR url written back onto the dataset
     got = records.get_dataset(conn, ds_id)

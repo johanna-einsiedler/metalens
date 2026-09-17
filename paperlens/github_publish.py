@@ -46,13 +46,39 @@ def write_pr_url(conn, dataset_id: str, url: str) -> None:
         conn.execute("UPDATE dataset SET git_pr_url = %s WHERE id = %s::uuid", (url, dataset_id))
 
 
-def _put_file(client, gh_repo, path, obj, branch, message):
-    """Create-or-update one file on ``branch`` (needs the existing blob sha to update)."""
+def readme_markdown(material: dict) -> str:
+    """The dataset's README for the datasets repo: what it is, how to cite it, keywords,
+    the owner's own text, and what produced it."""
+    md = material["metadata"]; cred = md.get("credibility") or {}; stats = md.get("stats") or {}
+    eng = md.get("engine") or {}; preset = md.get("preset") or {}
+    lines = [f"# {md.get('title') or md.get('slug') or 'Dataset'}", ""]
+    if md.get("description"):
+        lines += [md["description"], ""]
+    lines += [f"**{cred.get('label', '')}** · {stats.get('n_papers', 0)} papers · {stats.get('n_records', 0)} records"
+              + (f" · by {md['cite_as']}" if md.get("cite_as") else " · published anonymously"), ""]
+    if md.get("keywords"):
+        lines += ["Keywords: " + ", ".join(md["keywords"]), ""]
+    if md.get("citation"):
+        lines += ["## How to cite", "", "> " + md["citation"], ""]
+    if md.get("readme"):
+        lines += ["## About this dataset", "", md["readme"].strip(), ""]
+    lines += ["## Provenance", "",
+              f"- Preset / schema: `{md.get('schema_id') or preset.get('schema_id') or '—'}`",
+              f"- Engine: Metalens {eng.get('version') or '—'}" + (f" (commit {eng['git_sha']})" if eng.get("git_sha") else ""),
+              "- Files: `metadata.json` (recipe, preset spec, stats, credibility), `results.json` (one entry per paper with its records, evidence quotes and per-paper provenance)",
+              "- Every value was extracted from the source PDF with a verbatim evidence quote and page; the credibility badge is computed from human verification events.", ""]
+    return "\n".join(lines)
+
+
+def _put_file(client, gh_repo, path, obj, branch, message, *, raw: str | None = None):
+    """Create-or-update one file on ``branch`` (needs the existing blob sha to update).
+    ``obj`` is written as JSON; ``raw`` writes the text as is (README.md)."""
     url = f"{_API}/repos/{gh_repo}/contents/{path}"
     existing = client.get(url, params={"ref": branch}, headers=_headers(), timeout=30.0)
     sha = existing.json().get("sha") if existing.status_code == 200 else None
+    content = raw.encode("utf-8") if raw is not None else json.dumps(obj, indent=2, default=str).encode()
     body = {"message": message, "branch": branch,
-            "content": base64.b64encode(json.dumps(obj, indent=2, default=str).encode()).decode()}
+            "content": base64.b64encode(content).decode()}
     if sha:
         body["sha"] = sha
     _ok(client.put(url, json=body, headers=_headers(), timeout=30.0), f"put {path}")
@@ -92,12 +118,14 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
                   f"metalens: {slug} metadata")
         _put_file(client, gh_repo, f"{d}/results.json", material["results"], branch,
                   f"metalens: {slug} results")
+        _put_file(client, gh_repo, f"{d}/README.md", None, branch,
+                  f"Add dataset {slug}: README", raw=readme_markdown(material))
 
         # 4) open the PR
         pr = _ok(client.post(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,
                              json={"title": f"Add dataset: {material['metadata'].get('title') or slug}",
                                    "head": branch, "base": base,
-                                   "body": "Published from Metalens.\n\n🤖 Generated with Metalens"}),
+                                   "body": ("Published from Metalens.\n\n" + (f"How to cite:\n\n> {material['metadata'].get('citation')}\n\n" if material["metadata"].get("citation") else "") + "🤖 Generated with Metalens")}),
                  "open PR").json()
         pr_url = pr.get("html_url")
     finally:

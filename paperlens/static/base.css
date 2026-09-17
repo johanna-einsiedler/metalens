@@ -679,3 +679,18 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 
 /* brand surfaces: MASEMiner's extract page is one workflow — the other task cards stay out of sight */
 .brand-maseminer .task-card[data-task]:not([data-task="workflow"]) { display: none; }
+
+/* dataset publishing details */
+.kw { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--accent-wash); color: var(--accent);
+  font-size: 12px; margin: 2px 2px 0 0; }
+.ds-kws { margin: 4px 0 8px; }
+.ds-desc { margin: 0 0 8px; }
+.ds-readme { font-size: 13.5px; line-height: 1.5; }
+.ds-readme h3, .ds-readme h4, .ds-readme h5, .ds-readme h6 { font-size: 15px; margin: 12px 0 4px; }   /* renderMarkdown maps # → h3, ## → h4 … */
+.ds-cite blockquote { margin: 4px 0 8px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--bg); font-size: 13px; }
+.ds-form { display: flex; flex-direction: column; gap: 10px; }
+.ds-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.ds-form label.radio { flex-direction: row; align-items: center; gap: 6px; }
+.ds-form input[type="text"], .ds-form textarea { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text); width: 100%; box-sizing: border-box; }
+.ds-form .pd-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

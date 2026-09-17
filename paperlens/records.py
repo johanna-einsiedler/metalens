@@ -1210,7 +1210,8 @@ def public_datasets_with_badges(conn: psycopg.Connection,
         )
         SELECT d.id, d.slug, d.title, d.description, d.schema_id,
                coalesce(rec.n_records, 0), coalesce(rec.audited, 0), coalesce(rec.agreed, 0),
-               u.citation_name
+               CASE WHEN d.attribution = 'anonymous' THEN NULL ELSE u.citation_name END,
+               d.keywords
         FROM dataset d LEFT JOIN rec ON rec.dataset_id = d.id
                        LEFT JOIN users u ON u.id = d.owner_user_id
         WHERE d.visibility = 'public'
@@ -1224,9 +1225,9 @@ def public_datasets_with_badges(conn: psycopg.Connection,
     ).fetchall()
     return [{
         "id": str(did), "slug": slug, "title": title, "description": desc,
-        "schema_id": schema_id, "cite_as": cite,
+        "schema_id": schema_id, "cite_as": cite, "keywords": list(kw or []),
         "credibility": _badge_from_counts(int(n), int(audited), int(agreed)),
-    } for (did, slug, title, desc, schema_id, n, audited, agreed, cite) in rows]
+    } for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw) in rows]
 
 
 def papers_search(conn: psycopg.Connection, *, q: str | None = None, jel: str | None = None,
@@ -1351,20 +1352,67 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     r = conn.execute(
         """SELECT d.id, d.slug, d.title, d.description, d.schema_id, d.visibility,
                   d.owner_user_id, d.session_id, d.created_at, u.citation_name,
-                  d.prompt, d.model, d.updated_at, d.git_pr_url
+                  d.prompt, d.model, d.updated_at, d.git_pr_url,
+                  d.readme, d.keywords, d.attribution, d.citation, d.version, u.email
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
     ).fetchone()
     if r is None:
         return None
+    attribution = r[16] if r[16] in ("named", "anonymous") else "named"
+    author = None if attribution == "anonymous" else (r[9] or None)
+    year = r[8].year if r[8] else None
+    suggested = dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=author,
+                                 anonymous=attribution == "anonymous", year=year, version=r[18] or 1)
     return {"id": str(r[0]), "slug": r[1], "title": r[2], "description": r[3],
             "schema_id": r[4], "visibility": r[5],
             "owner_user_id": str(r[6]) if r[6] else None, "session_id": r[7],
             "created_at": r[8].isoformat() if r[8] else None,
-            "cite_as": r[9], "prompt": r[10], "model": r[11],
+            "cite_as": author, "prompt": r[10], "model": r[11],
             "updated_at": r[12].isoformat() if r[12] else None,
-            "git_pr_url": r[13]}
+            "git_pr_url": r[13],
+            # publishing details
+            "readme": r[14], "keywords": list(r[15] or []), "attribution": attribution,
+            "citation": r[17] or suggested, "citation_suggested": suggested,
+            "citation_custom": bool(r[17]), "version": r[18] or 1,
+            # the owner's own citation name, for the owner's form only — the API strips it for
+            # everyone else so an anonymous dataset stays anonymous
+            "owner_citation_name": r[9]}
+
+
+def dataset_citation(*, title: str | None, slug: str | None, dataset_id: str, author: str | None,
+                     anonymous: bool, year: int | None, version: int = 1) -> str:
+    """The suggested way to cite a dataset: author (or Anonymous), year, title, version, the
+    platform, and a stable URL. Editable by the owner; regenerated when nothing custom is set."""
+    import datetime as _dt
+    import os as _os
+    who = "Anonymous" if anonymous else (author or "[author]")
+    base = _os.environ.get("PAPERLENS_PUBLIC_URL", "https://beta.metalens.tech").rstrip("/")
+    return (f"{who} ({year or _dt.date.today().year}). {title or slug or 'Untitled dataset'} "
+            f"(version {version}) [Data set]. Metalens. {base}/dataset?id={dataset_id}")
+
+
+def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> dict:
+    """Publishing details: description, readme, keywords, attribution, citation (a custom
+    text, or "" / None to fall back to the suggested one)."""
+    allowed = {"description", "readme", "keywords", "attribution", "citation"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k not in allowed or k not in fields:
+            continue
+        if k == "keywords":
+            v = Json([str(x).strip() for x in (v or []) if str(x).strip()])
+        elif k == "citation" and not (v or "").strip():
+            v = None
+        elif isinstance(v, str):
+            v = v.strip() or None
+        sets.append(f"{k} = %s"); vals.append(v)
+    if sets:
+        sets.append("updated_at = now()")
+        with conn.transaction():
+            conn.execute(f"UPDATE dataset SET {', '.join(sets)} WHERE id = %s::uuid", (*vals, dataset_id))
+    return get_dataset(conn, dataset_id) or {}
 
 
 def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
@@ -1593,6 +1641,26 @@ def dataset_activity(conn: psycopg.Connection, dataset_id: str, *, limit: int = 
 
     out.sort(key=lambda e: e["at"] or "", reverse=True)
     return out[:limit]
+
+
+def verify_all_records(conn: psycopg.Connection, dataset_id: str, *, verifier_user_id: str | None,
+                       notes: str | None = None) -> dict:
+    """Mark every not-yet-verified record of a dataset verified, one verification event
+    each (attributed to the caller), so the dataset's credibility badge is earned the same
+    way as by clicking through — flagged and already-verified records are left alone."""
+    rows = conn.execute(
+        """SELECT id::text, verification_status FROM record
+           WHERE dataset_id = %s::uuid AND NOT COALESCE(screened_empty, false)""",
+        (dataset_id,)).fetchall()
+    done = 0
+    for rid, status in rows:
+        if status in ("verified", "flagged"):
+            continue
+        verify_record(conn, rid, status="verified", notes=notes or "Marked verified for the whole dataset",
+                      verifier_user_id=verifier_user_id, verifier_kind="maintainer")
+        done += 1
+    return {"verified": done, "total": len(rows),
+            "flagged": sum(1 for _, s in rows if s == "flagged")}
 
 
 def dataset_records(conn: psycopg.Connection, dataset_id: str) -> list[dict]:

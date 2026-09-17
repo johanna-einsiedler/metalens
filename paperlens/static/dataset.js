@@ -1,7 +1,7 @@
 // Dataset overview (?id=…) — recipe + computed stats + papers. Owner actions:
 // add papers (reusing the recipe), review, publish/unpublish, export, delete.
 import { api } from "/static/api.js";
-import { esc } from "/static/grammar.js";
+import { esc, renderMarkdown } from "/static/grammar.js";
 import { renderGrid } from "/static/gridview.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -38,7 +38,7 @@ function render() {
         <div class="muted ds-sub">
           <span class="pt-vis ${esc(vis)}">${esc(vis)}</span>
           · ${s.n_papers} paper${s.n_papers === 1 ? "" : "s"} · ${s.n_records} record${s.n_records === 1 ? "" : "s"}
-          ${OV.cite_as ? ` · by ${esc(OV.cite_as)}` : ""}
+          ${OV.cite_as ? ` · by ${esc(OV.cite_as)}` : (OV.attribution === "anonymous" ? " · published anonymously" : "")}
         </div>
       </div>
       <span class="badge tier-${esc(cred.tier)}" title="Computed from human verification">${esc(cred.label)}</span>
@@ -53,9 +53,12 @@ function render() {
       ${OV.git_pr_url
         ? `<a class="btn btn-ghost btn-sm" href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">🔗 View PR</a>`
         : `<button class="btn btn-ghost btn-sm" id="ds-github">⬆ Publish to GitHub</button>`}
+      ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
     </div>` : ""}
+
+    ${publishingCard()}
 
     <div class="ds-card">
       <div class="ds-card-h">Extraction recipe</div>
@@ -93,6 +96,7 @@ function render() {
       <div class="ds-papers">${OV.documents.map(paperRow).join("") || '<p class="muted">No papers.</p>'}</div>
     </div>`;
 
+  wirePublishing();
   const gridBtn = $("#ds-grid"); if (gridBtn) gridBtn.onclick = showSpreadsheet;
   const actBtn = $("#ds-act"); if (actBtn) actBtn.onclick = () => toggleActivity(actBtn);
   if (OWNER) wireActions();
@@ -155,6 +159,70 @@ function stat(num, label, small) {
     + `<div class="stat-lbl">${esc(label)}</div></div>`;
 }
 
+// ── publishing details: description, README, keywords, attribution, citation ─────────
+// Owners edit them here; everyone else sees them rendered. They travel into the catalogue
+// card, the JSON export (metadata) and the README of the GitHub publication.
+const chips = (kws) => (kws || []).map((k) => `<span class="kw">${esc(k)}</span>`).join(" ");
+
+function publishingCard() {
+  const kws = OV.keywords || [];
+  if (!OWNER) {
+    if (!OV.description && !OV.readme && !kws.length && !OV.citation) return "";
+    return `<div class="ds-card">
+      <div class="ds-card-h">About this dataset</div>
+      ${OV.description ? `<p class="ds-desc">${esc(OV.description)}</p>` : ""}
+      ${kws.length ? `<div class="ds-kws">${chips(kws)}</div>` : ""}
+      ${OV.readme ? `<div class="ds-readme md">${renderMarkdown(OV.readme)}</div>` : ""}
+      ${OV.citation ? `<div class="ds-cite"><span class="rk">How to cite</span><blockquote id="ds-cite-text">${esc(OV.citation)}</blockquote>
+        <button class="btn btn-ghost btn-sm" id="ds-cite-copy">Copy</button></div>` : ""}
+    </div>`;
+  }
+  const named = OV.attribution !== "anonymous";
+  return `<div class="ds-card" id="ds-pub">
+    <div class="ds-card-h">Publishing details <span class="muted" style="font-weight:400">— shown in the catalogue, the export and the GitHub README</span></div>
+    <div class="ds-form">
+      <label>One-line description<input id="pd-desc" type="text" maxlength="300" value="${esc(OV.description || "")}" placeholder="What the dataset contains, in one sentence"/></label>
+      <label>Keywords <span class="muted">(comma-separated)</span><input id="pd-kw" type="text" value="${esc(kws.join(", "))}" placeholder="meta-analysis, human–AI collaboration, decision tasks"/></label>
+      <div class="pd-row"><span class="rk">Published as</span>
+        <label class="radio"><input type="radio" name="pd-attr" value="named" ${named ? "checked" : ""}/> ${OV.owner_citation_name ? esc(OV.owner_citation_name) : 'your name <span class="muted">(set a citation name under <a href="/account">Account</a>)</span>'}</label>
+        <label class="radio"><input type="radio" name="pd-attr" value="anonymous" ${named ? "" : "checked"}/> Anonymous</label>
+      </div>
+      <label>Suggested citation <span class="muted">(edit freely; <a href="#" id="pd-cite-reset">reset to the suggested one</a>)</span>
+        <textarea id="pd-cite" rows="2">${esc(OV.citation || "")}</textarea></label>
+      <label>README <span class="muted">(Markdown: what was extracted, how, caveats, how to use it)</span>
+        <textarea id="pd-readme" rows="8" placeholder="## What is in here&#10;…">${esc(OV.readme || "")}</textarea></label>
+      <div class="pd-row"><button class="btn btn-primary btn-sm" id="pd-save">Save details</button>
+        <button class="btn btn-ghost btn-sm" id="pd-preview">Preview README</button><span class="muted" id="pd-status"></span></div>
+      <div class="ds-readme md" id="pd-previewbox" hidden></div>
+    </div>
+  </div>`;
+}
+
+function wirePublishing() {
+  const copy = $("#ds-cite-copy");
+  if (copy) copy.onclick = async () => { try { await navigator.clipboard.writeText($("#ds-cite-text").textContent); copy.textContent = "Copied"; } catch { /* clipboard blocked */ } };
+  const save = $("#pd-save"); if (!save) return;
+  $("#pd-cite-reset").onclick = (e) => { e.preventDefault(); $("#pd-cite").value = OV.citation_suggested || ""; };
+  $("#pd-preview").onclick = () => { const b = $("#pd-previewbox"); b.hidden = !b.hidden; if (!b.hidden) b.innerHTML = renderMarkdown($("#pd-readme").value || "*nothing yet*"); };
+  document.querySelectorAll('input[name="pd-attr"]').forEach((r) => (r.onchange = () => {
+    // the suggested citation depends on the attribution: refresh it unless hand-edited
+    if (!OV.citation_custom) $("#pd-cite").value = (OV.citation_suggested || "").replace(/^(Anonymous|[^(]+)\s\(/, (r.value === "anonymous" ? "Anonymous" : (OV.owner_citation_name || "[author]")) + " (");
+  }));
+  save.onclick = async () => {
+    save.disabled = true; $("#pd-status").textContent = "saving…";
+    const cite = $("#pd-cite").value.trim();
+    const body = {
+      description: $("#pd-desc").value.trim(),
+      keywords: $("#pd-kw").value.split(",").map((k) => k.trim()).filter(Boolean),
+      attribution: document.querySelector('input[name="pd-attr"]:checked').value,
+      readme: $("#pd-readme").value,
+      citation: cite === (OV.citation_suggested || "") ? "" : cite,   // "" = keep the suggested one
+    };
+    try { await api.updateDatasetMeta(id, body); OV = await api.datasetOverview(id); render(); }
+    catch (ex) { $("#pd-status").textContent = "save failed: " + ex.message; save.disabled = false; }
+  };
+}
+
 function paperRow(d) {
   const name = d.filename || d.title || "(untitled)";
   const meta = d.screened
@@ -189,6 +257,14 @@ function dupGroups() {
 }
 
 function wireActions() {
+  const va = $("#ds-verify-all");
+  if (va) va.onclick = async () => {
+    const left = (OV.stats.n_records || 0) - (OV.stats.n_verified || 0);
+    if (!confirm(`Mark ${left} record${left === 1 ? "" : "s"} as verified in your name? Flagged records stay flagged.`)) return;
+    va.disabled = true;
+    try { const r = await api.verifyAllDataset(id); OV = await api.datasetOverview(id); render(); alert(`${r.verified} record${r.verified === 1 ? "" : "s"} marked verified · ${r.credibility.label}`); }
+    catch (ex) { alert("failed: " + ex.message); va.disabled = false; }
+  };
   const dd = $("#ds-dedupe");
   if (dd) dd.onclick = async () => {
     const n = dupGroups().reduce((k, g) => k + g.length - 1, 0);

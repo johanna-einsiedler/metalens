@@ -250,6 +250,7 @@ function renderPairs() {
     const dup = r.json && !r.json.error ? existingFor(r.key) : [];
     if (dup.length) {
       const act = ACTION[r.key] || "replace";
+      if (!r.pdf) state = state.replace("no PDF — imports without page images", "no PDF dropped — the old copy's PDF is kept");
       state += ` · <span class="ir-dup">already in this dataset (${dup.length})</span> <select class="dup-action" data-k="${esc(r.key)}">`
         + `<option value="replace"${act === "replace" ? " selected" : ""}>replace the old copy</option>`
         + `<option value="skip"${act === "skip" ? " selected" : ""}>skip this paper</option></select>`;
@@ -314,7 +315,10 @@ async function run() {
         if (target) fd.append("dataset_id", target);
         res = await api.ingestPdf(fd);
       } else {
-        res = await api.ingest({ result: r.json.canonical, schema_id: schemaId || null, dataset_id: target || null });
+        // no PDF dropped: a replaced copy that HAS one lends it, so page images and
+        // highlights survive the re-import instead of being deleted with the old copy
+        res = await api.ingest({ result: r.json.canonical, schema_id: schemaId || null, dataset_id: target || null,
+                                 pdf_from_document_id: dup.length ? dup[0].document_id : null });
       }
       done++;
       let gone = 0;
@@ -326,7 +330,8 @@ async function run() {
         if (datasetId) await api.addToDataset(datasetId, { document_id: res.document_id });
       }
       if (gone) replaced++;
-      setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${r.pdf ? "" : " · no page images"}${gone ? ` · replaced ${gone} old cop${gone === 1 ? "y" : "ies"}` : ""}`, "ok");
+      const pages = r.pdf || (res.n_pages > 0);
+      setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${pages ? (r.pdf ? "" : " · PDF kept from the old copy") : " · no page images"}${gone ? ` · replaced ${gone} old cop${gone === 1 ? "y" : "ies"}` : ""}`, "ok");
     } catch (e) { setStat(r.key, `✗ ${esc(e.message)}`, "warn"); }
   }
   RUNNING = false; $("#run").disabled = false;

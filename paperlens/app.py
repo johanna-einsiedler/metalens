@@ -343,6 +343,10 @@ class IngestBody(BaseModel):
     schema_id: str | None = None
     source_job_id: str | None = None
     dataset_id: str | None = None     # add the document to this (owned) dataset
+    # Re-importing a corrected JSON for a paper already uploaded: take the PDF from that
+    # (owned) document so page images and highlights carry over — a replace must never
+    # lose the PDF just because the JSON came alone.
+    pdf_from_document_id: str | None = None
 
 
 @app.post("/api/ingest")
@@ -350,6 +354,17 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
     if body.dataset_id and not records.is_dataset_owner(db, body.dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
+    if body.pdf_from_document_id:
+        if not records.is_document_owner(db, body.pdf_from_document_id, who):
+            raise HTTPException(status_code=403, detail="Not your document.")
+        key = storage.pdf_key(body.pdf_from_document_id)
+        store = storage.get_store()
+        if store.exists(key):
+            fn = db.execute("SELECT filename FROM extraction_document WHERE id = %s::uuid",
+                            (body.pdf_from_document_id,)).fetchone()
+            return _ingest_with_pdf(db, who, store.get(key), body.result, body.schema_id,
+                                    body.dataset_id, filename=fn[0] if fn else None)
+        # no stored PDF on the old copy either → plain JSON import below
     run = presets.resolve_run(db, schema_id=body.schema_id)
     try:
         res = ingest(body.result, entries_key=run.entries_key)
@@ -585,6 +600,8 @@ def get_dataset(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     d["records"] = records.dataset_records(db, dataset_id)
     d["credibility"] = records.dataset_credibility(db, dataset_id)  # computed badge
+    if not records.is_dataset_owner(db, dataset_id, who):
+        d.pop("owner_citation_name", None)
     return d
 
 
@@ -601,6 +618,7 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     ov = records.dataset_overview(db, dataset_id)
     if not owner:                        # don't leak the uploader's local filenames publicly
+        ov.pop("owner_citation_name", None)   # …nor the name behind an anonymous dataset
         for doc in ov.get("documents", []):
             doc["filename"] = None
     return ov
@@ -742,6 +760,19 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
     return out
 
 
+@app.post("/api/datasets/{dataset_id}/verify-all")
+def dataset_verify_all(dataset_id: str, db=Depends(get_db),
+                       who: Principal = Depends(principal)) -> dict:
+    """Owner-only: mark every unverified record of the dataset verified (one event per
+    record, attributed to the caller). Flagged records stay flagged."""
+    if not records.is_dataset_owner(db, dataset_id, who):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    if not records.dataset_records_all_owned(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="You can only verify records you own.")
+    out = records.verify_all_records(db, dataset_id, verifier_user_id=who.user_id)
+    return {**out, "credibility": records.dataset_credibility(db, dataset_id)}
+
+
 @app.get("/api/datasets/{dataset_id}/duplicates")
 def dataset_duplicates_endpoint(dataset_id: str, db=Depends(get_db),
                                 who: Principal = Depends(principal)) -> dict:
@@ -774,6 +805,12 @@ def delete_dataset(dataset_id: str, db=Depends(get_db),
 class DatasetPatch(BaseModel):
     visibility: str | None = None          # public | private
     title: str | None = None               # rename; the slug deliberately stays put
+    # publishing details (all optional; only the keys sent are changed)
+    description: str | None = None
+    readme: str | None = None
+    keywords: list[str] | None = None
+    attribution: str | None = None         # named | anonymous
+    citation: str | None = None            # custom citation text; "" resets to the suggested one
 
 
 @app.patch("/api/datasets/{dataset_id}")
@@ -783,10 +820,20 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
     EVERY record in the dataset — never publish another user's work (the bright wall)."""
     if not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
-    if body.visibility is None and body.title is None:
-        raise HTTPException(status_code=422, detail="Nothing to change: send title and/or visibility.")
+    meta = {k: v for k, v in body.model_dump(exclude_unset=True).items()
+            if k in ("description", "readme", "keywords", "attribution", "citation")}
+    if body.visibility is None and body.title is None and not meta:
+        raise HTTPException(status_code=422, detail="Nothing to change.")
+    if "attribution" in meta and meta["attribution"] not in ("named", "anonymous"):
+        raise HTTPException(status_code=422, detail="attribution must be named|anonymous")
+    if "keywords" in meta and meta["keywords"] is not None and len(meta["keywords"]) > 20:
+        raise HTTPException(status_code=422, detail="At most 20 keywords.")
+    if "readme" in meta and meta["readme"] and len(meta["readme"]) > 20000:
+        raise HTTPException(status_code=422, detail="README must be 20,000 characters or fewer.")
 
     res: dict = {}
+    if meta:
+        res = {"meta": records.update_dataset_meta(db, dataset_id, **meta)}
     if body.title is not None:
         title = body.title.strip()
         if not title:
@@ -1408,29 +1455,19 @@ def extract_endpoint(
     return {"queued": False, **result}
 
 
-@app.post("/api/ingest-pdf")
-def ingest_pdf_endpoint(
-    pdf: UploadFile = File(...),
-    result: str = Form(...),
-    schema_id: str | None = Form(None),
-    dataset_id: str | None = Form(None),
-    db=Depends(get_db),
-    who: Principal = Depends(principal),
-) -> dict:
-    """Import a PRE-COMPUTED extraction (canonical JSON) together with its source PDF: render
-    the pages and compute highlight rects from the JSON's own evidence, then persist a full
-    viewable document — the SAME pipeline as /api/extract, but with the result SUPPLIED
-    instead of calling a model (no model, key, or credits).  Accepts either the canonical
-    object or a ``{…, "extraction": {…}}`` wrapper.  With ``dataset_id`` the imported document
-    is added to that dataset (owner-gated)."""
+def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
+                     dataset_id: str | None, *, filename: str | None) -> dict:
+    """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
+    persist a full viewable document — /api/extract minus the model call."""
     import json as _json
-    data = pdf.file.read()
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
-    try:
-        obj = _json.loads(result)
-    except Exception:
-        raise HTTPException(status_code=422, detail="`result` is not valid JSON.")
+    obj = result
+    if isinstance(obj, str):
+        try:
+            obj = _json.loads(obj)
+        except Exception:
+            raise HTTPException(status_code=422, detail="`result` is not valid JSON.")
     canonical = (obj.get("extraction") if isinstance(obj, dict)
                  and isinstance(obj.get("extraction"), dict) else obj)
     text = _json.dumps(canonical)
@@ -1447,7 +1484,7 @@ def ingest_pdf_endpoint(
     try:
         res = extract.run_extraction(
             db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
-            owner_user_id=who.user_id, filename=pdf.filename, complete=_supplied,
+            owner_user_id=who.user_id, filename=filename, complete=_supplied,
             spec=run.spec)
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
         raise HTTPException(status_code=422, detail=str(exc))
@@ -1456,6 +1493,25 @@ def ingest_pdf_endpoint(
     if dataset_id:
         records.assign_document_to_dataset(db, dataset_id, res["document_id"])
     return {"queued": False, **res}
+
+
+@app.post("/api/ingest-pdf")
+def ingest_pdf_endpoint(
+    pdf: UploadFile = File(...),
+    result: str = Form(...),
+    schema_id: str | None = Form(None),
+    dataset_id: str | None = Form(None),
+    db=Depends(get_db),
+    who: Principal = Depends(principal),
+) -> dict:
+    """Import a PRE-COMPUTED extraction (canonical JSON) together with its source PDF: render
+    the pages and compute highlight rects from the JSON's own evidence, then persist a full
+    viewable document — the SAME pipeline as /api/extract, but with the result SUPPLIED
+    instead of calling a model (no model, key, or credits).  Accepts either the canonical
+    object or a ``{…, "extraction": {…}}`` wrapper.  With ``dataset_id`` the imported document
+    is added to that dataset (owner-gated)."""
+    return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
+                            filename=pdf.filename)
 
 
 @app.get("/api/papers/provenance")

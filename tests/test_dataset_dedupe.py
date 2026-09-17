@@ -6,8 +6,10 @@ Skips without Postgres.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
+import uuid
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -87,4 +89,31 @@ def test_dedupe_is_owner_only() -> None:
     c = TestClient(appmod.app)
     assert c.get(f"/api/datasets/{ds['id']}/duplicates", headers={"X-Session-Id": "someone-else"}).status_code == 404
     assert c.post(f"/api/datasets/{ds['id']}/dedupe", headers={"X-Session-Id": "someone-else"}).status_code == 404
+    conn.close()
+
+
+def test_json_reimport_can_borrow_the_old_copys_pdf() -> None:
+    """Re-importing a corrected JSON without its PDF must not lose the page images: with
+    pdf_from_document_id the stored PDF of the (owned) old copy is used for the new document."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import fitz
+    from fastapi.testclient import TestClient
+    from paperlens import storage
+    conn = records.connect(); records.init_db(conn)
+    sess = f"sess-borrow-{uuid.uuid4().hex[:6]}"
+    c = TestClient(appmod.app); h = {"X-Session-Id": sess}
+    pdf = fitz.open(); pdf.new_page().insert_text((72, 72), "Remote work productivity 0.42"); data = pdf.tobytes()
+    result = json.loads(fixtures.FORESTPLOT_JSON)
+    first = c.post("/api/ingest-pdf", files={"pdf": ("goh.pdf", data, "application/pdf")},
+                   data={"result": json.dumps(result)}, headers=h).json()
+    assert first["n_pages"] == 1
+    second = c.post("/api/ingest", json={"result": result, "pdf_from_document_id": first["document_id"]}, headers=h).json()
+    assert second["document_id"] != first["document_id"] and second.get("n_pages") == 1
+    assert storage.get_store().exists(storage.pdf_key(second["document_id"]))
+    assert conn.execute("SELECT filename FROM extraction_document WHERE id = %s::uuid", (second["document_id"],)).fetchone()[0] == "goh.pdf"
+    # someone else's document cannot be borrowed
+    r = c.post("/api/ingest", json={"result": result, "pdf_from_document_id": first["document_id"]}, headers={"X-Session-Id": "stranger"})
+    assert r.status_code == 403
+    for d in (first["document_id"], second["document_id"]): records.delete_document(conn, d)
     conn.close()

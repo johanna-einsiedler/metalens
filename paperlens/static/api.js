@@ -67,11 +67,15 @@ export const api = {
   forgetSession: () => req(`/api/session/forget`, { method: "POST" }),
   brand: () => req(`/api/brand`),
   datasetDuplicates: (id) => req(`/api/datasets/${id}/duplicates`),
+  verifyAllDataset: (id) => req(`/api/datasets/${id}/verify-all`, { method: "POST" }),
   dedupeDataset: (id) => req(`/api/datasets/${id}/dedupe`, { method: "POST" }),
   deleteDataset: (id) => req(`/api/datasets/${id}`, { method: "DELETE" }),
   setDatasetVisibility: (id, visibility) =>
     req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
                                  body: JSON.stringify({ visibility }) }),
+  updateDatasetMeta: (id, body) =>
+    req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
+                                 body: JSON.stringify(body) }),
   renameDataset: (id, title) =>
     req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
                                  body: JSON.stringify({ title }) }),

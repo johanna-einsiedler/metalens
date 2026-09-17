@@ -40,6 +40,11 @@ def materialize_dataset(conn, dataset_id: str) -> dict:
         "schema_id": ov.get("schema_id"),
         "slug": ov.get("slug"),
         "cite_as": ov.get("cite_as"),
+        "citation": ov.get("citation"),            # the suggested (or hand-edited) way to cite
+        "attribution": ov.get("attribution"),
+        "keywords": ov.get("keywords") or [],
+        "readme": ov.get("readme"),
+        "version": ov.get("version"),
         "visibility": ov.get("visibility"),
         "recipe": ov.get("recipe"),
         "stats": ov.get("stats"),
