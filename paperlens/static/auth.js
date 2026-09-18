@@ -35,31 +35,10 @@ export async function mountAccount(sel = "#account") {
   } else {
     el.innerHTML = `<button class="btn btn-ghost" id="pl-signin">Sign in</button>`;
     el.querySelector("#pl-signin").onclick = openModal;
-    mountRetentionNote();
   }
 }
 
-// Logged out: say what happens to uploads, and offer to delete them now.
-async function mountRetentionNote() {
-  if (document.querySelector("#anon-note")) return;
-  const bar = document.querySelector(".topbar");
-  if (!bar) return;
-  let minutes = 120;
-  try { minutes = (await api.extractionConfig()).anon_retention_minutes || minutes; } catch { /* default */ }
-  const span = minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}` : `${minutes} minutes`;
-  const note = document.createElement("div");
-  note.id = "anon-note"; note.className = "anon-note";
-  note.innerHTML = `Not signed in: anything you upload is deleted ${span} after your last activity. `
-    + `<a href="#" id="anon-signin">Sign in</a> to keep it · <a href="#" id="anon-forget">delete my uploads now</a>`;
-  bar.insertAdjacentElement("afterend", note);
-  note.querySelector("#anon-signin").onclick = (e) => { e.preventDefault(); openModal(); };
-  note.querySelector("#anon-forget").onclick = async (e) => {
-    e.preventDefault();
-    if (!confirm("Delete every paper, dataset and preset from this browser session now?")) return;
-    try { const r = await api.forgetSession(); alert(r.deleted ? `Deleted ${r.documents} paper(s) and ${r.datasets} dataset(s).` : r.reason); location.reload(); }
-    catch (ex) { alert("delete failed: " + ex.message); }
-  };
-}
+// Logged-out retention and the delete-my-uploads action are explained and offered on /faq.
 
 function openModal() {
   const ov = document.createElement("div");

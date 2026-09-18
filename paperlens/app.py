@@ -229,6 +229,12 @@ def analysis_page() -> FileResponse:
     return _page("analysis.html")
 
 
+@app.get("/faq")
+def faq_page() -> FileResponse:
+    """What happens to API keys, PDFs and extracted data; legal access; publishing."""
+    return _page("faq.html")
+
+
 @app.get("/account")
 def account_page() -> FileResponse:
     """Account settings: citation name, password, API keys (browser-only), delete."""

@@ -45,12 +45,17 @@ async function init() {
   // and open its builder; the method cards stay reachable from "back to step 1".
   try { BRAND = await getBrand(); } catch { BRAND = null; }
   if (BRAND && BRAND.credit_label && $("#credit-label")) $("#credit-label").textContent = BRAND.credit_label;
-  if (BRAND && BRAND.default_preset && !addingTo) {
-    const card = document.querySelector('.task-card[data-task="workflow"]');
-    if (card) selectTask("workflow", card);
-    const p = presets.find((x) => x.preset_id === BRAND.default_preset);
-    if (p) { presetId = p.preset_id; SETUP = null; await advance(`Workflow: ${p.title}`); }
+  // `?preset=<id>` (the MASEMiner landing's CTA) does the same for one preset on any host.
+  const wanted = new URLSearchParams(location.search).get("preset") || (BRAND && BRAND.default_preset);
+  if (wanted && !addingTo) {
+    const p = presets.find((x) => x.preset_id === wanted);
+    if (p) {
+      const card = document.querySelector('.task-card[data-task="workflow"]');
+      if (card) selectTask("workflow", card);
+      presetId = p.preset_id; SETUP = null; await advance(`Workflow: ${p.title}`);
+    }
   }
+  mountLegalAck();
   document.querySelectorAll(".task-card[data-task]").forEach((c) =>
     (c.onclick = () => {
       if (c.classList.contains("soon")) return;   // not shipping yet — the card says so
@@ -112,17 +117,25 @@ async function setupExtractionConfig() {
     cr.hidden = false;
   }
 
-  // Logged out: one free paper, and no export. Say both up front rather than failing later.
+  // Logged out: one free paper, and no export. Say both up front rather than failing later,
+  // and put the own-key path in front: the panel is opened, not hidden behind the toggle.
   const an = $("#ml-anon");
   if (an && CFG && !CFG.logged_in) {
     const left = Math.max(0, (CFG.anon_free_extractions || 0) - (CFG.anon_extractions_used || 0));
-    an.innerHTML = left > 0
-      ? `${left} free paper${left === 1 ? "" : "s"} without an account · `
-        + `<a href="/account">create one</a> to extract more and download results`
-      : `Free trial used · <a href="/account">create a free account</a> to keep extracting, `
-        + `or add your own API key below. Your API key is not stored: it passes through our server only to run `
-        + `the extraction (in memory and the job queue for at most 30 minutes) and is then discarded.`;
+    an.innerHTML = (left > 0
+      ? `<b>${left} free paper${left === 1 ? "" : "s"}</b> without an account on our model. `
+      : `<b>Free trial used.</b> `)
+      + `<a href="#" id="ml-ownkey-now">Use your own API key</a> for unlimited extractions on any model, `
+      + `or <a href="/account">create a free account</a> to extract on credits and download results. `
+      + `Your key is never stored (<a href="/faq#key" target="_blank">FAQ</a>).`;
+    an.classList.add("ml-anon-hot");
     an.hidden = false;
+    an.querySelector("#ml-ownkey-now").onclick = (e) => {
+      e.preventDefault();
+      if ($("#ownkey-block").hidden) toggleModelPanel();
+      const k = $("#apikey"); if (k) k.focus();
+    };
+    if ($("#ownkey-block") && $("#ownkey-block").hidden) toggleModelPanel();
   }
 
   // The credits/own-key radio only means anything when there are credits to choose.
@@ -156,6 +169,20 @@ function applyKeyMode() {
     nameEl.textContent = (!USE_CREDITS && ownKeyPresent() && $("#model").value)
       ? $("#model").value : ((CFG && CFG.model) || "not configured");
   }
+}
+// Step 4 runs only after the user confirms lawful access to the PDFs (remembered for the
+// browser session, like the import page).
+const LEGAL_KEY = "metalens_legal_ok";
+function legalOk() { const b = $("#legal-ok"); return !!(b && b.checked); }
+function mountLegalAck() {
+  const box = $("#legal-ok"); if (!box) return;
+  try { box.checked = sessionStorage.getItem(LEGAL_KEY) === "1"; } catch { /* no storage */ }
+  const sync = () => {
+    try { if (box.checked) sessionStorage.setItem(LEGAL_KEY, "1"); else sessionStorage.removeItem(LEGAL_KEY); } catch { /* */ }
+    if (!SUBMITTING) $("#run").disabled = !box.checked;
+    box.closest(".legal-ack").classList.remove("legal-missing");
+  };
+  box.onchange = sync; sync();
 }
 function toggleModelPanel() {
   const block = $("#ownkey-block"), btn = $("#ml-toggle"); if (!block || !btn) return;
@@ -969,6 +996,11 @@ function schemaIdFor() {
 let SUBMITTING = false;    // re-entrancy guard: a 2nd click during the async screen/submit would double-extract
 async function run() {
   if (SUBMITTING) return;
+  if (!legalOk()) {
+    setStatus("please confirm lawful access to the PDFs first");
+    const l = document.querySelector(".legal-ack"); if (l) { l.classList.add("legal-missing"); l.scrollIntoView({ block: "center" }); }
+    $("#run").disabled = true; return;
+  }
   SUBMITTING = true;
   $("#run").disabled = true;                       // disable NOW, not only once inside runBatch
   try {

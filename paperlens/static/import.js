@@ -32,6 +32,12 @@ function setupDrop() {
   ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
   dz.addEventListener("drop", (e) => addFiles([...e.dataTransfer.files]));
   $("#run").onclick = run;
+  const legal = $("#legal-ok");
+  try { legal.checked = sessionStorage.getItem("metalens_legal_ok") === "1"; } catch { /* */ }
+  legal.onchange = () => {
+    try { if (legal.checked) sessionStorage.setItem("metalens_legal_ok", "1"); else sessionStorage.removeItem("metalens_legal_ok"); } catch { /* */ }
+    renderPairs();
+  };
   const sel = $("#dataset");
   sel.onchange = async () => {
     $("#dsname").style.display = sel.value === "__new__" ? "" : "none";
@@ -266,7 +272,9 @@ function renderPairs() {
   }));
   const n = rows.filter(importable).length;
   const run = $("#run");
-  run.disabled = !n || RUNNING;
+  const legalOk = $("#legal-ok").checked;
+  run.disabled = !n || RUNNING || !legalOk;
+  run.title = n && !legalOk ? "confirm lawful access to the files first" : "";
   run.textContent = n ? `Import ${n} paper${n === 1 ? "" : "s"}` : "Import";
 }
 
@@ -277,6 +285,7 @@ function setStat(key, html, cls) {
 
 async function run() {
   if (RUNNING) return;
+  if (!$("#legal-ok").checked) { $("#status").textContent = "please confirm lawful access to the files first"; return; }
   RUNNING = true; $("#run").disabled = true;
   const schemaId = currentSchemaId();
   const rows = allRows().filter(importable);

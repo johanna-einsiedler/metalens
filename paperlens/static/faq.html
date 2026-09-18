@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>FAQ</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <style>
+    .faq { max-width: 760px; }
+    .faq h1 { margin: 26px 0 6px; font-size: 26px; }
+    .faq h2 { margin: 28px 0 8px; font-size: 17px; }
+    .faq details { border-bottom: 1px solid var(--border); padding: 10px 0; }
+    .faq summary { cursor: pointer; font-weight: 600; }
+    .faq details p, .faq details ul { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
+    .faq .muted-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+
+  <div class="wrap faq">
+    <h1>Frequently asked questions</h1>
+    <p class="muted">What happens to your API key, your PDFs and your data, in plain words. This applies to the whole service, whichever product surface you use.</p>
+
+    <h2 id="key">Your API key</h2>
+    <details open>
+      <summary>What happens to my API key?</summary>
+      <p>It is sent to our server only to run the extraction you asked for. There it is held in memory and, for at most 30 minutes, in the job queue, then discarded. It is never written to disk, never attached to your account, and never used for anything else. The "Test connection" button passes it through our server to the provider once and does not keep it either.</p>
+      <p>Your browser remembers the key locally so you do not have to retype it. That copy lives in your browser only; clearing site data removes it.</p>
+    </details>
+    <details>
+      <summary>Do I need an API key at all?</summary>
+      <p>No. Signed-in users can run extractions on credits, using our own key with a fixed model. Without an account you get one free paper on that model. With your own key there is no limit and the model call runs on your provider account.</p>
+    </details>
+
+    <h2 id="pdfs">Your PDFs and extracted data</h2>
+    <details open>
+      <summary>What leaves my machine when I extract a paper?</summary>
+      <p>The PDF is uploaded to our server, which renders its pages and sends either the page images or the extracted text, together with the prompt, to the model provider you chose. The whole content of the document therefore reaches the provider. With your own key that is your provider account, under that provider's data policy; with credits it is our account at the provider named on the extract page.</p>
+      <p>Provider policies differ and change; check the current one before uploading sensitive material. If nothing may leave your machine, run the software locally with a local model (see below).</p>
+    </details>
+    <details open>
+      <summary>What do you store, and for how long?</summary>
+      <ul>
+        <li>The PDF, its page images and the model's raw response, so you can review every value against the highlighted source.</li>
+        <li>The extracted records, the verbatim evidence quotes with page numbers, and your corrections and verification history.</li>
+        <li>The text layer of the PDF, keyed by the file's hash.</li>
+      </ul>
+      <p><strong>Not signed in:</strong> everything you upload is deleted automatically two hours after your last activity, and you can delete it at once with the button below. <strong>Signed in:</strong> your data stays until you delete a paper or a dataset; deletion removes the PDF, page images, raw response and records.</p>
+      <div class="muted-box" id="forget-box" hidden>You are not signed in. <a href="#" id="forget">Delete everything I uploaded in this browser session now</a>.</div>
+    </details>
+    <details>
+      <summary>Where are the servers?</summary>
+      <p>The hosted service runs in the United States (Fly.io, Virginia) with files in Cloudflare R2 object storage. If you are bound by an institutional data agreement that rules this out, use the local installation.</p>
+    </details>
+    <details>
+      <summary>Can I keep everything on my own computer?</summary>
+      <p>Yes. The software is open source (MIT). The <code>maseminer</code> command starts the same engine locally with an embedded database and no account; PDFs and data stay in a folder on your machine. Point it at a local model server (Ollama, vLLM, LM Studio) and nothing leaves the computer at all. Installation instructions are in the repository's README.</p>
+    </details>
+
+    <h2 id="sharing">Who can see my data</h2>
+    <details>
+      <summary>Is my work visible to others?</summary>
+      <p>No. Papers, datasets and presets are private to you until you publish a dataset. Publishing shares the extracted records, the evidence quotes, the preset and your verification history, never the PDFs or page images.</p>
+    </details>
+    <details>
+      <summary>What does publishing a dataset do?</summary>
+      <p>It opens a pull request in the public datasets repository on GitHub; once merged, the dataset is listed in the catalogue with a citation that points at the GitHub copy. A merged dataset is in git history and in any fork, so it cannot be withdrawn afterwards; corrections are published as a new version.</p>
+    </details>
+
+    <h2 id="legal">Legal access</h2>
+    <details open>
+      <summary>Am I allowed to upload these PDFs?</summary>
+      <p>You are responsible for that, which is why the upload step asks you to confirm it. Two rules of thumb:</p>
+      <ul>
+        <li>Published articles you have lawful access to can normally be analysed for research under the research and text-and-data-mining exceptions of your jurisdiction, but your publisher's licence terms may restrict automated analysis to the publisher's own tools. Check them for commercial use.</li>
+        <li>Manuscripts under peer review, confidential reports and anything you received under a non-disclosure obligation may not be uploaded to a third-party model provider. Reviewer agreements and funder rules forbid it.</li>
+      </ul>
+      <p>If a PDF contains personal data, data-protection law applies to the transfer to the model provider and to our servers.</p>
+    </details>
+  </div>
+
+  <script type="module">
+    import { mountChrome } from "/static/chrome.js";
+    import { api } from "/static/api.js";
+    mountChrome();
+    api.me().then((me) => {
+      if (me && me.email) return;
+      const box = document.getElementById("forget-box"); box.hidden = false;
+      document.getElementById("forget").onclick = async (e) => {
+        e.preventDefault();
+        if (!confirm("Delete every paper, dataset and preset from this browser session now?")) return;
+        try { const r = await api.forgetSession(); alert(r.deleted ? `Deleted ${r.documents} paper(s) and ${r.datasets} dataset(s).` : r.reason); }
+        catch (ex) { alert("delete failed: " + ex.message); }
+      };
+    });
+  </script>
+</body>
+</html>

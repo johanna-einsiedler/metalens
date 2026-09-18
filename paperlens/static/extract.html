@@ -19,12 +19,13 @@
         <div class="wf-step-nav" data-step="3"><span class="wf-num">3</span> Review prompt</div>
         <div class="wf-step-nav" data-step="4"><span class="wf-num">4</span> Upload &amp; extract</div>
         <div class="wf-step-nav results" data-step="results"><span class="wf-num">▸</span> Results</div>
+        <a class="wf-step-nav wf-faq" href="/faq" title="What happens to my API key and PDFs?"><span class="wf-num">?</span> FAQ</a>
       </aside>
 
       <!-- right: the steps -->
       <main>
         <h2 style="margin:0 0 4px">Turn a paper into data</h2>
-        <p class="muted" style="margin:0 0 18px">Extraction runs on our default model — no API key needed. Bring your own key any time from the Review prompt step.</p>
+        <p class="muted" style="margin:0 0 18px">Extraction runs on our default model — no API key needed. Bring your own key any time from the Review prompt step. What happens to your files and key is in the <a href="/faq">FAQ</a>.</p>
 
         <div id="acc">
           <!-- 1 · Choose a task -->
@@ -268,9 +269,13 @@
               </div>
               <div class="filelist" id="filelist"></div>
               <p class="muted" style="font-size:12px;margin:10px 0 0">Extraction runs through your selected model — expect roughly <b>~1 minute per paper</b> (longer for large PDFs). You can queue several at once; they run one after another.</p>
+              <label class="legal-ack">
+                <input type="checkbox" id="legal-ok"/>
+                <span>I confirm that I have lawful access to these PDFs and may have them processed by the selected model provider. No manuscripts under peer review or confidential documents. <a href="/faq#legal" target="_blank">Why?</a></span>
+              </label>
               <div class="wf-actions" style="justify-content:flex-start">
                 <button class="btn btn-ghost" data-back="3">Back</button>
-                <button id="run" class="btn btn-primary">Run extraction</button>
+                <button id="run" class="btn btn-primary" disabled>Run extraction</button>
                 <span id="status" class="muted" style="align-self:center"></span>
               </div>
             </div>

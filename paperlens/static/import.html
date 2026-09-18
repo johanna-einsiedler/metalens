@@ -45,7 +45,11 @@
 
     <div id="pairs" class="import-pairs"></div>
 
-    <div style="margin-top:16px; display:flex; gap:12px; align-items:center">
+    <label class="legal-ack" style="margin-top:16px">
+      <input type="checkbox" id="legal-ok"/>
+      <span>I confirm that I have lawful access to these PDFs and results and may store them here. No manuscripts under peer review or confidential documents. <a href="/faq#legal" target="_blank">Why?</a></span>
+    </label>
+    <div style="margin-top:12px; display:flex; gap:12px; align-items:center">
       <button id="run" class="btn btn-primary" disabled>Import</button>
       <span id="status" class="muted"></span>
     </div>

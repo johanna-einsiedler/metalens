@@ -65,6 +65,7 @@ header.topbar {
 /* credits: the extract-page key-mode switch + the account-page ledger table */
 .credit-switch { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; margin: 2px 0 14px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.credit-switch[hidden] { display: none; }   /* display:flex would otherwise defeat [hidden] (logged out: no credits to choose) */
 .cs-opt { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .cred-ledger { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
 .cred-ledger th, .cred-ledger td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
@@ -394,6 +395,17 @@ a.acct:hover { color: var(--accent); }
   color: var(--on-accent); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .wf-step-nav.active .wf-num { background: var(--accent); }
 .wf-step-nav.results .wf-num { background: transparent; color: var(--text-muted); }
+/* FAQ sits under the steps, visibly separated: it is a page, not a step */
+.wf-faq { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); border-radius: 0; text-decoration: none; }
+.wf-faq .wf-num { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.wf-faq:hover { color: var(--text); }
+.legal-ack { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 4px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface); font-size: 13px; line-height: 1.45; cursor: pointer; }
+.legal-ack input { margin-top: 3px; flex: none; }
+.legal-ack.legal-missing { border-color: var(--error); background: var(--error-bg); }
+/* logged out: the own-key path is the way to keep extracting, so it is spelled out, not tucked behind a toggle */
+.ml-anon-hot { display: block; margin-top: 6px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--accent-wash); color: var(--text); }
+.ml-anon-hot a { font-weight: 600; }
 .wf-field { margin-bottom: 4px; }
 .wf-field label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
 .wf-field select, .wf-field input { width: 100%; padding: 10px 12px; border: 1px solid var(--border);
@@ -671,11 +683,6 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .pe-preview { margin: 0 0 14px; }
 .pe-preview > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .pe-preview .md-preview { margin-top: 8px; max-height: 420px; }
-
-/* logged-out retention note under the topbar */
-.anon-note { font-size: 12.5px; color: var(--text-muted); background: var(--surface); border-bottom: 1px solid var(--border);
-  padding: 6px 24px; }
-.anon-note a { color: var(--text); }
 
 /* brand surfaces: MASEMiner's extract page is one workflow — the other task cards stay out of sight */
 .brand-maseminer .task-card[data-task]:not([data-task="workflow"]) { display: none; }
