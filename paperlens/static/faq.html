@@ -12,6 +12,7 @@
     .faq h2 { margin: 28px 0 8px; font-size: 17px; }
     .faq details { border-bottom: 1px solid var(--border); padding: 10px 0; }
     .faq summary { cursor: pointer; font-weight: 600; }
+    .faq details h3 { margin: 12px 0 2px; font-size: 14px; }
     .faq details p, .faq details ul { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
     .faq .muted-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
   </style>
@@ -21,24 +22,18 @@
 
   <div class="wrap faq">
     <h1>Frequently asked questions</h1>
-    <p class="muted">What happens to your API key, your PDFs and your data, in plain words. This applies to the whole service, whichever product surface you use.</p>
 
     <h2 id="key">Your API key</h2>
     <details open>
       <summary>What happens to my API key?</summary>
-      <p>It is sent to our server only to run the extraction you asked for. There it is held in memory and, for at most 30 minutes, in the job queue, then discarded. It is never written to disk, never attached to your account, and never used for anything else. The "Test connection" button passes it through our server to the provider once and does not keep it either.</p>
-      <p>Your browser remembers the key locally so you do not have to retype it. That copy lives in your browser only; clearing site data removes it.</p>
-    </details>
-    <details>
-      <summary>Do I need an API key at all?</summary>
-      <p>No. Signed-in users can run extractions on credits, using our own key with a fixed model. Without an account you get one free paper on that model. With your own key there is no limit and the model call runs on your provider account.</p>
+      <p>It is sent to our server only to run the extraction you asked for. It is held in memory for at most 30 minutes and then discarded. It is never written to disk or saved otherwise. Your browser might remember the key locally so you do not have to retype it the next time you visit Metalens. However, that copy of your key lives in your browser only and not on our server.</p>
     </details>
 
     <h2 id="pdfs">Your PDFs and extracted data</h2>
     <details open>
       <summary>What leaves my machine when I extract a paper?</summary>
-      <p>The PDF is uploaded to our server, which renders its pages and sends either the page images or the extracted text, together with the prompt, to the model provider you chose. The whole content of the document therefore reaches the provider. With your own key that is your provider account, under that provider's data policy; with credits it is our account at the provider named on the extract page.</p>
-      <p>Provider policies differ and change; check the current one before uploading sensitive material. If nothing may leave your machine, run the software locally with a local model (see below).</p>
+      <p>The PDF is uploaded to our server, which renders its pages and sends either the page images or the extracted text, together with the prompt, to the model provider you chose. The whole content of the document therefore reaches the provider.</p>
+      <p>If you provided your own API key, this runs through your own provider account under that provider's data policy. If you use Metalens credits via an account, it is our account at Google, and the <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">Gemini API terms</a> apply. Provider policies differ and change; check the current one before uploading sensitive material. If nothing may leave your machine, run the software locally with a local model (see below).</p>
     </details>
     <details open>
       <summary>What do you store, and for how long?</summary>
@@ -47,12 +42,15 @@
         <li>The extracted records, the verbatim evidence quotes with page numbers, and your corrections and verification history.</li>
         <li>The text layer of the PDF, keyed by the file's hash.</li>
       </ul>
-      <p><strong>Not signed in:</strong> everything you upload is deleted automatically two hours after your last activity, and you can delete it at once with the button below. <strong>Signed in:</strong> your data stays until you delete a paper or a dataset; deletion removes the PDF, page images, raw response and records.</p>
+      <h3>If you are not logged in</h3>
+      <p>Everything you upload is deleted automatically two hours after your last activity. You can also delete it at once with the link below.</p>
       <div class="muted-box" id="forget-box" hidden>You are not signed in. <a href="#" id="forget">Delete everything I uploaded in this browser session now</a>.</div>
+      <h3>If you are logged in</h3>
+      <p>Your data stays until you delete a paper or a dataset. Deleting removes the PDF, the page images, the raw model response and the records.</p>
     </details>
     <details>
       <summary>Where are the servers?</summary>
-      <p>The hosted service runs in the United States (Fly.io, Virginia) with files in Cloudflare R2 object storage. If you are bound by an institutional data agreement that rules this out, use the local installation.</p>
+      <p>The hosted service runs in the United States (Fly.io, Virginia) with files in Cloudflare R2 object storage. If you are bound by an institutional data agreement that rules this out, you can run a local version of this yourself. You can find the Metalens code at <a href="https://github.com/johanna-einsiedler/metalens" target="_blank" rel="noopener">github.com/johanna-einsiedler/metalens</a> and a Python package for running MASEMiner locally at <a href="https://github.com/johanna-einsiedler/maseminer" target="_blank" rel="noopener">github.com/johanna-einsiedler/maseminer</a>.</p>
     </details>
     <details>
       <summary>Can I keep everything on my own computer?</summary>
@@ -62,11 +60,11 @@
     <h2 id="sharing">Who can see my data</h2>
     <details>
       <summary>Is my work visible to others?</summary>
-      <p>No. Papers, datasets and presets are private to you until you publish a dataset. Publishing shares the extracted records, the evidence quotes, the preset and your verification history, never the PDFs or page images.</p>
+      <p>No. Papers, datasets and presets are private to you until you publish a dataset. Publishing shares the extracted records, the evidence quotes, the preset and your verification history, but not the PDFs or page images.</p>
     </details>
     <details>
       <summary>What does publishing a dataset do?</summary>
-      <p>It opens a pull request in the public datasets repository on GitHub; once merged, the dataset is listed in the catalogue with a citation that points at the GitHub copy. A merged dataset is in git history and in any fork, so it cannot be withdrawn afterwards; corrections are published as a new version.</p>
+      <p>It opens a pull request in the public <a href="https://github.com/johanna-einsiedler/metalens-datasets" target="_blank" rel="noopener">datasets repository on GitHub</a>; once merged, the dataset is listed in the <a href="/catalog">data catalogue</a> with a citation that points at the GitHub copy. A merged dataset is in git history and in any fork, so it cannot be withdrawn afterwards; corrections are published as a new version.</p>
     </details>
 
     <h2 id="legal">Legal access</h2>
