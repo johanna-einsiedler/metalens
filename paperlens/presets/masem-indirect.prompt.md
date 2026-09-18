@@ -463,9 +463,16 @@ Minimum evidence per extracted sample/group:
 4. factor correlations source if factor correlations are extracted or explicitly unavailable;
 5. sample size n;
 6. factor analysis type cfa;
-7. extraction/estimation method met if reported;
-8. language lang if reported;
-9. country country if reported.
+7. extraction/estimation method met;
+8. language lang;
+9. country country;
+10. number of retained factors nfac;
+11. percentage female and mean age.
+
+Items 5 to 11 apply whenever the value is not null: every non-null metadata value needs its own evidence entry with field "samples[i].<name>".
+This includes values obtained through an allowed inference (for example lang from the country of recruitment, country from author affiliations, nfac from the loading table, female computed from counts).
+For an inferred value, quote verbatim the passage the inference rests on (the recruitment sentence, the affiliation line, the table header that shows the factor columns) and state the inference in notes.
+If no passage supports a value, set the value to null instead of reporting it without evidence.
 
 For factor loadings:
 - every sample must include at least one evidence entry with field "samples[i].factor_loadings";
@@ -633,6 +640,7 @@ Before finalizing JSON, verify that:
 - evidence entries contain only snippet, page, source, and field;
 - evidence points to the PDF page where supporting values are visible;
 - evidence fields match the emitted JSON paths;
+- every non-null metadata value (country, lang, n, female, age, nfac, cfa, met) has its own evidence entry, inferred values included;
 - paper_metadata.title is populated;
 - the top-level output is valid JSON parseable by json.loads.
 
