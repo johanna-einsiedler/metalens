@@ -18,12 +18,10 @@ Extract ONLY these canonical effect sizes.
 Canonical variable labels:
 ${variables}
 
-Extract ONLY these canonical variables.
-
-IGNORE all other variables.
+${variable_rules}
 
 Map all eligible measures to ONE canonical variable category.
-
+${variable_guidance}
 Use ONLY canonical variable labels in:
 - "var1"
 - "var2"

@@ -65,7 +65,7 @@ _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
     "meta": {"title", "tagline", "description", "mode", "hidden", "brands"},
     "prompt": {"file", "text", "params", "generate"},
-    "param": {"type", "label", "help", "default", "columns", "numbered", "empty"},
+    "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
     "paper": {"fields"},
     "entries": {"key", "label", "help", "cardinality", "id_field", "title", "evidence", "fields", "children"},
     "child": {"key", "label", "help", "title", "evidence", "layout", "fields"},
@@ -785,6 +785,11 @@ def _render_param(decl: dict, value: Any) -> str:
     ptype = decl.get("type", "string")
     if value is None:
         return ""
+    if ptype in ("string", "text") and decl.get("block"):
+        # an optional paragraph on a line of its own: blank lines around it when given, nothing
+        # at all when empty, so the default prompt keeps its exact text
+        text = str(value).strip()
+        return f"\n{text}\n" if text else ""
     if ptype == "list":
         items = [str(x).strip() for x in (value if isinstance(value, list) else [value]) if str(x).strip()]
         if decl.get("numbered"):

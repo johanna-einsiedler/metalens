@@ -43,6 +43,20 @@
         "help": "canonical variable codes with a definition; everything else is ignored",
         "default": [],
         "empty": "(no variables defined — extract every reported pairwise effect size)"
+      },
+      "variable_rules": {
+        "type": "text",
+        "label": "Eligibility rules",
+        "help": "which pairs of variables count (replaces the default 'Extract ONLY these canonical variables. IGNORE all other variables.')",
+        "default": null,
+        "empty": "Extract ONLY these canonical variables.\n\nIGNORE all other variables."
+      },
+      "variable_guidance": {
+        "type": "text",
+        "label": "Mapping guidance",
+        "help": "typical informants, instruments, things to ignore, and examples of mapping a paper's measure to a canonical code",
+        "default": null,
+        "block": true
       }
     },
     "generate": []

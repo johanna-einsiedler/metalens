@@ -108,3 +108,38 @@ def test_meta_brands_is_validated_and_exposed() -> None:
     bad = dict(spec); bad["meta"] = {**spec["meta"], "brands": "metalens"}
     errs, _ = ps.validate(bad)
     assert any("meta.brands" in e for e in errs)
+
+
+
+def _original(name: str) -> str:
+    import pathlib
+    return (pathlib.Path(__file__).parent / "snapshots" / "original" / name).read_text()
+
+
+def test_masem_direct_recovers_the_original_gnambs_configuration() -> None:
+    """With the right inputs the builder reproduces the hand-written prompt's whole DOMAIN
+    CONFIGURATION byte for byte (tests/snapshots/original/prompt_gnambs2013.txt)."""
+    import re
+    orig = _original("prompt_gnambs2013.txt")
+    section = orig[orig.index("# DOMAIN CONFIGURATION"):orig.index("# EXTRACTION RULES")]
+    var_part = section.split("## VARIABLES")[1]
+    variables = [{"name": c, "definition": d} for c, d in re.findall(r'^- "(\w+)" = (.+)$', var_part, re.M)[:10]]
+    rules = var_part[var_part.index("Extract effect sizes ONLY for:"):var_part.index("Map all eligible measures")].strip()
+    guidance = var_part[var_part.index("Typical eligible informants"):var_part.index("Use ONLY canonical variable labels")].strip()
+    out = presets.prompt_for("masem-direct", params={
+        "effect_sizes": [{"code": "r", "label": "Correlation (r)"}], "variables": variables,
+        "variable_rules": rules, "variable_guidance": guidance})
+    assert section in out
+
+
+def test_masem_indirect_recovers_the_original_schroeders_configuration() -> None:
+    """Scale name, item count, item labels and the static factor-key mapping come out as in the
+    hand-written NCS-18 prompt (the long-format tables further down are a deliberate change)."""
+    import re
+    orig = _original("prompt_schroeders2024.txt")
+    head = orig[orig.index("[scale_name]:"):orig.index("The JSON factor keys represent")]
+    items = re.findall(r"^\d+: (.+)$", head, re.M)
+    out = presets.prompt_for("masem-indirect", params={
+        "scale_name": "Need for Cognition Scale (NCS-18)", "n_items": 18, "item_texts": items})
+    assert len(items) == 18 and head in out
+    assert "Map factor labels to F1..Fn using [factor_key_mapping]." in out

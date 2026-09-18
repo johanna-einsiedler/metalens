@@ -52,6 +52,15 @@
       <summary>Where are the servers?</summary>
       <p>The hosted service runs in the United States (Fly.io, Virginia) with files in Cloudflare R2 object storage. If you are bound by an institutional data agreement that rules this out, you can run a local version of this yourself. You can find the Metalens code at <a href="https://github.com/johanna-einsiedler/metalens" target="_blank" rel="noopener">github.com/johanna-einsiedler/metalens</a> and a Python package for running MASEMiner locally at <a href="https://github.com/johanna-einsiedler/maseminer" target="_blank" rel="noopener">github.com/johanna-einsiedler/maseminer</a>.</p>
     </details>
+    <details id="local-model">
+      <summary>Can I use the hosted version with a model running on my own computer?</summary>
+      <p>Not directly. In the hosted version the PDF is read and the model is called by our server, not by your browser. An address such as <code>http://localhost:11434</code> therefore points at our server, where no model is running, and the connection fails.</p>
+      <ul>
+        <li><strong>A model server with a public address</strong>, for example a university GPU server or a cloud vLLM instance, works: choose "Local / self-hosted" as provider and enter its URL and model name.</li>
+        <li><strong>A model on your laptop behind a tunnel</strong> (ngrok, Cloudflare Tunnel) also works, but the content of the PDF still passes through our server, so it brings no privacy benefit.</li>
+        <li><strong>To keep everything on your machine</strong>, run the software locally (next question). There <code>localhost</code> works and neither the PDF nor the text leaves your computer.</li>
+      </ul>
+    </details>
     <details>
       <summary>Can I keep everything on my own computer?</summary>
       <p>Yes. The software is open source (MIT). The <code>maseminer</code> command starts the same engine locally with an embedded database and no account; PDFs and data stay in a folder on your machine. Point it at a local model server (Ollama, vLLM, LM Studio) and nothing leaves the computer at all. Installation instructions are in the repository's README.</p>

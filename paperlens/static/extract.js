@@ -99,7 +99,7 @@ async function init() {
   $("#simpleGen").onclick = genSimple;
   $("#masemUse").onclick = masemUse;
   $("#masemSetupSave").onclick = saveMasemSetup;
-  ["masemEffectSizes", "masemVariables", "masemScaleName", "masemNItems", "masemItems"].forEach((id) => {
+  ["masemEffectSizes", "masemVariables", "masemScaleName", "masemNItems", "masemItems", "masemVarRules", "masemVarGuidance"].forEach((id) => {
     const el = $("#" + id); if (el) { el.addEventListener("input", refreshMasemPreview); el.addEventListener("change", refreshMasemPreview); }
   });
   renderUnitPresets();
@@ -333,8 +333,8 @@ function fillModels() {
     $("#baseurl").value = url; $("#model-local").value = model; $("#local-text").checked = text === "1";
     $("#local-note").innerHTML = (CFG && CFG.local_mode)
       ? "Any OpenAI-compatible server on this computer or your network: Ollama (http://localhost:11434), LM Studio (http://localhost:1234), vLLM (http://localhost:8000). The PDF never leaves your machine."
-      : "The hosted service calls this URL <b>from our server</b>, so a model on your own computer (localhost) is not reachable here: use a server with a public address, or "
-        + `<a href="https://github.com/johanna-einsiedler/metalens#run-maseminer-locally" target="_blank" rel="noopener">run MASEMiner locally</a> to keep everything on your machine.`;
+      : "The model call is made <b>from our server</b>, so a model on your own computer (localhost) cannot be reached here. "
+        + `Use a server with a public address, or <a href="https://github.com/johanna-einsiedler/metalens#run-maseminer-locally" target="_blank" rel="noopener">run MASEMiner locally</a>. <a href="/faq#local-model" target="_blank">Why?</a>`;
   }
   applyKeyMode();
 }
@@ -479,6 +479,8 @@ function fillMasemValues(p) {
   const vs = $("#masemVariables"); if (vs) vs.value = serialiseVariables(p.variables || []);
   const sn = $("#masemScaleName"); if (sn) sn.value = (p.scale_name && p.scale_name !== "the target instrument") ? p.scale_name : "";
   const ni = $("#masemNItems"); if (ni) ni.value = p.n_items || "";
+  const vr = $("#masemVarRules"); if (vr) vr.value = p.variable_rules || "";
+  const vg = $("#masemVarGuidance"); if (vg) vg.value = p.variable_guidance || "";
   const it = $("#masemItems"); if (it) it.value = (p.item_texts || []).map((t, i) => `${i + 1}: ${t}`).join("\n");
 }
 // "Save this setup": the builder's values become a private sub-preset of the current variant;
@@ -536,6 +538,7 @@ function populateMasemForm(d) {
   const vs = $("#masemVariables"); if (vs) { vs.value = ""; vs.placeholder = serialiseVariables(d.variables) || "bm: A measure of body mass such as BMI or waist circumference\nvg: A measure of video-game use — hours/day or session frequency\npa: A measure of physical activity — exercise length or frequency"; }
   const sn = $("#masemScaleName"); if (sn) { sn.value = ""; const nm = d.scale_name || d.instrument_name; sn.placeholder = (nm && nm !== "the target scale" && nm !== "the target instrument") ? `e.g. ${nm}` : "the scale this extraction targets"; }
   const ni = $("#masemNItems"); if (ni) ni.value = "";
+  ["#masemVarRules", "#masemVarGuidance"].forEach((id) => { const el = $(id); if (el) el.value = ""; });
   const it = $("#masemItems"); if (it) {
     it.value = ""; const items = Array.isArray(d.item_texts) ? d.item_texts : [];
     it.placeholder = items.length ? items.slice(0, 3).map((t, i) => `${i + 1}: ${t}`).join("\n") + (items.length > 3 ? `\n…  (${items.length - 3} more example items used by default)` : "") : "1: <first item text>\n2: <second item text>\n3: <third item text>\n…";
@@ -546,6 +549,8 @@ function readMasemParams() {
   if (MASEM.starter === "masem-direct") {
     const es = parseEffectSizes($("#masemEffectSizes").value); if (es.length) p.effect_sizes = es;
     const vs = parseVariables($("#masemVariables").value); if (vs.length) p.variables = vs;
+    const vr = ($("#masemVarRules").value || "").trim(); if (vr) p.variable_rules = vr;
+    const vg = ($("#masemVarGuidance").value || "").trim(); if (vg) p.variable_guidance = vg;
   } else {
     const sn = ($("#masemScaleName").value || "").trim();
     if (sn) { p.scale_name = sn; p.instrument_name = sn; p.instrument_name_long = sn; }

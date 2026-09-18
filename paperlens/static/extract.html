@@ -94,6 +94,12 @@
                   <div class="wf-field"><label>Variables <span class="muted">(one per line: <code>short_code: definition</code>)</span></label>
                     <div class="sf-help">Canonical variables/constructs (the output's <code>var1</code>/<code>var2</code>). Short code + a definition that helps the model map paper-specific operationalisations. Add a third <code>::</code> chunk for synonyms.</div>
                     <textarea id="masemVariables" class="sf-ta" rows="6"></textarea></div>
+                  <div class="wf-field"><label>Eligibility rules <span class="muted">(optional)</span></label>
+                    <div class="sf-help">Which pairs of variables count, in your own words: target population, same or different raters, constructs to merge (<em>"Map emotional stability to neuroticism"</em>). Replaces the default <em>"Extract ONLY these canonical variables. IGNORE all other variables."</em></div>
+                    <textarea id="masemVarRules" class="sf-ta" rows="5"></textarea></div>
+                  <div class="wf-field"><label>Mapping guidance <span class="muted">(optional)</span></label>
+                    <div class="sf-help">Typical informants and instruments, what to ignore, and examples of mapping a paper's measure to a code (<em>Peer-rated Goldberg Extraversion -> "ep"</em>).</div>
+                    <textarea id="masemVarGuidance" class="sf-ta" rows="5"></textarea></div>
                 </div>
 
                 <!-- Indirect information: scale name + item count + item labels -->
