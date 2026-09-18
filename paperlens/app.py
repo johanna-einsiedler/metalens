@@ -454,7 +454,7 @@ def document_view(document_id: str, db=Depends(get_db),
 
 @app.get("/api/documents/{document_id}/locate")
 def locate_value(document_id: str, value: str, page: int, bands: str | None = None,
-                 anchor: str | None = None, page_only: bool = False,
+                 anchor: list[str] | None = Query(None), page_only: bool = False,
                  db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner-only: find ``value`` in the source PDF so the workspace can pinpoint-
     highlight it — tries an exact numeric match first, then a literal text search so a
@@ -472,10 +472,17 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
     pdf_bytes = store.get(key)
-    if anchor:                          # a table number: on the printed row of its anchor text (item wording)
-        rows = pdf_utils.anchor_bands(pdf_bytes, page, anchor[:400])
+    if anchor:                          # a table number: on the printed row of its anchor text (item wording, variable label)
+        rows = [b for a in anchor[:4] for b in pdf_utils.anchor_bands(pdf_bytes, page, a[:400])]
         if rows:
-            rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
+            hits = pdf_utils.locate_value_rects(pdf_bytes, page, value)
+            per_row = [(b, pdf_utils.rects_in_bands(hits, [b])) for b in rows]
+            per_row = [(b, r) for b, r in per_row if r]
+            if len(per_row) > 1:        # two variable rows both show the value: a triangular matrix
+                counts = [pdf_utils.numbers_in_band(pdf_bytes, page, b) for b, _ in per_row]   # prints the pair on the fuller row
+                if sorted(counts)[-1] > sorted(counts)[-2]:
+                    per_row = [per_row[counts.index(max(counts))]]
+            rects = [r for _, rs in per_row for r in rs]
             if rects:
                 return {"rects": rects, "found": True, "page": page, "anchored": True}
     if page_only:                       # a table cited as a whole: every whole-number match on ITS page

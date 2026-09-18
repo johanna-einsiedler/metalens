@@ -1569,7 +1569,7 @@ def anchor_bands(pdf_bytes: bytes, page_1indexed: int, anchor: str, *, dpi: int 
     ignored): the whole text first, then shorter prefixes for wrapped or slightly reworded
     items. An anchor found in several places is ambiguous → []."""
     want = [w for w in (_anchor_norm(x) for x in (anchor or "").split()) if w]
-    if len(want) < 3:
+    if not want or (len(want) == 1 and len(want[0]) < 3):
         return []
     import fitz
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -1580,7 +1580,7 @@ def anchor_bands(pdf_bytes: bytes, page_1indexed: int, anchor: str, *, dpi: int 
         words = [(w, n) for w, n in words if n]
         scale = dpi / 72.0
         for n in dict.fromkeys((len(want), 8, 5, 4)):
-            if n > len(want):
+            if n > len(want) or (n < len(want) and n < 4):
                 continue
             head = want[:n]
             starts = [k for k in range(len(words) - n + 1) if all(words[k + t][1] == head[t] for t in range(n))]
@@ -1590,6 +1590,25 @@ def anchor_bands(pdf_bytes: bytes, page_1indexed: int, anchor: str, *, dpi: int 
             if starts:
                 return []                                  # ambiguous: a shorter prefix is worse
         return []
+    finally:
+        doc.close()
+
+
+def numbers_in_band(pdf_bytes: bytes, page_1indexed: int, band: tuple[float, float], *, dpi: int = DISPLAY_DPI) -> int:
+    """How many numeric tokens are printed inside a row band (image pixels). In a triangular
+    correlation matrix the cell of a pair sits on the row that holds MORE numbers (the lower
+    row of a lower triangle, the upper row of an upper one), which settles which of two
+    candidate rows carries the value."""
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if page_1indexed < 1 or page_1indexed > len(doc):
+            return 0
+        scale = dpi / 72.0
+        y0, y1 = band[0] / scale - 1, band[1] / scale + 1
+        num = re.compile(r"^[\(\[]?[-−–]?\d*[.,]?\d+[\)\]\*†a-z]*$")
+        return sum(1 for w in doc[page_1indexed - 1].get_text("words")
+                   if y0 <= (w[1] + w[3]) / 2 <= y1 and num.match(w[4].strip()))
     finally:
         doc.close()
 

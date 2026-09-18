@@ -389,6 +389,14 @@
     "grid_rows": "records",
     "triage": "low_confidence_first",
     "paper_panel": "open",
-    "citation_flash": false
+    "citation_flash": false,
+    "locate": {
+      "records": {
+        "anchor_fields": [
+          "desc1",
+          "desc2"
+        ]
+      }
+    }
   }
 }

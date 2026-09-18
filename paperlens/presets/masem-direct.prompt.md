@@ -165,7 +165,12 @@ Use null when unavailable.
 Each extracted sample/group must include evidence for:
 - sample identification,
 - effect size source,
-- sample size.
+- sample size,
+- every non-null sample metadata value (pubyear, country, lang, female, age, clinical), each with its own evidence entry with field "samples[i].<name>".
+
+This includes values obtained through inference (for example lang from the country of recruitment, country from author affiliations, female computed from counts).
+For an inferred value, quote verbatim the passage the inference rests on and state the inference in notes.
+If no passage supports a value, set the value to null instead of reporting it without evidence.
 
 Each evidence entry must contain EXACTLY:
 - "snippet"

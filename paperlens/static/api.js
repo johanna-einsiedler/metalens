@@ -100,7 +100,7 @@ export const api = {
   // `bands` ("y0:y1,…", image pixels of `page`) restricts the search to the cited table row(s)
   locateValue: (id, value, page, bands, opts) =>
     req(`/api/documents/${id}/locate?value=${encodeURIComponent(value)}&page=${page}${bands ? `&bands=${encodeURIComponent(bands)}` : ""}`
-      + `${opts && opts.anchor ? `&anchor=${encodeURIComponent(opts.anchor)}` : ""}${opts && opts.pageOnly ? "&page_only=true" : ""}`),
+      + `${(opts && opts.anchor ? [].concat(opts.anchor) : []).map((a) => `&anchor=${encodeURIComponent(a)}`).join("")}${opts && opts.pageOnly ? "&page_only=true" : ""}`),
   // the model's verbatim response as stored at extraction time; null when none was kept
   rawResponse: async (id) => {
     const r = await fetch(`/api/documents/${id}/raw`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });

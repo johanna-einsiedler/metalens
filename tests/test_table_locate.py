@@ -53,3 +53,37 @@ def test_display_locate_is_validated_and_not_hashed() -> None:
     bad = copy.deepcopy(spec); bad["display"]["locate"] = {"nfac": {}, "factor_loadings": {"anchor_column": "nope"}}
     errors = preset_spec.validate(bad)[0] if isinstance(preset_spec.validate(bad), tuple) else preset_spec.validate(bad)["errors"]
     assert any("not a table field" in e for e in errors) and any("anchor_column" in e for e in errors)
+
+
+def test_an_effect_size_is_found_on_the_row_of_its_variable_label() -> None:
+    """masem-direct: a correlation printed twice on the page is pinpointed on the row that
+    carries the paper's name for one of the two variables (the record's desc1 / desc2)."""
+    import fitz
+    d = fitz.open(); page = d.new_page()
+    for k, (label, vals) in enumerate([("1. Extraversion (self)", "1.00"), ("2. Extraversion (peer)", ".45  1.00"),
+                                       ("3. Neuroticism (self)", "-.20  .45  1.00")]):
+        page.insert_text((72, 100 + 14 * k), label, fontsize=8); page.insert_text((260, 100 + 14 * k), vals, fontsize=8)
+    pdf = d.tobytes(); d.close()
+    hits = pdf_utils.locate_value_rects(pdf, 1, 0.45)
+    assert len(hits) == 2
+    bands = pdf_utils.anchor_bands(pdf, 1, "Neuroticism (self)")
+    on_row = pdf_utils.rects_in_bands(hits, bands)
+    assert len(on_row) == 1 and on_row[0][1] == max(r[1] for r in hits)
+    assert pdf_utils.anchor_bands(pdf, 1, "Extraversion") == []                     # two rows carry it: ambiguous
+    spec = presets.load_all()["masem-direct"]
+    assert spec["display"]["locate"] == {"records": {"anchor_fields": ["desc1", "desc2"]}} and spec["display"]["citation_flash"] is False
+    bad = copy.deepcopy(spec); bad["display"]["locate"] = {"records": {"anchor_fields": ["nope"]}}
+    res = preset_spec.validate(bad); errors = res[0] if isinstance(res, tuple) else res["errors"]
+    assert any("anchor_fields" in e for e in errors)
+
+
+def test_triangular_matrix_row_choice() -> None:
+    """Both variables' rows show the value: the pair's cell is on the row with more numbers."""
+    import fitz
+    d = fitz.open(); page = d.new_page()
+    for k, (label, vals) in enumerate([("1. Extraversion (self)", "1.00"), ("2. Extraversion (peer)", ".45  1.00"),
+                                       ("3. Neuroticism (self)", "-.20  .45  1.00")]):
+        page.insert_text((72, 100 + 14 * k), label, fontsize=8); page.insert_text((260, 100 + 14 * k), vals, fontsize=8)
+    pdf = d.tobytes(); d.close()
+    peer = pdf_utils.anchor_bands(pdf, 1, "Extraversion (peer)")[0]; neuro = pdf_utils.anchor_bands(pdf, 1, "Neuroticism (self)")[0]
+    assert pdf_utils.numbers_in_band(pdf, 1, neuro) > pdf_utils.numbers_in_band(pdf, 1, peer) >= 2

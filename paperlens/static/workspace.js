@@ -1288,6 +1288,9 @@ function tableLocate(rec, path) {
     const list = rule.anchor_param ? (DATA.params || {})[rule.anchor_param] : null;
     const k = rule.anchor_column ? row[rule.anchor_column] : null;
     if (Array.isArray(list) && Number.isInteger(+k) && list[+k - 1]) anchor = String(list[+k - 1]);
+    // or the row's own text (how the paper names the two variables of an effect size)
+    const own = (rule.anchor_fields || []).map((f) => row[f]).filter((v) => typeof v === "string" && v.trim());
+    if (!anchor && own.length) anchor = own;
   } catch { /* no anchor */ }
   return { anchor };
 }

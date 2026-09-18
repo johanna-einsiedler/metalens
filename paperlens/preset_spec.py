@@ -578,14 +578,19 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 E("$.display.locate must be an object keyed by table field name")
             else:
                 tables = {f.get("name"): f for f in _all_fields(spec) if isinstance(f, dict) and f.get("type") == "table"}
+                kids = {c.get("key"): c for c in ((spec.get("entries") or {}).get("children") or []) if isinstance(c, dict)}
                 pdecls = ((spec.get("prompt") or {}).get("params") or {})
                 for tname, rule in loc.items():
                     at = f"$.display.locate.{tname}"
-                    if tname not in tables:
-                        E(f"{at}: not a table field"); continue
-                    if not isinstance(rule, dict) or set(rule) - {"anchor_column", "anchor_param"}:
-                        E(f"{at} must be an object with anchor_column / anchor_param"); continue
-                    cols = [c if isinstance(c, str) else (c or {}).get("name") for c in (tables[tname].get("columns") or [])]
+                    if tname not in tables and tname not in kids:
+                        E(f"{at}: not a table field or sub-entry list"); continue
+                    if not isinstance(rule, dict) or set(rule) - {"anchor_column", "anchor_param", "anchor_fields"}:
+                        E(f"{at} must be an object with anchor_column / anchor_param / anchor_fields"); continue
+                    src = tables.get(tname) or {}
+                    cols = [c if isinstance(c, str) else (c or {}).get("name") for c in (src.get("columns") or kids.get(tname, {}).get("fields") or [])]
+                    af = rule.get("anchor_fields")
+                    if af is not None and (not isinstance(af, list) or any(a not in cols for a in af)):
+                        E(f"{at}.anchor_fields must list columns / fields of {tname}")
                     if rule.get("anchor_column") is not None and rule["anchor_column"] not in cols:
                         E(f"{at}.anchor_column must be a column of {tname}")
                     if rule.get("anchor_param") is not None and (pdecls.get(rule["anchor_param"]) or {}).get("type") != "list":
