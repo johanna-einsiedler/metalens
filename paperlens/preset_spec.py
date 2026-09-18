@@ -74,7 +74,7 @@ _ALLOWED_KEYS = {
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
-    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate"},
+    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash"},
     "tab": {"id", "label", "fields"},
 }
 
@@ -558,6 +558,20 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # cited as a whole. {"<table field>": {"anchor_column": <column>, "anchor_param": <list param>}}:
         # the number is searched on the printed row of the text params[anchor_param][row[anchor_column]-1]
         # (e.g. the item wording); without an anchor, on the cited page.
+        if display.get("citation_flash") is not None and not isinstance(display.get("citation_flash"), bool):
+            E("$.display.citation_flash must be true or false")
+        aud = display.get("audit")      # {"<table field>": {"key": [columns that identify a row]}} for the audit report
+        if aud is not None:
+            if not isinstance(aud, dict):
+                E("$.display.audit must be an object keyed by table field name")
+            else:
+                tnames = {f.get("name"): f for f in _all_fields(spec) if isinstance(f, dict) and f.get("type") == "table"}
+                for tname, rule in aud.items():
+                    cols = [c if isinstance(c, str) else (c or {}).get("name") for c in ((tnames.get(tname) or {}).get("columns") or [])]
+                    if tname not in tnames:
+                        E(f"$.display.audit.{tname}: not a table field")
+                    elif not isinstance(rule, dict) or not isinstance(rule.get("key"), list) or any(k not in cols for k in rule["key"]):
+                        E(f"$.display.audit.{tname}.key must list columns of {tname}")
         loc = display.get("locate")
         if loc is not None:
             if not isinstance(loc, dict):

@@ -60,6 +60,7 @@ export const api = {
   datasetOverview: (id) => req(`/api/datasets/${id}/overview`),
   datasetActivity: (id) => req(`/api/datasets/${id}/activity`),
   datasetExport: (id) => req(`/api/datasets/${id}/export`),
+  datasetAudit: (id) => req(`/api/datasets/${id}/audit`),
   myDatasets: () => req(`/api/datasets`),
   createDataset: (body) => req(`/api/datasets`, json(body)),
   addToDataset: (id, body) => req(`/api/datasets/${id}/add`, json(body)),

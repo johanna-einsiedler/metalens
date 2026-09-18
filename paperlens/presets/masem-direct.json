@@ -388,6 +388,7 @@
     "entries": "cards",
     "grid_rows": "records",
     "triage": "low_confidence_first",
-    "paper_panel": "open"
+    "paper_panel": "open",
+    "citation_flash": false
   }
 }

@@ -288,6 +288,21 @@
         "anchor_param": "item_texts"
       },
       "factor_correlations": {}
-    }
+    },
+    "audit": {
+      "factor_loadings": {
+        "key": [
+          "item",
+          "factor"
+        ]
+      },
+      "factor_correlations": {
+        "key": [
+          "factor_a",
+          "factor_b"
+        ]
+      }
+    },
+    "citation_flash": false
   }
 }

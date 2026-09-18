@@ -640,11 +640,26 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     if d["visibility"] != "public" and not owner:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     ov = records.dataset_overview(db, dataset_id)
+    ov["viewer_is_owner"] = bool(owner)
+    ov["viewer_is_anonymous"] = not who.user_id
     if not owner:                        # don't leak the uploader's local filenames publicly
         ov.pop("owner_citation_name", None)   # …nor the name behind an anonymous dataset
         for doc in ov.get("documents", []):
             doc["filename"] = None
     return ov
+
+
+@app.get("/api/datasets/{dataset_id}/audit")
+def dataset_audit_report(dataset_id: str, db=Depends(get_db),
+                         who: Principal = Depends(principal)) -> dict:
+    """Audit report: per extraction target, how many values the model extracted and what the
+    human review changed, with sensitivity / precision / Jaccard against the reviewed state.
+    Same owner-or-public gate as the overview."""
+    from . import audit
+    d = records.get_dataset(db, dataset_id)
+    if d is None or not (records.is_dataset_owner(db, dataset_id, who) or d.get("visibility") == "public"):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return audit.dataset_audit(db, dataset_id)
 
 
 @app.get("/api/datasets/{dataset_id}/export")

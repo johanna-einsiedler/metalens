@@ -211,6 +211,16 @@ function startJobTracking(jobIds, since) {
   tick().then(loop);                                   // first check immediately, not after 8s
 }
 
+// While papers of this round are still extracting, "Save all" would save an incomplete
+// set: show a waiting indicator with the progress in its place until every job has settled.
+function syncJobWait() {
+  const wait = $("#jobwait"), save = $("#dlsave"); if (!wait || !save) return;
+  const jobs = Object.values(JOBS);
+  const pending = jobs.filter((j) => j.status === "pending").length;
+  wait.hidden = !pending; save.hidden = !!pending;
+  if (pending) $("#jobwait-txt").textContent = `Extracting… ${jobs.length - pending} of ${jobs.length} paper${jobs.length === 1 ? "" : "s"} done`;
+}
+
 // paper switcher — a tab per document, above the records
 function renderDocTabs() {
   const strip = $("#doctabs"); if (!strip) return;
@@ -242,6 +252,7 @@ function renderDocTabs() {
     : `<span class="doctab jobpend">⏳ extracting…`
       + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
+  syncJobWait();
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
   strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
   strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
@@ -568,7 +579,8 @@ function renderPanel() {
     + `<span class="dlbtns">`
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
-    + (PROJECT ? "" : `<button class="btn btn-primary" id="dlsave">💾 Save all</button>`)
+    + (PROJECT ? "" : `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
+                      + `<button class="btn btn-primary" id="dlsave">💾 Save all</button>`)
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
@@ -742,6 +754,7 @@ function wirePanelHead() {
   const dj = $("#dljson"); if (dj) dj.onclick = downloadJSON;
   const dc = $("#dlcsv"); if (dc) dc.onclick = downloadCSV;
   const save = $("#dlsave"); if (save) save.onclick = doSave;
+  syncJobWait();
   $("#addfinding").onclick = doAddFinding;
   $("#deldoc").onclick = doDelete;
   $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
@@ -860,9 +873,8 @@ async function doSave() {
     const recipe = { schema_id: DATA.schema_id || null, model };
     const ds = await saveToWorkspace(ids, { defaultName: (DATA.paper && DATA.paper.title) || "", recipe });
     if (ds) {
-      const note = ds.failed ? ` · ${ds.failed} failed` : "";
-      b.textContent = `✓ saved ${ds.saved != null ? ds.saved : ids.length}${note} (${ds.visibility})`;
-      setTimeout(() => { b.textContent = "💾 Save all"; b.disabled = false; }, 3000);
+      if (ds.failed) alert(`${ds.failed} paper(s) could not be added to the dataset; the rest were saved.`);
+      location.href = `/dataset?id=${encodeURIComponent(ds.id)}&saved=1`;   // overview: audit report, export, account banner
     } else b.disabled = false;
   } catch (e) { alert("save failed: " + e.message); b.disabled = false; }
 }
@@ -1286,9 +1298,12 @@ async function verifyAndJump(cell, hit) {
   // Jump to the cited snippet IMMEDIATELY — the rects are already in the DOM, so this is
   // instant. For a number we then refine to its exact location once the server search
   // returns; the user never waits on that round-trip to see the evidence.
-  jumpToEvidence(hit.page, hit.ids);
   const txt = cell.textContent.trim();
-  if (!NUM_RE.test(txt) || isPageRef(cell.dataset.path)) return;
+  const chased = NUM_RE.test(txt) && !isPageRef(cell.dataset.path);
+  // presets with display.citation_flash:false (MASEMiner): the cited table/row is shown
+  // steadily and only the number found inside it blinks
+  jumpToEvidence(hit.page, hit.ids, { flash: !(chased && VM && VM.citationFlash === false) });
+  if (!chased) return;
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   if (!hit.exact) {
     // A row citation: pinpoint the number INSIDE the cited row band(s) only — never the

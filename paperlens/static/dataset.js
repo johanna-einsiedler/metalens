@@ -14,15 +14,18 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-let OV = null, OWNER = false;
+let OV = null, OWNER = false, ANON = false, AUDIT = null;
 
 async function init() {
   if (!id) { body.innerHTML = '<p class="muted">No dataset id.</p>'; return; }
   let me;
   try { [OV, me] = await Promise.all([api.datasetOverview(id), api.me()]); }
   catch (e) { body.innerHTML = `<p class="muted">Couldn’t load this dataset: ${esc(e.message)}</p>`; return; }
-  OWNER = !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
+  // an anonymous browser session can own a dataset too (Save all without an account)
+  OWNER = !!OV.viewer_is_owner || !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
+  ANON = !!OV.viewer_is_anonymous;
   render();
+  loadAudit();
 }
 
 function render() {
@@ -31,6 +34,11 @@ function render() {
     ? `${fmtDate(s.first_extracted)} – ${fmtDate(s.last_extracted)}` : fmtDate(s.last_extracted);
 
   body.innerHTML = `
+    ${OWNER && ANON ? `<div class="ds-keep">
+      <div><b>You are not signed in.</b> This dataset is kept for two hours after your last activity and then deleted.
+        Create a free account to keep it, or download the results and the audit report now.</div>
+      <a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(location.pathname + "?id=" + id)}">Create a free account</a>
+    </div>` : ""}
     <div class="ds-head">
       <div>
         <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled dataset")}${
@@ -49,7 +57,7 @@ function render() {
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true" title="Coming soon">📊 Build dashboard (soon)</span>
-      ${OV.publish_status === "published" && OV.changed_since_publish
+      ${ANON ? "" : OV.publish_status === "published" && OV.changed_since_publish
         ? `<button class="btn btn-primary btn-sm" id="ds-update" title="changes since the last publication: opens a pull request with version ${(OV.version || 1) + 1}">⬆ Publish update (v${(OV.version || 1) + 1})</button>`
         : OV.publish_status === "published" || OV.publish_status === "pending" ? ""
         : `<button class="btn btn-ghost btn-sm" id="ds-publish" title="choose where: GitHub and the catalogue, GitHub only, or here only">⬆ Publish…</button>`}
@@ -60,7 +68,9 @@ function render() {
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
     </div>` : ""}
 
-    ${publishingCard()}
+    ${OWNER && ANON ? "" : publishingCard()}
+
+    <div class="ds-card" id="ds-audit"><div class="ds-card-h">Audit report</div><p class="muted" style="margin:0">Comparing the model output with the reviewed data…</p></div>
 
     <div class="ds-card">
       <div class="ds-card-h">Extraction recipe</div>
@@ -98,10 +108,91 @@ function render() {
       <div class="ds-papers">${OV.documents.map(paperRow).join("") || '<p class="muted">No papers.</p>'}</div>
     </div>`;
 
-  wirePublishing();
+  if (!(OWNER && ANON)) wirePublishing();
+  if (AUDIT) renderAudit();
   const gridBtn = $("#ds-grid"); if (gridBtn) gridBtn.onclick = showSpreadsheet;
   const actBtn = $("#ds-act"); if (actBtn) actBtn.onclick = () => toggleActivity(actBtn);
   if (OWNER) wireActions();
+}
+
+// ── audit report: an APA-style table of what the model extracted and what the review changed ──
+async function loadAudit() {
+  try { AUDIT = await api.datasetAudit(id); } catch { AUDIT = { error: true }; }
+  renderAudit();
+}
+const fmtIdx = (v) => (v == null ? "—" : v >= 1 ? "1.00" : v.toFixed(2).replace(/^0/, ""));   // APA: no leading zero
+const AUDIT_COLS = [["extracted", "Extracted"], ["reviewed", "Reviewed"], ["unchanged", "Unchanged"], ["changed", "Changed"],
+                    ["removed", "Removed"], ["added", "Added"]];
+function auditNote(a) {
+  const parts = [
+    `Extracted = non-null values in the model output (${a.n_papers - a.n_papers_without_original} paper${a.n_papers - a.n_papers_without_original === 1 ? "" : "s"}, ${a.n_entries} entr${a.n_entries === 1 ? "y" : "ies"}).`,
+    `Reviewed = extracted values in entries a human verified or removed (${a.n_entries_reviewed} of ${a.n_entries} entries).`,
+    "Changed = value replaced by the reviewer, counted as a false positive and a false negative; Removed = value, row or entry deleted (false positive); Added = value supplied by the reviewer (false negative).",
+    "SEN = sensitivity, TP / (TP + FN); PRE = precision, TP / (TP + FP); JAC = Jaccard index, TP / (TP + FN + FP), where TP = Unchanged and the human-reviewed data are the reference. A dash marks an index that is not defined.",
+  ];
+  if (a.edits_in_unreviewed_entries) parts.push(`${a.edits_in_unreviewed_entries} further edit${a.edits_in_unreviewed_entries === 1 ? " lies" : "s lie"} in entries not yet verified and ${a.edits_in_unreviewed_entries === 1 ? "is" : "are"} not included.`);
+  if (a.n_papers_without_original) parts.push(`${a.n_papers_without_original} paper${a.n_papers_without_original === 1 ? "" : "s"} without a stored model response ${a.n_papers_without_original === 1 ? "is" : "are"} not included.`);
+  if (a.model) parts.push(`Extraction model: ${a.model}.`);
+  parts.push(`Generated ${String(a.generated_at || "").slice(0, 10)}.`);
+  return parts.join(" ");
+}
+function auditTableHtml(a) {
+  let group = null;
+  const bodyRows = a.rows.map((r) => {
+    const head = (r.group && r.group !== group) ? `<tr class="apa-group"><td colspan="10"><i>${esc(r.group)}</i></td></tr>` : "";
+    group = r.group || group;
+    return head + `<tr><td class="apa-var${r.group ? " apa-indent" : ""}">${esc(r.label)}</td>`
+      + AUDIT_COLS.map(([k]) => `<td>${r[k]}</td>`).join("")
+      + `<td>${fmtIdx(r.sen)}</td><td>${fmtIdx(r.pre)}</td><td>${fmtIdx(r.jac)}</td></tr>`;
+  }).join("");
+  const t = a.total;
+  return `<table class="apa"><thead><tr><th class="apa-var">Variable</th>`
+    + AUDIT_COLS.map(([, l]) => `<th>${l}</th>`).join("") + `<th>SEN</th><th>PRE</th><th>JAC</th></tr></thead>`
+    + `<tbody>${bodyRows}<tr class="apa-total"><td class="apa-var">Total</td>`
+    + AUDIT_COLS.map(([k]) => `<td>${t[k]}</td>`).join("")
+    + `<td>${fmtIdx(t.sen)}</td><td>${fmtIdx(t.pre)}</td><td>${fmtIdx(t.jac)}</td></tr></tbody></table>`;
+}
+const AUDIT_TITLE = "Audit of the AI-Assisted Extraction: Extracted Values, Human Revisions, and Agreement With the Reviewed Data";
+function renderAudit() {
+  const box = $("#ds-audit"); if (!box || !AUDIT) return;
+  const head = `<div class="ds-card-h">Audit report`;
+  if (AUDIT.error) { box.innerHTML = `${head}</div><p class="muted" style="margin:0">The audit report could not be computed.</p>`; return; }
+  if (!AUDIT.rows.length) {
+    box.innerHTML = `${head}</div><p class="muted" style="margin:0">${AUDIT.n_papers_without_original
+      ? "No stored model response for these papers, so there is nothing to compare the reviewed data with."
+      : "Nothing extracted yet."}</p>`;
+    return;
+  }
+  box.innerHTML = `${head}
+      <span style="margin-left:auto;display:inline-flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="au-doc" title="a standalone APA-style table; opens in Word, prints to PDF">⬇ Table (.doc)</button>
+        <button class="btn btn-ghost btn-sm" id="au-csv">⬇ CSV</button></span></div>
+    <div class="apa-wrap"><div class="apa-no"><b>Table 1</b></div><div class="apa-title"><i>${esc(AUDIT_TITLE)}</i></div>
+      ${auditTableHtml(AUDIT)}
+      <p class="apa-note"><i>Note.</i> ${esc(auditNote(AUDIT))}</p></div>
+    ${AUDIT.n_entries_reviewed < AUDIT.n_entries ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Only ${AUDIT.n_entries_reviewed} of ${AUDIT.n_entries} entries are verified so far. The indices describe the verified part; verify the rest in <a href="/workspace?project=${esc(id)}">Data review</a> to complete the report.</p>` : ""}`;
+  const slug = (OV.slug || "dataset");
+  $("#au-csv").onclick = () => {
+    const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const lines = [["group", "variable", ...AUDIT_COLS.map(([k]) => k), "sen", "pre", "jac"].join(",")]
+      .concat([...AUDIT.rows, { group: "", label: "Total", ...AUDIT.total }].map((r) =>
+        [q(r.group || ""), q(r.label), ...AUDIT_COLS.map(([k]) => r[k]), r.sen ?? "", r.pre ?? "", r.jac ?? ""].join(",")));
+    saveBlob(`${slug}-audit.csv`, lines.join("\n") + "\n", "text/csv");
+  };
+  $("#au-doc").onclick = () => {
+    const css = "body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.5;margin:1in}table{border-collapse:collapse;width:100%}"
+      + "th,td{padding:3pt 6pt;text-align:center;border:none}th{font-weight:normal;border-top:1.5pt solid #000;border-bottom:.75pt solid #000}"
+      + ".apa-var{text-align:left}.apa-indent{padding-left:14pt}.apa-group td{text-align:left}.apa-total td{border-top:.75pt solid #000;border-bottom:1.5pt solid #000}p{margin:6pt 0}";
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(OV.title || "Audit report")}</title><style>${css}</style></head><body>`
+      + `<p><b>Table 1</b></p><p><i>${esc(AUDIT_TITLE)}</i></p>${auditTableHtml(AUDIT)}<p><i>Note.</i> ${esc(auditNote(AUDIT))}</p>`
+      + `<p style="font-size:10pt">Dataset: ${esc(OV.title || "")}${OV.published_url ? ` (${esc(OV.published_url)})` : ""}. Schema: ${esc(AUDIT.schema_id || "")}.</p></body></html>`;
+    saveBlob(`${slug}-audit.doc`, html, "application/msword");
+  };
+}
+function saveBlob(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // Precise timestamp for the history — a date alone can't order same-day edits.

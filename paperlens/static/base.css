@@ -268,6 +268,20 @@ a.pt-title:hover { color: var(--accent); }
   border-radius: var(--radius-sm); padding: 9px 12px; margin: 0 0 12px; font-size: 13px; }
 
 /* dataset overview page */
+/* signed out: the dataset lives only as long as the session */
+.ds-keep { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0 4px; padding: 12px 16px;
+  border: 1px solid var(--override-line); background: var(--override-bg); border-radius: var(--radius); font-size: 13.5px; }
+.ds-keep .btn { flex: none; }
+/* APA-style table (audit report): horizontal rules only, centred numbers, left-aligned stub */
+.apa-wrap { font-family: "Times New Roman", Times, serif; font-size: 15px; color: var(--text); overflow-x: auto; }
+.apa-no { margin-bottom: 2px; } .apa-title { margin-bottom: 8px; }
+table.apa { border-collapse: collapse; width: 100%; }
+table.apa th, table.apa td { padding: 4px 10px; text-align: center; border: none; white-space: nowrap; }
+table.apa th { font-weight: normal; border-top: 2px solid var(--text); border-bottom: 1px solid var(--text); }
+table.apa .apa-var { text-align: left; white-space: normal; } table.apa .apa-indent { padding-left: 24px; }
+table.apa .apa-group td { text-align: left; padding-top: 8px; }
+table.apa .apa-total td { border-top: 1px solid var(--text); border-bottom: 2px solid var(--text); }
+.apa-note { margin: 8px 0 0; font-size: 14px; line-height: 1.45; }
 .ds-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin: 12px 0 4px; }
 .ds-sub { font-size: 13px; }
 .ds-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }
@@ -611,6 +625,10 @@ input[type=file] { margin: 6px 0; }
 .fileitem .fstatus { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .fi-right { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .fi-ok { color: var(--success); }
+.jobwait { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px dashed var(--border);
+  border-radius: var(--radius-sm); font-size: 13px; color: var(--text-muted); }
+.jobwait[hidden] { display: none; }
+.radio-row[hidden] { display: none; }
 .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border);
   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
