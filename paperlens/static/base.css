@@ -272,16 +272,19 @@ a.pt-title:hover { color: var(--accent); }
 .ds-keep { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0 4px; padding: 12px 16px;
   border: 1px solid var(--override-line); background: var(--override-bg); border-radius: var(--radius); font-size: 13.5px; }
 .ds-keep .btn { flex: none; }
-/* APA-style table (audit report): horizontal rules only, centred numbers, left-aligned stub */
-.apa-wrap { font-family: "Times New Roman", Times, serif; font-size: 15px; color: var(--text); overflow-x: auto; }
-.apa-no { margin-bottom: 2px; } .apa-title { margin-bottom: 8px; }
-table.apa { border-collapse: collapse; width: 100%; }
-table.apa th, table.apa td { padding: 4px 10px; text-align: center; border: none; white-space: nowrap; }
-table.apa th { font-weight: normal; border-top: 2px solid var(--text); border-bottom: 1px solid var(--text); }
-table.apa .apa-var { text-align: left; white-space: normal; } table.apa .apa-indent { padding-left: 24px; }
-table.apa .apa-group td { text-align: left; padding-top: 8px; }
-table.apa .apa-total td { border-top: 1px solid var(--text); border-bottom: 2px solid var(--text); }
-.apa-note { margin: 8px 0 0; font-size: 14px; line-height: 1.45; }
+.ds-keep input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 14px var(--font); background: var(--surface); color: var(--text); }
+/* audit report on the dataset page: the platform's table style (the APA layout is in the downloads) */
+.ds-card-h { display: flex; align-items: center; gap: 8px; }
+.au-wrap { overflow-x: auto; }
+table.au-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.au-table th, table.au-table td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.au-table th { font-weight: 600; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; cursor: help; }
+table.au-table .au-var { text-align: left; white-space: normal; }
+table.au-table .au-group td { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-muted); background: var(--bg); padding-top: 9px; }
+table.au-table .au-hit { color: var(--error); font-weight: 600; }
+table.au-table .au-idx { font-family: var(--mono, ui-monospace, monospace); }
+table.au-table .au-total td { font-weight: 600; border-top: 2px solid var(--border); border-bottom: none; }
+.au-note { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); } .au-note summary { cursor: pointer; } .au-note p { margin: 6px 0 0; line-height: 1.5; }
 .ds-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin: 12px 0 4px; }
 .ds-sub { font-size: 13px; }
 .ds-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 20px; }

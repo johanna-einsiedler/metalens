@@ -15,13 +15,14 @@ function fmtDate(iso) {
 }
 
 let OV = null, OWNER = false, ANON = false, AUDIT = null;
+let FINALIZED = new URLSearchParams(location.search).get("finalized") === "1";   // arrived from "Finalize" in the review
 
 async function init() {
   if (!id) { body.innerHTML = '<p class="muted">No dataset id.</p>'; return; }
   let me;
   try { [OV, me] = await Promise.all([api.datasetOverview(id), api.me()]); }
   catch (e) { body.innerHTML = `<p class="muted">Couldn’t load this dataset: ${esc(e.message)}</p>`; return; }
-  // an anonymous browser session can own a dataset too (Save all without an account)
+  // an anonymous browser session can own a dataset too (Finalize without an account)
   OWNER = !!OV.viewer_is_owner || !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
   ANON = !!OV.viewer_is_anonymous;
   render();
@@ -35,10 +36,15 @@ function render() {
 
   body.innerHTML = `
     ${OWNER && ANON ? `<div class="ds-keep">
-      <div><b>You are not signed in.</b> This dataset is kept for two hours after your last activity and then deleted.
-        Create a free account to keep it, or download the results and the audit report now.</div>
-      <a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(location.pathname + "?id=" + id)}">Create a free account</a>
+      <div><b>Save this dataset.</b> You are not signed in, so it stays private and is kept for two hours after your last
+        activity, then deleted. Create a free account to save it, or download the results and the audit report now.</div>
+      <a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(location.pathname + "?id=" + id + "&finalized=1")}">Create a free account to save</a>
     </div>` : ""}
+    ${OWNER && !ANON && FINALIZED ? `<form class="ds-keep" id="ds-saveform">
+      <div style="flex:1"><b>Save this dataset.</b> It is in your workspace as a private dataset. Give it a name to find it again; you can publish it later.
+        <input id="ds-savename" type="text" value="${esc(OV.title || "")}" placeholder="dataset name" required style="display:block;width:100%;margin-top:8px"/></div>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </form>` : ""}
     <div class="ds-head">
       <div>
         <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled dataset")}${
@@ -110,6 +116,17 @@ function render() {
 
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
+  const sf = $("#ds-saveform");
+  if (sf) sf.onsubmit = async (e) => {
+    e.preventDefault();
+    const title = $("#ds-savename").value.trim(); if (!title) return;
+    try {
+      if (title !== OV.title) OV.title = (await api.renameDataset(id, title)).title;
+      FINALIZED = false;
+      const u = new URL(location.href); u.searchParams.delete("finalized"); history.replaceState(null, "", u);
+      ACT = null; render();
+    } catch (ex) { alert("save failed: " + ex.message); }
+  };
   const gridBtn = $("#ds-grid"); if (gridBtn) gridBtn.onclick = showSpreadsheet;
   const actBtn = $("#ds-act"); if (actBtn) actBtn.onclick = () => toggleActivity(actBtn);
   if (OWNER) wireActions();
@@ -135,6 +152,51 @@ function auditNote(a) {
   if (a.model) parts.push(`Extraction model: ${a.model}.`);
   parts.push(`Generated ${String(a.generated_at || "").slice(0, 10)}.`);
   return parts.join(" ");
+}
+// On the page: the platform's own table style. The APA layout is for the downloads.
+function auditPageHtml(a) {
+  let group = null;
+  const idx = (v) => `<td class="au-idx">${fmtIdx(v)}</td>`;
+  const rows = a.rows.map((r) => {
+    const head = (r.group && r.group !== group) ? `<tr class="au-group"><td colspan="10">${esc(r.group)}</td></tr>` : "";
+    group = r.group || group;
+    return head + `<tr><td class="au-var">${esc(r.label)}</td>`
+      + AUDIT_COLS.map(([k]) => `<td class="${(k === "changed" || k === "removed" || k === "added") && r[k] ? "au-hit" : ""}">${r[k]}</td>`).join("")
+      + idx(r.sen) + idx(r.pre) + idx(r.jac) + `</tr>`;
+  }).join("");
+  const t = a.total;
+  return `<table class="au-table"><thead><tr><th class="au-var">Variable</th>`
+    + AUDIT_COLS.map(([k, l]) => `<th title="${esc(AUDIT_HELP[k])}">${l}</th>`).join("")
+    + `<th title="sensitivity: TP / (TP + FN)">SEN</th><th title="precision: TP / (TP + FP)">PRE</th><th title="Jaccard: TP / (TP + FN + FP)">JAC</th></tr></thead>`
+    + `<tbody>${rows}<tr class="au-total"><td class="au-var">Total</td>` + AUDIT_COLS.map(([k]) => `<td>${t[k]}</td>`).join("")
+    + idx(t.sen) + idx(t.pre) + idx(t.jac) + `</tr></tbody></table>`;
+}
+const AUDIT_HELP = {
+  extracted: "non-null values in the model output", reviewed: "extracted values in entries a human verified or removed",
+  unchanged: "reviewed values that stand as extracted (true positives)", changed: "values the reviewer replaced (false positive and false negative)",
+  removed: "values, rows or entries the reviewer deleted (false positives)", added: "values the reviewer supplied (false negatives)",
+};
+// LaTeX (booktabs, APA layout): \usepackage{booktabs} and, for the note, threeparttable.
+function auditTex(a) {
+  const TEX = { "\\": "\\textbackslash{}", "&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#", "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}", "^": "\\textasciicircum{}" };
+  const tx = (s) => String(s == null ? "" : s).replace(/[\\&%$#_{}~^]/g, (ch) => TEX[ch]);   // one pass, so inserted braces are not escaped again
+  const line = (label, r, indent) => `${indent ? "\\hspace{1em}" : ""}${tx(label)} & ` + AUDIT_COLS.map(([k]) => r[k]).join(" & ")
+    + ` & ${[r.sen, r.pre, r.jac].map((v) => fmtIdx(v).replace("—", "---")).join(" & ")} \\\\`;
+  let group = null; const body = [];
+  a.rows.forEach((r) => {
+    if (r.group && r.group !== group) { body.push(`\\textit{${tx(r.group)}} \\\\`); group = r.group; }
+    body.push(line(r.label, r, !!r.group));
+  });
+  return [
+    "% requires \\usepackage{booktabs,threeparttable}",
+    "\\begin{table}[htbp]", "\\begin{threeparttable}",
+    `\\caption{${tx(AUDIT_TITLE)}}`, "\\label{tab:extraction-audit}",
+    "\\begin{tabular}{l" + "r".repeat(AUDIT_COLS.length + 3) + "}", "\\toprule",
+    "Variable & " + AUDIT_COLS.map(([, l]) => l).join(" & ") + " & SEN & PRE & JAC \\\\", "\\midrule",
+    ...body, "\\midrule", line("Total", a.total, false), "\\bottomrule", "\\end{tabular}",
+    "\\begin{tablenotes}[flushleft]\\small", `\\item \\textit{Note.} ${tx(auditNote(a)).replace(/—/g, "---")}`, "\\end{tablenotes}",
+    "\\end{threeparttable}", "\\end{table}", "",
+  ].join("\n");
 }
 function auditTableHtml(a) {
   let group = null;
@@ -165,11 +227,13 @@ function renderAudit() {
   }
   box.innerHTML = `${head}
       <span style="margin-left:auto;display:inline-flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" id="au-doc" title="a standalone APA-style table; opens in Word, prints to PDF">⬇ Table (.doc)</button>
-        <button class="btn btn-ghost btn-sm" id="au-csv">⬇ CSV</button></span></div>
-    <div class="apa-wrap"><div class="apa-no"><b>Table 1</b></div><div class="apa-title"><i>${esc(AUDIT_TITLE)}</i></div>
-      ${auditTableHtml(AUDIT)}
-      <p class="apa-note"><i>Note.</i> ${esc(auditNote(AUDIT))}</p></div>
+        <span class="muted" style="font-weight:400;font-size:12.5px;align-self:center">APA-style table:</span>
+        <button class="btn btn-ghost btn-sm" id="au-csv">⬇ CSV</button>
+        <button class="btn btn-ghost btn-sm" id="au-doc" title="APA-style table with note; opens in Word, prints to PDF">⬇ DOC</button>
+        <button class="btn btn-ghost btn-sm" id="au-tex" title="APA-style LaTeX table (booktabs, threeparttable)">⬇ TeX</button></span></div>
+    <p class="muted" style="font-size:13px;margin:0 0 10px">What the model extracted and what the review changed, per extraction target. Hover a column for its definition.</p>
+    <div class="au-wrap">${auditPageHtml(AUDIT)}</div>
+    <details class="au-note"><summary>How this is computed</summary><p>${esc(auditNote(AUDIT))}</p></details>
     ${AUDIT.n_entries_reviewed < AUDIT.n_entries ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Only ${AUDIT.n_entries_reviewed} of ${AUDIT.n_entries} entries are verified so far. The indices describe the verified part; verify the rest in <a href="/workspace?project=${esc(id)}">Data review</a> to complete the report.</p>` : ""}`;
   const slug = (OV.slug || "dataset");
   $("#au-csv").onclick = () => {
@@ -179,6 +243,7 @@ function renderAudit() {
         [q(r.group || ""), q(r.label), ...AUDIT_COLS.map(([k]) => r[k]), r.sen ?? "", r.pre ?? "", r.jac ?? ""].join(",")));
     saveBlob(`${slug}-audit.csv`, lines.join("\n") + "\n", "text/csv");
   };
+  $("#au-tex").onclick = () => saveBlob(`${slug}-audit.tex`, auditTex(AUDIT), "application/x-tex");
   $("#au-doc").onclick = () => {
     const css = "body{font-family:'Times New Roman',serif;font-size:12pt;line-height:1.5;margin:1in}table{border-collapse:collapse;width:100%}"
       + "th,td{padding:3pt 6pt;text-align:center;border:none}th{font-weight:normal;border-top:1.5pt solid #000;border-bottom:.75pt solid #000}"

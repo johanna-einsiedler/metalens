@@ -20,8 +20,8 @@ function projectModal(defaultName, { anonymous = false } = {}) {
   return new Promise((resolve) => {
     const safe = (defaultName || "").replace(/"/g, "&quot;");
     const { ov, close } = makeModal(`
-      <h3>${anonymous ? "Save as a dataset" : "Save to your workspace"}</h3>
-      <p class="muted">${anonymous ? "Name this dataset. You are not signed in, so it stays private and is kept for two hours after your last activity; create an account on the next page to keep it." : "Name this dataset and choose who can see the results."}</p>
+      <h3>Save to your workspace</h3>
+      <p class="muted">Name this dataset${anonymous ? "." : " and choose who can see the results."}</p>
       <form id="sv-pform">
         <input id="sv-name" type="text" placeholder="dataset name" value="${safe}" required/>
         <div class="radio-row" style="margin:10px 0"${anonymous ? " hidden" : ""}>
@@ -49,13 +49,14 @@ function projectModal(defaultName, { anonymous = false } = {}) {
 // Orchestrates the whole flow. Returns the created dataset (with .visibility), or
 // null if the user cancelled at any step. `recipe` (prompt/model/schema_id) is
 // stored on the new dataset so re-opening it can add papers with the same settings.
-export async function saveToWorkspace(documentIds, { defaultName = "", recipe = {} } = {}) {
+export async function saveToWorkspace(documentIds, { defaultName = "", recipe = {}, silent = false } = {}) {
   // No account needed to save: a logged-out dataset is private, belongs to this browser
   // session and is deleted after the idle timeout unless an account claims it (the dataset
   // page says so). Signing in is offered there, not forced here.
   const me = await api.me();
   const anonymous = !me || !me.email;
-  const project = await projectModal(defaultName, { anonymous });
+  const project = silent ? { name: (defaultName || "").trim() || "Untitled dataset", visibility: "private" }
+    : await projectModal(defaultName, { anonymous });
   if (!project) return null;
   const ds = await api.createDataset({
     title: project.name, visibility: project.visibility,

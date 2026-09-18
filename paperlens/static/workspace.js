@@ -211,7 +211,7 @@ function startJobTracking(jobIds, since) {
   tick().then(loop);                                   // first check immediately, not after 8s
 }
 
-// While papers of this round are still extracting, "Save all" would save an incomplete
+// While papers of this round are still extracting, "Finalize" would bundle an incomplete
 // set: show a waiting indicator with the progress in its place until every job has settled.
 function syncJobWait() {
   const wait = $("#jobwait"), save = $("#dlsave"); if (!wait || !save) return;
@@ -580,7 +580,7 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + (PROJECT ? "" : `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
-                      + `<button class="btn btn-primary" id="dlsave">💾 Save all</button>`)
+                      + `<button class="btn btn-primary" id="dlsave" title="finish the review: overview with the audit report, exports, and the option to save">✓ Finalize</button>`)
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
@@ -861,22 +861,24 @@ async function doSave() {
     ...Object.values(JOBS).filter((j) => j.status === "complete" && j.document_id).map((j) => j.document_id),
     ...(DATA && DATA.document_id ? [DATA.document_id] : []),
   ].filter(Boolean))];
-  if (!ids.length) { alert("Nothing to save yet."); return; }
+  if (!ids.length) { alert("Nothing to finalize yet."); return; }
   const screened = ids.filter((id) => !((nrecOf.get(id) || 0) > 0)).length;
   if (screened && !confirm(`${screened} of ${ids.length} paper(s) have no extracted records.\n`
-      + `They'll be saved as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
+      + `They'll be kept as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
   b.disabled = true;
   try {
     // record the recipe (schema/preset + model + the exact prompt) so re-opening the
     // dataset can add papers with the same preset without re-choosing it.
     const model = (DATA.records || []).map((r) => r.extraction && r.extraction.model).find(Boolean) || null;
     const recipe = { schema_id: DATA.schema_id || null, model };
-    const ds = await saveToWorkspace(ids, { defaultName: (DATA.paper && DATA.paper.title) || "", recipe });
+    // no dialog here: the papers are bundled and the overview opens; naming and keeping it happen there
+    const base = ids.length > 1 ? `${ids.length} papers` : ((DATA.paper && DATA.paper.title) || (DATA.filename || "").replace(/\.pdf$/i, ""));
+    const ds = await saveToWorkspace(ids, { defaultName: base, recipe, silent: true });
     if (ds) {
-      if (ds.failed) alert(`${ds.failed} paper(s) could not be added to the dataset; the rest were saved.`);
-      location.href = `/dataset?id=${encodeURIComponent(ds.id)}&saved=1`;   // overview: audit report, export, account banner
+      if (ds.failed) alert(`${ds.failed} paper(s) could not be included; the rest are in the overview.`);
+      location.href = `/dataset?id=${encodeURIComponent(ds.id)}&finalized=1`;   // overview: audit report, export, save
     } else b.disabled = false;
-  } catch (e) { alert("save failed: " + e.message); b.disabled = false; }
+  } catch (e) { alert("finalize failed: " + e.message); b.disabled = false; }
 }
 
 function wireCard(card, rec) {
