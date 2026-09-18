@@ -79,7 +79,8 @@ export const api = {
   renameDataset: (id, title) =>
     req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
                                  body: JSON.stringify({ title }) }),
-  publishDataset: (id) => req(`/api/datasets/${id}/publish`, { method: "POST" }),
+  publishDataset: (id, body) => req(`/api/datasets/${id}/publish`, json(body || { target: "github+metalens" })),
+  paperCoverage: (q) => req(`/api/papers/coverage${qs({ q })}`),
   githubSync: () => req(`/api/github/sync`, { method: "POST" }),
   record: (id) => req(`/api/records/${id}`),
   recordsProvenance: (ids) => req(`/api/records/provenance`, json({ ids })),

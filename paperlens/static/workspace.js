@@ -903,6 +903,7 @@ async function sendVerify(card, rec, status) {
   card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = true));
   try {
     await api.verify(rec.id, { status });
+    maybeOfferRepublish();
     rec.verification_status = status;
     setStatus(card, status);
     refreshNavState();
@@ -1036,6 +1037,22 @@ function getByPath(obj, path) {
 // field_values and route it through the verify layer — so the change lands in the record
 // (→ export + reload) and the audit trail, not just the UI. Shared by text cells + typed
 // controls. Returns the api.verify promise.
+// After the first review action in a published dataset, offer once to push the changes as a
+// new version — the GitHub copy is what people cite, so it should not silently drift.
+let REPUBLISH_OFFERED = false;
+async function maybeOfferRepublish() {
+  if (!PROJECT || REPUBLISH_OFFERED) return;
+  REPUBLISH_OFFERED = true;
+  try {
+    const ov = await api.datasetOverview(PROJECT);
+    if (ov.publish_status !== "published") return;
+    const v = (ov.version || 1) + 1;
+    if (!confirm(`This dataset is published on GitHub. Publish your changes as version ${v} when you are done?\n\nOK opens the pull request now; Cancel leaves the published copy as it is (you can publish the update from the dataset page later).`)) return;
+    await api.publishDataset(PROJECT, { target: ov.catalogue === false ? "github" : "github+metalens" });
+    alert(`Pull request opened for version ${v}. The catalogue switches to it once merged.`);
+  } catch { /* offer only; never block the save */ }
+}
+
 function saveFieldEdit(rec, card, path, newVal, origVal) {
   const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
   setByPath(fv, path, newVal);
@@ -1045,7 +1062,7 @@ function saveFieldEdit(rec, card, path, newVal, origVal) {
     status: "corrected",
     diff: [{ field_path: path, original_value: origVal, final_value: newVal }],
     field_values: fv,
-  }).then(() => { rec.field_values = fv; })
+  }).then(() => { rec.field_values = fv; maybeOfferRepublish(); })
     .catch((e) => alert("save failed: " + e.message));
 }
 // current stored value at a record-relative path (nested paths included) — the diff's original_value

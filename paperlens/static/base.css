@@ -694,3 +694,8 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .ds-form input[type="text"], .ds-form textarea { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--surface); color: var(--text); width: 100%; box-sizing: border-box; }
 .ds-form .pd-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* catalogue: paper coverage check */
+.paper-check { margin: 6px 0 12px; }
+.paper-check input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.paper-check .pq-hit { padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }

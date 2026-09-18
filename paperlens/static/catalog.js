@@ -27,6 +27,10 @@ async function renderBrowse() {
     <div class="searchbar">
       <input id="q" type="search" placeholder="Search records, datasets &amp; prompts…" value="${esc(f.q || "")}"/>
     </div>
+    <div class="paper-check">
+      <input id="pq" type="search" placeholder="Is a paper included? Paste a DOI or words of the title…"/>
+      <div id="pq-out" class="muted"></div>
+    </div>
     <div id="filters" class="active-filters"></div>
     <div class="catalog">
       <aside class="facets" id="facets"><p class="muted">…</p></aside>
@@ -34,6 +38,8 @@ async function renderBrowse() {
     </div>`;
   const input = document.getElementById("q");
   let t; input.oninput = () => { clearTimeout(t); t = setTimeout(() => store.set("q", input.value.trim()), 250); };
+  const pq = document.getElementById("pq"), pqOut = document.getElementById("pq-out");
+  let pt; pq.oninput = () => { clearTimeout(pt); pt = setTimeout(() => paperCheck(pq.value.trim(), pqOut), 300); };
 
   const [res, facets, pub] = await Promise.all([
     api.search({ ...f, limit: PAGE }), api.facets(f), api.datasetsPublic(f.q),
@@ -41,6 +47,21 @@ async function renderBrowse() {
   renderFilters(f);
   renderFacets(facets, f);
   renderMain(res, pub, f);
+}
+
+// the coverage check: which published datasets contain this paper (DOI or title words)
+async function paperCheck(q, out) {
+  if (!q) { out.innerHTML = ""; return; }
+  let hits = [];
+  try { hits = (await api.paperCoverage(q)).papers || []; } catch { out.textContent = "lookup failed"; return; }
+  if (!hits.length) { out.innerHTML = `No paper matching “${esc(q)}” is in a published dataset.`; return; }
+  out.innerHTML = hits.slice(0, 8).map((p) => {
+    const ref = `${esc((p.authors || []).slice(0, 3).join(", ") || "")}${(p.authors || []).length > 3 ? " et al." : ""} (${esc(String(p.year || "n.d."))}). ${esc(p.title || "")}`;
+    const where = p.datasets.length
+      ? "in " + p.datasets.map((d) => `<a href="/dataset?id=${esc(d.id)}">${esc(d.title || d.slug)}</a> (${d.n_records} record${d.n_records === 1 ? "" : "s"})`).join(", ")
+      : "known here, but not in a published dataset";
+    return `<div class="pq-hit">${ref}<br/><span class="muted">${where}</span></div>`;
+  }).join("");
 }
 
 function renderFilters(f) {

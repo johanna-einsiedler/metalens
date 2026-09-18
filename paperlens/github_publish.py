@@ -62,6 +62,17 @@ def readme_markdown(material: dict) -> str:
         lines += ["## How to cite", "", "> " + md["citation"], ""]
     if md.get("readme"):
         lines += ["## About this dataset", "", md["readme"].strip(), ""]
+    if md.get("papers"):
+        lines += ["## Included papers", ""]
+        for p in md["papers"]:
+            who = ", ".join(p.get("authors") or []) or "[authors]"
+            ref = f"{who} ({p.get('year') or 'n.d.'}). {p.get('title') or '[title]'}."
+            if p.get("journal"):
+                ref += f" {p['journal']}."
+            if p.get("doi"):
+                ref += f" https://doi.org/{p['doi']}"
+            lines.append(f"- {ref} — {p.get('n_records', 0)} record{'' if p.get('n_records') == 1 else 's'}")
+        lines.append("")
     lines += ["## Provenance", "",
               f"- Preset / schema: `{md.get('schema_id') or preset.get('schema_id') or '—'}`",
               f"- Engine: Metalens {eng.get('version') or '—'}" + (f" (commit {eng['git_sha']})" if eng.get("git_sha") else ""),
@@ -89,10 +100,12 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
     """Publish the dataset as a PR. Returns {pr_url, branch}. Raises if unconfigured."""
     if not token():
         raise RuntimeError("PAPERLENS_GITHUB_TOKEN is not set — GitHub publishing is unavailable.")
-    material = exporter.materialize_dataset(conn, dataset_id)
     ds = records.get_dataset(conn, dataset_id) or {}
-    slug = ds.get("slug") or records._slugify(material["metadata"].get("title") or dataset_id)
+    slug = ds.get("slug") or records._slugify(ds.get("title") or dataset_id)
     gh_repo = repo()
+    # the files cite their own future location in the repository
+    material = exporter.materialize_dataset(
+        conn, dataset_id, published_url=f"https://github.com/{gh_repo}/tree/main/datasets/{slug}")
     branch = branch or f"metalens/{slug}-{dataset_id[:8]}"
 
     close = client is None

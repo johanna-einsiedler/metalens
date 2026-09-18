@@ -49,13 +49,12 @@ function render() {
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true" title="Coming soon">📊 Build dashboard (soon)</span>
-      <button class="btn btn-ghost btn-sm" id="ds-vis" title="${vis === "public" ? "unlist the dataset" : "opens a pull request in the datasets repository; listed once merged"}">${vis === "public" ? "Make private" : "Publish"}</button>
+      ${OV.publish_status === "published" && OV.changed_since_publish
+        ? `<button class="btn btn-primary btn-sm" id="ds-update" title="changes since the last publication: opens a pull request with version ${(OV.version || 1) + 1}">⬆ Publish update (v${(OV.version || 1) + 1})</button>`
+        : OV.publish_status === "published" || OV.publish_status === "pending" ? ""
+        : `<button class="btn btn-ghost btn-sm" id="ds-publish" title="choose where: GitHub and the catalogue, GitHub only, or here only">⬆ Publish…</button>`}
+      ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
-      ${OV.publish_status === "pending" && OV.git_pr_url
-        ? `<a class="btn btn-ghost btn-sm" href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">🔗 Review the pull request</a>
-           <button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>`
-        : OV.publish_status === "published" && OV.published_url ? ""
-        : `<button class="btn btn-ghost btn-sm" id="ds-github">⬆ Publish to GitHub</button>`}
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
@@ -165,8 +164,8 @@ function stat(num, label, small) {
 // where the dataset stands on its way to the datasets repository (the source of truth)
 function publishState() {
   if (OV.github_source) return ` · <a href="${esc(OV.published_url)}" target="_blank" rel="noopener">imported from GitHub ↗</a> (read-only)`;
-  if (OV.publish_status === "published" && OV.published_url) return ` · <a href="${esc(OV.published_url)}" target="_blank" rel="noopener">published on GitHub ↗</a>`;
-  if (OV.publish_status === "pending") return ` · <span title="listed in the catalogue once the pull request is merged">pending review on GitHub</span>`;
+  if (OV.publish_status === "published" && OV.published_url) return ` · <a href="${esc(OV.published_url)}" target="_blank" rel="noopener">published on GitHub ↗</a>${OV.catalogue ? "" : " · not listed here"}`;
+  if (OV.publish_status === "pending") return ` · pending review on GitHub${OV.git_pr_url ? ` (<a href="${esc(OV.git_pr_url)}" target="_blank" rel="noopener">pull request ↗</a>)` : ""}${OV.catalogue ? "" : " · GitHub only"}`;
   if (OV.visibility === "public") return " · public here only (not on GitHub yet)";
   return "";
 }
@@ -274,7 +273,15 @@ function wireActions() {
     const left = (OV.stats.n_records || 0) - (OV.stats.n_verified || 0);
     if (!confirm(`Mark ${left} record${left === 1 ? "" : "s"} as verified in your name? Flagged records stay flagged.`)) return;
     va.disabled = true;
-    try { const r = await api.verifyAllDataset(id); OV = await api.datasetOverview(id); render(); alert(`${r.verified} record${r.verified === 1 ? "" : "s"} marked verified · ${r.credibility.label}`); }
+    try {
+      const r = await api.verifyAllDataset(id); OV = await api.datasetOverview(id); render();
+      alert(`${r.verified} record${r.verified === 1 ? "" : "s"} marked verified · ${r.credibility.label}`);
+      // the published copy carries the old badge: offer to push the verified state as a new version
+      if (OV.publish_status === "published" && r.verified > 0
+          && confirm(`Publish the verified dataset as version ${(OV.version || 1) + 1} on GitHub now?`)) {
+        await publishWith(OV.catalogue === false ? "github" : "github+metalens");
+      }
+    }
     catch (ex) { alert("failed: " + ex.message); va.disabled = false; }
   };
   const dd = $("#ds-dedupe");
@@ -285,19 +292,16 @@ function wireActions() {
     try { const r = await api.dedupeDataset(id); OV = await api.datasetOverview(id); render(); if (!r.n_removed) alert("Nothing to remove."); }
     catch (ex) { alert("cleanup failed: " + ex.message); dd.disabled = false; }
   };
-  $("#ds-vis").onclick = async (e) => {
-    const next = OV.visibility === "public" ? "private" : "public";
-    e.target.disabled = true;
-    try {
-      const r = await api.setDatasetVisibility(id, next);
-      if (r && r.github_error) alert("The dataset is public here, but publishing to GitHub failed: " + r.github_error);
-      OV = await api.datasetOverview(id); render();
-    }
-    catch (ex) { alert("update failed: " + ex.message); e.target.disabled = false; }
+  const pb = $("#ds-publish"); if (pb) pb.onclick = openPublishDialog;
+  const ub = $("#ds-update"); if (ub) ub.onclick = async () => {
+    if (!confirm(`Publish the changes as version ${(OV.version || 1) + 1}? This opens a pull request in the datasets repository; the current version stays listed until it is merged.`)) return;
+    ub.disabled = true; ub.textContent = "Publishing…";
+    try { await publishWith(OV.catalogue === false ? "github" : "github+metalens"); }
+    catch (ex) { alert(ex.message); ub.disabled = false; ub.textContent = "⬆ Publish update"; }
   };
   const rn = $("#ds-rename"); if (rn) rn.onclick = doRename;
   $("#ds-export").onclick = doExport;
-  const gh = $("#ds-github"); if (gh) gh.onclick = () => publishToGithub(gh);
+
   const sy = $("#ds-sync"); if (sy) sy.onclick = async () => {
     sy.disabled = true;
     try { const r = await api.githubSync(); OV = await api.datasetOverview(id); render(); if (OV.publish_status !== "published") alert(`Not merged yet (repository checked: ${r.seen} dataset${r.seen === 1 ? "" : "s"} on the main branch).`); }
@@ -332,6 +336,50 @@ async function doRename() {
 
 // Publish the dataset to the metalens-datasets GitHub repo as a PR (owner-only).
 // The endpoint enqueues when Redis is up (poll the job) or runs synchronously.
+// One Publish button, three destinations. GitHub is the source of truth: a pull request in
+// the datasets repository, listed in this catalogue once merged (or never, for "GitHub
+// only"). "Here only" exists for servers without GitHub configured.
+async function openPublishDialog() {
+  let cfg = {}; try { cfg = await api.extractionConfig(); } catch { /* defaults */ }
+  const gh = !!cfg.github_publishing;
+  const ov = document.createElement("div"); ov.className = "modal-overlay";
+  ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
+    <h3>Publish this dataset</h3>
+    <p class="muted">The datasets repository on GitHub is the citable, versioned copy. Publishing opens a pull request there; the dataset is listed once it is merged.</p>
+    <form id="pub-form">
+      ${gh ? `<label class="radio"><input type="radio" name="pub-target" value="github+metalens" checked/> <b>GitHub and the Metalens catalogue</b> — pull request now, listed here after the merge</label>
+      <label class="radio"><input type="radio" name="pub-target" value="github"/> <b>GitHub only</b> — pull request, never listed in this catalogue</label>`
+         : `<label class="radio"><input type="radio" name="pub-target" value="metalens" checked/> <b>Metalens catalogue only</b> — GitHub publishing is not configured on this server</label>`}
+      <div id="pub-err" class="pl-err"></div>
+      <div class="modal-actions"><button type="button" class="btn btn-ghost" id="pub-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pub-go">Publish</button></div>
+    </form></div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+  ov.querySelector("#pub-cancel").onclick = close;
+  ov.querySelector("#pub-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const target = ov.querySelector('input[name="pub-target"]:checked').value;
+    const go = ov.querySelector("#pub-go"); go.disabled = true; go.textContent = "Publishing…";
+    try { await publishWith(target); close(); }
+    catch (ex) { ov.querySelector("#pub-err").textContent = ex.message; go.disabled = false; go.textContent = "Publish"; }
+  };
+}
+
+async function publishWith(target) {
+  let res = await api.publishDataset(id, { target });
+  if (res.queued) {
+    for (let i = 0; i < 60 && res.queued; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const j = await api.job(res.job_id);
+      if (j.status === "complete") { res = j.result || {}; break; }
+      if (j.status === "failed") throw new Error(j.error || "publish failed");
+    }
+  }
+  OV = await api.datasetOverview(id); render();
+}
+
 async function publishToGithub(btn) {
   btn.disabled = true; const label = btn.textContent; btn.textContent = "Publishing…";
   try {

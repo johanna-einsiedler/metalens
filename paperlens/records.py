@@ -1214,7 +1214,7 @@ def public_datasets_with_badges(conn: psycopg.Connection,
                d.keywords, d.git_pr_url, d.github_source, d.published_meta, d.published_file_sha
         FROM dataset d LEFT JOIN rec ON rec.dataset_id = d.id
                        LEFT JOIN users u ON u.id = d.owner_user_id
-        WHERE d.visibility = 'public' AND d.publish_status = 'published'
+        WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
           AND (%s::text IS NULL OR d.search_tsv @@ websearch_to_tsquery('english', %s))
         ORDER BY
           CASE WHEN %s::text IS NULL THEN 0
@@ -1363,7 +1363,8 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                   d.owner_user_id, d.session_id, d.created_at, u.citation_name,
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
                   d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
-                  d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta
+                  d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta,
+                  d.catalogue
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1380,6 +1381,16 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     suggested = dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=author,
                                  anonymous=attribution == "anonymous", year=year, version=r[18] or 1,
                                  url=published_url)
+    # A stored citation that merely equals one of the suggested variants (named/anonymous,
+    # page URL/GitHub URL, any version) is not a hand-edit: keep it live so it follows the
+    # attribution and the publication instead of freezing an old URL.
+    custom = r[17]
+    if custom:
+        variants = {dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=a, anonymous=an, year=year, version=v, url=u)
+                    for a in (r[9] or None, None) for an in (False, True)
+                    for u in (None, dataset_github_url(r[1])) for v in range(1, (r[18] or 1) + 1)}
+        if custom.strip() in {x.strip() for x in variants}:
+            custom = None
     return {"id": str(r[0]), "slug": r[1], "title": r[2], "description": r[3],
             "schema_id": r[4], "visibility": r[5],
             "owner_user_id": str(r[6]) if r[6] else None, "session_id": r[7],
@@ -1389,12 +1400,12 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "git_pr_url": r[13],
             "published_url": published_url,        # the GitHub copy, once merged
             "publish_status": status, "published_at": r[21].isoformat() if r[21] else None,
-            "published_file_sha": r[22], "github_source": bool(r[23]),
+            "published_file_sha": r[22], "github_source": bool(r[23]), "catalogue": bool(r[25]),
             "published_badge": ((r[24] or {}).get("credibility") or None) if r[23] else None,
             # publishing details
             "readme": r[14], "keywords": list(r[15] or []), "attribution": attribution,
-            "citation": r[17] or suggested, "citation_suggested": suggested,
-            "citation_custom": bool(r[17]), "version": r[18] or 1,
+            "citation": custom or suggested, "citation_suggested": suggested,
+            "citation_custom": bool(custom), "version": r[18] or 1,
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
@@ -1422,11 +1433,67 @@ def mark_published(conn: psycopg.Connection, dataset_id: str, *, file_sha: str |
     """The dataset's folder is on the datasets repo's default branch: it is published."""
     with conn.transaction():
         conn.execute(
-            """UPDATE dataset SET publish_status = 'published', visibility = 'public',
+            """UPDATE dataset SET publish_status = 'published',
+                      visibility = CASE WHEN catalogue THEN 'public' ELSE visibility END,
                       published_at = COALESCE(published_at, now()), published_file_sha = %s,
                       published_meta = %s, updated_at = now()
                WHERE id = %s::uuid""",
             (file_sha, Json(meta) if meta is not None else None, dataset_id))
+
+
+def set_publish_target(conn: psycopg.Connection, dataset_id: str, *, catalogue: bool) -> None:
+    """'GitHub and the catalogue' vs 'GitHub only': whether the dataset is listed here."""
+    with conn.transaction():
+        conn.execute("UPDATE dataset SET catalogue = %s, updated_at = now() WHERE id = %s::uuid", (catalogue, dataset_id))
+
+
+def dataset_papers(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
+    """The papers in a dataset as citable references: title, authors, year, journal, DOI and
+    how many records each contributed — the 'included papers' list of a publication."""
+    rows = conn.execute(
+        """SELECT p.id, p.title, p.authors, p.year, p.journal, p.doi, count(r.id)
+           FROM record r JOIN paper p ON p.id = r.paper_id
+           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false)
+           GROUP BY p.id, p.title, p.authors, p.year, p.journal, p.doi
+           ORDER BY p.year NULLS LAST, p.title""", (dataset_id,)).fetchall()
+    return [{"paper_id": str(pid), "title": t, "authors": list(a or []), "year": y, "journal": j, "doi": d, "n_records": int(n)}
+            for pid, t, a, y, j, d, n in rows]
+
+
+def paper_coverage_search(conn: psycopg.Connection, q: str, *, limit: int = 20) -> list[dict]:
+    """Is a paper in a published dataset? ``q`` is a DOI or words of the title; each hit lists
+    the public, catalogue-listed datasets that contain it."""
+    from .ingest import _normalize_doi
+    q = (q or "").strip()
+    if not q:
+        return []
+    doi = _normalize_doi(q) if ("10." in q and "/" in q) else None
+    rows = conn.execute(
+        """SELECT p.id, p.title, p.authors, p.year, p.journal, p.doi
+           FROM paper p
+           WHERE (%s::text IS NOT NULL AND p.doi = %s) OR (%s::text IS NULL AND p.title ILIKE %s)
+           ORDER BY p.year DESC NULLS LAST LIMIT %s""",
+        (doi, doi, doi, f"%{q}%", limit)).fetchall()
+    out = []
+    for pid, t, a, y, j, d in rows:
+        ds = conn.execute(
+            """SELECT DISTINCT ds.id, ds.slug, ds.title, ds.published_file_sha, ds.git_pr_url, ds.github_source, count(r.id) OVER (PARTITION BY ds.id)
+               FROM record r JOIN dataset ds ON ds.id = r.dataset_id
+               WHERE r.paper_id = %s::uuid AND ds.visibility = 'public' AND ds.publish_status = 'published' AND ds.catalogue""",
+            (pid,)).fetchall()
+        out.append({"paper_id": str(pid), "title": t, "authors": list(a or []), "year": y, "journal": j, "doi": d,
+                    "datasets": [{"id": str(i), "slug": sl, "title": tt, "n_records": int(n),
+                                  "published_url": dataset_github_url(sl) if (fs or pr or gs) else None}
+                                 for i, sl, tt, fs, pr, gs, n in ds]})
+    return out
+
+
+def bump_version(conn: psycopg.Connection, dataset_id: str) -> int:
+    """A re-publication of an already published dataset is a new version."""
+    with conn.transaction():
+        row = conn.execute("UPDATE dataset SET version = COALESCE(version, 1) + 1, updated_at = now() WHERE id = %s::uuid RETURNING version",
+                           (dataset_id,)).fetchone()
+    return int(row[0])
 
 
 def set_publish_status(conn: psycopg.Connection, dataset_id: str, status: str) -> None:
@@ -1521,6 +1588,12 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
 
     cred = dataset_credibility(conn, dataset_id)
     docs = list_documents(conn, limit=500, dataset_id=dataset_id)
+    # anything reviewed, edited or added after the last publication → an update is due
+    pub_at = conn.execute("SELECT published_at FROM dataset WHERE id = %s::uuid", (dataset_id,)).fetchone()[0]
+    changed_since = False
+    if pub_at is not None:
+        latest = max([t for t in (last_change, last_extracted) if t is not None], default=None)
+        changed_since = bool(latest and latest > pub_at)
 
     return {
         **d,
@@ -1537,6 +1610,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
         },
         "credibility": cred,
         "documents": docs,
+        "changed_since_publish": changed_since,
     }
 
 
@@ -2185,14 +2259,21 @@ def rename_dataset(conn: psycopg.Connection, dataset_id: str, title: str) -> dic
 
 def set_dataset_visibility(conn: psycopg.Connection, dataset_id: str, visibility: str) -> dict:
     """Public without a GitHub copy is the legacy 'published' (listed, no link); the app's
-    publish flow overrides the status to 'pending' when it opens a pull request."""
+    publish flow overrides the status to 'pending' when it opens a pull request.
+
+    Private = UNLIST here: the page stops being served and the catalogue drops it, and
+    ``catalogue`` is cleared so the hourly sync does not list it again. The publish status
+    is left alone — a copy that reached the datasets repository is in git history and in
+    every fork; nothing here can unpublish it, and pretending otherwise would mislead."""
     with conn.transaction():
         cur = conn.execute(
             """UPDATE dataset SET visibility = %s, updated_at = now(),
                       publish_status = CASE WHEN %s = 'public' THEN COALESCE(publish_status, 'published')
-                                            ELSE 'draft' END
+                                            WHEN publish_status IN ('pending', 'published') THEN publish_status
+                                            ELSE 'draft' END,
+                      catalogue = CASE WHEN %s = 'public' THEN catalogue ELSE false END
                WHERE id = %s::uuid""",
-            (visibility, visibility, dataset_id))
+            (visibility, visibility, visibility, dataset_id))
     return {"updated": cur.rowcount, "visibility": visibility}
 
 

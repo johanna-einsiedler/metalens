@@ -260,6 +260,7 @@ ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_at       timestamptz;
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_file_sha text;      -- results.json blob sha on GitHub
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS published_meta     jsonb;     -- metadata.json as published (badge, preset)
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS github_source      boolean NOT NULL DEFAULT false;
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS catalogue          boolean NOT NULL DEFAULT true;   -- "GitHub only" publications are not listed here
 -- datasets that were public before the GitHub gate existed stay listed
 UPDATE dataset SET publish_status = 'published' WHERE visibility = 'public' AND publish_status IS NULL;
 -- Original upload filename (available at /api/extract as pdf.filename; nicer than title).

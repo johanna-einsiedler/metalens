@@ -397,6 +397,13 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
     }
 
 
+@app.get("/api/papers/coverage")
+def papers_coverage(q: str, db=Depends(get_db)) -> dict:
+    """Public: is this paper (DOI or title words) part of a published dataset? Each hit lists
+    the catalogue datasets that contain it."""
+    return {"q": q, "papers": records.paper_coverage_search(db, q)}
+
+
 @app.get("/api/papers/lookup")
 def papers_lookup(doi: str, db=Depends(get_db)) -> dict:
     cov = records.paper_coverage(db, doi)
@@ -886,29 +893,50 @@ def github_sync_now(db=Depends(get_db), who: Principal = Depends(principal)) -> 
         raise HTTPException(status_code=502, detail=f"Sync failed: {exc}")
 
 
+class PublishBody(BaseModel):
+    target: str = "github+metalens"     # github+metalens | github | metalens
+
+
 @app.post("/api/datasets/{dataset_id}/publish")
-def publish_dataset(dataset_id: str, db=Depends(get_db),
+def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
-    """Publish a dataset to the metalens-datasets GitHub repo as a PR. Owner-only, and
-    (the bright wall) only when the owner owns EVERY record. Enqueues when Redis is up,
-    else runs synchronously. Returns {pr_url} or {queued, job_id}."""
+    """Publish a dataset. ``github+metalens`` (default): pull request in the datasets repo,
+    viewable by link now, listed in the catalogue once merged. ``github``: the pull request
+    only — never listed here. ``metalens``: listed here only (no GitHub configured, local
+    mode). Owner-only, and only when the owner owns EVERY record. Returns {pr_url} or
+    {queued, job_id}."""
     from . import github_publish
+    target = (body.target if body else "github+metalens")
+    if target not in ("github+metalens", "github", "metalens"):
+        raise HTTPException(status_code=422, detail="target must be github+metalens | github | metalens")
     if not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
     if not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You can only publish records you own.")
-    if not github_publish.token():
+    if target != "metalens" and not github_publish.token():          # validate before any write
         raise HTTPException(status_code=400,
                             detail="GitHub publishing isn’t configured on this server.")
+    records.set_publish_target(db, dataset_id, catalogue=(target != "github"))
+    if target == "metalens":
+        records.set_dataset_visibility(db, dataset_id, "public")
+        records.promote_dataset_preset(db, dataset_id, who)
+        return {"queued": False, "publish_status": "published", "target": target}
+    already = (records.get_dataset(db, dataset_id) or {}).get("publish_status") == "published"
+    if already:                                                     # re-publication = the next version
+        new_version = records.bump_version(db, dataset_id)
+    if target == "github+metalens" and not already:
+        records.set_dataset_visibility(db, dataset_id, "public")    # viewable by link while the PR is open
     records.promote_dataset_preset(db, dataset_id, who)   # share the preset alongside the data
     job_id = worker.enqueue("publish_dataset_task", dataset_id)
     if job_id:
-        records.set_publish_status(db, dataset_id, "pending")
-        return {"queued": True, "job_id": job_id}
+        if not already:
+            records.set_publish_status(db, dataset_id, "pending")
+        return {"queued": True, "job_id": job_id, "update": already, **({"version": new_version} if already else {})}
     try:
         out = github_publish.publish_dataset(db, dataset_id)
-        records.set_publish_status(db, dataset_id, "pending")
-        return {"queued": False, **out}
+        if not already:                     # an update keeps the current copy listed until the merge lands
+            records.set_publish_status(db, dataset_id, "pending")
+        return {"queued": False, **out, "update": already, **({"version": new_version} if already else {})}
     except Exception as exc:                    # network / GitHub API / auth errors
         raise HTTPException(status_code=502, detail=f"Publish failed: {exc}")
 
@@ -1187,6 +1215,7 @@ def extraction_config(who: Principal = Depends(principal), db=Depends(get_db)) -
         "anon_retention_minutes": retention.ANON_RETENTION_MINUTES,
         "can_download": bool(who.user_id),     # exports are an account feature
         "local_mode": localmode.enabled(),
+        "github_publishing": bool(os.environ.get("PAPERLENS_GITHUB_TOKEN")),   # the publish dialog's options
     }
     if localmode.enabled():                    # own key or a local model; no credits, no trial
         out["offered"] = False

@@ -29,10 +29,19 @@ def _preset_block(conn, schema_id: str | None) -> dict | None:
             "spec": records.schema_spec(conn, schema_id)}
 
 
-def materialize_dataset(conn, dataset_id: str) -> dict:
+def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = None) -> dict:
+    """``published_url``: where the files are going to live (the GitHub folder) — the
+    citation written into them points there even before the pull request is merged, so the
+    published README never carries a URL that later goes stale."""
     ov = records.dataset_overview(conn, dataset_id)
     if ov is None:
         raise ValueError("Dataset not found.")
+    if published_url and not ov.get("citation_custom"):
+        ov["citation"] = records.dataset_citation(
+            title=ov.get("title"), slug=ov.get("slug"), dataset_id=dataset_id,
+            author=ov.get("cite_as"), anonymous=ov.get("attribution") == "anonymous",
+            year=int(ov["created_at"][:4]) if ov.get("created_at") else None,
+            version=ov.get("version") or 1, url=published_url)
 
     metadata = {
         "title": ov.get("title"),
@@ -62,6 +71,10 @@ def materialize_dataset(conn, dataset_id: str) -> dict:
             ORDER BY ed.id""",
         (dataset_id,),
     ).fetchall()
+
+    # The included papers as citable references — the structured answer to "is paper X in
+    # this dataset?" for anyone holding only the files.
+    metadata["papers"] = records.dataset_papers(conn, dataset_id)
 
     # What to cite: the engine that produced the file, alongside the preset (above).
     from . import __version__
