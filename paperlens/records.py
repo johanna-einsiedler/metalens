@@ -447,7 +447,8 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                    OR (%s::text IS NOT NULL
                        AND (d.owner_user_id::text = %s OR bool_or(r.owner_user_id::text = %s)))
                    OR (%s::text IS NOT NULL
-                       AND (d.session_id = %s OR bool_or(r.session_id = %s))))
+                       AND ((d.session_id = %s AND d.owner_user_id IS NULL)
+                            OR bool_or(r.session_id = %s AND r.owner_user_id IS NULL))))
               AND (%s::text IS NULL OR bool_or(r.dataset_id::text = %s::text))
            ORDER BY d.created_at DESC
            LIMIT %s""",
@@ -496,7 +497,7 @@ def list_papers(conn: psycopg.Connection, *, owner_user_id: str | None = None,
            WHERE d.pdf_sha256 IS NOT NULL
            GROUP BY d.pdf_sha256
            HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
-               OR (%s::text IS NOT NULL AND bool_or(d.session_id = %s OR r.session_id = %s))
+               OR (%s::text IS NOT NULL AND bool_or((d.session_id = %s AND d.owner_user_id IS NULL) OR (r.session_id = %s AND r.owner_user_id IS NULL)))
            ORDER BY max(d.created_at) DESC
            LIMIT %s""",
         (owner_user_id, owner_user_id, owner_user_id,
@@ -525,7 +526,7 @@ def delete_paper(conn: psycopg.Connection, pdf_sha256: str, *,
            WHERE d.pdf_sha256 = %s
            GROUP BY d.id
            HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
-               OR (%s::text IS NOT NULL AND bool_or(d.session_id = %s OR r.session_id = %s))""",
+               OR (%s::text IS NOT NULL AND bool_or((d.session_id = %s AND d.owner_user_id IS NULL) OR (r.session_id = %s AND r.owner_user_id IS NULL)))""",
         (pdf_sha256, owner_user_id, owner_user_id, owner_user_id,
          session_id, session_id, session_id),
     ).fetchall()
@@ -929,7 +930,7 @@ def list_views(conn: psycopg.Connection, *, owner_user_id: str | None = None,
            FROM saved_view
            WHERE visibility = 'public'
               OR (%s::text IS NOT NULL AND owner_user_id::text = %s::text)
-              OR (%s::text IS NOT NULL AND session_id = %s::text)
+              OR (%s::text IS NOT NULL AND session_id = %s::text AND owner_user_id IS NULL)
            ORDER BY created_at DESC LIMIT %s""",
         (owner_user_id, owner_user_id, session_id, session_id, limit),
     ).fetchall()
@@ -1035,17 +1036,20 @@ def _visibility_clause(principal, *, public_only: bool) -> tuple[str, list]:
     return (
         "(d.visibility = 'public'"
         " OR (%s::text IS NOT NULL AND r.owner_user_id::text = %s::text)"
-        " OR (%s::text IS NOT NULL AND r.session_id = %s::text))",
+        " OR (%s::text IS NOT NULL AND r.session_id = %s::text AND r.owner_user_id IS NULL))",
         [uid, uid, sid, sid],
     )
 
 
 def _owns(principal, owner_user_id, session_id) -> bool:
-    """Does the principal own a row with these owner/session columns?"""
+    """Does the principal own a row with these owner/session columns? A row that belongs to an
+    ACCOUNT is reachable through that account only: the browser session id it was created in
+    stays in the browser after logout, so a session match counts for anonymous rows alone."""
     if principal is None:
         return False
-    return ((principal.user_id is not None and owner_user_id == principal.user_id)
-            or (principal.session_id is not None and session_id == principal.session_id))
+    if owner_user_id is not None:
+        return principal.user_id is not None and owner_user_id == principal.user_id
+    return principal.session_id is not None and session_id == principal.session_id
 
 
 def is_document_owner(conn: psycopg.Connection, document_id: str, principal) -> bool:
@@ -1342,7 +1346,7 @@ def list_datasets(conn: psycopg.Connection, *, owner_user_id: str | None = None,
            LEFT JOIN record r ON r.dataset_id = d.id
            WHERE d.visibility = 'public'
               OR (%s::text IS NOT NULL AND d.owner_user_id::text = %s::text)
-              OR (%s::text IS NOT NULL AND d.session_id = %s::text)
+              OR (%s::text IS NOT NULL AND d.session_id = %s::text AND d.owner_user_id IS NULL)
            GROUP BY d.id
            ORDER BY d.created_at DESC
            LIMIT %s""",
@@ -1977,7 +1981,7 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
              AND (%s::text IS NULL OR d.schema_id = %s)
              AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[]))
              AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
-               OR (%s::text IS NOT NULL AND d.session_id = %s))
+               OR (%s::text IS NOT NULL AND d.session_id = %s AND d.owner_user_id IS NULL))
            GROUP BY d.id
            ORDER BY d.created_at DESC""",
         (hs, schema_id, schema_id, bases, bases, owner_user_id, owner_user_id, session_id, session_id),
@@ -2343,7 +2347,7 @@ def list_personal_presets(conn: psycopg.Connection, *, owner_user_id: str | None
     rows = conn.execute(
         f"""SELECT {_PRESET_COLS} FROM personal_preset
             WHERE {public}(%s::text IS NOT NULL AND owner_user_id::text = %s::text)
-               OR (%s::text IS NOT NULL AND session_id = %s::text)
+               OR (%s::text IS NOT NULL AND session_id = %s::text AND owner_user_id IS NULL)
             ORDER BY created_at DESC""",
         (*args, owner_user_id, owner_user_id, session_id, session_id),
     ).fetchall()

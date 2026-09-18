@@ -106,6 +106,24 @@ def client_ip(request) -> str | None:
 
 # ── the sweep ─────────────────────────────────────────────────────────────────
 
+def register_untracked_sessions(conn: psycopg.Connection) -> int:
+    """Anonymous rows whose session has no activity entry would never expire (the sweep walks
+    ``anon_session``). Enter such sessions with the date of their newest anonymous row as the
+    last activity, so the ordinary idle timeout applies to them too."""
+    with conn.transaction():
+        cur = conn.execute(
+            """INSERT INTO anon_session (session_id, last_seen)
+               SELECT x.session_id, max(x.created_at) FROM (
+                   SELECT session_id, created_at FROM extraction_document WHERE owner_user_id IS NULL AND session_id IS NOT NULL
+                   UNION ALL
+                   SELECT session_id, created_at FROM dataset WHERE owner_user_id IS NULL AND session_id IS NOT NULL
+               ) x
+               WHERE NOT EXISTS (SELECT 1 FROM anon_session a WHERE a.session_id = x.session_id)
+               GROUP BY x.session_id
+               ON CONFLICT (session_id) DO NOTHING""")
+        return cur.rowcount or 0
+
+
 def expired_sessions(conn: psycopg.Connection, *, max_age_minutes: int | None = None,
                      now: dt.datetime | None = None) -> list[str]:
     """Anonymous sessions (never claimed by a user) last seen longer ago than the
@@ -178,6 +196,7 @@ def sweep(conn: psycopg.Connection, store=None, *, max_age_minutes: int | None =
     totals = {"sessions": 0, "documents": 0, "datasets": 0, "saved_views": 0, "presets": 0}
     if localmode.enabled():
         return {**totals, "papers": 0, "parsed": 0}
+    register_untracked_sessions(conn)
     for sid in expired_sessions(conn, max_age_minutes=max_age_minutes, now=now):
         r = forget_session(conn, sid)
         totals["sessions"] += 1

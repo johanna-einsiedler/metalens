@@ -146,3 +146,20 @@ def test_config_counts_the_durable_trial() -> None:
     assert retention.ip_trials_today(conn, retention.ip_hash("203.0.113.7")) >= 1
     assert retention.ip_hash("203.0.113.7") != retention.ip_hash("203.0.113.8")
     conn.close()
+
+
+def test_sessions_without_an_activity_entry_still_expire() -> None:
+    """Anonymous data from before the activity table existed has no ``anon_session`` row; the
+    sweep registers such sessions with the date of their newest row and expires them normally."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    conn = records.connect(); records.init_db(conn)
+    old, new = (f"ret-{k}-{uuid.uuid4().hex[:6]}" for k in ("untracked-old", "untracked-new"))
+    d_old, ds_old = _anon_doc(conn, old); d_new, _ = _anon_doc(conn, new)
+    conn.execute("DELETE FROM anon_session WHERE session_id = ANY(%s)", ([old, new],))
+    conn.execute("UPDATE extraction_document SET created_at = now() - interval '3 days' WHERE id = %s::uuid", (d_old,))
+    conn.execute("UPDATE dataset SET created_at = now() - interval '3 days' WHERE id = %s::uuid", (ds_old["id"],)); conn.commit()
+    retention.sweep(conn)
+    assert not _exists(conn, "extraction_document", d_old) and not _exists(conn, "dataset", ds_old["id"])
+    assert _exists(conn, "extraction_document", d_new)                  # registered as just seen, kept
+    retention.forget_session(conn, new); conn.commit(); conn.close()

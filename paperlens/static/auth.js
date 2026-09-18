@@ -30,7 +30,9 @@ export async function mountAccount(sel = "#account") {
     el.innerHTML = `<a class="acct" href="/account" title="Account settings">👤 ${esc(me.email)}</a> `
       + `<a href="#" id="pl-logout">Logout</a>`;
     el.querySelector("#pl-logout").onclick = async (e) => {
-      e.preventDefault(); await api.logout(); location.reload();
+      e.preventDefault(); await api.logout();
+      try { localStorage.removeItem("paperlens_sid"); } catch { /* a new id is minted on the next request */ }
+      location.reload();
     };
   } else {
     el.innerHTML = `<button class="btn btn-ghost" id="pl-signin">Sign in</button>`;
