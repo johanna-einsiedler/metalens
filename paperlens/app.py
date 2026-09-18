@@ -1386,7 +1386,7 @@ def extract_endpoint(
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
 
-    own_key = bool(api_key.strip())
+    own_key = bool(api_key.strip()) or bool((base_url or "").strip())   # a self-hosted model needs no key
 
     # Is this a keyless request this deployment can actually serve? ``credits.offered()``
     # gates the whole story: with no server key configured there is nothing to run on, so

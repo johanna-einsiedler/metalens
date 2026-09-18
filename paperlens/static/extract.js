@@ -21,7 +21,13 @@ let BRAND = null;         // /api/brand: the product surface this host serves (M
 let FILE_CAP = null;      // null = no cap (logged in, or own key); a number = papers still allowed
 
 const PROVIDER_LABEL = { openai: "OpenAI", google: "Google Gemini", anthropic: "Anthropic",
-                         deepseek: "DeepSeek", mistral: "Mistral" };
+                         deepseek: "DeepSeek", mistral: "Mistral", local: "Local / self-hosted (Ollama, vLLM, LM Studio)" };
+// "local": any OpenAI-compatible server the user runs themselves; the server URL and model
+// name are typed, remembered in this browser only, and no key is needed.
+const LOCAL_URL_KEY = "metalens_local_base_url", LOCAL_MODEL_KEY = "metalens_local_model", LOCAL_TEXT_KEY = "metalens_local_text";
+function isLocalProvider() { const p = $("#provider"); return !!(p && p.value === "local"); }
+function currentBaseUrl() { return isLocalProvider() ? ($("#baseurl").value || "").trim() : ""; }
+function currentModel() { return isLocalProvider() ? ($("#model-local").value || "").trim() : $("#model").value; }
 
 const steps = [...document.querySelectorAll(".acc-step")];
 const stepEl = (n) => document.querySelector(`.acc-step[data-step="${n}"]`);
@@ -48,13 +54,16 @@ async function init() {
   // `?preset=<id>` (the MASEMiner landing's CTA) does the same for one preset on any host.
   const wanted = new URLSearchParams(location.search).get("preset") || (BRAND && BRAND.default_preset);
   if (wanted && !addingTo) {
-    const p = presets.find((x) => x.preset_id === wanted);
-    if (p) {
-      const card = document.querySelector('.task-card[data-task="workflow"]');
-      if (card) selectTask("workflow", card);
-      presetId = p.preset_id; SETUP = null; await advance(`Workflow: ${p.title}`);
-    }
+    try {
+      const p = presets.find((x) => x.preset_id === wanted);
+      if (p) {
+        const card = document.querySelector('.task-card[data-task="workflow"]');
+        if (card) selectTask("workflow", card);
+        presetId = p.preset_id; SETUP = null; await advance(`Workflow: ${p.title}`);
+      }
+    } finally { document.documentElement.classList.remove("wf-autostart"); }   // see extract.html <head>
   }
+  document.documentElement.classList.remove("wf-autostart");
   mountLegalAck();
   document.querySelectorAll(".task-card[data-task]").forEach((c) =>
     (c.onclick = () => {
@@ -73,6 +82,9 @@ async function init() {
   $("#testconn").onclick = testConnection;
   $("#apikey").oninput = () => { setKey($("#provider").value, $("#apikey").value.trim()); applyKeyMode(); };
   $("#model").addEventListener("change", applyKeyMode);
+  $("#baseurl").oninput = () => { try { localStorage.setItem(LOCAL_URL_KEY, $("#baseurl").value.trim()); } catch { /* */ } applyKeyMode(); };
+  $("#model-local").oninput = () => { try { localStorage.setItem(LOCAL_MODEL_KEY, $("#model-local").value.trim()); } catch { /* */ } applyKeyMode(); };
+  $("#local-text").onchange = () => { try { localStorage.setItem(LOCAL_TEXT_KEY, $("#local-text").checked ? "1" : ""); } catch { /* */ } };
   $("#run").onclick = run;
   // step 3: structured designer (substeps) + freeform toggle
   document.querySelectorAll(".sf-pill").forEach((p) => (p.onclick = () => openSub(+p.dataset.sub)));
@@ -154,7 +166,11 @@ async function setupExtractionConfig() {
 
 // A typed key overrides everything — including the logged-out cap, since the run no
 // longer costs us anything.
-function ownKeyPresent() { const k = $("#apikey"); return !!(k && k.value.trim()); }
+function ownKeyPresent() {
+  const k = $("#apikey");
+  if (k && k.value.trim()) return true;
+  return isLocalProvider() && !!currentBaseUrl() && !!currentModel();   // a self-hosted model costs us nothing either
+}
 // The logged-out cap, recomputed from scratch each time: a typed key lifts it, and
 // CLEARING that key has to put it back (otherwise one keystroke buys unlimited runs).
 function anonCap() {
@@ -166,8 +182,8 @@ function applyKeyMode() {
   FILE_CAP = anonCap();
   const nameEl = $("#ml-model");
   if (nameEl) {
-    nameEl.textContent = (!USE_CREDITS && ownKeyPresent() && $("#model").value)
-      ? $("#model").value : ((CFG && CFG.model) || "not configured");
+    nameEl.textContent = (!USE_CREDITS && ownKeyPresent() && currentModel())
+      ? currentModel() : ((CFG && CFG.model) || "not configured");
   }
 }
 // Step 4 runs only after the user confirms lawful access to the PDFs (remembered for the
@@ -192,7 +208,7 @@ function toggleModelPanel() {
   btn.querySelector(".ml-chev").textContent = open ? "▴" : "▾";
 }
 function modelSummary() {
-  if (!USE_CREDITS && ownKeyPresent() && $("#model").value) return `${$("#model").value} · your key`;
+  if (!USE_CREDITS && ownKeyPresent() && currentModel()) return `${currentModel()} · ${isLocalProvider() ? "your server" : "your key"}`;
   return (CFG && CFG.model) || "default model";
 }
 
@@ -298,26 +314,40 @@ function setupTooltips() {
 // ── models (provider → model cascade) ──────────────────────────────────────
 async function loadModels() {
   try { MODELS = (await api.models()).providers || {}; } catch { MODELS = {}; }
-  const provs = Object.keys(MODELS);
+  const provs = Object.keys(MODELS).concat(["local"]);
   $("#provider").innerHTML = provs.map((p) => `<option value="${p}">${esc(PROVIDER_LABEL[p] || p)}</option>`).join("");
   $("#provider").onchange = fillModels;
   if (provs.length) fillModels();
 }
 function fillModels() {
   const p = $("#provider").value;
+  const local = p === "local";
   const ms = MODELS[p] || [];
   $("#model").innerHTML = ms.map((m) => `<option value="${esc(m.value)}">${esc(m.label)}</option>`).join("");
-  $("#keylabel").textContent = `${PROVIDER_LABEL[p] || p} API key`;
-  $("#apikey").value = getKey(p);   // auto-fill this browser's saved key (never server-stored)
+  $("#keylabel").textContent = local ? "API key (optional: most local servers need none)" : `${PROVIDER_LABEL[p] || p} API key`;
+  $("#apikey").value = local ? "" : getKey(p);   // auto-fill this browser's saved key (never server-stored)
+  $("#local-fields").hidden = !local; $("#model-wrap").hidden = local; $("#model-local").hidden = !local; $("#local-text-row").hidden = !local;
+  if (local) {
+    let url = "", model = "", text = "";
+    try { url = localStorage.getItem(LOCAL_URL_KEY) || ""; model = localStorage.getItem(LOCAL_MODEL_KEY) || ""; text = localStorage.getItem(LOCAL_TEXT_KEY) || ""; } catch { /* */ }
+    $("#baseurl").value = url; $("#model-local").value = model; $("#local-text").checked = text === "1";
+    $("#local-note").innerHTML = (CFG && CFG.local_mode)
+      ? "Any OpenAI-compatible server on this computer or your network: Ollama (http://localhost:11434), LM Studio (http://localhost:1234), vLLM (http://localhost:8000). The PDF never leaves your machine."
+      : "The hosted service calls this URL <b>from our server</b>, so a model on your own computer (localhost) is not reachable here: use a server with a public address, or "
+        + `<a href="https://github.com/johanna-einsiedler/metalens#run-maseminer-locally" target="_blank" rel="noopener">run MASEMiner locally</a> to keep everything on your machine.`;
+  }
+  applyKeyMode();
 }
 
 async function testConnection() {
   const key = $("#apikey").value;
-  if (!key) { $("#teststatus").textContent = "enter your API key first"; return; }
+  if (!key && !isLocalProvider()) { $("#teststatus").textContent = "enter your API key first"; return; }
+  if (isLocalProvider() && (!currentBaseUrl() || !currentModel())) { $("#teststatus").textContent = "enter the server URL and a model name first"; return; }
   $("#testconn").disabled = true; $("#teststatus").textContent = "testing…";
   try {
-    const r = await api.testKey({ model: $("#model").value, api_key: key });
-    $("#teststatus").textContent = r.ok ? "✓ Connection OK" : "✗ " + (r.error || "failed");
+    const r = await api.testKey({ model: currentModel(), api_key: key, base_url: currentBaseUrl() || null });
+    $("#teststatus").textContent = r.ok ? "✓ Connection OK"
+      : "✗ " + (r.error || "failed") + (isLocalProvider() && !(CFG && CFG.local_mode) ? " The URL has to be reachable from our server, not only from your computer." : "");
   } catch (e) { $("#teststatus").textContent = "✗ " + e.message; }
   finally { $("#testconn").disabled = false; }
 }
@@ -1149,8 +1179,12 @@ async function runBatch(indices, reset) {
       // if it's a credit-allowed model, else falls back to the default credit model.
       if (ADD_DATASET && ADD_DATASET.model) fd.append("model", ADD_DATASET.model);
     } else {
-      fd.append("model", $("#model").value);
+      fd.append("model", currentModel());
       fd.append("api_key", $("#apikey").value);
+      if (isLocalProvider()) {
+        fd.append("base_url", currentBaseUrl());
+        if ($("#local-text").checked) fd.append("use_text", "true");
+      }
     }
     try {
       const data = await api.extract(fd);
@@ -1240,7 +1274,7 @@ async function doSave(out) {
       return;
     }
     // Capture the round's recipe onto the new dataset (its default for adding papers).
-    const recipe = { prompt: $("#prompt").value, model: $("#model").value, schema_id: LAST_SCHEMA_ID || schemaIdFor() };
+    const recipe = { prompt: $("#prompt").value, model: currentModel(), schema_id: LAST_SCHEMA_ID || schemaIdFor() };
     const ds = await saveToWorkspace(docIds,
       { defaultName: (out[0].name || "").replace(/\.pdf$/i, ""), recipe });
     if (ds) {

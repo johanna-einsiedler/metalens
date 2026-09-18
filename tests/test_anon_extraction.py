@@ -138,3 +138,31 @@ def test_keyless_gate_is_off_where_no_server_key_is_configured() -> None:
         for k, v in saved.items():
             if v is not None:
                 os.environ[k] = v
+
+
+def test_a_self_hosted_model_is_not_the_free_trial(monkeypatch) -> None:
+    """A run that names its own server (``base_url``) needs no key and costs us nothing: it is
+    the caller's own provider, so a used-up trial does not block it and no server key is lent."""
+    _skip_without_db()
+    import fitz
+    from fastapi.testclient import TestClient
+    from paperlens import worker as wk
+    conn = records.connect(); records.init_db(conn)
+    sess = f"anon-local-{uuid.uuid4().hex[:6]}"
+    for _ in range(appmod.ANON_FREE_EXTRACTIONS):                      # trial already used
+        records.persist(conn, ingest(fixtures.FORESTPLOT_JSON), schema_id=None,
+                        source_job_id="anon-local", session_id=sess)
+    seen = {}
+    def fake_enqueue(name, *args, **kw):
+        seen.update(kw); return "job-local"
+    monkeypatch.setattr(wk, "enqueue", fake_enqueue)
+    monkeypatch.setenv("PAPERLENS_CREDIT_MODEL", "gpt-4o")             # keyless runs ARE offered here
+    monkeypatch.setenv("PAPERLENS_OPENAI_KEY", "sk-server-test")
+    d = fitz.open(); d.new_page().insert_text((72, 90), "x"); pdf = d.tobytes(); d.close()
+    r = TestClient(appmod.app).post(
+        "/api/extract", data={"prompt": "extract", "model": "qwen2.5vl:7b", "base_url": "http://models.example:11434"},
+        files={"pdf": ("p.pdf", pdf, "application/pdf")}, headers={"X-Session-Id": sess})
+    assert r.status_code == 200, r.text
+    assert r.json()["queued"] is True
+    assert seen["base_url"] == "http://models.example:11434" and seen["model"] == "qwen2.5vl:7b"
+    assert seen["api_key"] == ""                                       # the server key was not lent

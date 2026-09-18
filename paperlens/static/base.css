@@ -408,6 +408,11 @@ a.acct:hover { color: var(--accent); }
 .ml-anon-hot a { font-weight: 600; }
 .wf-field { margin-bottom: 4px; }
 .wf-field label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; }
+.wf-field input[hidden] { display: none; }
+.local-text { display: flex; gap: 8px; align-items: center; font-size: 13px; margin: 10px 0 2px; }
+.local-text[hidden] { display: none; }
+/* auto-forward (brand default preset / ?preset=): steps stay invisible until step 2 is open */
+.wf-autostart .extract-layout > main #acc, .wf-autostart .wf-sidebar { visibility: hidden; }
 .wf-field select, .wf-field input { width: 100%; padding: 10px 12px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); font: 14px var(--font); background: var(--surface); color: var(--text); }
 .wf-field select { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer; }

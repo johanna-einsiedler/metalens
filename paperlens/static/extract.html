@@ -6,6 +6,18 @@
   <title>Metalens — turn a paper into data</title>
   <link rel="stylesheet" href="/static/theme.css"/>
   <link rel="stylesheet" href="/static/base.css"/>
+  <!-- A brand with a default preset, or ?preset=, auto-forwards to step 2: keep the steps out of
+       sight until the script has done so, instead of flashing "Choose task" first. -->
+  <script>
+    try {
+      var q = new URLSearchParams(location.search);
+      var b = JSON.parse(sessionStorage.getItem("brand:" + location.host) || "null");
+      if ((q.get("preset") || (b && b.default_preset)) && !q.get("dataset")) {
+        document.documentElement.classList.add("wf-autostart");
+        setTimeout(function () { document.documentElement.classList.remove("wf-autostart"); }, 5000);
+      }
+    } catch (e) { /* no storage */ }
+  </script>
 </head>
 <body>
   <header class="topbar" data-chrome></header>
@@ -236,9 +248,16 @@
                     <span>Use my own API key</span></label>
                 </div>
                 <div id="ownkey-fields">
-                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key. Your key is sent to our server only to run this extraction: it is held in memory and in the job queue for at most 30 minutes, then discarded. It is never saved to disk or to your account.</p>
+                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key, or point at a local / self-hosted model server. Your key is sent to our server only to run this extraction: it is held in memory for at most 30 minutes, then discarded. It is never saved to disk or to your account.</p>
                   <div class="wf-field"><label>Provider</label><div class="select-wrap"><select id="provider"></select></div></div>
-                  <div class="wf-field"><label>Model</label><div class="select-wrap"><select id="model"></select></div></div>
+                  <div id="local-fields" hidden>
+                    <div class="wf-field"><label>Server URL</label>
+                      <input id="baseurl" type="url" placeholder="http://localhost:11434" autocomplete="off"/>
+                      <p class="muted" id="local-note" style="font-size:12px;margin-top:6px"></p></div>
+                  </div>
+                  <div class="wf-field"><label>Model</label><div class="select-wrap" id="model-wrap"><select id="model"></select></div>
+                    <input id="model-local" placeholder="model name as your server knows it, e.g. qwen2.5vl:7b" autocomplete="off" hidden/></div>
+                  <label class="local-text" id="local-text-row" hidden><input type="checkbox" id="local-text"/> Send the paper as text instead of page images (for models without vision)</label>
                   <div class="wf-field">
                     <label id="keylabel">API key</label>
                     <div class="key-row">

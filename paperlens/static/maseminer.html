@@ -7,15 +7,15 @@
   <link rel="stylesheet" href="/static/theme.css"/>
   <link rel="stylesheet" href="/static/base.css"/>
   <style>
-    .mm-hero { text-align: center; padding: 44px 0 18px; }
-    .mm-hero img { height: 72px; width: auto; margin: 0 auto 18px; display: block; }
-    .mm-hero h1 { margin: 0 0 10px; font-size: 30px; letter-spacing: -.3px; }
-    .mm-hero .lede { max-width: 680px; margin: 0 auto 22px; }
-    .mm-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin: 26px 0; }
-    .mm-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
-    .mm-card h3 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
-    .mm-card ul { margin: 0; padding-left: 18px; }
-    .mm-card li { margin: 5px 0; }
+    .mm-hero { text-align: center; padding: 14px 0 14px; }
+    .mm-hero img { height: 300px; max-width: 92vw; width: auto; margin: -34px auto -30px; display: block; }   /* the SVG carries its own blank border */
+    .mm-hero h1 { margin: 0 0 10px; font-size: 26px; letter-spacing: -.3px; }
+    .mm-hero .lede { max-width: 680px; margin: 0 auto 22px; font-size: 15px; }
+    .mm-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 22px auto; max-width: 860px; align-items: start; }
+    .mm-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 13px; }
+    .mm-card h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); }
+    .mm-card ul { margin: 0; padding-left: 16px; }
+    .mm-card li { margin: 3px 0; line-height: 1.4; }
     .mm-foot { color: var(--text-muted); font-size: 13px; text-align: center; margin: 30px 0 50px; }
     .mm-foot a { color: var(--text); }
   </style>
@@ -66,10 +66,8 @@
     </div>
 
     <p class="mm-foot">
-      MASEMiner is a product surface of the open-source <a href="/maseminer" id="mm-parent">Metalens</a> extraction engine.
-      Prefer to keep PDFs on your own machine? <a href="#" id="mm-local">Run MASEMiner locally</a> —
-      one command, no account, your PDFs and API key never leave your computer.
-      Need a different extraction task? <a href="#" id="mm-metalens">Use Metalens</a>.
+      MASEMiner is a product surface of the open-source <a href="https://github.com/johanna-einsiedler/metalens" id="mm-parent">Metalens</a> extraction engine.
+      If you prefer to keep PDFs on your local machine, you can <a href="https://github.com/johanna-einsiedler/metalens#run-maseminer-locally" id="mm-local">run MASEMiner locally</a>.
     </p>
   </div>
 
