@@ -1,5 +1,5 @@
 {
-  "_comment": "Auto-generated weekly by .github/workflows/update-models.yml (update_models.py). Manual edits are overwritten on the next sync. The frontend falls back to baked-in defaults if this file is missing or malformed.",
+  "_comment": "Auto-generated weekly by .github/workflows/update-models.yml (scripts/update_models.py). Manual edits are overwritten on the next sync. The frontend falls back to baked-in defaults if this file is missing or malformed.",
   "source": "LiteLLM pricing + provider /models APIs",
   "providers": {
     "openai": [

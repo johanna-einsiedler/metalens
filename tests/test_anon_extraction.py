@@ -1,4 +1,4 @@
-"""The logged-out story: a default model chosen server-side, one free paper, no download.
+"""The logged-out story: a default model chosen server-side, one free paper, downloads allowed.
 
 The extract page no longer asks anyone to pick a model or paste a key, so the server has
 to answer three things on its own: which model runs an extraction, how much a logged-out
@@ -59,7 +59,7 @@ def test_config_endpoint_is_public_and_names_the_model() -> None:
     b = r.json()
     assert b["model"] == credits.credit_model()
     assert b["logged_in"] is False
-    assert b["can_download"] is False                # exports are an account feature
+    assert b["can_download"] is True                 # JSON / CSV export needs no account
     assert b["anon_free_extractions"] >= 1
     assert b["anon_extractions_used"] == 0           # fresh session
 

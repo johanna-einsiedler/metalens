@@ -16,6 +16,7 @@ let SETUP = null;    // the saved setup (sub-preset) the builder was opened with
 let MODELS = {};
 let ADD_DATASET = null;   // {id,title,schema_id,prompt,model} when ?dataset= (add-papers mode)
 let USE_CREDITS = false;  // logged-in keyless run on Metalens's server key + fixed model
+let USE_TRIAL = false;    // logged-out keyless run: the free paper on the server's default model
 let CFG = null;           // /api/extraction-config: default model + logged-out limits
 let BRAND = null;         // /api/brand: the product surface this host serves (MASEMiner skips the pickers)
 let FILE_CAP = null;      // null = no cap (logged in, or own key); a number = papers still allowed
@@ -137,14 +138,31 @@ async function setupExtractionConfig() {
     an.innerHTML = (left > 0
       ? `<b>${left} free paper${left === 1 ? "" : "s"}</b> without an account on our model. `
       : `<b>Free trial used.</b> `)
-      + `<a href="#" id="ml-ownkey-now">Use your own API key</a> for unlimited extractions on any model, `
-      + `or <a href="/account">create a free account</a> to extract on credits and download results. `
+      + `<a href="#" id="ml-ownkey-now">Use your own API key or a local model</a> for unlimited extractions on any model, `
+      + `or <a href="/account">create a free account</a> to extract on credits. `
       + `Your key is never stored (<a href="/faq#key" target="_blank">FAQ</a>).`;
     an.classList.add("ml-anon-hot");
     an.hidden = false;
+    // The choice is explicit: the free paper, or the visitor's own provider. A key saved in
+    // this browser must not silently take the free paper away, and vice versa.
+    const canTrial = left > 0 && !!CFG.offered;
+    USE_TRIAL = canTrial;
+    const asw = $("#credit-switch");
+    if (asw && canTrial) {
+      const opts = asw.querySelectorAll(".cs-opt > span");
+      opts[0].innerHTML = `Use my free paper <span class="muted">· ${esc(CFG.model || "")}</span>`;
+      opts[1].textContent = "Use my own API key or a local model";
+      asw.hidden = false;
+      asw.querySelectorAll('input[name="keymode"]').forEach((r) => (r.onchange = () => {
+        USE_TRIAL = asw.querySelector('input[name="keymode"]:checked').value === "credits";
+        applyKeyMode();
+      }));
+    }
     an.querySelector("#ml-ownkey-now").onclick = (e) => {
       e.preventDefault();
       if ($("#ownkey-block").hidden) toggleModelPanel();
+      const own = asw && asw.querySelector('input[name="keymode"][value="own"]');
+      if (own && !asw.hidden) { own.checked = true; own.onchange(); }
       const k = $("#apikey"); if (k) k.focus();
     };
     if ($("#ownkey-block") && $("#ownkey-block").hidden) toggleModelPanel();
@@ -167,6 +185,7 @@ async function setupExtractionConfig() {
 // A typed key overrides everything — including the logged-out cap, since the run no
 // longer costs us anything.
 function ownKeyPresent() {
+  if (USE_TRIAL) return false;                       // the free paper was chosen: no own provider in play
   const k = $("#apikey");
   if (k && k.value.trim()) return true;
   return isLocalProvider() && !!currentBaseUrl() && !!currentModel();   // a self-hosted model costs us nothing either
@@ -178,7 +197,7 @@ function anonCap() {
   return Math.max(0, (CFG.anon_free_extractions || 0) - (CFG.anon_extractions_used || 0));
 }
 function applyKeyMode() {
-  const fields = $("#ownkey-fields"); if (fields) fields.hidden = USE_CREDITS;
+  const fields = $("#ownkey-fields"); if (fields) fields.hidden = USE_CREDITS || USE_TRIAL;
   FILE_CAP = anonCap();
   const nameEl = $("#ml-model");
   if (nameEl) {
@@ -1183,6 +1202,8 @@ async function runBatch(indices, reset) {
       // When re-extracting into a dataset, honor that dataset's model — the server keeps it
       // if it's a credit-allowed model, else falls back to the default credit model.
       if (ADD_DATASET && ADD_DATASET.model) fd.append("model", ADD_DATASET.model);
+    } else if (USE_TRIAL) {
+      // keyless and logged out: the server runs the free paper on its default model
     } else {
       fd.append("model", currentModel());
       fd.append("api_key", $("#apikey").value);

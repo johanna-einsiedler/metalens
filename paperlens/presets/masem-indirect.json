@@ -281,6 +281,13 @@
     "entries": "cards",
     "grid_rows": "entries",
     "triage": "low_confidence_first",
-    "paper_panel": "open"
+    "paper_panel": "open",
+    "locate": {
+      "factor_loadings": {
+        "anchor_column": "item",
+        "anchor_param": "item_texts"
+      },
+      "factor_correlations": {}
+    }
   }
 }

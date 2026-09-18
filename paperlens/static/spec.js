@@ -29,6 +29,7 @@ export function viewModel(DATA) {
     entriesLayout: (spec.display && spec.display.entries) || "cards",
     gridRows: (spec.display && spec.display.grid_rows) || "entries",
     paperPanel: (spec.display && spec.display.paper_panel) || "open",
+    locate: (spec.display && spec.display.locate) || {},   // table field → how a clicked number is pinpointed
     tabs: [],
     fieldIndex: new Map(),
   };

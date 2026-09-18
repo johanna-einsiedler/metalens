@@ -1,0 +1,48 @@
+name: Weekly model + pricing sync
+
+# Regenerates paperlens/static/models.json from the LiteLLM pricing dataset and each
+# provider's /models API (newest 5 chat/vision models per provider), and commits it to main
+# when something changed. A push made with the workflow token does NOT trigger deploy.yml,
+# so the new list goes live with the next ordinary deploy (or run "Deploy" by hand).
+#
+# Provider API keys are optional repository secrets: a provider with no key (or a failed
+# call) keeps its existing entry, so partial secrets still produce a valid file.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"        # Mondays 06:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Regenerate models.json
+        env:
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          MISTRAL_API_KEY:   ${{ secrets.MISTRAL_API_KEY }}
+        run: python scripts/update_models.py
+      - name: Commit changes (if any)
+        run: |
+          if git diff --quiet -- paperlens/static/models.json; then
+            echo "No model/pricing changes."; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add paperlens/static/models.json
+          git commit -m "chore: weekly model + pricing sync"
+          git push origin HEAD:main

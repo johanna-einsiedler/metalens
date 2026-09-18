@@ -142,10 +142,12 @@ def test_export_is_private_to_the_owner() -> None:
     sess = "sess-exp-e"
     ds, _doc = _dataset(conn, sess, "Export E")
 
-    # anonymous: downloads are an account feature at all
+    # anonymous: no account needed to download your OWN data, and a stranger's stays hidden
     anon = TestClient(appmod.app).get(f"/api/datasets/{ds['id']}/export",
                                       headers={"X-Session-Id": "exp-stranger"})
-    assert anon.status_code == 401
+    assert anon.status_code == 404
+    mine = TestClient(appmod.app).get(f"/api/datasets/{ds['id']}/export", headers={"X-Session-Id": sess})
+    assert mine.status_code == 200 and mine.json()["papers"]
     # logged in, but not the owner: the dataset must not even admit it exists
     r = _client("exp-stranger").get(f"/api/datasets/{ds['id']}/export",
                                     headers={"X-Session-Id": "exp-stranger"})

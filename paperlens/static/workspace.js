@@ -20,7 +20,7 @@ let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = n
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
-let ACCOUNT = false;  // logged in? JSON/CSV export is an account feature — anon can review, not download
+let ACCOUNT = false;  // logged in? (exports need no account; kept for owner-only actions)
 let VM = null, EV = null;   // the preset's view model + the evidence index for the loaded document
 let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
@@ -569,11 +569,8 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + (PROJECT ? "" : `<button class="btn btn-primary" id="dlsave">💾 Save all</button>`)
-    + (ACCOUNT
-        ? `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
-          + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
-        : `<a class="btn btn-ghost dl-locked" href="/account?next=${encodeURIComponent(location.pathname + location.search)}"`
-          + ` title="Create a free account to download your extracted data as JSON or CSV">🔒 Download</a>`)
+    + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
+    + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
@@ -1145,7 +1142,7 @@ function linkCells(card, rec) {
       else cell.classList.add("rv-covered");
       cell.addEventListener("mouseenter", () => showEvidence(hit.ids));
       cell.addEventListener("mouseleave", () => hideEvidence(hit.ids));
-      cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[citeFor(cell, hit.ids)].page, exact, kind: hit.kind }));
+      cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[citeFor(cell, hit.ids)].page, exact, kind: hit.kind, locate: tableLocate(rec, p) }));
       return;
     }
     if (wantsOwn && hasValue) cell.classList.add("rv-uncited");
@@ -1266,6 +1263,23 @@ function citeFor(cell, ids) {
   return hit == null ? ids[0] : hit;
 }
 
+// A cell of a table field the preset lists under display.locate (numbers that are always
+// printed in a table): {anchor} = the text that identifies the cell's printed row, e.g. the
+// wording of its item, taken from the run's parameters. null for every other cell.
+function tableLocate(rec, path) {
+  const m = /(?:^|\.)(\w+)\[(\d+)\]\.(\w+)$/.exec(path || "");
+  const rule = m && VM && VM.locate ? VM.locate[m[1]] : null;
+  if (!rule) return null;
+  let anchor = null;
+  try {
+    const row = ((rec.field_values || {})[m[1]] || [])[+m[2]] || {};
+    const list = rule.anchor_param ? (DATA.params || {})[rule.anchor_param] : null;
+    const k = rule.anchor_column ? row[rule.anchor_column] : null;
+    if (Array.isArray(list) && Number.isInteger(+k) && list[+k - 1]) anchor = String(list[+k - 1]);
+  } catch { /* no anchor */ }
+  return { anchor };
+}
+
 async function verifyAndJump(cell, hit) {
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();
@@ -1281,7 +1295,16 @@ async function verifyAndJump(cell, hit) {
     // whole page, which in a dense table would light up every matching digit. The row
     // stays lit; the number is marked on top of it. A table/entry-level citation just
     // lands on its snippet.
-    if (hit.kind !== "row") return;
+    if (hit.kind !== "row") {
+      if (!hit.locate) return;
+      // declared table numbers: on the row of the item's wording when known, else every
+      // whole-number match on the cited page (candidates; the table citation stays lit)
+      try {
+        const r = await api.locateValue(DATA.document_id, num, hit.page, null, { anchor: hit.locate.anchor, pageOnly: true });
+        if (r && r.found) flashRects(hit.page, r.rects, { keep: true });
+      } catch { /* the table highlight stands */ }
+      return;
+    }
     const bands = hit.ids.flatMap((i) => (DATA.evidence[i].page === hit.page ? (DATA.evidence[i].rect || []) : []))
       .map(([, y, , h]) => `${Math.round(y)}:${Math.round(y + h)}`);
     if (!bands.length) return;

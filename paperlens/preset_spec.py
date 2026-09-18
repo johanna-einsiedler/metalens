@@ -74,7 +74,7 @@ _ALLOWED_KEYS = {
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
-    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel"},
+    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate"},
     "tab": {"id", "label", "fields"},
 }
 
@@ -554,6 +554,28 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         E("$.display must be an object"); display = {}
     else:
         unknown(display, "display", "$.display")
+        # locate: how a click on a NUMBER inside a table field is pinpointed when the table is
+        # cited as a whole. {"<table field>": {"anchor_column": <column>, "anchor_param": <list param>}}:
+        # the number is searched on the printed row of the text params[anchor_param][row[anchor_column]-1]
+        # (e.g. the item wording); without an anchor, on the cited page.
+        loc = display.get("locate")
+        if loc is not None:
+            if not isinstance(loc, dict):
+                E("$.display.locate must be an object keyed by table field name")
+            else:
+                tables = {f.get("name"): f for f in _all_fields(spec) if isinstance(f, dict) and f.get("type") == "table"}
+                pdecls = ((spec.get("prompt") or {}).get("params") or {})
+                for tname, rule in loc.items():
+                    at = f"$.display.locate.{tname}"
+                    if tname not in tables:
+                        E(f"{at}: not a table field"); continue
+                    if not isinstance(rule, dict) or set(rule) - {"anchor_column", "anchor_param"}:
+                        E(f"{at} must be an object with anchor_column / anchor_param"); continue
+                    cols = [c if isinstance(c, str) else (c or {}).get("name") for c in (tables[tname].get("columns") or [])]
+                    if rule.get("anchor_column") is not None and rule["anchor_column"] not in cols:
+                        E(f"{at}.anchor_column must be a column of {tname}")
+                    if rule.get("anchor_param") is not None and (pdecls.get(rule["anchor_param"]) or {}).get("type") != "list":
+                        E(f"{at}.anchor_param must name a list parameter")
         if display.get("entries", "cards") not in ("cards", "table"):
             E("$.display.entries must be 'cards' or 'table'")
         if display.get("triage", "declaration") not in ("declaration", "low_confidence_first"):
@@ -607,6 +629,16 @@ def _title_placeholders(tpl: str) -> list[str]:
 
 def entries_key(spec: dict) -> str | None:
     return (spec.get("entries") or {}).get("key")
+
+
+def _all_fields(spec: dict) -> list:
+    """Every declared field: paper, entry and sub-entry level."""
+    ent = spec.get("entries") or {}
+    out = list(((spec.get("paper") or {}).get("fields")) or []) + list(ent.get("fields") or [])
+    for ch in ent.get("children") or []:
+        if isinstance(ch, dict):
+            out += list(ch.get("fields") or [])
+    return out
 
 
 def field_index(spec: dict) -> dict[str, dict]:

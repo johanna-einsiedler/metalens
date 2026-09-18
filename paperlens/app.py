@@ -454,6 +454,7 @@ def document_view(document_id: str, db=Depends(get_db),
 
 @app.get("/api/documents/{document_id}/locate")
 def locate_value(document_id: str, value: str, page: int, bands: str | None = None,
+                 anchor: str | None = None, page_only: bool = False,
                  db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner-only: find ``value`` in the source PDF so the workspace can pinpoint-
     highlight it — tries an exact numeric match first, then a literal text search so a
@@ -471,6 +472,15 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
     pdf_bytes = store.get(key)
+    if anchor:                          # a table number: on the printed row of its anchor text (item wording)
+        rows = pdf_utils.anchor_bands(pdf_bytes, page, anchor[:400])
+        if rows:
+            rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
+            if rects:
+                return {"rects": rects, "found": True, "page": page, "anchored": True}
+    if page_only:                       # a table cited as a whole: every whole-number match on ITS page
+        rects = pdf_utils.locate_value_rects(pdf_bytes, page, value)
+        return {"rects": rects, "found": bool(rects), "page": page, "anchored": False}
     if bands:
         rows = pdf_utils.parse_bands(bands)
         rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
@@ -641,11 +651,8 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
 def dataset_export(dataset_id: str, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
     """The downloadable dataset file: metadata + papers, each with its own records.
-    Same owner-or-public gate as the overview, PLUS an account: anyone may review
-    extracted data in the browser, but taking it away as a file needs a login."""
-    if not who.user_id:
-        raise HTTPException(status_code=401, detail=(
-            "Create a free account to download extracted data."))
+    Same owner-or-public gate as the overview; no account needed (a logged-out visitor's
+    data is deleted after the idle timeout, so taking it away as a file is how they keep it)."""
     d = records.get_dataset(db, dataset_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Dataset not found.")
@@ -1219,7 +1226,7 @@ def extraction_config(who: Principal = Depends(principal), db=Depends(get_db)) -
         "anon_free_extractions": ANON_FREE_EXTRACTIONS,
         "anon_extractions_used": 0,
         "anon_retention_minutes": retention.ANON_RETENTION_MINUTES,
-        "can_download": bool(who.user_id),     # exports are an account feature
+        "can_download": True,                  # JSON / CSV export needs no account
         "local_mode": localmode.enabled(),
         "github_publishing": bool(os.environ.get("PAPERLENS_GITHUB_TOKEN")),   # the publish dialog's options
     }

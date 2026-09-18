@@ -1556,6 +1556,44 @@ def evidence_fields(item: dict) -> list:
     return [fp]
 
 
+def _anchor_norm(word: str) -> str:
+    """A word for anchor matching: ligatures expanded (ﬁ → fi), case and punctuation dropped."""
+    import unicodedata
+    return re.sub(r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", word or "").lower())
+
+
+def anchor_bands(pdf_bytes: bytes, page_1indexed: int, anchor: str, *, dpi: int = DISPLAY_DPI) -> list[tuple[float, float]]:
+    """The printed row(s) of ``anchor`` (e.g. an item's wording in a loading table) on one page,
+    as ``(y0, y1)`` image-pixel bands, so a number can be pinpointed ON that row. Matches the
+    anchor's words against the page's words (ligatures, apostrophes, case and punctuation
+    ignored): the whole text first, then shorter prefixes for wrapped or slightly reworded
+    items. An anchor found in several places is ambiguous → []."""
+    want = [w for w in (_anchor_norm(x) for x in (anchor or "").split()) if w]
+    if len(want) < 3:
+        return []
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if page_1indexed < 1 or page_1indexed > len(doc):
+            return []
+        words = [(w, _anchor_norm(w[4])) for w in doc[page_1indexed - 1].get_text("words")]
+        words = [(w, n) for w, n in words if n]
+        scale = dpi / 72.0
+        for n in dict.fromkeys((len(want), 8, 5, 4)):
+            if n > len(want):
+                continue
+            head = want[:n]
+            starts = [k for k in range(len(words) - n + 1) if all(words[k + t][1] == head[t] for t in range(n))]
+            if len(starts) == 1:
+                hit = [words[starts[0] + t][0] for t in range(n)]
+                return [(min(w[1] for w in hit) * scale, max(w[3] for w in hit) * scale)]
+            if starts:
+                return []                                  # ambiguous: a shorter prefix is worse
+        return []
+    finally:
+        doc.close()
+
+
 def parse_bands(spec: str | None) -> list[tuple[float, float]]:
     """``"y0:y1,y0:y1"`` (image-pixel rows of a cited table row) → [(y0, y1), …]."""
     out: list[tuple[float, float]] = []
