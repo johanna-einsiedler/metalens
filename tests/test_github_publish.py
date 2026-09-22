@@ -99,11 +99,26 @@ def test_publish_flow() -> None:
     assert any(c.endswith("/metalens-datasets") and c.startswith("GET") for c in calls)
     assert any("/git/ref/heads/main" in c for c in calls)
     assert any(c.startswith("POST") and c.endswith("/git/refs") for c in calls)
-    assert sum(1 for c in calls if c.startswith("PUT") and "/contents/" in c) == 3   # metadata + results + README
+    assert sum(1 for c in calls if c.startswith("PUT") and "/contents/" in c) == 3   # metadata + results + README (no release yet)
     assert any(c.startswith("POST") and c.endswith("/pulls") for c in calls)
     # PR url written back onto the dataset
     got = records.get_dataset(conn, ds_id)
     assert got["git_pr_url"] == "https://github.com/o/metalens-datasets/pull/7"
+
+    # with a release (the endpoint cuts one before publishing): its static files go under releases/vN/,
+    # and releases/latest.json points at it — what a dashboard outside Metalens reads and pins
+    from paperlens import releases
+    rel = releases.create(conn, ds_id, reason="github_publish")
+    calls.clear()
+    os.environ["PAPERLENS_GITHUB_TOKEN"] = "ghp_test"
+    try:
+        github_publish.publish_dataset(conn, ds_id, client=client, branch="metalens/test-branch")
+    finally:
+        os.environ.pop("PAPERLENS_GITHUB_TOKEN", None)
+    puts = [c.split(" ", 1)[1] for c in calls if c.startswith("PUT")]
+    rel_files = [c for c in puts if f"/releases/v{rel['number']}/" in c]
+    assert any(c.endswith("/release.json") for c in rel_files) and any("/tables/" in c for c in rel_files) and any(c.endswith("/evidence.json") for c in rel_files)
+    assert sum(1 for c in puts if c.endswith("/releases/latest.json")) == 1
     conn.close()
 
 

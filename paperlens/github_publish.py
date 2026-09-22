@@ -15,7 +15,7 @@ import os
 
 import httpx
 
-from . import exporter, records
+from . import exporter, records, release_export, releases
 
 _API = "https://api.github.com"
 
@@ -133,6 +133,18 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
                   f"metalens: {slug} results")
         _put_file(client, gh_repo, f"{d}/README.md", None, branch,
                   f"Add dataset {slug}: README", raw=readme_markdown(material))
+        # 3b) the release as static files — what a dashboard written outside Metalens reads.
+        #     releases/vN/ never changes once written; releases/latest.json points at the newest.
+        rel = releases.latest(conn, dataset_id, with_snapshot=True)
+        if rel is not None:
+            files = release_export.build(conn, rel)
+            for path, content in sorted(files.items()):
+                _put_file(client, gh_repo, f"{d}/releases/v{rel['number']}/{path}", None, branch,
+                          f"metalens: {slug} release v{rel['number']} {path}", raw=content.decode("utf-8"))
+            _put_file(client, gh_repo, f"{d}/releases/latest.json",
+                      {"number": rel["number"], "path": f"releases/v{rel['number']}", "created_at": rel["created_at"],
+                       "content_sha": rel["content_sha"], "credibility": rel.get("credibility"),
+                       "files": sorted(files)}, branch, f"metalens: {slug} latest release → v{rel['number']}")
 
         # 4) open the PR
         pr = _ok(client.post(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,

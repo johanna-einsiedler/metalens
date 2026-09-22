@@ -1453,9 +1453,12 @@ def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends
         records.set_dataset_visibility(db, dataset_id, "public")
         records.promote_dataset_preset(db, dataset_id, who)
         return {"queued": False, "publish_status": "published", "target": target}
+    from . import releases
     already = (records.get_dataset(db, dataset_id) or {}).get("publish_status") == "published"
-    if already:                                                     # re-publication = the next version
-        new_version = records.bump_version(db, dataset_id)
+    # what goes to GitHub is a RELEASE: the current one when nothing changed since, else a new one
+    # (a re-publication of changed data is the next version). Dashboards elsewhere pin its files.
+    rel = releases.ensure_current(db, dataset_id, reason="github_publish", created_by=who.user_id)
+    new_version = rel["number"] if rel else None
     if target == "github+metalens" and not already:
         records.set_dataset_visibility(db, dataset_id, "public")    # viewable by link while the PR is open
     records.promote_dataset_preset(db, dataset_id, who)   # share the preset alongside the data

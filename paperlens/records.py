@@ -1607,8 +1607,16 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     pub_at = conn.execute("SELECT published_at FROM dataset WHERE id = %s::uuid", (dataset_id,)).fetchone()[0]
     changed_since = False
     if pub_at is not None:
-        latest = max([t for t in (last_change, last_extracted) if t is not None], default=None)
-        changed_since = bool(latest and latest > pub_at)
+        # what was published is the latest RELEASE: changed = the live data differs from it (catches a
+        # removed paper and a late-assigned document, which timestamps miss); datasets published before
+        # releases existed keep the timestamp rule
+        from . import releases   # lazy: releases imports records
+        rel = releases.latest(conn, dataset_id)
+        if rel is not None:
+            changed_since = releases.changed_since(conn, dataset_id, rel)
+        else:
+            latest = max([t for t in (last_change, last_extracted) if t is not None], default=None)
+            changed_since = bool(latest and latest > pub_at)
 
     return {
         **d,
