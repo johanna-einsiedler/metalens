@@ -12,13 +12,16 @@ export async function mountAccount(sel = "#account") {
   // signed-in users get a "My Workspace" nav entry in the PERSONAL group (first nav)
   const nav = document.querySelector(".topbar nav.nav-personal") || document.querySelector(".topbar nav");
   if (nav && me && me.email && !nav.querySelector("#nav-mydata")) {
+    // signed in: the workspace is the one entry point (it starts extractions and imports and
+    // opens the review), so the three task links of the anonymous header make way for it
+    nav.querySelectorAll("a").forEach((x) => x.remove());
     const a = document.createElement("a");
     a.id = "nav-mydata"; a.href = "/projects"; a.textContent = "My Workspace";
     nav.appendChild(a);
   }
   // mark the active nav item by path (nav links carry no hardcoded active class)
   const path = location.pathname;
-  const mine = ["/projects", "/dataset", "/preset"].some((p) => path.startsWith(p));
+  const mine = ["/projects", "/dataset", "/preset", "/extract", "/import", "/workspace", "/dashboard", "/compose"].some((p) => path.startsWith(p)) && !!(me && me.email);
   document.querySelectorAll(".topbar nav a").forEach((a) => {
     const href = a.getAttribute("href");
     if (!href) return;

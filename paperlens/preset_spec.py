@@ -74,7 +74,7 @@ _ALLOWED_KEYS = {
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
-    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash"},
+    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis"},
     "tab": {"id", "label", "fields"},
 }
 
@@ -558,6 +558,21 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # cited as a whole. {"<table field>": {"anchor_column": <column>, "anchor_param": <list param>}}:
         # the number is searched on the printed row of the text params[anchor_param][row[anchor_column]-1]
         # (e.g. the item wording); without an anchor, on the cited page.
+        # analysis: how the dataset is laid out for dashboards — {"default_unit": "<unit>", "roles":
+        # {column: [roles]}, "derived": [{name, label, formula, unit, inputs{…}, when?, flip?}]}
+        ana = display.get("analysis")
+        if ana is not None:
+            if not isinstance(ana, dict) or set(ana) - {"default_unit", "roles", "derived", "default_dashboard", "units", "complete"}:
+                E("$.display.analysis must be an object with default_unit / roles / derived / default_dashboard / units / complete")
+            elif ana.get("complete") is not None and not (isinstance(ana["complete"], dict) and ana["complete"].get("unit") and isinstance(ana["complete"].get("columns"), list) and ana["complete"]["columns"]):
+                E("$.display.analysis.complete needs 'unit' (the row unit it is checked on) and 'columns' (what a row must have to be analysed)")
+            elif ana.get("units") is not None and not (isinstance(ana["units"], dict) and ana["units"].get("by") and isinstance(ana["units"].get("columns"), list)):
+                E("$.display.analysis.units needs 'by' (the column that names the metric or unit) and 'columns' (the measures it applies to)")
+            else:
+                for di, dv in enumerate(ana.get("derived") or []):
+                    if not isinstance(dv, dict) or dv.get("formula") not in ("r_ci_fisher", "hedges_g") \
+                            or not isinstance(dv.get("inputs"), dict) or not dv.get("name") or not dv.get("unit"):
+                        E(f"$.display.analysis.derived[{di}] needs name, unit, inputs and a known formula (r_ci_fisher, hedges_g)")
         if display.get("citation_flash") is not None and not isinstance(display.get("citation_flash"), bool):
             E("$.display.citation_flash must be true or false")
         aud = display.get("audit")      # {"<table field>": {"key": [columns that identify a row]}} for the audit report

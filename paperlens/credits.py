@@ -59,7 +59,7 @@ def ledger(conn, user_id: str, limit: int = 50) -> list[dict]:
 
 # ── mutations (atomic; no oversell) ─────────────────────────────────────────────
 def try_consume(conn, user_id: str, *, model: str | None = None,
-                document_id: str | None = None) -> bool:
+                document_id: str | None = None, reason: str = "extraction") -> bool:
     """Spend one credit iff the user has a positive balance. Returns True on success.
     The guarded UPDATE makes concurrent runs safe — no balance can go negative."""
     with conn.transaction():
@@ -70,12 +70,13 @@ def try_consume(conn, user_id: str, *, model: str | None = None,
             return False
         conn.execute(
             "INSERT INTO credit_ledger (id, user_id, delta, reason, document_id, model) "
-            "VALUES (%s, %s::uuid, -1, 'extraction', %s, %s)",
-            (str(uuid.uuid4()), user_id, document_id, model))
+            "VALUES (%s, %s::uuid, -1, %s, %s, %s)",
+            (str(uuid.uuid4()), user_id, reason, document_id, model))
     return True
 
 
-def refund(conn, user_id: str, *, document_id: str | None = None, model: str | None = None) -> None:
+def refund(conn, user_id: str, *, document_id: str | None = None, model: str | None = None,
+           reason: str = "refund") -> None:
     """Give back one credit (only after a consumed run fails). Never goes below 0."""
     with conn.transaction():
         conn.execute(
@@ -83,8 +84,8 @@ def refund(conn, user_id: str, *, document_id: str | None = None, model: str | N
             (user_id,))
         conn.execute(
             "INSERT INTO credit_ledger (id, user_id, delta, reason, document_id, model) "
-            "VALUES (%s, %s::uuid, 1, 'refund', %s, %s)",
-            (str(uuid.uuid4()), user_id, document_id, model))
+            "VALUES (%s, %s::uuid, 1, %s, %s, %s)",
+            (str(uuid.uuid4()), user_id, reason, document_id, model))
 
 
 def grant(conn, user_id: str, n: int, *, reason: str = "grant") -> None:

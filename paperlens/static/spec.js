@@ -7,7 +7,7 @@
 import { esc, formatKey } from "/static/grammar.js";
 
 export const SCALAR_TYPES = new Set(["string", "text", "integer", "number", "boolean", "enum", "multi", "list"]);
-const RESERVED = new Set(["evidence", "confidence", "extraction_confidence"]);
+const RESERVED = new Set(["evidence", "confidence", "extraction_confidence", "_rid"]);
 
 // ── the view model ────────────────────────────────────────────────────────────
 export function viewModel(DATA) {

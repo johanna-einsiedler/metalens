@@ -16,7 +16,10 @@
     <section class="ws-section">
       <div class="ws-head">
         <h3>Datasets</h3>
-        <a class="btn btn-primary btn-sm" href="/extract">＋ New extraction</a>
+        <span style="display:inline-flex;gap:6px">
+          <a class="btn btn-ghost btn-sm" href="/workspace" title="review and verify extracted papers">Review papers</a>
+          <a class="btn btn-ghost btn-sm" href="/import" title="bring in extractions made elsewhere (JSON, with or without PDFs)">Import</a>
+          <a class="btn btn-primary btn-sm" href="/extract">＋ New extraction</a></span>
       </div>
       <p class="muted ws-hint">Extracted records. Open one to add papers, review, or publish.</p>
       <div id="datasets" class="proj-grid"></div>
@@ -33,10 +36,9 @@
 
     <section class="ws-section">
       <div class="ws-head">
-        <h3>Analyses</h3>
-        <span class="btn btn-primary btn-sm is-disabled" aria-disabled="true" title="Coming soon">＋ New analysis (coming soon)</span>
+        <h3>Dashboards</h3>
       </div>
-      <p class="muted ws-hint">Saved views &amp; dashboards over one or more of your datasets.</p>
+      <p class="muted ws-hint">Interactive dashboards over your datasets. To build one, open a dataset and choose “Build a dashboard”.</p>
       <div id="analyses" class="proj-grid"></div>
     </section>
 

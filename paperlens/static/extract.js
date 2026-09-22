@@ -196,7 +196,25 @@ function anonCap() {
   if (!CFG || CFG.logged_in || ownKeyPresent()) return null;   // no cap at all
   return Math.max(0, (CFG.anon_free_extractions || 0) - (CFG.anon_extractions_used || 0));
 }
+// Can this run be paid for at all? Said UP FRONT in the upload step (not after the papers are
+// dropped and "Run" answers 402): no credits, no free paper, no own key or local model.
+function canPay() { return USE_CREDITS || USE_TRIAL || ownKeyPresent(); }
+function renderNoPay() {
+  const el = $("#nopay"); if (!el) return;
+  if (!CFG || canPay()) { el.hidden = true; el.innerHTML = ""; return; }
+  const why = CFG.logged_in ? "You have no credits left, and no API key or local model is set."
+    : "Your free paper is used, and no API key or local model is set.";
+  el.innerHTML = `<b>This extraction cannot run yet.</b> ${why} Add your own API key (or a local model) in the step “Review prompt”; it is used for this run only and never stored.`
+    + ` <button type="button" class="btn btn-primary btn-sm" id="nopay-back">← Back to Review prompt</button>`;
+  el.hidden = false;
+  $("#nopay-back").onclick = () => {
+    openStep(3);
+    if ($("#ownkey-block") && $("#ownkey-block").hidden) toggleModelPanel();
+    const k = $("#apikey"); if (k) { k.scrollIntoView({ block: "center" }); k.focus(); }
+  };
+}
 function applyKeyMode() {
+  renderNoPay();
   const fields = $("#ownkey-fields"); if (fields) fields.hidden = USE_CREDITS || USE_TRIAL;
   FILE_CAP = anonCap();
   const nameEl = $("#ml-model");
@@ -1055,6 +1073,7 @@ async function run() {
     const l = document.querySelector(".legal-ack"); if (l) { l.classList.add("legal-missing"); l.scrollIntoView({ block: "center" }); }
     $("#run").disabled = true; return;
   }
+  if (CFG && !canPay()) { renderNoPay(); $("#nopay").scrollIntoView({ block: "center" }); setStatus("add an API key first (step “Review prompt”)"); return; }
   SUBMITTING = true;
   $("#run").disabled = true;                       // disable NOW, not only once inside runBatch
   try {

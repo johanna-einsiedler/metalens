@@ -30,7 +30,7 @@ from typing import Any
 from . import records, storage
 from .ingest import ingest
 
-_SKIP_KEYS = {"notes", "evidence", "confidence", "extraction_confidence"}
+_SKIP_KEYS = {"notes", "evidence", "confidence", "extraction_confidence", "_rid"}
 
 
 # ── values ───────────────────────────────────────────────────────────────────
@@ -145,6 +145,15 @@ def _layout(spec: dict | None) -> dict:
 def _match_rows(orig: list[dict], cur: list[dict], key: list[str]) -> list[tuple[int | None, int | None]]:
     """Pairs (i, j); (i, None) = a removed row, (None, j) = an added row. With declared key
     columns a pair must agree on all of them; otherwise on at least half of its filled cells."""
+    by_id = {c.get("_rid"): j for j, c in enumerate(cur) if c.get("_rid")}
+    fixed = {i: by_id[o["_rid"]] for i, o in enumerate(orig) if o.get("_rid") in by_id}
+    if fixed and len(fixed) == len(set(fixed.values())):          # ids present on both sides: exact pairing
+        rest_o = [i for i in range(len(orig)) if i not in fixed]
+        rest_c = [j for j in range(len(cur)) if j not in set(fixed.values())]
+        more = _match_rows([{k: v for k, v in orig[i].items() if k != "_rid"} for i in rest_o],
+                           [{k: v for k, v in cur[j].items() if k != "_rid"} for j in rest_c], key)
+        return (list(fixed.items())
+                + [(rest_o[i] if i is not None else None, rest_c[j] if j is not None else None) for i, j in more])
     cand = []
     for i, o in enumerate(orig):
         for j, c in enumerate(cur):

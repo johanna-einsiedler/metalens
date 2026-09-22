@@ -41,6 +41,8 @@ class EvidenceSpan:
     snippet: str
     page: int | None
     source: str | None
+    child_rid: str | None = None   # id of the sub-entry / table row the path points into
+    row_rid: str | None = None     # id of the table row inside that sub-entry
 
 
 @dataclass
@@ -190,6 +192,7 @@ def ingest(result: str | dict, *, entries_key: str | None = None) -> IngestResul
                 if isinstance(child, dict) and contract.CONFIDENCE_KEY in child:
                     _take_confidence(child, contract.CONFIDENCE_KEY, placement="child",
                                      entry_index=i, field_path=f"{here}.{k}[{j}]")
+        contract.assign_row_ids(fv)
         records.append(Record(entry_index=i, field_values=fv))
         if isinstance(nested, list):
             for ev in nested:
@@ -257,6 +260,12 @@ def ingest(result: str | dict, *, entries_key: str | None = None) -> IngestResul
                     block=group, level=val["level"], notes=val["notes"], placement="top",
                     entry_index=None, field_path=None, ord=conf_ord))
                 conf_ord += 1
+
+    # evidence refers to rows by id from here on (positions are only how the model named them)
+    fv_by_entry = {r.entry_index: r.field_values for r in records}
+    for s in evidence:
+        if s.entry_index is not None and s.entry_index in fv_by_entry:
+            s.child_rid, s.row_rid = contract.row_refs(s.field_path, fv_by_entry[s.entry_index])
 
     paper_typed = _typed_paper(paper_metadata_raw)
 

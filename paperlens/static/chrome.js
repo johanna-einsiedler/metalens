@@ -14,7 +14,7 @@ let brandPromise = null;
 
 const FALLBACK = {
   id: "metalens", title: "Metalens", logo: "/static/logo.svg", credit_label: "Metalens credits",
-  nav_shared: [{ href: "/catalog", label: "Data Catalogue" }, { href: "/observatory", label: "Examples" }],
+  nav_shared: [{ href: "/catalog", label: "Data Catalogue" }],
   nav_personal: [{ href: "/extract", label: "Process papers" }, { href: "/import", label: "Import" }, { href: "/workspace", label: "Data review" }],
   links: {}, tokens: {},
 };

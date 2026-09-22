@@ -397,6 +397,33 @@
           "desc2"
         ]
       }
+    },
+    "analysis": {
+      "default_unit": "records",
+      "derived": [
+        {
+          "name": "es_ci",
+          "label": "Effect size",
+          "formula": "r_ci_fisher",
+          "unit": "records",
+          "inputs": {
+            "r": "es",
+            "n": "n"
+          },
+          "when": {
+            "column": "type",
+            "in": [
+              "r"
+            ]
+          }
+        }
+      ],
+      "units": {
+        "by": "type",
+        "columns": [
+          "es"
+        ]
+      }
     }
   }
 }

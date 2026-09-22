@@ -8,7 +8,7 @@
 // their old grammar + data (VM.legacy) and keep the data-driven behaviours that existed
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, esc, formatKey } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, esc, formatKey, stripRowIds } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
@@ -579,8 +579,10 @@ function renderPanel() {
     + `<span class="dlbtns">`
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
-    + (PROJECT ? "" : `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
-                      + `<button class="btn btn-primary" id="dlsave" title="finish the review: overview with the audit report, exports, and the option to save">✓ Finalize</button>`)
+    + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
+    + (PROJECT   // already a dataset: Finalize simply opens its overview (audit report, dashboards, export, publishing)
+        ? `<a class="btn btn-primary" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export and publishing">✓ Finalize</a>`
+        : `<button class="btn btn-primary" id="dlsave" title="finish the review: overview with the audit report, exports, and the option to save">✓ Finalize</button>`)
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
@@ -588,7 +590,7 @@ function renderPanel() {
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
       paper_metadata: DATA.paper_metadata || DATA.paper || null,
-      [VM.entries.key]: (DATA.records || []).map((r) => ({ ...r.field_values, ...(Object.keys(r.confidence || {}).length ? { confidence: r.confidence } : {}) })),
+      [VM.entries.key]: (DATA.records || []).map((r) => ({ ...stripRowIds(r.field_values), ...(Object.keys(r.confidence || {}).length ? { confidence: r.confidence } : {}) })),
       evidence: DATA.evidence || [],
     };
     const box = document.createElement("div");
@@ -753,7 +755,7 @@ function renderEntryBody(rec) {
 function wirePanelHead() {
   const dj = $("#dljson"); if (dj) dj.onclick = downloadJSON;
   const dc = $("#dlcsv"); if (dc) dc.onclick = downloadCSV;
-  const save = $("#dlsave"); if (save) save.onclick = doSave;
+  const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
   syncJobWait();
   $("#addfinding").onclick = doAddFinding;
   $("#deldoc").onclick = doDelete;
@@ -1355,7 +1357,7 @@ function baseName() { return (DATA.schema_id || "records").replace(/[^a-z0-9]+/g
 function downloadJSON() {
   const out = {
     schema_id: DATA.schema_id, paper: DATA.paper, paper_metadata: DATA.paper_metadata,
-    records: DATA.records.map((r) => r.field_values),
+    records: DATA.records.map((r) => stripRowIds(r.field_values)),
     // the model's self-assessment per entry, and provenance parallel to records[]: review
     // status + any human corrections (original→final, who, when) so a consumer can tell
     // model-extracted values from human-corrected ones.

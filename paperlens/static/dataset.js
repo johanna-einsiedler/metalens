@@ -62,11 +62,11 @@ function render() {
     ${OWNER ? `<div class="ds-actions">
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
-      <span class="btn btn-ghost btn-sm is-disabled" aria-disabled="true" title="Coming soon">📊 Build dashboard (soon)</span>
+      <button class="btn btn-ghost btn-sm" id="ds-rel-btn" hidden title="freeze the dataset as it is now; published dashboards pin a release">Create release</button>
       ${ANON ? "" : OV.publish_status === "published" && OV.changed_since_publish
         ? `<button class="btn btn-primary btn-sm" id="ds-update" title="changes since the last publication: opens a pull request with version ${(OV.version || 1) + 1}">⬆ Publish update (v${(OV.version || 1) + 1})</button>`
         : OV.publish_status === "published" || OV.publish_status === "pending" ? ""
-        : `<button class="btn btn-ghost btn-sm" id="ds-publish" title="choose where: GitHub and the catalogue, GitHub only, or here only">⬆ Publish…</button>`}
+        : `<button class="btn btn-ghost btn-sm" id="ds-publish" hidden title="choose where: GitHub and the catalogue, GitHub only, or here only">⬆ Publish…</button>`}
       ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
@@ -74,9 +74,26 @@ function render() {
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
     </div>` : ""}
 
-    ${OWNER && ANON ? "" : publishingCard()}
+    <!-- 1 · the dataset itself: numbers, recipe, papers, history -->
+    <div class="ds-stats">
+      ${stat(fmtNum(s.n_papers), "papers")}
+      ${stat(fmtNum(s.n_records), "records extracted")}
+      ${s.n_screened ? stat(fmtNum(s.n_screened), `screened${s.n_screened_confirmed ? ` · ${s.n_screened_confirmed} confirmed` : " (no records)"}`) : ""}
+      ${stat(`${s.verified_pct}%`, `verified (${s.n_verified}/${s.n_records})`)}
+      ${stat(fmtNum(s.total_tokens), "tokens used")}
+      ${stat(fmtDate(OV.created_at), "created", true)}
+      ${stat(range, "extracted", true)}
+      ${stat(fmtDate(s.last_change), "last change", true)}
+    </div>
 
-    <div class="ds-card" id="ds-audit"><div class="ds-card-h">Audit report</div><p class="muted" style="margin:0">Comparing the model output with the reviewed data…</p></div>
+    <!-- releases sit right under the numbers; the publishing details belong to releasing, so they show up with it -->
+    <div id="ds-rel-new"></div>
+    <div class="ds-card" id="ds-rel"><div class="ds-card-h">Release history
+        <span class="muted" id="ds-rel-state" style="margin-left:auto;font-size:12.5px;font-weight:400"></span></div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">A release freezes the dataset as it is now: papers, values, review status and evidence. Published dashboards show one release and are updated on purpose, so adding or editing papers never changes a public page by itself.</p>
+      <div id="ds-rellist" class="muted" style="font-size:13px">…</div></div>
+
+    <div id="ds-pubwrap" hidden>${OWNER && ANON ? "" : publishingCard()}</div>
 
     <div class="ds-card">
       <div class="ds-card-h">Extraction recipe</div>
@@ -91,15 +108,11 @@ function render() {
         ? `<p class="muted ds-mixed">⚠ Mixed schemas — records span ${s.n_schemas} different schemas.</p>` : ""}
     </div>
 
-    <div class="ds-stats">
-      ${stat(fmtNum(s.n_papers), "papers")}
-      ${stat(fmtNum(s.n_records), "records extracted")}
-      ${s.n_screened ? stat(fmtNum(s.n_screened), `screened${s.n_screened_confirmed ? ` · ${s.n_screened_confirmed} confirmed` : " (no records)"}`) : ""}
-      ${stat(`${s.verified_pct}%`, `verified (${s.n_verified}/${s.n_records})`)}
-      ${stat(fmtNum(s.total_tokens), "tokens used")}
-      ${stat(fmtDate(OV.created_at), "created", true)}
-      ${stat(range, "extracted", true)}
-      ${stat(fmtDate(s.last_change), "last change", true)}
+    <div class="ds-card">
+      <div class="ds-card-h">Papers <span class="muted">(${dupGroups().length ? `${s.n_papers} paper${s.n_papers === 1 ? "" : "s"} in ${OV.documents.length} extractions` : OV.documents.length})</span>
+        <button class="btn btn-ghost btn-sm" id="ds-grid" style="margin-left:auto">▦ Spreadsheet</button></div>
+      ${dupGroups().length ? `<p class="dash-dupnote">The same paper is in this dataset more than once (${dupGroups().map((g) => esc(g[0].title || g[0].filename || "untitled")).slice(0, 3).join("; ")}): for instance imported from a file AND extracted from its PDF. Every copy's rows count in dashboards and releases.${OWNER ? " Use “Remove duplicate papers” above to keep the newest copy of each." : ""}</p>` : ""}
+      <div class="ds-papers">${OV.documents.map(paperRow).join("") || '<p class="muted">No papers.</p>'}</div>
     </div>
 
     <div class="ds-card">
@@ -108,14 +121,22 @@ function render() {
       <div class="ds-activity" id="ds-actbody"></div>
     </div>
 
-    <div class="ds-card">
-      <div class="ds-card-h">Papers <span class="muted">(${OV.documents.length})</span>
-        <button class="btn btn-ghost btn-sm" id="ds-grid" style="margin-left:auto">▦ Spreadsheet</button></div>
-      <div class="ds-papers">${OV.documents.map(paperRow).join("") || '<p class="muted">No papers.</p>'}</div>
-    </div>`;
+    <!-- 3 · how the extraction held up in review -->
+    <div class="ds-card" id="ds-audit"><div class="ds-card-h">Audit report</div><p class="muted" style="margin:0">Comparing the model output with the reviewed data…</p></div>
+
+    <!-- 4 · dashboards over the dataset -->
+    <div class="ds-card" id="ds-dash"><div class="ds-card-h">Dashboards
+        <span style="margin-left:auto;display:inline-flex;gap:6px">
+          <a class="btn btn-ghost btn-sm" href="/dashboard?dataset=${esc(id)}" title="built from the column types, no model involved">Default view</a>
+          ${ANON ? `<a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(`/dashboard?dataset=${id}&edit=1`)}" title="dashboards are kept, updated and published from an account">Sign in to build a dashboard</a>`
+            : `<a class="btn btn-primary btn-sm" href="/dashboard?dataset=${esc(id)}&edit=1">＋ Build a dashboard</a>`}</span></div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">Interactive figures, tables and key numbers over this dataset. Every point traces back to its paper, its verification status and the quoted evidence.</p>
+      <div id="ds-dashlist" class="muted" style="font-size:13px">…</div></div>`;
 
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
+  loadReleases();
+  loadDashboards();
   const sf = $("#ds-saveform");
   if (sf) sf.onsubmit = async (e) => {
     e.preventDefault();
@@ -130,6 +151,115 @@ function render() {
   const gridBtn = $("#ds-grid"); if (gridBtn) gridBtn.onclick = showSpreadsheet;
   const actBtn = $("#ds-act"); if (actBtn) actBtn.onclick = () => toggleActivity(actBtn);
   if (OWNER) wireActions();
+}
+
+// ── releases: what changed since the last one, and cutting the next ──────────
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+function changesInWords(c) {
+  if (!c) return "";
+  if (c.first) return `${plural(c.n_papers, "paper")}, ${plural(c.n_records, "entry", "entries")}`;
+  const bits = [];
+  if (c.papers_added.length) bits.push(`+${plural(c.papers_added.length, "paper")} (${c.papers_added.slice(0, 3).map((p) => p.study || p.title).join(", ")}${c.papers_added.length > 3 ? ", …" : ""})`);
+  if (c.papers_removed.length) bits.push(`−${plural(c.papers_removed.length, "paper")} (${c.papers_removed.slice(0, 3).map((p) => p.study || p.title).join(", ")})`);
+  if (c.records.changed) bits.push(`${plural(c.records.changed, "entry", "entries")} edited`);
+  if (c.status.newly_verified) bits.push(`${c.status.newly_verified} newly verified`);
+  if (c.status.newly_flagged) bits.push(`${c.status.newly_flagged} newly flagged`);
+  if (c.preset_changed) bits.push("preset settings changed");
+  return bits.join(" · ") || "review status or metadata changed";
+}
+function showPublishing(on) {
+  const w = $("#ds-pubwrap"); if (w) w.hidden = !on;
+  const b = $("#ds-publish"); if (b) b.hidden = !on;
+}
+async function loadReleases() {
+  const host = $("#ds-rellist"); if (!host) return;
+  let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
+  const list = r.releases || [];
+  host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
+    + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
+    + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
+    + ` · <a href="#" data-relzip="${x.number}" title="this release as static files (tables, evidence, metadata): what a dashboard you write yourself reads">⬇ files</a></span>${x.notes ? `<div class="muted" style="margin:2px 0 0 0">${esc(x.notes)}</div>` : ""}</div>`).join("")
+    : "No release yet. Dashboards you publish will pin one.";
+  // A dataset nobody released is just a working artifact in its owner's account: the publishing
+  // details (description, keywords, citation, where to publish) come with the first release.
+  showPublishing(list.length > 0 || ["published", "pending"].includes(OV.publish_status) || !OWNER);
+  host.querySelectorAll("[data-relzip]").forEach((a) => (a.onclick = async (e) => {
+    e.preventDefault(); const was = a.textContent; a.textContent = "preparing…";
+    try {
+      const { blob, name } = await api.releaseExport(id, +a.dataset.relzip);
+      const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = name; link.click(); URL.revokeObjectURL(link.href);
+    } catch (ex) { alert("download failed: " + ex.message); }
+    a.textContent = was;
+  }));
+  const btn = $("#ds-rel-btn"), state = $("#ds-rel-state");
+  if (!OWNER || !r.head) { if (btn) btn.hidden = true; return; }
+  const next = list.length ? list[0].number + 1 : (OV.version || 1);
+  if (btn) { btn.hidden = !r.head.changed; btn.textContent = `Create release v${next}`; btn.classList.toggle("btn-primary", r.head.changed); btn.classList.toggle("btn-ghost", !r.head.changed); btn.onclick = openReleaseForm; }
+  if (state) state.textContent = list.length ? (r.head.changed ? `the dataset changed since v${list[0].number}` : `up to date with v${list[0].number}`) : "";
+}
+async function openReleaseForm() {
+  const host = $("#ds-rel-new"); host.innerHTML = '<p class="muted" style="font-size:13px">checking what changed…</p>';
+  host.scrollIntoView({ behavior: "smooth", block: "center" });
+  let p; try { p = await api.pendingRelease(id); } catch (e) { host.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  const w = p.warnings, warn = [];
+  if (w.empty) warn.push("The dataset has no entries yet.");
+  if (w.unverified) warn.push(`${plural(w.unverified, "entry is", "entries are")} not yet verified${w.unverified_in_new_papers ? ` (${w.unverified_in_new_papers} of them in papers added since v${p.latest.number})` : ""}: they enter the release as unverified.`);
+  if (w.flagged) warn.push(`${plural(w.flagged, "entry is", "entries are")} flagged.`);
+  host.innerHTML = `<div class="ds-relform"><b>Release v${p.next_number}</b> <span class="muted">· ${esc(changesInWords(p.changes))}</span>`
+    + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}">${esc(p.credibility.label || "")}</span></div>`
+    + (warn.length ? `<ul class="ds-relwarn">${warn.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
+    + `<textarea id="ds-rel-notes" rows="2" maxlength="4000" placeholder="Release notes (optional): what is new in this release?"></textarea>`
+    + `<div id="ds-rel-dash"></div>`
+    + `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-primary btn-sm" id="ds-rel-go">Create release v${p.next_number}</button>`
+    + `<button type="button" class="btn btn-ghost btn-sm" id="ds-rel-no">Cancel</button><span class="muted" id="ds-rel-msg" style="font-size:12.5px"></span></div></div>`;
+  showPublishing(true);                                     // releasing is when these details matter
+  $("#ds-rel-no").onclick = () => { host.innerHTML = ""; loadReleases(); };
+  // Published dashboards of this dataset stay on their release until they are updated: ask now.
+  // Each one says what the new data would do to it; one that would break is left unticked.
+  let linked = [];
+  try { linked = ((await api.dashboards(id)).dashboards || []).filter((d) => d.mine && d.published); } catch { /* none */ }
+  if (linked.length) {
+    const previews = await Promise.all(linked.map((d) => api.dashboardUpdatePreview(d.id, "head", "published").catch(() => null)));
+    $("#ds-rel-dash").innerHTML = `<div class="ds-reldash"><b>Update ${linked.length === 1 ? "the published dashboard" : "published dashboards"} to this release?</b>`
+      + linked.map((d, k) => {
+        const sm = previews[k] && previews[k].summary, risky = !sm || sm.broken || sm.attention;
+        const what = !sm ? "could not be checked" : [sm.changed ? `${plural(sm.changed, "block")} change` : "", sm.unchanged ? `${sm.unchanged} unchanged` : "",
+          sm.attention ? `${sm.attention} need${sm.attention === 1 ? "s" : ""} attention` : "", sm.broken ? `${sm.broken} cannot be drawn any more` : ""].filter(Boolean).join(", ");
+        return `<label><input type="checkbox" class="ds-rel-upd" value="${esc(d.id)}"${risky ? "" : " checked"}/> <span><a href="/dashboard?id=${encodeURIComponent(d.id)}" target="_blank" rel="noopener">${esc(d.title || "Untitled dashboard")}</a>`
+          + ` <span class="muted">· now on v${d.release} · ${esc(what)}${risky ? " — better reviewed on the dashboard (“Update to v" + p.next_number + "” shows the details)" : ""}</span></span></label>`;
+      }).join("") + `<div class="muted">Unticked dashboards keep showing v${linked[0].release}; you can update them later from the dashboard.</div></div>`;
+  }
+  $("#ds-rel-go").onclick = async () => {
+    $("#ds-rel-go").disabled = true;
+    const msg = $("#ds-rel-msg"), chosen = [...document.querySelectorAll(".ds-rel-upd:checked")].map((x) => x.value);
+    try {
+      const rel = await api.createRelease(id, $("#ds-rel-notes").value);
+      const done = [];
+      for (const did of chosen) {
+        msg.textContent = `Release v${rel.number} created. Updating dashboards…`;
+        try { const d = await api.dashboard(did); await api.publishDashboard(did, { rev: d.rev, release: rel.number, source: "published" }); done.push(did); }
+        catch (e) { alert(`The release was created, but a dashboard could not be updated: ${e.message}`); }
+      }
+      if (done.length === 1) { location.href = `/dashboard?id=${encodeURIComponent(done[0])}&view=published`; return; }   // go and look at it
+      host.innerHTML = ""; await loadReleases(); loadDashboards();
+    } catch (e) { msg.textContent = e.message; $("#ds-rel-go").disabled = false; }
+  };
+}
+
+async function loadDashboards() {
+  const host = $("#ds-dashlist"); if (!host) return;
+  let list = [];
+  try { list = (await api.dashboards(id)).dashboards || []; } catch { host.textContent = ""; return; }
+  host.innerHTML = list.length ? list.map((d) => `<div class="ds-dashrow"><a href="/dashboard?id=${encodeURIComponent(d.id)}"><b>${esc(d.title || "Untitled dashboard")}</b></a>`
+    + ` <span class="muted">· ${d.n_blocks} block${d.n_blocks === 1 ? "" : "s"} · ${d.published ? `published over release v${d.release}` : "private draft"}${d.mine ? "" : " · by another user"} · updated ${esc(fmtDate(d.updated_at))}</span>`
+    + (d.update_available ? ` <a class="badge tier-sample_verified" href="/dashboard?id=${encodeURIComponent(d.id)}" title="a newer release of this dataset exists; open the dashboard to update its public page">update to v${d.update_available} available</a>` : "")
+    + (d.mine ? ` <a class="muted" href="/dashboard?id=${encodeURIComponent(d.id)}&edit=1">edit</a> · <a class="muted" href="#" data-deldash="${esc(d.id)}">delete</a>` : "") + `</div>`).join("")
+    : "No saved dashboards yet.";
+  host.querySelectorAll("[data-deldash]").forEach((a) => (a.onclick = async (e) => {
+    e.preventDefault();
+    if (!confirm("Delete this dashboard? The dataset is not affected.")) return;
+    try { await api.deleteDashboard(a.dataset.deldash); loadDashboards(); } catch (ex) { alert("delete failed: " + ex.message); }
+  }));
 }
 
 // ── audit report: an APA-style table of what the model extracted and what the review changed ──

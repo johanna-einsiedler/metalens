@@ -61,6 +61,32 @@ export const api = {
   datasetActivity: (id) => req(`/api/datasets/${id}/activity`),
   datasetExport: (id) => req(`/api/datasets/${id}/export`),
   datasetAudit: (id) => req(`/api/datasets/${id}/audit`),
+  analysisTemplates: () => req(`/api/analysis/templates`),
+  validateDashboard: (datasetId, spec) => req(`/api/dashboards/validate`, json({ dataset_id: datasetId, spec: spec || null })),
+  proposeDashboard: (body) => req(`/api/dashboards/propose`, json(body)),
+  dashboards: (datasetId) => req(`/api/dashboards${qs({ dataset: datasetId })}`),
+  dashboard: (id, view) => req(`/api/dashboards/${id}${qs({ view })}`),          // view: "draft" | "published" (default: the owner's draft, else the public page)
+  dashboardTable: (id, unit, view) => req(`/api/dashboards/${id}/table${qs({ unit, view })}`),
+  dashboardEvidence: (id, unit, cells, view) => req(`/api/dashboards/${id}/evidence`, json({ unit, cells, view: view || null })),
+  publishDashboard: (id, body) => req(`/api/dashboards/${id}/publish`, json(body)),   // {rev, release: N|"latest"|"new", source: "draft"|"published"}
+  unpublishDashboard: (id) => req(`/api/dashboards/${id}/unpublish`, { method: "POST" }),
+  dashboardUpdatePreview: (id, release, source) => req(`/api/dashboards/${id}/update-preview${qs({ release, source })}`),   // release: N | "latest" | "head"
+  createDashboard: (body) => req(`/api/dashboards`, json(body)),
+  updateDashboard: (id, body) => req(`/api/dashboards/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  deleteDashboard: (id) => req(`/api/dashboards/${id}`, { method: "DELETE" }),
+  analysisTable: (id, unit, release) => req(`/api/datasets/${id}/analysis${qs({ unit, release })}`),
+  analysisEvidence: (id, unit, cells, release) => req(`/api/datasets/${id}/analysis/evidence`, json({ unit, cells, release: release ?? null })),
+  // releases: frozen copies of a dataset that published dashboards pin
+  releases: (id) => req(`/api/datasets/${id}/releases`),
+  pendingRelease: (id) => req(`/api/datasets/${id}/releases/pending`),
+  createRelease: (id, notes) => req(`/api/datasets/${id}/releases`, json({ notes: notes || "" })),
+  // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads
+  releaseExport: async (id, n) => {
+    const r = await fetch(`/api/datasets/${id}/releases/${n}/export`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    const m = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "");
+    return { blob: await r.blob(), name: m ? m[1] : `release-v${n}.zip` };
+  },
   myDatasets: () => req(`/api/datasets`),
   createDataset: (body) => req(`/api/datasets`, json(body)),
   addToDataset: (id, body) => req(`/api/datasets/${id}/add`, json(body)),
@@ -116,11 +142,8 @@ export const api = {
   createView: (body) => req(`/api/views`, json(body)),
   datasetRows: (datasetIds) => req(`/api/datasets/rows${qs({ dataset: datasetIds })}`),
   schema: (id) => req(`/api/schemas/${encodeURIComponent(id)}`),
-  analysisRows: (viewId) => req(`/api/analyses/${viewId}/rows`),
-  proposeFigures: (body) => req(`/api/analyses/propose-figures`, json(body)),
   presets: () => req(`/api/presets`),
   ingest: (body) => req(`/api/ingest`, json(body)),                    // JSON only, no PDF
-  schema: (id) => req(`/api/schemas/${encodeURIComponent(id)}`),
   myPresets: () => req(`/api/presets/mine`),
   presetPrompt: (id) => req(`/api/presets/${id}/prompt`),
   presetDetail: (id) => req(`/api/presets/${encodeURIComponent(id)}/detail`),
@@ -135,7 +158,6 @@ export const api = {
   testKey: (body) => req(`/api/providers/test`, json(body)),
   extract: (formData) => req(`/api/extract`, { method: "POST", body: formData }),
   ingestPdf: (formData) => req(`/api/ingest-pdf`, { method: "POST", body: formData }),
-  ingest: (body) => req(`/api/ingest`, json(body)),
   job: (id) => req(`/api/jobs/${id}`),
   retryJob: (id) => req(`/api/jobs/${id}/retry`, { method: "POST" }),
   cancelJob: (id) => req(`/api/jobs/${id}/cancel`, { method: "POST" }),

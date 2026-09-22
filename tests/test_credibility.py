@@ -100,13 +100,24 @@ def run() -> int:
     doc3 = None
     conn3 = records.connect()
     doc3 = records.persist(conn3, ingest(fixtures.FORESTPLOT_JSON), schema_id="forestplot@v1",
-                           source_job_id="cred-http")
+                           source_job_id="cred-http", session_id="cred-sess")
     ds3 = records.create_dataset(conn3, title="http demo", session_id="cred-sess")
     records.assign_document_to_dataset(conn3, ds3["id"], doc3)
     rid3 = records.dataset_records(conn3, ds3["id"])[0]["id"]
     conn3.close()
-    rv = cl.post(f"/api/records/{rid3}/verify", json={"status": "verified"})
+    # a record id alone opens nothing: the entry is private, a stranger gets 404 and changes nothing
+    stranger = cl.post(f"/api/records/{rid3}/verify", json={"status": "flagged", "field_values": {"x": 1}},
+                       headers={"X-Session-Id": "someone-else"})
+    check("a stranger cannot verify / overwrite a private record", stranger.status_code == 404, str(stranger.status_code))
+    check("… nor read its history", cl.get(f"/api/records/{rid3}/events", headers={"X-Session-Id": "someone-else"}).status_code == 404)
+    rv = cl.post(f"/api/records/{rid3}/verify", json={"status": "verified"}, headers={"X-Session-Id": "cred-sess"})
     check("POST /verify -> 200", rv.status_code == 200 and rv.json()["status"] == "verified")
+    # once the dataset is public, others may give an opinion (verify / flag) but never change values
+    conn4 = records.connect(); records.set_dataset_visibility(conn4, ds3["id"], "public"); conn4.commit(); conn4.close()
+    check("a reader may flag a public entry", cl.post(f"/api/records/{rid3}/verify", json={"status": "flagged", "notes": "value not in the paper"},
+                                                       headers={"X-Session-Id": "someone-else"}).status_code == 200)
+    check("… but not overwrite its values", cl.post(f"/api/records/{rid3}/verify", json={"status": "verified", "field_values": {"x": 1}},
+                                                     headers={"X-Session-Id": "someone-else"}).status_code == 403)
     badge = cl.get(f"/api/datasets/{ds3['id']}/credibility").json()
     check("GET /credibility reflects the verify", badge["audited"] == 1, str(badge))
     check("404 on verifying unknown record",

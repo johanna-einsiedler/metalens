@@ -87,3 +87,25 @@ def test_triangular_matrix_row_choice() -> None:
     pdf = d.tobytes(); d.close()
     peer = pdf_utils.anchor_bands(pdf, 1, "Extraversion (peer)")[0]; neuro = pdf_utils.anchor_bands(pdf, 1, "Neuroticism (self)")[0]
     assert pdf_utils.numbers_in_band(pdf, 1, neuro) > pdf_utils.numbers_in_band(pdf, 1, peer) >= 2
+
+
+def test_table_context_reads_caption_and_column_headers() -> None:
+    """A quoted table row is unreadable without its column headers: they are read from the
+    page layout (header words sit over their numbers), data rows above are skipped, an SD in
+    parentheses stays with its mean, text beside the table is ignored."""
+    import fitz
+    d = fitz.open(); page = d.new_page()
+    put = lambda x, y, t: page.insert_text((x, y), t, fontsize=8)   # noqa: E731
+    put(72, 80, "Table 2: Performance of GPT-4 on Exams")
+    put(190, 98, "Intro to Am"); put(262, 98, "Intro to Am"); put(340, 98, "Insurance")
+    put(72, 104, "Prompting Method")
+    put(190, 110, "Law-MC"); put(262, 110, "Law-Essay"); put(340, 110, "Law")
+    for k, (label, a, b, c) in enumerate([("Basic", "79", "60 (4.1)", "5"), ("Few Shot", "100", "56 (3.2)", "30")]):
+        put(72, 128 + 18 * k, label); put(190, 128 + 18 * k, a); put(262, 128 + 18 * k, b); put(340, 128 + 18 * k, c)
+    put(430, 146, "unrelated body text of the next column runs here")
+    pdf = d.tobytes(); d.close()
+    ctx = pdf_utils.table_context(pdf, 1, "Few Shot 100 56 (3.2) 30")
+    assert ctx["caption"].startswith("Table 2") and ctx["row_label"] == "Few Shot"
+    assert [(c["text"], c["header"]) for c in ctx["cells"]] == [("100", "Intro to Am Law-MC"), ("56 (3.2)", "Intro to Am Law-Essay"), ("30", "Insurance Law")]
+    assert pdf_utils.table_context(pdf, 1, "a sentence that is not a table row") == {}
+    assert pdf_utils.table_context(pdf, 9, "Few Shot 100 56 30") == {}

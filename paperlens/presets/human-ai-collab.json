@@ -323,6 +323,51 @@
     "entries": "cards",
     "grid_rows": "conditions.measures",
     "triage": "low_confidence_first",
-    "paper_panel": "open"
+    "paper_panel": "open",
+    "analysis": {
+      "default_unit": "conditions.measures",
+      "derived": [
+        {
+          "name": "g_team_vs_human",
+          "label": "Human+AI vs human alone (Hedges' g)",
+          "formula": "hedges_g",
+          "unit": "conditions.measures",
+          "inputs": {
+            "m1": "Avg_Perf_HumanAI",
+            "m2": "Avg_Perf_Human",
+            "sd1": "Sd_Perf_HumanAI",
+            "sd2": "Sd_Perf_Human",
+            "n1": "N_HumanAI",
+            "n2": "N_Human"
+          },
+          "flip": {"column": "Perf_Dir", "in": ["Down"]}
+        },
+        {
+          "name": "g_ai_vs_human",
+          "label": "AI alone vs human alone (Hedges' g)",
+          "formula": "hedges_g",
+          "unit": "conditions.measures",
+          "inputs": {
+            "m1": "Avg_Perf_AI",
+            "m2": "Avg_Perf_Human",
+            "sd1": "Sd_Perf_AI",
+            "sd2": "Sd_Perf_Human",
+            "n1": "N_AI",
+            "n2": "N_Human"
+          },
+          "flip": {"column": "Perf_Dir", "in": ["Down"]}
+        }
+      ],
+      "units": {
+        "by": "Perf_Metric_Cleaned",
+        "detail": "Perf_Metric",
+        "columns": ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI", "Sd_Perf_Human", "Sd_Perf_AI", "Sd_Perf_HumanAI"]
+      },
+      "complete": {
+        "unit": "conditions.measures",
+        "columns": ["Avg_Perf_Human", "Avg_Perf_AI", "Avg_Perf_HumanAI"],
+        "label": "a human-alone, an AI-alone and a human+AI mean"
+      }
+    }
   }
 }

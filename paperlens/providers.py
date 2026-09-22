@@ -93,8 +93,13 @@ def generate_text(
     prompt: str,
     temperature: float = 0.3,
     base_url: str | None = None,
+    max_tokens: int | None = None,
+    json_mode: bool = False,
 ) -> str:
-    """Single-turn text-only generation. Returns the response string."""
+    """Single-turn text-only generation. Returns the response string. ``max_tokens`` raises
+    the output budget for long structured answers (recent Gemini models spend part of it on
+    internal reasoning, so a tight cap truncates the JSON); ``json_mode`` asks for JSON where
+    the provider has a safe switch for it (Google)."""
     provider = get_provider(model, base_url)
 
     if provider == "google":
@@ -106,10 +111,11 @@ def generate_text(
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=temperature,
-                max_output_tokens=4096,
+                max_output_tokens=max_tokens or 4096,
+                **({"response_mime_type": "application/json"} if json_mode else {}),
             ),
         )
-        return response.text.strip()
+        return (response.text or "").strip()
 
     if provider == "deepseek":
         client = openai.OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
@@ -135,7 +141,7 @@ def generate_text(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
-            max_tokens=_ANTHROPIC_MAX_TOKENS,
+            max_tokens=max(max_tokens or 0, _ANTHROPIC_MAX_TOKENS),
         )
         return response.choices[0].message.content.strip()
 

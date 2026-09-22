@@ -99,8 +99,9 @@ def run() -> int:
     data = cl.get(f"/api/views/{cv.json()['id']}/data").json()
     check("GET /api/views/{id}/data -> series", data["total_records"] == 4 and len(data["series"]) == 2,
           str(data))
-    check("/observatory served", cl.get("/observatory").status_code == 200)
-    check("observatory.js served", cl.get("/static/observatory.js").status_code == 200)
+    for old_page in ("/observatory", "/builder", "/analysis"):      # retired pages redirect, never 404
+        r = cl.get(old_page, follow_redirects=False)
+        check(f"{old_page} redirects home", r.status_code == 307 and r.headers["location"] == "/")
 
     print(f"\n{'OK' if not failures else 'FAILURES: ' + str(failures)}")
     return 1 if failures else 0

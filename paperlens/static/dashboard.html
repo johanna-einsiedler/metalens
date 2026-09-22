@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/dash.css"/>
+  <script src="/static/vendor/d3.v7.min.js"></script>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+
+  <main class="wrap dash-wrap">
+    <div class="ds-head" id="dash-head"><p class="muted">Loading…</p></div>
+    <div id="dash-owner"></div>
+    <div id="dash-style"></div>
+    <div class="dash-controls" id="dash-controls"></div>
+    <div id="dash-unanswered"></div>
+    <div class="dash-layout">
+      <div class="dash-main">
+        <div class="dash-grid" id="dash-grid"></div>
+        <div id="dash-panel"></div>
+      </div>
+      <aside id="dash-inspector" hidden></aside>
+    </div>
+    <p class="dash-foot muted" id="dash-foot"></p>
+  </main>
+
+  <script type="module" src="/static/dashboard.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

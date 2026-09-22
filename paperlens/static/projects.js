@@ -88,8 +88,19 @@ async function renderDatasets(grid, me) {
 // Analyses/dashboards are disabled in the beta — show a "coming soon" note
 // instead of the saved-view grid (the underlying data stays under Data review).
 async function renderAnalyses(grid, _me) {
-  grid.innerHTML = '<p class="muted">🚧 Dashboards &amp; saved analyses are coming soon. '
-    + 'For now, extract papers and review the data under <a href="/workspace">Data review</a>.</p>';
+  let list = [];
+  try { list = (await api.dashboards()).dashboards || []; }
+  catch (e) { grid.innerHTML = `<p class="muted">error: ${esc(e.message)}</p>`; return; }
+  grid.innerHTML = list.length
+    ? list.map((d) => `<div class="proj-tile-wrap"><a class="proj-tile" href="/dashboard?id=${encodeURIComponent(d.id)}"><div class="pt-title">📊 ${esc(d.title || "Untitled dashboard")}</div>`
+        + `<div class="pt-meta"><span class="pt-vis ${esc(d.visibility)}">${d.visibility === "public" ? "published" : "private draft"}</span> · updated ${esc(String(d.updated_at || "").slice(0, 10))}</div></a>`
+        + `<button class="pt-del" data-dash="${esc(d.id)}" data-pub="${d.visibility === "public" ? 1 : ""}" title="delete dashboard">🗑</button></div>`).join("")
+    : '<p class="muted">No dashboards yet. Open a dataset and choose “Build a dashboard”.</p>';
+  grid.querySelectorAll(".pt-del[data-dash]").forEach((b) => (b.onclick = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!confirm(b.dataset.pub ? "Delete this dashboard? It is published: its link stops working for everyone. The dataset is not affected." : "Delete this dashboard? The dataset is not affected.")) return;
+    try { await api.deleteDashboard(b.dataset.dash); renderAnalyses(grid, _me); } catch (ex) { alert("delete failed: " + ex.message); }
+  }));
 }
 
 // "All my papers" — the cached-PDF library (one card per distinct PDF, deduped by

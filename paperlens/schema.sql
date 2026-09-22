@@ -156,6 +156,13 @@ CREATE TABLE IF NOT EXISTS verification_event (
     created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS verification_event_record_idx ON verification_event(record_id);
+-- evidence points at sub-entry / table rows by their permanent row id (field_values[...]._rid),
+-- not only by the position the model named: deleting or inserting a row cannot shift a quote
+ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS child_rid text;
+ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS row_rid text;
+-- what a quoted table row means: {caption, stub, row_label, cells[{text, header}]}, read once
+-- from the PDF layout ('{}' = looked, nothing found); NULL = not looked yet
+ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS context jsonb;
 
 -- ── tables reserved for later phases (created now so FKs/queries are stable) ──
 CREATE TABLE IF NOT EXISTS dataset (
@@ -401,3 +408,56 @@ CREATE TABLE IF NOT EXISTS anon_trial_ip (
     n       integer NOT NULL DEFAULT 0,
     PRIMARY KEY (ip_hash, day)
 );
+
+-- ── dashboards: a validated block spec over ONE dataset; live (only the spec is stored) ──
+CREATE TABLE IF NOT EXISTS dashboard (
+    id            uuid PRIMARY KEY,
+    dataset_id    uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    owner_user_id uuid,
+    session_id    text,
+    title         text,
+    spec          jsonb NOT NULL,                 -- dashboard_spec grammar (questions, blocks, filters)
+    grammar       integer NOT NULL DEFAULT 1,
+    rev           integer NOT NULL DEFAULT 1,     -- optimistic concurrency for PATCH
+    proposal      jsonb,                          -- {model, prompt_sha256, registry_version, raw, attempts, …}; never a key
+    visibility    text NOT NULL DEFAULT 'private',
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dashboard_dataset_idx ON dashboard(dataset_id);
+CREATE INDEX IF NOT EXISTS dashboard_owner_idx   ON dashboard(owner_user_id);
+CREATE INDEX IF NOT EXISTS dashboard_session_idx ON dashboard(session_id);
+
+-- ── dataset releases (dashboards pin one) ────────────────────────────────────
+-- A release is a frozen, self-contained copy of what dashboards read from a dataset: the
+-- records with their values, statuses and corrections, the paper metadata, the evidence quotes
+-- and the preset (incl. its display.analysis settings) as of the cut. Nothing in it depends on
+-- live rows: papers can be deleted or re-imported afterwards. Never rects, page images or PDFs.
+CREATE TABLE IF NOT EXISTS dataset_release (
+    id           uuid PRIMARY KEY,
+    dataset_id   uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    number       integer NOT NULL,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    created_by   uuid,
+    reason       text NOT NULL DEFAULT 'manual',   -- manual | dashboard_publish | github_publish | github_import
+    notes        text,
+    changes      jsonb,                            -- what changed against the previous release (auto)
+    fingerprint  text NOT NULL,                    -- hash of the LIVE data at the cut (cheap "changed since?" test)
+    content_sha  text NOT NULL,                    -- sha256 of the canonical snapshot (without layout caches)
+    spec_sha     text NOT NULL,                    -- sha256 of the preset spec frozen with it
+    schema_id    text,
+    engine       jsonb,
+    stats        jsonb,
+    credibility  jsonb,                            -- the badge as of the release
+    snapshot     bytea NOT NULL,                   -- gzip(canonical JSON), format 1
+    UNIQUE (dataset_id, number)
+);
+CREATE INDEX IF NOT EXISTS dataset_release_dataset_idx ON dataset_release(dataset_id, number DESC);
+
+-- A PUBLISHED dashboard is a frozen page: its own copy of the spec and title, over ONE dataset
+-- release. spec / title / rev stay the owner's draft; visibility = 'public' means published.
+ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_spec       jsonb;
+ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_title      text;
+ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_release_id uuid REFERENCES dataset_release(id);
+ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_at         timestamptz;
+

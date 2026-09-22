@@ -55,6 +55,83 @@ CORE_ARRAY_CANDIDATES: tuple[str, ...] = ("samples", "records", "studies", "summ
 # Where the model's self-assessment lives. ``confidence`` is the declared, publishable,
 # per-instance block; ``extraction_confidence`` is the legacy (non-publishable) one.
 CONFIDENCE_KEY = "confidence"
+# Every sub-entry row and table row carries a permanent id under this key (internal: never
+# published, never shown). Evidence refers to rows by it, so deleting or inserting a row
+# cannot shift a quote onto its neighbour. Rows of the model's output get "o<original index>"
+# (deterministic, so a re-ingest of the same response yields the same ids); rows a reviewer
+# adds get a random id from the client.
+ROW_ID_KEY = "_rid"
+
+
+def is_rows(v) -> bool:
+    return isinstance(v, list) and bool(v) and all(isinstance(x, dict) for x in v)
+
+
+def assign_row_ids(field_values: dict) -> None:
+    """Give every row of every list-of-objects (and of the lists inside those rows) an id, in place."""
+    for v in field_values.values():
+        if not is_rows(v):
+            continue
+        for j, row in enumerate(v):
+            row.setdefault(ROW_ID_KEY, f"o{j}")
+            for vv in row.values():
+                if is_rows(vv):
+                    for r, inner in enumerate(vv):
+                        inner.setdefault(ROW_ID_KEY, f"o{r}")
+
+
+def strip_row_ids(node):
+    """A deep copy of ``node`` without any row id (what leaves the system)."""
+    if isinstance(node, dict):
+        return {k: strip_row_ids(v) for k, v in node.items() if k != ROW_ID_KEY}
+    if isinstance(node, list):
+        return [strip_row_ids(x) for x in node]
+    return node
+
+
+_ROW_PATH = re.compile(r"^(?:[^.\[]+(?:\._table)?\[\d+\]\.)?(?P<a>[A-Za-z_]\w*)\[(?P<j>\d+)\]"
+                       r"(?:\.(?P<b>[A-Za-z_]\w*)\[(?P<r>\d+)\])?(?P<rest>(?:\..*)?)$")
+
+
+def row_refs(field_path: str | None, field_values: dict) -> tuple[str | None, str | None]:
+    """(level-1 row id, level-2 row id) of the row(s) an evidence path points INTO, by the
+    positions the path names; (None, None) for a path that names no row."""
+    m = _ROW_PATH.match(field_path or "")
+    if not m or not isinstance(field_values, dict):
+        return None, None
+    rows = field_values.get(m["a"])
+    j = int(m["j"])
+    if not is_rows(rows) or j >= len(rows):
+        return None, None
+    first = rows[j].get(ROW_ID_KEY)
+    second = None
+    if m["b"]:
+        inner = rows[j].get(m["b"])
+        r = int(m["r"])
+        if is_rows(inner) and r < len(inner):
+            second = inner[r].get(ROW_ID_KEY)
+    return first, second
+
+
+def live_path(field_path: str | None, child_rid: str | None, row_rid: str | None, field_values: dict) -> str | None:
+    """The evidence path with its row positions brought up to date from the row ids: where the
+    row sits NOW. A row that no longer exists loses its index (the quote then covers the whole
+    list). Paths without ids are returned as stored."""
+    m = _ROW_PATH.match(field_path or "")
+    if not m or not child_rid or not isinstance(field_values, dict):
+        return field_path
+    prefix = field_path[:m.start("a")]
+    rows = field_values.get(m["a"])
+    j = next((k for k, row in enumerate(rows) if row.get(ROW_ID_KEY) == child_rid), None) if is_rows(rows) else None
+    if j is None:
+        return f"{prefix}{m['a']}"
+    out = f"{prefix}{m['a']}[{j}]"
+    if m["b"]:
+        inner = rows[j].get(m["b"])
+        r = (next((k for k, row in enumerate(inner) if row.get(ROW_ID_KEY) == row_rid), None)
+             if (row_rid and is_rows(inner)) else (int(m["r"]) if not row_rid else None))
+        return f"{out}.{m['b']}" if r is None else f"{out}.{m['b']}[{r}]{m['rest']}"
+    return out + m["rest"]
 LEGACY_CONFIDENCE_KEY = "extraction_confidence"
 
 
@@ -229,7 +306,7 @@ def strip_to_publishable(result: str | dict, entries_key: str | None = None) -> 
     except ValueError:
         core_key, core_shape = None, None
     keys = publishable_keys(core_key)
-    out = {k: copy.deepcopy(v) for k, v in parsed.items() if k in keys}
+    out = {k: strip_row_ids(v) for k, v in parsed.items() if k in keys}   # deep copy, internal row ids dropped
 
     pm = out.get("paper_metadata")
     if isinstance(pm, dict):

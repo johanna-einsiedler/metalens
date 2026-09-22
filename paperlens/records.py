@@ -20,6 +20,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Json
 
+from . import contract
 from .ingest import EvidenceSpan, FieldConfidence, IngestResult, Record
 
 _log = logging.getLogger("paperlens")
@@ -178,10 +179,10 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             conn.execute(
                 """INSERT INTO evidence_span
                      (id, document_id, record_id, ord, placement, entry_index,
-                      field_path, snippet, page, source)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                      field_path, snippet, page, source, child_rid, row_rid)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (_new_id(), doc_id, rid, s.ord, s.placement, s.entry_index,
-                 s.field_path, s.snippet, s.page, s.source),
+                 s.field_path, s.snippet, s.page, s.source, s.child_rid, s.row_rid),
             )
 
         for c in res.confidence:
@@ -536,7 +537,7 @@ def delete_paper(conn: psycopg.Connection, pdf_sha256: str, *,
     return n
 
 
-def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
+def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> dict | None:
     """Everything the viewer needs for one document: paper metadata, the resolved
     schema grammar, page-image urls, records, and evidence spans (with rects)."""
     from . import storage
@@ -621,21 +622,31 @@ def document_view(conn: psycopg.Connection, document_id: str) -> dict | None:
             n_pages = min(int(prow[0]), pdf_utils.MAX_PAGES)
 
     ev_rows = conn.execute(
-        """SELECT record_id, entry_index, page, field_path, snippet, source, rect
+        """SELECT record_id, entry_index, page, field_path, snippet, source, rect, child_rid, row_rid
            FROM evidence_span WHERE document_id = %s ORDER BY page, ord""",
         (document_id,),
     ).fetchall()
+    # rows are addressed by id: the path handed to the client names where the row sits NOW
+    fv_by_rec = {r["id"]: r["field_values"] for r in records_out}
+    fv_by_entry = {r["entry_index"]: r["field_values"] for r in records_out}
     evidence_out = [
         {"record_id": str(rid) if rid else None, "entry_index": ei, "page": pg,
-         "field_path": fp, "snippet": sn, "source": src, "rect": rect}
-        for (rid, ei, pg, fp, sn, src, rect) in ev_rows
+         "field_path": contract.live_path(fp, crid, rrid, fv_by_rec.get(str(rid)) if rid else fv_by_entry.get(ei)),
+         "snippet": sn, "source": src, "rect": rect}
+        for (rid, ei, pg, fp, sn, src, rect, crid, rrid) in ev_rows
     ]
     if not n_pages and evidence_out:
         n_pages = max((e["page"] or 0) for e in evidence_out)
 
-    store = storage.get_store()
+    store = store or storage.get_store()
+    # a paper imported as JSON alone has page NUMBERS (from its citations) but no page images:
+    # say so instead of handing the viewer thirteen broken pictures
+    try:
+        has_images = n_pages > 0 and store.exists(storage.page_image_key(document_id, 1))
+    except Exception:  # noqa: BLE001 - a storage hiccup must not take the review screen down
+        has_images = True
     pages = [{"page": i, "url": store.url(storage.page_image_key(document_id, i))}
-             for i in range(1, n_pages + 1)]
+             for i in range(1, n_pages + 1)] if has_images else []
 
     # The declaration the review UI renders from. A format-2 row carries it; a legacy row
     # (or a designer run with none) is upgraded from its old grammar + the data, at read
@@ -2228,6 +2239,7 @@ def delete_user_data(conn: psycopg.Connection, user_id: str) -> dict:
         delete_dataset(conn, dsid)
     with conn.transaction():
         conn.execute("DELETE FROM personal_preset WHERE owner_user_id = %s::uuid", (user_id,))
+        conn.execute("DELETE FROM dashboard WHERE owner_user_id = %s::uuid", (user_id,))
         conn.execute("DELETE FROM users WHERE id = %s::uuid", (user_id,))   # cascades sessions
     return {"documents": len(doc_ids), "datasets": len(ds_ids)}
 

@@ -1594,6 +1594,105 @@ def anchor_bands(pdf_bytes: bytes, page_1indexed: int, anchor: str, *, dpi: int 
         doc.close()
 
 
+_NUM_TOKEN = re.compile(r"^[\(\[]?[-−–]?\d*[.,]?\d+%?[\)\]\*†‡a-z]{0,2}$")
+_CAPTION = re.compile(r"^(Table|Tab\.|Figure|Fig\.)\s*[A-Z]?\d+", re.I)
+
+
+def table_context(pdf_bytes: bytes, page_1indexed: int, snippet: str) -> dict:
+    """What a quoted TABLE ROW means: the table's caption and the column header printed above
+    each of its numbers, read from the page layout. A row quote such as "Few Shot 100 56 30" is
+    unreadable without them. Best effort and purely positional: the row is the printed line
+    that shares most tokens with the quote; walking upward, data rows are skipped, header words
+    are assigned to the column whose number they sit over, and the nearest "Table N …" line is
+    the caption. {} when the quote is not a table row or nothing can be told."""
+    want = [t for t in re.split(r"\s+", (snippet or "").replace("−", "-").strip()) if t]
+    if len(want) < 2:
+        return {}
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if page_1indexed < 1 or page_1indexed > len(doc):
+            return {}
+        by_line: dict[int, list] = {}
+        for w in doc[page_1indexed - 1].get_text("words"):
+            by_line.setdefault(round(w[1] / 3), []).append(w)
+        lines = [sorted(by_line[k], key=lambda w: w[0]) for k in sorted(by_line)]
+    finally:
+        doc.close()
+    norm = lambda s: s.replace("−", "-").replace("–", "-")   # noqa: E731
+    best, score = None, 0
+    for idx, ws in enumerate(lines):
+        texts = [norm(w[4]) for w in ws]
+        hit = sum(1 for t in want if t in texts)
+        if hit > score and any(_NUM_TOKEN.match(t) for t in texts if t in want):
+            best, score = idx, hit
+    if best is None or score < max(2, int(0.6 * min(len(want), len(lines[best])))):
+        return {}
+    row = lines[best]
+    tokens = [w for w in row if _NUM_TOKEN.match(norm(w[4]))]
+    # a TABLE row, not a sentence that happens to contain numbers: at least two numbers, numbers
+    # make up a fair share of the line, and the row label is short
+    # (text of a neighbouring column on the same line does not count: only what lies left of the last number)
+    inside = [w for w in row if not tokens or w[0] <= tokens[-1][2] + 15]
+    words = [w for w in inside if not _NUM_TOKEN.match(norm(w[4]))]
+    if len(tokens) < 2 or len(tokens) < 0.3 * len(inside) or len(words) > 8:
+        return {}
+    # a parenthesised number right after a number is its SD / CI: one cell, "593.2 (295.1)"
+    cells: list[list] = []
+    for w in tokens:
+        if cells and w[4].startswith(("(", "[")) and w[0] - cells[-1][-1][2] < 25:
+            cells[-1].append(w)
+        else:
+            cells.append([w])
+    nums = [(c[0][0], c[0][1], c[-1][2], c[0][3], " ".join(x[4] for x in c)) for c in cells]
+    first_num_x = nums[0][0]
+    label_words = [w for w in row if w[2] <= first_num_x + 1 and not _NUM_TOKEN.match(norm(w[4]))]
+    right_edge = nums[-1][2] + 40                                    # beyond this is another text column
+    spans = [(n[0] - 10, (nums[k + 1][0] - 10) if k + 1 < len(nums) else right_edge) for k, n in enumerate(nums)]
+
+    def col_of(w):
+        """The column a word sits over: the span it overlaps most (works for left-aligned and
+        centred headers alike); None for the stub column and for text outside the table."""
+        if w[0] > nums[-1][2] + 15 or w[0] < first_num_x - 12:       # outside the table / the stub column
+            return None
+        best_k, best_o = None, 0.0
+        for k, (a, b) in enumerate(spans):
+            o = min(w[2], b) - max(w[0], a)
+            if o > best_o:
+                best_k, best_o = k, o
+        return best_k
+    headers: list[list] = [[] for _ in nums]
+    stub: list = []
+    caption, last_y, found = None, row[0][1], False
+    for ws in reversed(lines[:best]):
+        text = " ".join(w[4] for w in ws)
+        if _CAPTION.match(text):
+            caption = text[:200]; break
+        if last_y - ws[0][1] > (70 if not found else 30):          # left the table
+            break
+        numeric = sum(1 for w in ws if _NUM_TOKEN.match(norm(w[4])))
+        if numeric >= max(1, len(ws) // 2) and any(col_of(w) is not None for w in ws if _NUM_TOKEN.match(norm(w[4]))):
+            last_y = ws[0][1]; continue                            # another data row: keep walking up
+        took, line_stub = False, []
+        for w in ws:
+            k = col_of(w)
+            if k is not None and not _NUM_TOKEN.match(norm(w[4])):
+                headers[k].append(w); took = True
+            elif k is None and w[0] < first_num_x - 12 and not _NUM_TOKEN.match(norm(w[4])):
+                line_stub.append(w)
+        if took:                                                     # a header line; group labels between data rows are not
+            found = True; stub += line_stub
+        last_y = ws[0][1]
+    if not found and not caption:
+        return {}
+    # headers are short; a "header" of sentence length means we walked into running text
+    if any(len(h) > 7 or sum(len(w[4]) for w in h) > 60 for h in headers):
+        return {}
+    say = lambda ws: " ".join(w[4] for w in sorted(ws, key=lambda w: (round(w[1] / 3), w[0])))[:80]   # noqa: E731
+    return {"caption": caption, "stub": say(stub) or None, "row_label": " ".join(w[4] for w in label_words)[:80] or None,
+            "cells": [{"text": n[4], "header": say(headers[k]) or None} for k, n in enumerate(nums)]}
+
+
 def numbers_in_band(pdf_bytes: bytes, page_1indexed: int, band: tuple[float, float], *, dpi: int = DISPLAY_DPI) -> int:
     """How many numeric tokens are printed inside a row band (image pixels). In a triangular
     correlation matrix the cell of a pair sits on the row that holds MORE numbers (the lower

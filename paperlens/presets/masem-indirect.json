@@ -303,6 +303,18 @@
         ]
       }
     },
-    "citation_flash": false
+    "citation_flash": false,
+    "analysis": {
+      "default_unit": "factor_loadings",
+      "roles": {
+        "item": [
+          "identifier",
+          "dimension"
+        ],
+        "factor": [
+          "dimension"
+        ]
+      }
+    }
   }
 }

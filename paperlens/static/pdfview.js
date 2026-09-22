@@ -4,7 +4,11 @@ let CTX = new Set();   // evidence ids of the current entry / tab — applied to
 
 export function renderPages(root, pages, evidence) {
   root.innerHTML = "";
-  if (!pages || !pages.length) { root.innerHTML = '<p class="muted">No page images for this document.</p>'; return; }
+  if (!pages || !pages.length) {
+    root.innerHTML = '<p class="muted" style="padding:18px">No PDF is attached to this paper, so there are no pages to show. '
+      + 'The evidence quotes and page numbers are still listed with each value. To see them highlighted, import the PDF together with the results on the <a href="/import">Import</a> page.</p>';
+    return;
+  }
   const byPage = {};
   (evidence || []).forEach((ev, i) => { (byPage[ev.page] ||= []).push({ ev, i }); });
 

@@ -138,7 +138,7 @@ def test_screened_doc_shows_all_pages() -> None:
                                      api_key="", schema_id="human-ai-collab@v1",
                                      session_id="sess-allpages", complete=_empty, store=store)
         conn.commit()
-        v = records.document_view(conn, out["document_id"])
+        v = records.document_view(conn, out["document_id"], store=store)   # the store that holds the page images
     # evidence only cites page 1, but the whole 5-page paper is viewable
     assert len(v["pages"]) == 5, [p["page"] for p in v["pages"]]
     assert [r for r in v["records"] if not r["screened_empty"]] == []

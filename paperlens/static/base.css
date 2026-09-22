@@ -271,6 +271,8 @@ a.pt-title:hover { color: var(--accent); }
 /* signed out: the dataset lives only as long as the session */
 .ds-keep { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0 4px; padding: 12px 16px;
   border: 1px solid var(--override-line); background: var(--override-bg); border-radius: var(--radius); font-size: 13.5px; }
+.ds-dashrow { padding: 5px 0; border-top: 1px solid var(--border); color: var(--text); }
+.ds-dashrow:first-child { border-top: none; }
 .ds-keep .btn { flex: none; }
 .ds-keep input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 14px var(--font); background: var(--surface); color: var(--text); }
 /* audit report on the dataset page: the platform's table style (the APA layout is in the downloads) */
@@ -732,3 +734,16 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .paper-check { margin: 6px 0 12px; }
 .paper-check input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .paper-check .pq-hit { padding: 6px 2px; border-bottom: 1px solid var(--border); font-size: 13px; }
+
+/* dataset page: the "create release" form */
+.ds-relform { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin: 0 0 12px; font-size: 13px; background: var(--bg); }
+.ds-relform textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); resize: vertical; }
+.ds-relwarn { margin: 4px 0 8px; padding: 6px 10px 6px 26px; border-radius: var(--radius-sm); background: var(--override-bg); border: 1px solid var(--override-line); }
+
+/* extract: said before any paper is dropped when a run cannot be paid for */
+.nopay { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--override-bg); border: 1px solid var(--override-line); font-size: 13.5px; line-height: 1.5; }
+.nopay .btn { margin-left: 6px; }
+.dash-dupnote { font-size: 12.5px; margin: 0 0 10px; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--override-bg); border: 1px solid var(--override-line); }
+.ds-papers { max-height: 460px; overflow: auto; }
+.ds-reldash { margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.ds-reldash label { display: flex; gap: 8px; align-items: baseline; }

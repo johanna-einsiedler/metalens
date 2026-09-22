@@ -4,7 +4,14 @@
 // whose corrections route through POST /api/records/{id}/verify.
 // Vanilla ES module, no build step.
 
-const SKIP = new Set(["evidence", "extraction_confidence"]);
+// `_rid` is the permanent id of a sub-entry / table row (evidence refers to rows by it):
+// internal, kept on every edit, never rendered.
+const SKIP = new Set(["evidence", "extraction_confidence", "_rid"]);
+export function stripRowIds(node) {
+  if (Array.isArray(node)) return node.map(stripRowIds);
+  if (node && typeof node === "object") return Object.fromEntries(Object.entries(node).filter(([k]) => k !== "_rid").map(([k, v]) => [k, stripRowIds(v)]));
+  return node;
+}
 
 export function renderValue(data, opts = {}) {
   return `<div class="rv-root">${renderNode(data, "", opts)}</div>`;

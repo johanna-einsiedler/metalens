@@ -21,11 +21,11 @@ import uuid
 
 from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request,
                      Query, Response, UploadFile)
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, brands, credits, enrich, extract, figures_spec, localmode, presets, providers, records, storage, worker, retention
+from . import auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -194,9 +194,12 @@ def workspace() -> FileResponse:
 
 
 @app.get("/observatory")
-def observatory() -> FileResponse:
-    """The flagship public view — a saved view over records, rendered as a chart."""
-    return _page("observatory.html")
+@app.get("/builder")
+@app.get("/analysis")
+def retired_pages() -> RedirectResponse:
+    """The first dashboard pages (observatory, builder, analysis) were replaced by the
+    dashboard builder (/compose, /dashboard); old links land on the start page."""
+    return RedirectResponse("/", status_code=307)
 
 
 @app.get("/projects")
@@ -217,16 +220,19 @@ def preset_page() -> FileResponse:
     return _page("preset.html")
 
 
-@app.get("/builder")
-def builder_page() -> FileResponse:
-    """Analysis/dashboard builder: goal → LLM proposes figures → edit → save."""
-    return _page("builder.html")
+@app.get("/compose")
+def compose_page(dataset: str | None = None, dashboard: str | None = None) -> RedirectResponse:
+    """The composer became the edit mode of the dashboard page; old links keep working."""
+    from urllib.parse import urlencode
+    q = {"id": dashboard, "edit": 1} if dashboard else {"dataset": dataset or "", "edit": 1}
+    return RedirectResponse(f"/dashboard?{urlencode(q)}", status_code=307)
 
 
-@app.get("/analysis")
-def analysis_page() -> FileResponse:
-    """Render a saved dashboard analysis (?view=…) as D3 figures over live rows."""
-    return _page("analysis.html")
+@app.get("/dashboard")
+def dashboard_page() -> FileResponse:
+    """A dashboard over a dataset's analysis table: D3 blocks whose every mark traces back to
+    its paper, extraction, verification status and evidence quote."""
+    return _page("dashboard.html")
 
 
 @app.get("/faq")
@@ -656,6 +662,497 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     return ov
 
 
+def _dataset_gate(db, dataset_id: str, who: Principal) -> bool:
+    """404 unless the dataset is public or the caller's; returns whether the caller owns it."""
+    d = records.get_dataset(db, dataset_id)
+    owner = d is not None and records.is_dataset_owner(db, dataset_id, who)
+    if d is None or not (owner or d.get("visibility") == "public"):
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return owner
+
+
+@app.get("/api/datasets/{dataset_id}/analysis")
+def dataset_analysis_table(dataset_id: str, unit: str | None = None, release: int | None = None, db=Depends(get_db),
+                           who: Principal = Depends(principal)) -> dict:
+    """The flat, typed analysis table of a dataset for one row unit (default: the preset's):
+    columns with roles and statistics, papers, records with their provenance, rows. Document
+    ids and filenames only for the owner."""
+    from . import analysis_table
+    owner = _dataset_gate(db, dataset_id, who)
+    return analysis_table.build(db, dataset_id, unit, owner=owner, release=_release_or_404(db, dataset_id, release))
+
+
+def _release_or_404(db, dataset_id: str, number: int | None) -> dict | None:
+    """The release with this number (its snapshot loaded), None for the live dataset."""
+    if number is None:
+        return None
+    from . import releases
+    rel = releases.get_by_number(db, dataset_id, number, with_snapshot=True)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="This dataset has no such release.")
+    return rel
+
+
+class CellEvidenceBody(BaseModel):
+    unit: str | None = None
+    cells: list[dict] = []
+    release: int | None = None           # read the evidence of a release instead of the live dataset
+
+
+@app.post("/api/datasets/{dataset_id}/analysis/evidence")
+def dataset_analysis_evidence(dataset_id: str, body: CellEvidenceBody, db=Depends(get_db),
+                              who: Principal = Depends(principal)) -> dict:
+    """The evidence behind up to 300 cells of the analysis table: quote, page, source label and
+    the kind of support (exact value / table row / whole table / entry-level). Never geometry,
+    page images or editors: those stay behind the owner-only document view."""
+    from . import analysis_table
+    _dataset_gate(db, dataset_id, who)
+    return {"cells": analysis_table.cell_evidence(db, dataset_id, body.unit, body.cells,
+                                                   release=_release_or_404(db, dataset_id, body.release))}
+
+
+# ── dataset releases: frozen copies that dashboards pin ─────────────────────────
+@app.get("/api/datasets/{dataset_id}/releases")
+def dataset_releases(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The releases of a dataset, newest first. The owner also learns whether the live data has
+    moved on since the latest one."""
+    from . import releases
+    owner = _dataset_gate(db, dataset_id, who)
+    rows = releases.list_for_dataset(db, dataset_id)
+    out = {"releases": [releases.public_row(r) for r in rows]}
+    if owner:
+        out["head"] = {"changed": releases.changed_since(db, dataset_id, rows[0] if rows else None)}
+    return out
+
+
+@app.get("/api/datasets/{dataset_id}/releases/pending")
+def dataset_release_pending(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only: what the next release would contain (changes, what is not reviewed yet, the badge)."""
+    from . import releases
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can create releases.")
+    return releases.pending(db, dataset_id)
+
+
+@app.get("/api/datasets/{dataset_id}/releases/{number}/export")
+def dataset_release_export(dataset_id: str, number: int, file: str | None = None, db=Depends(get_db),
+                           who: Principal = Depends(principal)):
+    """A release as static files (release.json, tables/<unit>.json, evidence.json, README.md): a
+    zip, or ONE of the files with ``?file=``. What a dashboard written outside Metalens reads.
+    Same gate as the dataset; never file names, document ids or geometry."""
+    from . import release_export
+    _dataset_gate(db, dataset_id, who)
+    files = release_export.build(db, _release_or_404(db, dataset_id, number))
+    if file:
+        if file not in files:
+            raise HTTPException(status_code=404, detail="This release has no such file.")
+        kind = "text/markdown; charset=utf-8" if file.endswith(".md") else "application/json"
+        return Response(content=files[file], media_type=kind)
+    slug = (records.get_dataset(db, dataset_id) or {}).get("slug") or "dataset"
+    name = f"{slug}-v{number}"
+    return Response(content=release_export.as_zip(files, name), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.zip"'})
+
+
+class ReleaseBody(BaseModel):
+    notes: str = ""
+
+
+@app.post("/api/datasets/{dataset_id}/releases")
+def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only: freeze the dataset as it is now into the next release. 409 when nothing changed."""
+    from . import releases
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can create releases.")
+    if not records.dataset_records_all_owned(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="This dataset holds records you don't own.")
+    last = releases.latest(db, dataset_id)
+    if last and not releases.changed_since(db, dataset_id, last):
+        raise HTTPException(status_code=409, detail=f"Nothing changed since release v{last['number']}.")
+    rel = releases.create(db, dataset_id, reason="manual", notes=body.notes, created_by=who.user_id)
+    return releases.public_row(rel)
+
+
+# ── dashboards: questions → blocks → D3, every mark traceable ───────────────────
+@app.get("/api/analysis/templates")
+def analysis_templates() -> dict:
+    """The building blocks a dashboard is made of: figure, table and key-number templates with
+    their slots. Icons, slot editors and the validator all read this one declaration."""
+    from . import dashboard_spec
+    return dashboard_spec.registry()
+
+
+class DashboardValidateBody(BaseModel):
+    dataset_id: str
+    spec: dict | None = None            # None → the default dashboard for this dataset
+
+
+@app.post("/api/dashboards/validate")
+def dashboards_validate(body: DashboardValidateBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Validate (and repair) a dashboard spec against the dataset's columns; without a spec,
+    return the deterministic default dashboard. Sufficiency is computed here from the data."""
+    from . import dashboard_spec, dashboards
+    owner = _dataset_gate(db, body.dataset_id, who)
+    if body.spec is None:
+        spec, report = dashboards.default_spec(db, body.dataset_id, owner=owner)
+        return {"spec": spec, "report": report, "default": True}
+    tables, default = dashboards.tables_for(db, body.dataset_id, owner=owner)
+    spec, report = dashboard_spec.validate({**body.spec, "dataset_id": body.dataset_id}, tables, default_unit=default)
+    return {"spec": spec, "report": report, "default": False}
+
+
+class DashboardProposeBody(BaseModel):
+    dataset_id: str
+    questions: list[str] = []
+    model: str = ""
+    api_key: str = ""
+    base_url: str | None = None
+    use_credits: bool = False
+    dashboard_id: str | None = None      # a re-proposal on a saved dashboard (free, capped)
+    feedback: str = ""
+    previous: dict | None = None
+    keep: list[str] = []
+    context: str = ""                    # free-text background and requests for the planner
+
+
+FREE_REPROPOSALS = 5
+_RAW_CAP = 64_000          # characters of the model's answer kept
+
+
+@app.post("/api/dashboards/propose")
+def dashboards_propose(body: DashboardProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A model proposes the dashboard's STRUCTURE for the user's questions, out of our building
+    blocks; the validator repairs and checks it against the data, and a person reviews it
+    before anything is built. Own key or self-hosted model: never stored, no ledger. Credits:
+    ONE credit per dashboard; re-proposals with feedback are free (up to FREE_REPROPOSALS),
+    and a failed proposal is refunded. Runs in the web process, so the server key is never queued."""
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to build dashboards.")
+    import hashlib
+    from . import contract, dashboard_spec, dashboards
+    owner = _dataset_gate(db, body.dataset_id, who)
+    own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
+    revision = bool(body.previous and (body.previous.get("blocks") or []))
+    charged = False
+    if own:
+        model, key, base_url = body.model, body.api_key, body.base_url
+    elif body.use_credits:
+        if localmode.enabled():
+            raise HTTPException(status_code=422, detail="Local mode runs on your own API key or a local model.")
+        if not who.user_id:
+            raise HTTPException(status_code=401, detail="Sign in to use credits, or add your own API key.")
+        if not credits.offered():
+            raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
+        model = credits.credit_model()
+        key, base_url = credits.server_key_for(providers.get_provider(model, None)), None
+        prior = dashboards.get(db, body.dashboard_id) if body.dashboard_id else None
+        n_prior = int(((prior or {}).get("proposal") or {}).get("attempts_total") or 0) if prior and dashboards.owns(who, prior) else 0
+        free = revision and (n_prior < FREE_REPROPOSALS if prior else True)
+        if not free:
+            if not credits.try_consume(db, who.user_id, model=model, reason="dashboard"):
+                raise HTTPException(status_code=402, detail="No credits left. Add your own API key, or start from the default dashboard.")
+            charged = True
+    else:
+        raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model; or start from the default dashboard.")
+    if not model:
+        raise HTTPException(status_code=422, detail="Choose a model.")
+
+    tables, default = dashboards.tables_for(db, body.dataset_id, owner=owner)
+    questions = [{"id": f"q{k + 1}", "text": q.strip()[:400]} for k, q in enumerate(body.questions) if isinstance(q, str) and q.strip()][:12]
+    prompt = dashboard_spec.build_prompt(questions, tables, default, previous=body.previous if revision else None,
+                                         feedback=body.feedback, keep=body.keep, context=body.context)
+    attempts, raw, spec, report = 0, "", None, None
+    try:
+        for nudge in ("", "\n\nReturn ONLY the JSON object described above, with at least one block."):
+            attempts += 1
+            raw = providers.generate_text(model, key, prompt + nudge, base_url=base_url, max_tokens=16384, json_mode=True)
+            parsed = contract.parse_result_json(raw)
+            parsed = parsed if isinstance(parsed, dict) else {"blocks": parsed} if isinstance(parsed, list) else {}
+            if revision and body.keep:                       # locked blocks survive verbatim, whatever came back
+                locked = [b for b in body.previous.get("blocks") or [] if b.get("id") in body.keep]
+                parsed["blocks"] = locked + [b for b in parsed.get("blocks") or [] if isinstance(b, dict) and b.get("id") not in body.keep]
+            for b in parsed.get("blocks") or []:
+                if isinstance(b, dict) and b.get("origin") not in ("user", "default"):
+                    b["origin"] = "llm"
+            parsed["context"] = body.context                 # the user's, never the model's
+            if revision:                                     # a revision keeps the look and the labels the user settled on
+                prev = body.previous or {}
+                parsed["theme"] = prev.get("theme")
+                parsed["column_labels"] = prev.get("column_labels")
+                new_labels = parsed.get("value_labels") if isinstance(parsed.get("value_labels"), dict) else {}
+                parsed["value_labels"] = {**new_labels, **{c: {**(new_labels.get(c) or {}), **m} for c, m in (prev.get("value_labels") or {}).items() if isinstance(m, dict)}}
+            spec, report = dashboard_spec.validate({**parsed, "questions": questions, "dataset_id": body.dataset_id}, tables, default_unit=default)
+            if spec["blocks"]:
+                break
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - provider errors (bad key, quota, unreachable server)
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="dashboard refund")
+        return {"ok": False, "error": providers.extract_provider_message(exc)}
+    if not spec or not spec["blocks"]:
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="dashboard refund")
+        text = (raw or "").strip()
+        why = ("The model returned nothing." if not text
+               else "The model's answer was cut off before the JSON ended (it ran out of output tokens)." if not text.rstrip("`\n ").endswith(("}", "]"))
+               else "The model answered, but no block in its answer could be used.")
+        return {"ok": False, "error": f"{why} Try again, rephrase the questions, or start from the default dashboard.",
+                "raw": text[:_RAW_CAP], "prompt": prompt, "report": report or {"dropped": [], "repairs": []}, "model": model, "attempts": attempts}
+    out = {"ok": True, "spec": spec, "report": report,
+           "proposal": {"model": model, "provider": providers.get_provider(model, base_url), "attempts": attempts, "charged": charged,
+                        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                        "registry_version": dashboard_spec.REGISTRY_VERSION, "feedback": body.feedback[:400] or None,
+                        # the model's verbatim answer: shown in the composer (to debug, to keep) and stored
+                        # with the dashboard for its owner. The prompt is returned once and never stored.
+                        "raw": (raw or "")[:_RAW_CAP]},
+           "prompt": prompt}
+    if who.user_id and not own:
+        out["credits"] = credits.summary(db, who.user_id)
+    if body.dashboard_id:                                    # count the attempt on the saved dashboard
+        prior = dashboards.get(db, body.dashboard_id)
+        if prior and dashboards.owns(who, prior):
+            dashboards.count_proposal(db, body.dashboard_id)
+    return out
+
+
+class DashboardCreateBody(BaseModel):
+    dataset_id: str
+    title: str = ""
+    spec: dict
+    proposal: dict | None = None
+
+
+def _dashboard_or_404(db, dashboard_id: str, who: Principal, *, write: bool = False) -> dict:
+    from . import dashboards
+    d = dashboards.get(db, dashboard_id)
+    if d is None or not (dashboards.owns(who, d) if write else dashboards.visible(db, d, who)):
+        raise HTTPException(status_code=404, detail="Dashboard not found.")
+    return d
+
+
+@app.post("/api/dashboards")
+def dashboards_create(body: DashboardCreateBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Save a dashboard over a dataset the caller may see (their own, or a public one). The spec
+    is validated again here: what is stored is always a clean spec."""
+    from . import dashboard_spec, dashboards
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to build dashboards.")   # dashboards are kept, updated and published: account work
+    owner = _dataset_gate(db, body.dataset_id, who)
+    tables, default = dashboards.tables_for(db, body.dataset_id, owner=owner)
+    spec, _report = dashboard_spec.validate({**body.spec, "dataset_id": body.dataset_id}, tables, default_unit=default)
+    if not spec["blocks"]:
+        raise HTTPException(status_code=422, detail="A dashboard needs at least one valid block.")
+    ds = records.get_dataset(db, body.dataset_id) or {}
+    prop = {k: v for k, v in (body.proposal or {}).items() if k in ("model", "provider", "prompt_sha256", "registry_version", "attempts", "feedback", "created_at")}
+    if isinstance((body.proposal or {}).get("raw"), str):
+        prop["raw"] = body.proposal["raw"][:_RAW_CAP]
+    return dashboards.create(db, dataset_id=body.dataset_id, title=(body.title.strip() or spec.get("title") or f"{ds.get('title') or 'Dataset'}: dashboard")[:200],
+                             spec=spec, proposal=prop or None, owner_user_id=who.user_id, session_id=who.session_id)
+
+
+@app.get("/api/dashboards")
+def dashboards_list(dataset: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Dashboards of one dataset the caller may see, or (without ``dataset``) the caller's own."""
+    from . import dashboards
+    if dataset:
+        _dataset_gate(db, dataset, who)
+        return {"dashboards": dashboards.list_for_dataset(db, dataset, who)}
+    return {"dashboards": dashboards.list_mine(db, who)}
+
+
+def _dashboard_view(db, d: dict, who: Principal, view: str | None) -> tuple[str, dict | None]:
+    """Which face of a dashboard the caller gets: ('draft', None) = the owner's live working copy;
+    ('published', release) = the frozen page over its pinned release; ('live', None) = a public
+    dashboard from before releases existed. Only the owner may ask for the draft."""
+    from . import dashboards, releases
+    mine = dashboards.owns(who, d)
+    if view not in (None, "draft", "published"):
+        raise HTTPException(status_code=422, detail="view is 'draft' or 'published'.")
+    if view == "draft" and not mine:
+        raise HTTPException(status_code=404, detail="Dashboard not found.")
+    if (view == "published" or not mine) and dashboards.is_published(d):
+        return "published", releases.get(db, d["published_release_id"], with_snapshot=True)
+    if view == "published":
+        raise HTTPException(status_code=404, detail="This dashboard is not published.")
+    return ("draft" if mine else "live"), None
+
+
+@app.get("/api/dashboards/{dashboard_id}")
+def dashboards_get(dashboard_id: str, view: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A dashboard. Its owner gets the draft (``?view=published`` shows them the public page);
+    everyone else gets the published page: the frozen spec over the pinned release."""
+    from . import dashboards, releases
+    d = _dashboard_or_404(db, dashboard_id, who)
+    face, rel = _dashboard_view(db, d, who, view)
+    mine = dashboards.owns(who, d)
+    out = {"id": d["id"], "dataset_id": d["dataset_id"], "grammar": d["grammar"], "visibility": d["visibility"], "view": face,
+           "title": d.get("published_title") or d["title"] if face == "published" else d["title"],
+           "spec": d["published_spec"] if face == "published" else d["spec"],
+           "created_at": d["created_at"], "updated_at": d["published_at"] if face == "published" else d["updated_at"],
+           "release": {k: rel[k] for k in ("number", "created_at", "content_sha")} if rel else None,
+           "published": dashboards.is_published(d), "can_edit": mine,
+           "author": dashboards.author_name(db, d, records.get_dataset(db, d["dataset_id"]))}
+    if mine:                                                # the owner's bookkeeping; never for readers
+        pinned = rel or (releases.get(db, d["published_release_id"]) if d.get("published_release_id") else None)
+        latest = releases.latest(db, d["dataset_id"])
+        out.update({"rev": d["rev"], "proposal": d.get("proposal"), "published_at": d.get("published_at"),
+                    "draft_differs": dashboards.is_published(d) and (d["spec"] != d["published_spec"] or d["title"] != d.get("published_title")),
+                    "update": {"pinned": pinned["number"] if pinned else None, "latest": latest["number"] if latest else None,
+                               "available": bool(pinned and latest and latest["number"] > pinned["number"]),
+                               "head_changed": releases.changed_since(db, d["dataset_id"], latest)} if dashboards.is_published(d) else None})
+    return out
+
+
+def _dashboard_data_source(db, dashboard_id: str, who: Principal, view: str | None) -> tuple[dict, bool, dict | None]:
+    """(dashboard, read as owner?, release) for the data endpoints of a dashboard. Readers of a
+    published dashboard reach its data HERE, never through the dataset's own endpoints, so a
+    published dashboard works over a private dataset without opening the dataset."""
+    from . import dashboards
+    d = _dashboard_or_404(db, dashboard_id, who)
+    face, rel = _dashboard_view(db, d, who, view)
+    if face == "live" and (records.get_dataset(db, d["dataset_id"]) or {}).get("visibility") != "public":
+        raise HTTPException(status_code=404, detail="Dashboard not found.")
+    # the published page is ALWAYS read without owner rights: no filenames, no document ids
+    return d, (face == "draft" and records.is_dataset_owner(db, d["dataset_id"], who)), rel
+
+
+@app.get("/api/dashboards/{dashboard_id}/table")
+def dashboards_table(dashboard_id: str, unit: str | None = None, view: str | None = None, db=Depends(get_db),
+                     who: Principal = Depends(principal)) -> dict:
+    """The analysis table behind a dashboard, for one row unit: the pinned release for the
+    published page, the live dataset for the owner's draft."""
+    from . import analysis_table
+    d, as_owner, rel = _dashboard_data_source(db, dashboard_id, who, view)
+    return analysis_table.build(db, d["dataset_id"], unit, owner=as_owner, release=rel)
+
+
+class DashboardEvidenceBody(CellEvidenceBody):
+    view: str | None = None
+
+
+@app.post("/api/dashboards/{dashboard_id}/evidence")
+def dashboards_evidence(dashboard_id: str, body: DashboardEvidenceBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import analysis_table
+    d, _as_owner, rel = _dashboard_data_source(db, dashboard_id, who, body.view)
+    return {"cells": analysis_table.cell_evidence(db, d["dataset_id"], body.unit, body.cells, release=rel)}
+
+
+class DashboardPublishBody(BaseModel):
+    rev: int
+    release: int | str = "latest"        # a release number, "latest", or "new" (cut one from the live data first)
+    source: str = "draft"                # "draft" = publish my current edits; "published" = keep the public spec, move the data
+
+
+@app.post("/api/dashboards/{dashboard_id}/publish")
+def dashboards_publish(dashboard_id: str, body: DashboardPublishBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only, signed in. Freezes a spec over a dataset release as the public page: the first
+    publication, publishing draft edits, or moving the page to a newer release (the update)."""
+    from . import dashboard_spec, dashboards, releases
+    d = _dashboard_or_404(db, dashboard_id, who, write=True)
+    if not who.user_id:
+        raise HTTPException(status_code=401, detail="Sign in to publish a dashboard.")
+    ds_owner = records.is_dataset_owner(db, d["dataset_id"], who)
+    if body.release == "new" or (body.release == "latest" and releases.latest(db, d["dataset_id"]) is None):
+        if not ds_owner or not records.dataset_records_all_owned(db, d["dataset_id"], who):
+            raise HTTPException(status_code=409, detail="This dataset has no release yet; only its owner can create one.")
+        rel = releases.ensure_current(db, d["dataset_id"], reason="dashboard_publish", created_by=who.user_id)
+    elif body.release == "latest":
+        rel = releases.latest(db, d["dataset_id"])
+    else:
+        rel = releases.get_by_number(db, d["dataset_id"], int(body.release)) if str(body.release).isdigit() else None
+    if rel is None:
+        raise HTTPException(status_code=404, detail="This dataset has no such release.")
+    rel = releases.get(db, rel["id"], with_snapshot=True)
+    use_published = body.source == "published" and dashboards.is_published(d)
+    source_spec, title = (d["published_spec"], d.get("published_title") or d["title"]) if use_published else (d["spec"], d["title"])
+    tables, default = dashboards.tables_for(db, d["dataset_id"], owner=False, release=rel)
+    spec, report = dashboard_spec.validate({**source_spec, "dataset_id": d["dataset_id"]}, tables, default_unit=default)
+    hidden = [b["title"] for b in spec["blocks"] if b["sufficiency"]["status"] == "insufficient"]
+    spec["blocks"] = [b for b in spec["blocks"] if b["sufficiency"]["status"] != "insufficient"]   # a public page has no empty cards
+    if not spec["blocks"]:
+        raise HTTPException(status_code=422, detail="No block of this dashboard can be drawn from that release.")
+    out = dashboards.publish(db, dashboard_id, rev=body.rev, release_id=rel["id"], spec=spec, title=title)
+    if out is None:
+        raise HTTPException(status_code=409, detail="This dashboard was changed elsewhere; reload and try again.")
+    return {"id": out["id"], "rev": out["rev"], "release": rel["number"], "published_at": out["published_at"],
+            "hidden_blocks": hidden, "report": report}
+
+
+@app.get("/api/dashboards/{dashboard_id}/update-preview")
+def dashboards_update_preview(dashboard_id: str, release: str = "latest", source: str = "published",
+                              db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only: what moving the public page to another release would do, block by block
+    (rows and studies before → after; broken / needs attention / changed / unchanged).
+    ``release`` = a number, "latest", or "head" (the live dataset, not yet released)."""
+    from . import dashboard_diff, dashboards, releases
+    d = _dashboard_or_404(db, dashboard_id, who, write=True)
+    if not dashboards.is_published(d):
+        raise HTTPException(status_code=409, detail="This dashboard is not published yet.")
+    pinned = releases.get(db, d["published_release_id"], with_snapshot=True)
+    if release == "head":
+        target, snap_b = None, releases.snapshot(db, d["dataset_id"])
+    else:
+        target = releases.latest(db, d["dataset_id"]) if release == "latest" else (
+            releases.get_by_number(db, d["dataset_id"], int(release)) if release.isdigit() else None)
+        if target is None:
+            raise HTTPException(status_code=404, detail="This dataset has no such release.")
+        target = releases.get(db, target["id"], with_snapshot=True)
+        snap_b = target["snapshot"]
+    spec = d["spec"] if source == "draft" else d["published_spec"]
+    tables_a, default_a = dashboards.tables_for(db, d["dataset_id"], owner=False, release=pinned)
+    tables_b, default_b = dashboards.tables_for(db, d["dataset_id"], owner=False, release=target)
+    out = dashboard_diff.preview({**spec, "dataset_id": d["dataset_id"]}, tables_a, default_a, tables_b, default_b,
+                                 changes=releases.diff_snapshots(pinned["snapshot"], snap_b))
+    out["from"] = pinned["number"]
+    out["to"] = target["number"] if target else None       # None = the live dataset (a release would be created)
+    return out
+
+
+@app.post("/api/dashboards/{dashboard_id}/unpublish")
+def dashboards_unpublish(dashboard_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import dashboards
+    _dashboard_or_404(db, dashboard_id, who, write=True)
+    out = dashboards.unpublish(db, dashboard_id)
+    return {"id": out["id"], "rev": out["rev"], "visibility": out["visibility"]}
+
+
+class DashboardPatchBody(BaseModel):
+    rev: int
+    title: str | None = None
+    spec: dict | None = None
+    visibility: str | None = None
+
+
+@app.patch("/api/dashboards/{dashboard_id}")
+def dashboards_patch(dashboard_id: str, body: DashboardPatchBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only. ``rev`` must be the revision the edit started from (409 otherwise)."""
+    from . import dashboard_spec, dashboards
+    d = _dashboard_or_404(db, dashboard_id, who, write=True)
+    spec = None
+    if body.spec is not None:
+        tables, default = dashboards.tables_for(db, d["dataset_id"], owner=True)
+        spec, _ = dashboard_spec.validate({**body.spec, "dataset_id": d["dataset_id"]}, tables, default_unit=default)
+        if not spec["blocks"]:
+            raise HTTPException(status_code=422, detail="A dashboard needs at least one valid block.")
+    if body.visibility == "public":                          # going public freezes a spec over a release: a separate act
+        raise HTTPException(status_code=409, detail="Use publish to make a dashboard public.")
+    if body.visibility == "private" and dashboards.is_published(d):
+        dashboards.unpublish(db, dashboard_id); body.rev += 1
+    out = dashboards.update(db, dashboard_id, rev=body.rev, title=(body.title.strip()[:200] if body.title else None),
+                            spec=spec, visibility=body.visibility)
+    if out is None:
+        raise HTTPException(status_code=409, detail="This dashboard was changed elsewhere; reload and try again.")
+    return {k: v for k, v in out.items() if k not in ("owner_user_id", "session_id", "published_spec")}
+
+
+@app.delete("/api/dashboards/{dashboard_id}")
+def dashboards_delete(dashboard_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import dashboards
+    _dashboard_or_404(db, dashboard_id, who, write=True)
+    return {"deleted": dashboards.delete(db, dashboard_id)}
+
+
 @app.get("/api/datasets/{dataset_id}/audit")
 def dataset_audit_report(dataset_id: str, db=Depends(get_db),
                          who: Principal = Depends(principal)) -> dict:
@@ -1024,18 +1521,6 @@ def view_data(view_id: str, db=Depends(get_db), who: Principal = Depends(princip
     return result
 
 
-@app.get("/api/analyses/{view_id}/rows")
-def analysis_rows(view_id: str, db=Depends(get_db),
-                  who: Principal = Depends(principal)) -> dict:
-    """Tidy rows for a saved dashboard analysis — the data its D3 figures aggregate
-    client-side. View access is gated by _require_view; individual rows are further
-    scoped (public dataset rows + the principal's own) so a public dashboard over a
-    private dataset never leaks another user's records."""
-    v = _require_view(db, view_id, who)
-    return {"rows": records.dataset_rows(
-        db, v.get("dataset_ids") or [], principal=who, public_only=False)}
-
-
 # ── catalog query layer (cross-dataset search / facets / paper search) ─────────
 
 def _search_filters(q, schema, jel, topic, status, year, dataset) -> dict:
@@ -1153,10 +1638,17 @@ class VerifyBody(BaseModel):
 @app.post("/api/records/{record_id}/verify")
 def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
-    """Record a verification/flag event (+ optional value correction) on a record."""
-    if records.get_record(db, record_id) is None:
+    """Record a verification/flag event (+ optional value correction) on a record.
+
+    Who may: the record's owner, anything; anyone else only on a record they can READ (it sits
+    in a public dataset) and only an opinion (verified / flagged, with notes) — never a change of
+    the values. A record id alone opens nothing: ids travel with published dashboards."""
+    if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
-    kind = body.verifier_kind or ("maintainer" if who.user_id else "community")
+    mine = records.records_all_owned(db, [record_id], who)
+    if not mine and (body.field_values is not None or body.diff):
+        raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
@@ -1166,8 +1658,8 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
 
 
 @app.get("/api/records/{record_id}/events")
-def record_events(record_id: str, db=Depends(get_db)) -> dict:
-    if records.get_record(db, record_id) is None:
+def record_events(record_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
     return {"record_id": record_id, "events": records.record_events(db, record_id)}
 
@@ -1907,59 +2399,6 @@ def providers_test(body: TestKeyBody) -> dict:
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": providers.extract_provider_message(exc)}
-
-
-class ProposeFiguresBody(BaseModel):
-    goals: str = ""
-    model: str
-    api_key: str
-    base_url: str | None = None
-    entry: str = "dataset"                 # "dataset" | "papers"
-    dataset_id: str | None = None
-    page_images: list[str] | None = None   # base64 PNGs (Entry A / papers)
-
-
-@app.post("/api/analyses/propose-figures")
-def propose_figures(body: ProposeFiguresBody, db=Depends(get_db),
-                    who: Principal = Depends(principal)) -> dict:
-    """AI-propose dashboard figures (the builder's brain). Entry 'dataset' grounds the
-    proposal in an existing dataset's variables + sample records; entry 'papers' grounds
-    it in uploaded page images. Output is validated/repaired to the figure grammar; the
-    browser key is used once and never stored."""
-    if body.entry == "dataset":
-        if not body.dataset_id:
-            raise HTTPException(status_code=422, detail="dataset_id required for entry='dataset'.")
-        d = records.get_dataset(db, body.dataset_id)
-        if d is None or (d["visibility"] != "public" and not records.is_dataset_owner(db, body.dataset_id, who)):
-            raise HTTPException(status_code=404, detail="Dataset not found.")
-        rows = records.dataset_rows(db, [body.dataset_id], principal=who, public_only=False, limit=40)
-        keys = sorted({k for r in rows for k in (r.get("field_values") or {}).keys()})
-        prompt = figures_spec.dataset_prompt(body.goals, keys, [r["field_values"] for r in rows[:15]])
-        call = lambda p: providers.generate_text(body.model, body.api_key, p, base_url=body.base_url)  # noqa: E731
-    elif body.entry == "papers":
-        if not body.page_images:
-            raise HTTPException(status_code=422, detail="page_images required for entry='papers'.")
-        prompt = figures_spec.papers_prompt(body.goals)
-        blocks = [{"type": "text", "text": prompt}] + [
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img}", "detail": "high"}}
-            for img in body.page_images[:12]]
-        call = lambda p: providers.extract_with_images(  # noqa: E731
-            model=body.model, api_key=body.api_key, content_blocks=blocks,
-            extraction_images=body.page_images[:12], prompt=p,
-            page_instruction="", n=len(body.page_images[:12]), base_url=body.base_url)[0]
-    else:
-        raise HTTPException(status_code=422, detail="entry must be 'dataset' or 'papers'.")
-
-    try:
-        text = call(prompt)
-        figures, dropped = figures_spec.parse_and_validate(text)
-        if not figures:                     # one repair retry with an explicit nudge
-            text = call(prompt + "\n\nYour previous reply was not valid. Return ONLY the JSON "
-                        '{"figures":[...]} exactly as specified.')
-            figures, dropped = figures_spec.parse_and_validate(text)
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": providers.extract_provider_message(exc)}
-    return {"ok": True, "figures": figures, "dropped": dropped, "raw": text}
 
 
 @app.get("/api/schemas/{schema_id}")

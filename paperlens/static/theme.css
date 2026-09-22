@@ -48,9 +48,12 @@
   --conf-med:      #7d5a02; --conf-med-bg:   #fdf5d3; --conf-med-bd:   #c79412;
   --conf-low:      #8a1f1f; --conf-low-bg:   #fde7e7; --conf-low-bd:   #c93434;
 
-  /* categorical series palette + axes (D3 dashboard charts) */
-  --series-1: #1b485e; --series-2: #367380; --series-3: #c79412; --series-4: #2f9e54;
-  --series-5: #c93434; --series-6: #7a5ea8; --series-7: #9cbcc4; --series-8: #a86b32;
+  /* categorical series palette + axes (D3 dashboard charts). Checked with the dataviz palette
+     validator on the page surface: the first FOUR are told apart in any pairing, also with a
+     colour-vision deficiency (so the colour slot of a chart takes at most 4 categories);
+     5-8 only hold next to their neighbours. Order is fixed; never cycle or reorder. */
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #4a3aa7;
+  --series-5: #eda100; --series-6: #e87ba4; --series-7: #008300; --series-8: #e34948;
   --ax-line:  #d6dde2;   /* axis / gridlines (= border) */
   --ax-text:  #5a6b78;   /* axis labels (= text-muted) */
   --mark:     #1b485e;   /* default single-series mark (= accent) */
@@ -73,21 +76,45 @@ body[data-theme="maseminer"] {
   --accent-3: #9ec9d5; --accent-wash: #eef6f9; --bg: #ffffff;
 }
 
-/* ── dashboard "vibe" palette presets (chosen in the builder's style step) ──
-   Each re-skins only the chart marks/series so a dashboard adopts a look without
-   touching app chrome. Applied via <body data-vibe="…"> on the analysis page. */
-body[data-vibe="journal"] {   /* muted, print-like (Economist/QJE feel) */
-  --mark: #1b485e; --mark-2: #a8324a;
-  --series-1: #1b485e; --series-2: #a8324a; --series-3: #c79412; --series-4: #5a6b78;
-  --series-5: #367380; --series-6: #7a5ea8; --series-7: #9cbcc4; --series-8: #a86b32;
+
+/* ── dashboard looks (the Style panel of /dashboard; ids = dashboard_spec.VIBES / FONTS) ──
+   A vibe re-skins the page of ONE dashboard via <body data-vibe="…">: surfaces, ink and the
+   series colours. Every series list passed the dataviz palette validator on the vibe's own
+   surface: all eight hold next to their neighbours, the first four in any pairing (night: the
+   first three; its fourth leans on the legend). "clean" is the default above. A user's own
+   colours arrive as inline custom properties and win over these. */
+body[data-vibe="journal"], .vibe-swatch[data-vibe="journal"] {   /* print-like: white page, flat cards, ink colours (serif type by default) */
+  --bg: #ffffff; --surface: #ffffff; --border: #d9d6cf; --text: #1c1b19; --text-muted: #5f5c55;
+  --ax-line: #d9d6cf; --ax-text: #5f5c55; --shadow-sm: none; --radius: 2px; --radius-sm: 2px;
+  --accent: #1a4f7a; --mark: #1a6ba8; --mark-2: #b8501f;
+  --series-1: #1a6ba8; --series-2: #b8501f; --series-3: #2f8f5b; --series-4: #a23b8c;
+  --series-5: #c48a00; --series-6: #4f9bd9; --series-7: #8a5a12; --series-8: #d0504f;
 }
-body[data-vibe="nature"] {    /* teal/green science palette */
-  --mark: #2f6f6f; --mark-2: #2f9e54;
-  --series-1: #2f6f6f; --series-2: #2f9e54; --series-3: #367380; --series-4: #7aa532;
-  --series-5: #c79412; --series-6: #1b485e; --series-7: #9cbcc4; --series-8: #a86b32;
+body[data-vibe="warm"], .vibe-swatch[data-vibe="warm"] {      /* paper background, earthy colours */
+  --bg: #f4ecdd; --surface: #fbf6ec; --border: #e2d6bf; --text: #3a2a1d; --text-muted: #7a6a58;
+  --ax-line: #e2d6bf; --ax-text: #7a6a58; --accent: #9a3f2b; --accent-wash: #f3e6d0;
+  --mark: #c8553d; --mark-2: #0e8fb0;
+  --series-1: #c8553d; --series-2: #0e8fb0; --series-3: #d19a1b; --series-4: #6a4c93;
+  --series-5: #5a8f3c; --series-6: #e0809a; --series-7: #008566; --series-8: #a33f2f;
 }
-body[data-vibe="vivid"] {     /* high-contrast categorical */
-  --mark: #2b6cb0; --mark-2: #dd6b20;
-  --series-1: #2b6cb0; --series-2: #dd6b20; --series-3: #38a169; --series-4: #d53f8c;
-  --series-5: #805ad5; --series-6: #d69e2e; --series-7: #319795; --series-8: #718096;
+body[data-vibe="night"], .vibe-swatch[data-vibe="night"] {     /* dark surface, luminous colours */
+  color-scheme: dark;
+  --bg: #0d1318; --surface: #151c22; --border: #2a343d; --border-focus: #4a6a7a; --text: #eef2f5; --text-muted: #9aa8b3;
+  --ax-line: #2a343d; --ax-text: #9aa8b3; --accent: #7fb6d6; --accent-dark: #a9d0e6; --accent-3: #4a6a7a; --accent-wash: #1d2a33;
+  --on-accent: #0d1318; --override-bg: #2e2a12; --override-line: #c9a200; --success: #4cc26a; --success-bg: #14301c;
+  --error: #ef7676; --error-bg: #3a1a1a; --shadow-sm: none; --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
+  --conf-med: #e3c25a; --conf-med-bg: #2e2a12; --conf-med-bd: #c9a200;
+  --mark: #3987e5; --mark-2: #d95926;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+}
+/* fonts: what the dashboard (not the site chrome) is set in */
+body[data-dash-font="serif"]  { --dash-font: var(--font-serif); }
+body[data-dash-font="system"] { --dash-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+body[data-dash-font="mono"]   { --dash-font: var(--font-mono); }
+body[data-vibe="journal"]:not([data-dash-font]) { --dash-font: var(--font-serif); }
+/* the Style panel previews each look in a swatch, whatever look the page has right now */
+.vibe-swatch[data-vibe="clean"] {
+  --surface: #ffffff; --border: #d6dde2;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #4a3aa7;
 }

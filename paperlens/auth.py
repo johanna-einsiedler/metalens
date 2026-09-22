@@ -140,5 +140,7 @@ def claim_anonymous(conn: psycopg.Connection, *, session_id: str | None, user_id
             "WHERE session_id = %s AND owner_user_id IS NULL",
             (user_id, session_id),
         )
+        conn.execute("UPDATE dashboard SET owner_user_id = %s::uuid WHERE session_id = %s AND owner_user_id IS NULL",
+                     (user_id, session_id))
     return {"records": r.rowcount, "datasets": d.rowcount, "documents": doc.rowcount,
             "presets": pre.rowcount}

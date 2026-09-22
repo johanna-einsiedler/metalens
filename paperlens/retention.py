@@ -136,7 +136,8 @@ def expired_sessions(conn: psycopg.Connection, *, max_age_minutes: int | None = 
              AND (EXISTS (SELECT 1 FROM extraction_document d WHERE d.session_id = s.session_id AND d.owner_user_id IS NULL)
                OR EXISTS (SELECT 1 FROM dataset ds WHERE ds.session_id = s.session_id AND ds.owner_user_id IS NULL)
                OR EXISTS (SELECT 1 FROM saved_view v WHERE v.session_id = s.session_id AND v.owner_user_id IS NULL)
-               OR EXISTS (SELECT 1 FROM personal_preset p WHERE p.session_id = s.session_id AND p.owner_user_id IS NULL))""",
+               OR EXISTS (SELECT 1 FROM personal_preset p WHERE p.session_id = s.session_id AND p.owner_user_id IS NULL)
+               OR EXISTS (SELECT 1 FROM dashboard b WHERE b.session_id = s.session_id AND b.owner_user_id IS NULL))""",
         (cutoff,)).fetchall()
     return [r[0] for r in rows]
 
@@ -160,6 +161,9 @@ def forget_session(conn: psycopg.Connection, session_id: str) -> dict:
             "DELETE FROM saved_view WHERE session_id = %s AND owner_user_id IS NULL", (session_id,)).rowcount
         out["presets"] = conn.execute(
             "DELETE FROM personal_preset WHERE session_id = %s AND owner_user_id IS NULL", (session_id,)).rowcount
+        # dashboards over the session's own datasets went with them (FK cascade); these are the
+        # ones an anonymous visitor built over someone else's public dataset
+        conn.execute("DELETE FROM dashboard WHERE session_id = %s AND owner_user_id IS NULL", (session_id,))
         conn.execute("UPDATE anon_session SET swept_at = now() WHERE session_id = %s", (session_id,))
     return out
 

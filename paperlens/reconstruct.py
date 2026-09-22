@@ -52,7 +52,7 @@ def reconstruct_publishable(res: IngestResult) -> dict[str, Any]:
             out["paper_metadata"][contract.CONFIDENCE_KEY] = _nest(paper_conf)
 
     entries: list[dict[str, Any]] = [
-        copy.deepcopy(r.field_values)
+        contract.strip_row_ids(r.field_values)             # a deep copy without the internal row ids
         for r in sorted(res.records, key=lambda r: r.entry_index)
     ]
 
