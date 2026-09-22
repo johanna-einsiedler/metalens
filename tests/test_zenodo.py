@@ -167,6 +167,8 @@ def test_api_is_owner_only_and_needs_configuration(monkeypatch) -> None:
     # the daily cap counts deposits made by this account
     monkeypatch.setenv("PAPERLENS_ZENODO_PER_DAY", "1")
     conn.execute("UPDATE dataset_release SET zenodo_record_id = 7, doi = '10.5281/zenodo.7', doi_minted_at = now() WHERE dataset_id = %s::uuid", (ds,)); conn.commit()
+    r = c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine)                          # has its DOI, not on GitHub: nothing to do
+    assert r.status_code == 409 and "already has a DOI" in r.json()["detail"]
     _seed_into(conn, _second_paper(), "human-ai-collab", sess, ds)
     conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
     releases.create(conn, ds)

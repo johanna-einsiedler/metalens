@@ -732,34 +732,42 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
     """Signed-in owner only (owning every record): mint a DOI for this release on Zenodo (a new
     version of the dataset's Zenodo record). Permanent and issued under the server's Zenodo
     account, so guarded: the allow-list when set, a daily cap per account, a release with papers.
-    400 when Zenodo is not configured, 409 when the release already has one."""
+    400 when Zenodo is not configured. A release that already has its DOI is not minted again:
+    the call then only (re)sends the DOI to the GitHub copy, so a missed pull request can be redone."""
     from . import auth, github_publish, releases, zenodo
     if not _dataset_gate(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Only the owner can mint a DOI.")
     if not zenodo.configured():
         raise HTTPException(status_code=400, detail="Zenodo isn’t configured on this server.")
-    why = zenodo.may_mint(db, auth.get_user(db, who.user_id) if who.user_id else None)
-    if why:
-        raise HTTPException(status_code=401 if not who.user_id else 403, detail=why)
     if not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="This dataset holds records you don't own.")
     rel = releases.get_by_number(db, dataset_id, number)
     if rel is None:
         raise HTTPException(status_code=404, detail="This dataset has no such release.")
-    if not ((rel.get("stats") or {}).get("n_papers") or 0):
-        raise HTTPException(status_code=409, detail="This release holds no papers; a DOI is for data.")
     if zenodo.counts_here(rel.get("doi")):
-        raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
-    try:
-        minted = zenodo.deposit(db, rel)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-    out = releases.public_row(minted)
-    if minted.get("published_at") and github_publish.token():       # already on GitHub: the copy there learns its DOI
+        minted, fresh = rel, False                                   # resending is not minting: not capped
+    else:
+        why = zenodo.may_mint(db, auth.get_user(db, who.user_id) if who.user_id else None)
+        if why:
+            raise HTTPException(status_code=401 if not who.user_id else 403, detail=why)
+        if not ((rel.get("stats") or {}).get("n_papers") or 0):
+            raise HTTPException(status_code=409, detail="This release holds no papers; a DOI is for data.")
+        try:
+            minted, fresh = zenodo.deposit(db, rel), True
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+    out = {**releases.public_row(minted), "minted": fresh}
+    # on GitHub already (a recorded publication, or a published dataset whose latest release this is):
+    # the copy there learns its DOI through a small pull request
+    ds = records.get_dataset(db, dataset_id) or {}
+    on_github = bool(minted.get("published_at")) or (bool(ds.get("published_url")) and (releases.latest(db, dataset_id) or {}).get("number") == number)
+    if on_github and github_publish.token():
         try:
             out["github"] = github_publish.push_release_doi(db, minted)
         except Exception as exc:                                     # the DOI exists either way; say what did not follow
             out["github"] = {"error": f"the GitHub copy could not be updated: {exc}"}
+    elif not fresh:
+        raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {minted['doi']}")
     return out
 
 

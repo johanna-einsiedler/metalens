@@ -182,6 +182,7 @@ async function loadReleases() {
     : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
   const testDoi = (x) => (x.doi || "").startsWith("10.5072/");
   const doiState = (x) => x.doi && (testDoi(x) === ZEN.sandbox || !ZEN.configured) ? ` <a class="badge" href="${esc(testDoi(x) ? x.zenodo_url || "#" : "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this release" + (x.zenodo_url ? " · " + esc(x.zenodo_url) : "")}">${testDoi(x) ? "test " : ""}DOI ${esc(x.doi)}</a>`
+    + (OWNER && !ANON && ZEN.allowed && !testDoi(x) && (x.published_at || OV.published_url) ? ` <button type="button" class="btn btn-ghost btn-sm" data-doigh="${x.number}" title="send this DOI to the GitHub copy of the release (a small pull request), if it does not have it yet">DOI → GitHub</button>` : "")
     : (OWNER && !ANON && ZEN.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
   host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
     + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
@@ -195,6 +196,12 @@ async function loadReleases() {
     const target = confirm("Publish to GitHub AND list it in the Metalens catalogue? (Cancel = GitHub only)") ? "github+metalens" : "github";
     b.disabled = true; b.textContent = "Publishing…";
     try { await publishRelease(+b.dataset.relpub, target); } catch (e) { alert(`Publishing failed: ${e.message}`); loadReleases(); }
+  }));
+  host.querySelectorAll("[data-doigh]").forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = "Sending…";
+    try { const r = await api.releaseDoi(id, +b.dataset.doigh); alert(r.github && r.github.pr_url ? `Pull request opened: ${r.github.pr_url}\nMerge it and the dashboards following this dataset pick the DOI up.` : (r.github && r.github.error) || "Nothing to send."); }
+    catch (e) { alert(e.message); }
+    loadReleases();
   }));
   host.querySelectorAll("[data-reldoi]").forEach((b) => (b.onclick = async () => {
     if (!confirm(`Mint a DOI for release v${b.dataset.reldoi} on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the release's files are deposited under it and cannot be withdrawn.`)) return;
