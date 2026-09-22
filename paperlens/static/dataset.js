@@ -86,6 +86,7 @@ function render() {
     <div id="ds-rel-new"></div>
     <div class="ds-card" id="ds-rel"><div class="ds-card-h">Release history
         <span class="muted" id="ds-rel-state" style="margin-left:auto;font-size:12.5px;font-weight:400"></span></div>
+      <div id="ds-rel-sync" style="font-size:13px;margin:0 0 8px"></div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">A release freezes the dataset as it is now: papers, values, review status and evidence. Published dashboards show one release and are updated on purpose, so adding or editing papers never changes a public page by itself.</p>
       <div id="ds-rellist" class="muted" style="font-size:13px">…</div></div>
 
@@ -177,6 +178,7 @@ async function loadReleases() {
   let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
   const list = r.releases || [];
   ZEN = r.zenodo || ZEN;
+  renderSync(r.sync, list);
   const gh = OV.published_url || (OV.git_pr_url ? OV.git_pr_url.replace(/\/pull\/\d+$/, "") : "");
   const pubState = (x, k) => x.published_at ? (k === 0 && OV.publish_status === "pending" ? `<span class="badge">pull request open</span>` : `<a class="badge" href="${esc(gh ? gh + "/releases/v" + x.number : "#")}" target="_blank" rel="noopener" title="on GitHub since ${esc(fmtDate(x.published_at))}">on GitHub ↗</a>`)
     : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
@@ -195,7 +197,8 @@ async function loadReleases() {
   host.querySelectorAll("[data-relpub]").forEach((b) => (b.onclick = async () => {
     const target = confirm("Publish to GitHub AND list it in the Metalens catalogue? (Cancel = GitHub only)") ? "github+metalens" : "github";
     b.disabled = true; b.textContent = "Publishing…";
-    try { await publishRelease(+b.dataset.relpub, target); } catch (e) { alert(`Publishing failed: ${e.message}`); loadReleases(); }
+    try { await api.publishRelease(id, +b.dataset.relpub, target); OV = await api.datasetOverview(id); } catch (e) { alert(`Publishing failed: ${e.message}`); }
+    loadReleases();
   }));
   host.querySelectorAll("[data-doigh]").forEach((b) => (b.onclick = async () => {
     b.disabled = true; b.textContent = "Sending…";
@@ -223,6 +226,43 @@ async function loadReleases() {
   if (btn) { btn.hidden = !r.head.changed; btn.textContent = `Create release v${next}`; btn.classList.toggle("btn-primary", r.head.changed); btn.classList.toggle("btn-ghost", !r.head.changed); btn.onclick = openReleaseForm; }
   if (state) state.textContent = list.length ? (r.head.changed ? `the dataset changed since v${list[0].number}` : `up to date with v${list[0].number}`) : "";
 }
+// The three copies of the dataset must tell the same story; Zenodo is the ground truth once a DOI
+// exists. Out of step → say which copy lags and offer the one action that catches it up.
+function renderSync(sync, list) {
+  const host = $("#ds-rel-sync"); if (!host || !sync || !list.length) { if (host) host.innerHTML = ""; return; }
+  const at = (n) => (n == null ? "—" : `v${n}`);
+  const cells = [[`Zenodo`, sync.zenodo == null ? "no DOI" : at(sync.zenodo), sync.behind.includes("zenodo")],
+                 [`GitHub`, sync.github == null ? "not published" : at(sync.github) + (sync.pending ? " (pull request open)" : ""), sync.behind.includes("github")],
+                 [`Catalogue`, sync.catalogue ? "listed" : "not listed", sync.behind.includes("catalogue")]];
+  host.innerHTML = `<span class="ds-sync${sync.in_sync ? "" : " off"}">${cells.map(([k, v, lag]) => `<span${lag ? ' class="lag"' : ""}><b>${k}</b> ${esc(v)}</span>`).join(" · ")}</span>`
+    + (!sync.in_sync && OWNER && !ANON ? ` <button type="button" class="btn btn-ghost btn-sm" id="ds-sync-go" title="bring every copy to release v${sync.latest}${sync.zenodo != null && sync.behind.includes("zenodo") ? ": a new version on Zenodo (new DOI), then the GitHub copy and the catalogue" : ": the GitHub copy and the catalogue"}">Sync to v${sync.latest}</button>` : "");
+  const go = $("#ds-sync-go");
+  if (go) go.onclick = async () => {
+    go.disabled = true; go.textContent = "Syncing…";
+    const problems = [];
+    try {
+      if (sync.zenodo != null && sync.behind.includes("zenodo")) { try { await api.releaseDoi(id, sync.latest); } catch (e) { problems.push(`Zenodo: ${e.message}`); } }
+      if (sync.behind.includes("github") || sync.behind.includes("catalogue")) { try { await api.publishRelease(id, sync.latest, "github+metalens"); } catch (e) { problems.push(`GitHub: ${e.message}`); } }
+      OV = await api.datasetOverview(id);
+    } finally { if (problems.length) alert(problems.join("\n")); loadReleases(); }
+  };
+}
+// (a) the dataset has a DOI → publish as a new version everywhere (Zenodo, then GitHub, then the
+// catalogue) or keep the release here; (b) no DOI yet → publish with a DOI, without, or keep it here.
+function publishChoices(p) {
+  const hasDoi = p.has_doi, published = OV.publish_status === "published" || OV.publish_status === "pending";
+  const opt = (v, label, note, checked) => `<label><input type="radio" name="ds-relpub" value="${v}"${checked ? " checked" : ""}/> ${label}${note ? ` <span class="muted">· ${note}</span>` : ""}</label>`;
+  let rows;
+  if (hasDoi) {
+    rows = [opt("doi", `Publish v${p.next_number} as a new version everywhere`, `new DOI on Zenodo (same concept DOI), the GitHub copy, the Metalens catalogue`, true),
+            opt("none", "Keep it in Metalens only", "not published; Zenodo and GitHub stay at their release until you sync")];
+  } else {
+    rows = [ZEN.allowed ? opt("doi", "Publish with a DOI", `Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} first, then GitHub and the Metalens catalogue · a DOI is permanent`, false) : "",
+            opt("github+metalens", "Publish without a DOI", "GitHub and the Metalens catalogue", published),
+            opt("none", "Keep it in Metalens only", "you can publish it later from the release history", !published)];
+  }
+  return `<div class="ds-relpub"><b>Publish it?</b> <span class="muted">Only releases are published. ${hasDoi ? "This dataset has a DOI, so Zenodo is the reference copy: a published release is a new version there, and GitHub and the catalogue follow." : "The release's files go to the datasets repository on GitHub as a pull request; the dataset is listed in the catalogue once it is merged."}</span>${rows.join("")}</div>`;
+}
 async function openReleaseForm() {
   const host = $("#ds-rel-new"); host.innerHTML = '<p class="muted" style="font-size:13px">checking what changed…</p>';
   host.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -235,11 +275,7 @@ async function openReleaseForm() {
     + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}">${esc(p.credibility.label || "")}</span></div>`
     + (warn.length ? `<ul class="ds-relwarn">${warn.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
     + `<textarea id="ds-rel-notes" rows="2" maxlength="4000" placeholder="Release notes (optional): what is new in this release?"></textarea>`
-    + (ANON ? "" : `<div class="ds-relpub"><b>Publish it?</b> <span class="muted">Only releases are published: the release's files go to the datasets repository on GitHub as a pull request; the dataset is listed in the catalogue once it is merged.</span>`
-      + `<label><input type="radio" name="ds-relpub" value="none"${OV.publish_status === "published" || OV.publish_status === "pending" ? "" : " checked"}/> Keep it in Metalens only (you can publish it later from the release history)</label>`
-      + `<label><input type="radio" name="ds-relpub" value="github+metalens"${OV.publish_status === "published" || OV.publish_status === "pending" ? " checked" : ""}/> Publish to GitHub and the Metalens catalogue</label>`
-      + `<label><input type="radio" name="ds-relpub" value="github"/> Publish to GitHub only (not listed here)</label>`
-      + (ZEN.allowed ? `<label style="margin-top:6px"><input type="checkbox" id="ds-rel-doi"/> Also mint a DOI on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} <span class="muted">· permanent; the release's files are deposited under it</span></label>` : "") + `</div>`)
+    + (ANON ? "" : publishChoices(p))
     + `<div id="ds-rel-dash"></div>`
     + `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-primary btn-sm" id="ds-rel-go">Create release v${p.next_number}</button>`
     + `<button type="button" class="btn btn-ghost btn-sm" id="ds-rel-no">Cancel</button><span class="muted" id="ds-rel-msg" style="font-size:12.5px"></span></div></div>`;
@@ -264,16 +300,11 @@ async function openReleaseForm() {
     $("#ds-rel-go").disabled = true;
     const msg = $("#ds-rel-msg"), chosen = [...document.querySelectorAll(".ds-rel-upd:checked")].map((x) => x.value);
     try {
-      const rel = await api.createRelease(id, $("#ds-rel-notes").value);
-      if (($("#ds-rel-doi") || {}).checked) {                 // first, so the GitHub copy names the DOI
-        msg.textContent = `Release v${rel.number} created. Minting the DOI…`;
-        try { await api.releaseDoi(id, rel.number); } catch (e) { alert(`The release was created, but minting the DOI failed: ${e.message}`); }
-      }
-      const target = (document.querySelector('input[name="ds-relpub"]:checked') || {}).value;
-      if (target && target !== "none") {                      // publishing is OF this release
-        msg.textContent = `Release v${rel.number} created. Publishing…`;
-        try { await publishRelease(rel.number, target); } catch (e) { alert(`The release was created, but publishing failed: ${e.message}`); }
-      }
+      const choice = (document.querySelector('input[name="ds-relpub"]:checked') || {}).value || "none";
+      msg.textContent = choice === "none" ? "Creating the release…" : choice === "doi" ? "Creating the release, minting its DOI, publishing…" : "Creating the release and publishing…";
+      const rel = await api.createRelease(id, { notes: $("#ds-rel-notes").value, doi: choice === "doi", publish: choice === "none" ? null : choice === "doi" ? "github+metalens" : choice });
+      if ((rel.problems || []).length) alert(`Release v${rel.number} was created, but:\n${rel.problems.join("\n")}`);
+      if (choice !== "none") OV = await api.datasetOverview(id);
       const done = [];
       for (const did of chosen) {
         msg.textContent = `Release v${rel.number} created. Updating dashboards…`;

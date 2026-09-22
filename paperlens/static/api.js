@@ -79,7 +79,7 @@ export const api = {
   // releases: frozen copies of a dataset that published dashboards pin
   releases: (id) => req(`/api/datasets/${id}/releases`),
   pendingRelease: (id) => req(`/api/datasets/${id}/releases/pending`),
-  createRelease: (id, notes) => req(`/api/datasets/${id}/releases`, json({ notes: notes || "" })),
+  createRelease: (id, body) => req(`/api/datasets/${id}/releases`, json({ notes: "", ...body })),   // {notes, doi, publish}
   // dashboards built outside Metalens, registered on the dataset
   publicDashboards: () => req(`/api/dashboards/public`),
   externalDashboards: (id) => req(`/api/datasets/${id}/external-dashboards`),

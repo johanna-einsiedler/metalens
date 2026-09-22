@@ -120,7 +120,9 @@ def test_release_api_is_owner_only_and_refuses_an_unchanged_dataset() -> None:
     ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
     c = TestClient(appmod.app)
     assert c.get(f"/api/datasets/{ds}/releases", headers=other).status_code == 404          # private dataset
-    assert c.get(f"/api/datasets/{ds}/releases", headers=mine).json() == {"releases": [], "head": {"changed": True}, "zenodo": {"configured": False, "sandbox": False, "allowed": False, "why_not": "Zenodo isn’t configured on this server."}}
+    first = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()
+    assert first["releases"] == [] and first["head"] == {"changed": True} and first["zenodo"]["configured"] is False
+    assert first["sync"] == {"latest": None, "zenodo": None, "github": None, "catalogue": False, "pending": False, "behind": [], "in_sync": True}
     assert c.get(f"/api/datasets/{ds}/releases/pending", headers=mine).json()["next_number"] == 1
     made = c.post(f"/api/datasets/{ds}/releases", json={"notes": "first cut"}, headers=mine).json()
     assert made["number"] == 1 and made["notes"] == "first cut" and "snapshot" not in made and "fingerprint" not in made

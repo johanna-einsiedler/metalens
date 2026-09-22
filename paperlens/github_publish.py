@@ -201,4 +201,5 @@ def push_release_doi(conn, release: dict, *, client: httpx.Client | None = None)
     finally:
         if close:
             client.close()
+    releases.mark_published(conn, release["id"])           # it is on GitHub, whether or not that was recorded before
     return {"pr_url": pr.get("html_url"), "branch": branch}

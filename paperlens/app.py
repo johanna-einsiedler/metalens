@@ -724,7 +724,30 @@ def dataset_releases(dataset_id: str, db=Depends(get_db), who: Principal = Depen
         from . import auth, zenodo
         out["head"] = {"changed": releases.changed_since(db, dataset_id, rows[0] if rows else None)}
         out["zenodo"] = zenodo.status(db, auth.get_user(db, who.user_id) if who.user_id else None)
+        out["sync"] = _release_sync(db, dataset_id, rows)
     return out
+
+
+def _release_sync(db, dataset_id: str, rows: list[dict]) -> dict:
+    """Where each copy of the dataset stands — Zenodo (the ground truth once a DOI exists), the
+    GitHub copy, the Metalens catalogue — and whether they all show the latest release."""
+    from . import zenodo
+    ds = records.get_dataset(db, dataset_id) or {}
+    latest = rows[0]["number"] if rows else None
+    on_zenodo = next((r["number"] for r in rows if zenodo.counts_here(r.get("doi"))), None)
+    on_github = next((r["number"] for r in rows if r.get("published_at")), None)
+    if on_github is None and ds.get("published_url") and rows:      # published before releases recorded it
+        on_github = latest
+    listed = bool(ds.get("catalogue")) and ds.get("publish_status") in ("published", "pending")
+    behind = []
+    if on_zenodo is not None and on_zenodo != latest:
+        behind.append("zenodo")
+    if on_github is not None and on_github != latest:
+        behind.append("github")
+    if on_github is not None and not listed and ds.get("catalogue"):
+        behind.append("catalogue")
+    return {"latest": latest, "zenodo": on_zenodo, "github": on_github, "catalogue": listed, "pending": ds.get("publish_status") == "pending",
+            "behind": behind, "in_sync": not behind}
 
 
 @app.post("/api/datasets/{dataset_id}/releases/{number}/doi")
@@ -774,10 +797,13 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
 @app.get("/api/datasets/{dataset_id}/releases/pending")
 def dataset_release_pending(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner only: what the next release would contain (changes, what is not reviewed yet, the badge)."""
-    from . import releases
+    from . import releases, zenodo
     if not _dataset_gate(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Only the owner can create releases.")
-    return releases.pending(db, dataset_id)
+    out = releases.pending(db, dataset_id)
+    # a dataset with a DOI publishes its releases as new versions on Zenodo first
+    out["has_doi"] = any(zenodo.counts_here(r.get("doi")) for r in releases.list_for_dataset(db, dataset_id))
+    return out
 
 
 @app.get("/api/datasets/{dataset_id}/releases/{number}/export")
@@ -855,6 +881,8 @@ def external_dashboards_delete(ext_id: str, db=Depends(get_db), who: Principal =
 
 class ReleaseBody(BaseModel):
     notes: str = ""
+    doi: bool = False           # mint a DOI on Zenodo first (the ground truth), so the copies name it
+    publish: str | None = None  # then publish the release: "github+metalens" | "github" | None (keep it here)
 
 
 @app.post("/api/datasets/{dataset_id}/releases")
@@ -869,7 +897,26 @@ def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db
     if last and not releases.changed_since(db, dataset_id, last):
         raise HTTPException(status_code=409, detail=f"Nothing changed since release v{last['number']}.")
     rel = releases.create(db, dataset_id, reason="manual", notes=body.notes, created_by=who.user_id)
-    return releases.public_row(rel)
+    out: dict = {**releases.public_row(rel), "problems": []}
+    # Zenodo first: it reserves the DOI the GitHub copy and the catalogue then name
+    if body.doi:
+        from . import auth, zenodo
+        why = None if not zenodo.configured() else zenodo.may_mint(db, auth.get_user(db, who.user_id) if who.user_id else None)
+        if not zenodo.configured():
+            why = "Zenodo isn’t configured on this server."
+        if why:
+            out["problems"].append(f"no DOI: {why}")
+        else:
+            try:
+                rel = zenodo.deposit(db, rel); out.update(releases.public_row(rel))
+            except RuntimeError as exc:
+                out["problems"].append(f"no DOI: {exc}")
+    if body.publish:
+        try:
+            out["publish"] = _publish_dataset(db, dataset_id, who, body.publish, rel["number"])
+        except HTTPException as exc:
+            out["problems"].append(f"not published: {exc.detail}")
+    return out
 
 
 # ── dashboards: questions → blocks → D3, every mark traceable ───────────────────
@@ -1535,16 +1582,9 @@ class PublishBody(BaseModel):
     release: int | None = None          # publish this release (default: the current data, releasing it first)
 
 
-@app.post("/api/datasets/{dataset_id}/publish")
-def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends(get_db),
-                    who: Principal = Depends(principal)) -> dict:
-    """Publish a dataset. ``github+metalens`` (default): pull request in the datasets repo,
-    viewable by link now, listed in the catalogue once merged. ``github``: the pull request
-    only — never listed here. ``metalens``: listed here only (no GitHub configured, local
-    mode). Owner-only, and only when the owner owns EVERY record. Returns {pr_url} or
-    {queued, job_id}."""
-    from . import github_publish
-    target = (body.target if body else "github+metalens")
+def _publish_dataset(db, dataset_id: str, who: Principal, target: str, release: int | None) -> dict:
+    """The publish step, shared by the publish endpoint and "create a release and publish it"."""
+    from . import github_publish, releases
     if target not in ("github+metalens", "github", "metalens"):
         raise HTTPException(status_code=422, detail="target must be github+metalens | github | metalens")
     if not records.is_dataset_owner(db, dataset_id, who):
@@ -1559,12 +1599,11 @@ def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends
         records.set_dataset_visibility(db, dataset_id, "public")
         records.promote_dataset_preset(db, dataset_id, who)
         return {"queued": False, "publish_status": "published", "target": target}
-    from . import releases
     already = (records.get_dataset(db, dataset_id) or {}).get("publish_status") == "published"
     # what goes to GitHub is a RELEASE: the current one when nothing changed since, else a new one
     # (a re-publication of changed data is the next version). Dashboards elsewhere pin its files.
-    if body and body.release is not None:
-        rel = releases.get_by_number(db, dataset_id, body.release)
+    if release is not None:
+        rel = releases.get_by_number(db, dataset_id, release)
         if rel is None:
             raise HTTPException(status_code=404, detail="This dataset has no such release.")
         if (releases.latest(db, dataset_id) or {}).get("number") != rel["number"]:
@@ -1587,6 +1626,17 @@ def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends
         return {"queued": False, **out, "update": already, **({"version": new_version} if already else {})}
     except Exception as exc:                    # network / GitHub API / auth errors
         raise HTTPException(status_code=502, detail=f"Publish failed: {exc}")
+
+
+@app.post("/api/datasets/{dataset_id}/publish")
+def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends(get_db),
+                    who: Principal = Depends(principal)) -> dict:
+    """Publish a dataset. ``github+metalens`` (default): pull request in the datasets repo,
+    viewable by link now, listed in the catalogue once merged. ``github``: the pull request
+    only — never listed here. ``metalens``: listed here only (no GitHub configured, local
+    mode). Owner-only, and only when the owner owns EVERY record. Returns {pr_url} or
+    {queued, job_id}."""
+    return _publish_dataset(db, dataset_id, who, body.target if body else "github+metalens", body.release if body else None)
 
 
 # ── views: the observatory as data (Phase 4) ──────────────────────────────────

@@ -87,6 +87,11 @@ def base_url() -> str:
     return _SANDBOX if sandbox() else _PROD
 
 
+def new_client() -> httpx.Client:
+    """The HTTP client for one exchange (tests replace this)."""
+    return httpx.Client(timeout=60.0)
+
+
 def is_test_doi(doi: str | None) -> bool:
     """Sandbox DOIs carry the 10.5072 prefix; they resolve nowhere and never count as real."""
     return bool(doi) and doi.startswith("10.5072/")
@@ -164,7 +169,7 @@ def deposit(conn, release: dict, *, client: httpx.Client | None = None) -> dict:
     ds = records.get_dataset(conn, release["dataset_id"]) or {}
     base = base_url()
     close = client is None
-    client = client or httpx.Client(timeout=60.0)
+    client = client or new_client()
     try:
         prior = _prior(conn, release["dataset_id"])
         if prior:                                     # the next version of the dataset's record

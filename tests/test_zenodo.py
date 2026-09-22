@@ -197,3 +197,37 @@ def test_switching_from_the_sandbox_to_the_real_zenodo_starts_a_fresh_record(mon
     out = zenodo.deposit(conn, releases.get(conn, rel["id"]), client=httpx.Client(transport=httpx.MockTransport(real.handler)))
     assert out["doi"] == "10.5072/zenodo.501" and real.log[0] == "POST /api/deposit/depositions"   # a fresh record (the fake mints 10.5072 too)
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_create_release_mints_first_then_reports_what_did_not_follow(monkeypatch) -> None:
+    """One call: release → Zenodo (ground truth) → GitHub → catalogue. Here GitHub is not
+    configured, so the DOI is minted and the missing publication is reported, not hidden."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    monkeypatch.setenv("PAPERLENS_ZENODO_TOKEN", "t-test"); monkeypatch.setenv("PAPERLENS_ZENODO_SANDBOX", "1")
+    monkeypatch.delenv("PAPERLENS_GITHUB_TOKEN", raising=False); monkeypatch.delenv("PAPERLENS_ZENODO_USERS", raising=False)
+    z = FakeZenodo()
+    monkeypatch.setattr(zenodo, "new_client", lambda: httpx.Client(transport=httpx.MockTransport(z.handler)))
+    conn = records.connect(); records.init_db(conn)
+    sess = f"zen-one-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    c = TestClient(appmod.app)
+    uid = c.post("/api/auth/register", json={"email": f"zen-{uuid.uuid4().hex[:8]}@example.org", "password": "zenodo-test-pass-1"}, headers=mine).json()["user"]["id"]
+    conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
+    assert c.get(f"/api/datasets/{ds}/releases/pending", headers=mine).json()["has_doi"] is False
+    made = c.post(f"/api/datasets/{ds}/releases", json={"notes": "v1", "doi": True, "publish": "github+metalens"}, headers=mine).json()
+    assert made["number"] == 1 and made["doi"] == "10.5072/zenodo.101" and "publish" not in made, made
+    assert made["problems"] == ["not published: GitHub publishing isn’t configured on this server."]
+    listing = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()
+    assert listing["sync"] == {"latest": 1, "zenodo": 1, "github": None, "catalogue": False, "pending": False, "behind": [], "in_sync": True}
+    assert c.get(f"/api/datasets/{ds}/releases/pending", headers=mine).json()["has_doi"] is True
+    # the dataset moves on; a release kept in Metalens only leaves Zenodo behind → the sync line says so
+    _seed_into(conn, _second_paper(), "human-ai-collab", sess, ds)
+    conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
+    made2 = c.post(f"/api/datasets/{ds}/releases", json={"notes": "v2"}, headers=mine).json()
+    assert made2["number"] == 2 and made2["doi"] is None and made2["problems"] == []
+    sync = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["sync"]
+    assert sync["behind"] == ["zenodo"] and sync["in_sync"] is False and sync["zenodo"] == 1 and sync["latest"] == 2
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
