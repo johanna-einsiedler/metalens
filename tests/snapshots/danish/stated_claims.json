@@ -1,0 +1,65 @@
+{
+ "artid": "dk_W2213841331",
+ "claims": [
+  {
+   "id": "S1",
+   "type": "edge",
+   "cause": "import competition",
+   "effect": "employment in mid-wage occupations",
+   "sign": "-",
+   "statement": "Import competition decreases employment in mid-wage occupations.",
+   "anchor": {
+    "quote": "We employ employer-employee matched data from Denmark and utilize plausibly exogenous variation in the rise of import competition due to the dismantling of import quotas as China entered the World Trade Organization to show, first, that rising import competition has led to reduced employment in mid-wage occupations compensated by an increased likelihood of employment in both low-wage and high-wage occupations.",
+    "in_abstract": true,
+    "coverage": 1.0
+   },
+   "refined_by_introduction": false,
+   "scope": {
+    "setting": "Denmark",
+    "period": "1999-2009",
+    "population": "workers employed in Danish textile and clothing manufacturing firms",
+    "identification": "difference-in-differences exploiting plausibly exogenous removal of Multi-fibre Arrangement import quotas on China upon its WTO entry"
+   },
+   "magnitude_stated": null,
+   "evidence": [
+    {
+     "quote": "We employ employer-employee matched data from Denmark and utilize plausibly exogenous variation in the rise of import competition due to the dismantling of import quotas as China entered the World Trade Organization to show, first, that rising import competition has led to reduced employment in mid-wage occupations compensated by an increased likelihood of employment in both low-wage and high-wage occupations.",
+     "page": null,
+     "section": "abstract",
+     "role": "anchor",
+     "quote_verified": true,
+     "pdf_page": 1,
+     "match_ratio": 1.0,
+     "verified_in": "pdf"
+    },
+    {
+     "quote": "rising import competition has led to reduced employment in mid-wage occupations compensated by an increased likelihood of employment in both low-wage and high-wage occupations",
+     "page": "1",
+     "section": "abstract",
+     "role": "anchor",
+     "quote_verified": true,
+     "pdf_page": 1,
+     "match_ratio": 1.0,
+     "verified_in": "pdf"
+    },
+    {
+     "quote": "First, workers affected by import competition are pushed away from mid-wage occupations to a greater extent than workers not as affected, contributing to the hollowing out of the mid-wage jobs.",
+     "page": "2",
+     "section": "introduction",
+     "role": "gives_direction",
+     "quote_verified": true,
+     "pdf_page": 2,
+     "match_ratio": 1.0,
+     "verified_in": "pdf"
+    }
+   ],
+   "support": "explicit",
+   "support_note": null,
+   "source_section": "both",
+   "qualifies": [],
+   "moderator": null,
+   "relation": null,
+   "flags": []
+  }
+ ]
+}

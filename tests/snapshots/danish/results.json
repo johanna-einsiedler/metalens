@@ -1,0 +1,248 @@
+{
+ "artid": "dk_W2213841331",
+ "claims": [
+  {
+   "claim_id": "dk_W2213841331_c1",
+   "headline": true,
+   "statement": "Exposure to rising Chinese import competition due to the MFA quota removals reduced the number of years textile workers spent in mid-wage occupations over 2002-2009.",
+   "treatment": {
+    "label": "Import Competition (ImpComp = Exposure99ik x Posts), continuous exposure"
+   },
+   "outcome": {
+    "label": "Years of employment in mid-wage occupations (MIDeis)"
+   },
+   "relationship": {
+    "magnitude": {
+     "point_estimate": {
+      "value": -1.292,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     },
+     "se": {
+      "value": 0.382,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     }
+    }
+   },
+   "estimation": {
+    "source_table": {
+     "value": "Table 3, column (1)",
+     "evidence": [
+      "e1"
+     ],
+     "confidence": "high"
+    },
+    "source_table_id": "dk_W2213841331::T3::_::C1"
+   },
+   "provenance": {
+    "quotes": [
+     {
+      "page": 17,
+      "text": "leads to a signiﬁcant negative effect on mid-wage jobs at the same time that exposure to import competition increases employment in both high- and low-wage jobs."
+     },
+     {
+      "page": 9,
+      "text": "Taking into account the average mid-wage employment of the control group over the post-shock years, which is 2.8 years, the 4.4 months amounts to a 13% reduction in mid-wage employment."
+     }
+    ]
+   }
+  },
+  {
+   "claim_id": "dk_W2213841331_c6",
+   "headline": false,
+   "statement": "With a discrete (Yes/No) definition of exposure, working in 1999 at a firm producing quota-protected goods reduced years of mid-wage employment over 2002-2009.",
+   "treatment": {
+    "label": "Import Competition, discrete treatment definition (any quota product Yes/No) x Post"
+   },
+   "outcome": {
+    "label": "Years of employment in mid-wage occupations (MIDeis)"
+   },
+   "relationship": {
+    "magnitude": {
+     "point_estimate": {
+      "value": -0.337,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     },
+     "se": {
+      "value": null,
+      "evidence": [
+       "e9"
+      ],
+      "confidence": "high"
+     }
+    }
+   },
+   "estimation": {
+    "source_table": {
+     "value": "Table 3, column (1), square-bracket (discrete treatment) estimate",
+     "evidence": [
+      "e1"
+     ],
+     "confidence": "high"
+    },
+    "source_table_id": "dk_W2213841331::T3::_::C1"
+   },
+   "provenance": {
+    "quotes": [
+     {
+      "page": 9,
+      "text": "the results are similar when Import Competition is deﬁned as an indicator variable, equal to one if the worker was employed at a ﬁrm in 1999 producing at least one quota product"
+     },
+     {
+      "page": 9,
+      "text": "Taking into account the average mid-wage employment of the control group over the post-shock years, which is 2.8 years, the 4.4 months amounts to a 13% reduction in mid-wage employment."
+     }
+    ]
+   }
+  },
+  {
+   "claim_id": "dk_W2213841331_c7",
+   "headline": false,
+   "statement": "Among mid-wage textile workers without college education, import competition reduced the number of years spent in mid-wage employment over 2002-2009.",
+   "treatment": {
+    "label": "Import Competition (ImpComp = Exposure99ik x Posts), continuous exposure"
+   },
+   "outcome": {
+    "label": "Years of employment in mid-wage occupations (MIDeis)"
+   },
+   "relationship": {
+    "magnitude": {
+     "point_estimate": {
+      "value": -1.991,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     },
+     "se": {
+      "value": 0.54,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     }
+    }
+   },
+   "estimation": {
+    "source_table": {
+     "value": "Table 4, Panel A, ImpComp row, column (1)",
+     "evidence": [
+      "e1"
+     ],
+     "confidence": "high"
+    },
+    "source_table_id": "dk_W2213841331::T4::A::C1"
+   },
+   "provenance": {
+    "quotes": [
+     {
+      "page": 12,
+      "text": "Column (1) of Panel A shows that import competition causes a signiﬁcant employment reduction in mid-wage occupations regardless of whether workers are college educated or not."
+     }
+    ]
+   }
+  },
+  {
+   "claim_id": "dk_W2213841331_c42",
+   "headline": false,
+   "statement": "Among textile workers holding mid-wage occupations in 1999, import competition reduced the number of years spent in mid-wage occupations in the manufacturing sector over 2002-2009.",
+   "treatment": {
+    "label": "Import Competition (ImpComp = Exposure99ik x Posts), continuous exposure"
+   },
+   "outcome": {
+    "label": "Years of employment in mid-wage occupations in manufacturing (MIDeis)"
+   },
+   "relationship": {
+    "magnitude": {
+     "point_estimate": {
+      "value": -2.706,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     },
+     "se": {
+      "value": 0.562,
+      "evidence": [
+       "e1"
+      ],
+      "confidence": "high"
+     }
+    }
+   },
+   "estimation": {
+    "source_table": {
+     "value": "Table 5, Panel A, row Manufacturing, column (1)",
+     "evidence": [
+      "e1"
+     ],
+     "confidence": "high"
+    },
+    "source_table_id": null
+   },
+   "provenance": {
+    "quotes": [
+     {
+      "page": 14,
+      "text": "Column 1 of Panel A shows that the entire trade-induced reduction in mid-wage employment is driven by employment loss in the manufacturing sector."
+     }
+    ]
+   }
+  },
+  {
+   "claim_id": "dk_W2213841331_c84",
+   "headline": false,
+   "statement": "Among textile workers holding mid-wage occupations in 1999, import competition caused a substantial reduction in mid-wage employment over the post-shock years.",
+   "treatment": {
+    "label": "Import Competition (ImpComp = Exposure99ik x Posts), continuous exposure"
+   },
+   "outcome": {
+    "label": "Years of employment in mid-wage occupations (MIDeis)"
+   },
+   "relationship": {
+    "magnitude": {
+     "point_estimate": {
+      "value": null,
+      "evidence": [
+       "e10"
+      ],
+      "confidence": "high"
+     },
+     "se": {
+      "value": null,
+      "evidence": [
+       "e11"
+      ],
+      "confidence": "high"
+     }
+    }
+   },
+   "estimation": {
+    "source_table": {
+     "value": "Fig. 3 (coefficients tabulated in Online Appendix Table B-7)",
+     "evidence": [
+      "e1"
+     ],
+     "confidence": "high"
+    },
+    "source_table_id": "dk_W2213841331::F3"
+   },
+   "provenance": {
+    "quotes": [
+     {
+      "page": 9,
+      "text": "Fig. 3 shows that while Chinese import competition leads to a substantial reduction in mid-wage employment for these workers, the trade-induced increase in low-wage employment is on average larger than the increase in high-wage employment."
+     }
+    ]
+   }
+  }
+ ]
+}

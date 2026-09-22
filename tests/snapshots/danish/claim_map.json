@@ -1,0 +1,85 @@
+{
+ "artid": "dk_W2213841331",
+ "claims": [
+  {
+   "id": "S1",
+   "confidence": "high",
+   "introduction_evidence": [
+    {
+     "quote": "We employ employer-employee matched data from Denmark and utilize plausibly exogenous variation in the rise of import competition due to the dismantling of import quotas as China entered the World Trade Organization to show, first, that rising import competition has led to reduced employment in mid-wage occupations compensated by an increased likelihood of employment in both low-wage and high-wage occupations.",
+     "page": "1",
+     "section": "abstract",
+     "quote_verified": true,
+     "pdf_page": 1,
+     "match_ratio": 1.0
+    },
+    {
+     "quote": "Our difference-in-differences strategy compares occupation trajectories of workers whose firms domestically manufacture narrowly defined textile products that are subsequently subject to quota removals to trajectories of workers employed at other firms also manufacturing textile goods that are not affected by the quota removals.",
+     "page": "2",
+     "section": "introduction",
+     "quote_verified": true,
+     "pdf_page": 2,
+     "match_ratio": 1.0
+    },
+    {
+     "quote": "First, workers affected by import competition are pushed away from mid-wage occupations to a greater extent than workers not as affected, contributing to the hollowing out of the mid-wage jobs.",
+     "page": "2",
+     "section": "introduction",
+     "quote_verified": true,
+     "pdf_page": 2,
+     "match_ratio": 1.0
+    },
+    {
+     "quote": "Table 3 shows results from estimating Eq. (1) for years of employment in mid-, high-, and low-wage occupations of worker i in period s, denoted by MID, HIGH, and LOW, respectively.",
+     "page": "8",
+     "section": "body",
+     "quote_verified": true,
+     "pdf_page": 8,
+     "match_ratio": 1.0
+    }
+   ],
+   "matches": [
+    {
+     "claim_id": "dk_W2213841331_c1",
+     "role": "main",
+     "treatment_relation": "direct",
+     "outcome_relation": "direct",
+     "sign_consistent": true,
+     "why": "Headline DiD estimate on the full 1999 textile worker sample: exposure to quota removal reduces years of mid-wage employment by 1.292 per unit of exposure."
+    },
+    {
+     "claim_id": "dk_W2213841331_c6",
+     "role": "supporting",
+     "treatment_relation": "assignment",
+     "outcome_relation": "direct",
+     "sign_consistent": true,
+     "why": "Same regression with the discrete (any quota product) treatment indicator gives -0.337, the authors' alternative treatment definition of the same finding."
+    },
+    {
+     "claim_id": "dk_W2213841331_c7",
+     "role": "supporting",
+     "treatment_relation": "direct",
+     "outcome_relation": "direct",
+     "sign_consistent": true,
+     "why": "Restricting to workers who began in mid-wage occupations, the DiD term is -1.991 years of mid-wage employment, confirming the hollowing out for the group at risk."
+    },
+    {
+     "claim_id": "dk_W2213841331_c84",
+     "role": "supporting",
+     "treatment_relation": "direct",
+     "outcome_relation": "direct",
+     "sign_consistent": true,
+     "why": "Fig. 3 traces the same negative mid-wage employment effect year by year for mid-wage textile workers."
+    },
+    {
+     "claim_id": "dk_W2213841331_c42",
+     "role": "supporting",
+     "treatment_relation": "direct",
+     "outcome_relation": "direct",
+     "sign_consistent": true,
+     "why": "Table 5 shows the mid-wage loss is concentrated in manufacturing (-2.706), decomposing the same claim by sector."
+    }
+   ]
+  }
+ ]
+}

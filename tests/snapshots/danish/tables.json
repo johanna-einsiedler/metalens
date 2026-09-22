@@ -1,0 +1,320 @@
+{
+ "artid": "dk_W2213841331",
+ "regressions": [
+  {
+   "regression_id": "dk_W2213841331::T3::_::C1",
+   "table_number": "Table 3",
+   "table_title": "Job Polarization due to Quota Removals: All Textile Workers.",
+   "panel": null,
+   "column": "(1)",
+   "page": "8",
+   "outcome_variable": "MID^e_is (years of employment in mid-wage occupations of worker i in period s)",
+   "target_regressors": [
+    {
+     "name": "Import Competition",
+     "row_index": 0,
+     "why": "It is the difference-in-differences term Exposure99_ik x PostShock_s, the treatment of interest measuring rising Chinese import competition."
+    }
+   ],
+   "spec": {
+    "model_type": "diff_in_diff",
+    "fixed_effects": [
+     "worker",
+     "time (pre/post period)"
+    ],
+    "controls": [
+     "Post (indicator for post-liberalization period 2002-2009)"
+    ],
+    "iv": null,
+    "weights_type": "none",
+    "weights_variable": null,
+    "cluster_level": "workers' initial (1999) firm",
+    "se_type": "clustered",
+    "sample_restrictions": "All employees of the Danish textile and clothing sector in 1999 who are between 17 and 57 years old as of 1999 (N = 10,487 workers), each observed in a pre- and a post-period, giving N = 20,974 worker-period observations; 645 firm clusters.",
+    "unit_of_observation": "worker i x period s (pre-shock vs post-shock)",
+    "time_period": "1999-2009; Post = years 2002-2009",
+    "outcome_construction": "Number of years in period s that worker i's primary labor market position is employment in a mid-wage occupation. Mid-wage occupations are craft and related trade workers (ISCO 7), plant and machine operators and assemblers (ISCO 8), and clerks/office workers (ISCO 4), classified by 1999 median hourly wage in full-time jobs (Table 1).",
+    "data_construction_steps": [
+     "Match MFA import quotas imposed on China to eight-digit Common Nomenclature (CN) goods.",
+     "Using firm-product level production data (VARES), identify firms producing quota-protected CN-8 goods in Denmark as of 1999.",
+     "Compute Exposure99_ik = sum over quota products p of Rev99_ikp / TotRev99_ik, the 1999 revenue share of quota goods of worker i's employer k.",
+     "Interact Exposure99_ik with Post_s (2002-2009 indicator) to form ImpComp_is.",
+     "Aggregate annual IDA worker data into pre- and post-shock periods (Bertrand, Duflo and Mullainathan, 2004) and count years in each labor market position."
+    ],
+    "reproduction_notes": "Estimation of Eq. (1) X_is = a0 + a1*Post_s*Exposure99_ik + a2*Post_s + delta_i + phi_is by OLS. Values in square brackets are the same regression re-estimated with a discrete treatment definition (revenue share larger than 0, Yes/No) instead of the continuous revenue share."
+   },
+   "cells": [
+    {
+     "row_label": "Import Competition",
+     "column_label": "(1)",
+     "row_index": 0,
+     "col_index": 0,
+     "raw_text": "-1.292***",
+     "numeric_value": -1.292,
+     "row_type": "coefficient",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 3,
+     "significance_level": 0.01,
+     "is_string": false
+    },
+    {
+     "row_label": "Import Competition",
+     "column_label": "(1)",
+     "row_index": 1,
+     "col_index": 0,
+     "raw_text": "(0.382)",
+     "numeric_value": 0.382,
+     "row_type": "se",
+     "statistic_detail": null,
+     "refers_to": 0,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": false
+    },
+    {
+     "row_label": "Import Competition (discrete treatment definition, in square brackets)",
+     "column_label": "(1)",
+     "row_index": 2,
+     "col_index": 0,
+     "raw_text": "[-0.337***]",
+     "numeric_value": -0.337,
+     "row_type": "coefficient",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 3,
+     "significance_level": 0.01,
+     "is_string": false
+    },
+    {
+     "row_label": "Worker Fixed Effects",
+     "column_label": "(1)",
+     "row_index": 3,
+     "col_index": 0,
+     "raw_text": "√",
+     "numeric_value": null,
+     "row_type": "string",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": true
+    },
+    {
+     "row_label": "Time Fixed Effects",
+     "column_label": "(1)",
+     "row_index": 4,
+     "col_index": 0,
+     "raw_text": "√",
+     "numeric_value": null,
+     "row_type": "string",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": true
+    },
+    {
+     "row_label": "N",
+     "column_label": "(1)",
+     "row_index": 5,
+     "col_index": 0,
+     "raw_text": "20,974",
+     "numeric_value": 20974.0,
+     "row_type": "statistic_n_obs",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": false
+    }
+   ],
+   "evidence": [
+    {
+     "snippet": "Estimation of Eq. (1) using OLS. Dependent variables are given at the top of the columns.",
+     "page": "8",
+     "source": "table_notes",
+     "field": "spec.model_type"
+    },
+    {
+     "snippet": "Robust standard errors clustered at the level of the workers' initial firm (645 clusters) are reported in parentheses.",
+     "page": "8",
+     "source": "table_notes",
+     "field": "spec.cluster_level"
+    },
+    {
+     "snippet": "Results from employing a discrete treatment definition (revenue share larger than 0 Yes/No) are given in square brackets.",
+     "page": "8",
+     "source": "table_notes",
+     "field": "cells.raw_text"
+    }
+   ],
+   "notes": "The bracketed value is an alternative estimate from a separate regression using a binary treatment definition, printed within the same column."
+  },
+  {
+   "regression_id": "dk_W2213841331::T4::A::C1",
+   "table_number": "Table 4",
+   "table_title": "Occupational Movements of Mid-wage Workers: The Role of Education.",
+   "panel": "Panel A.",
+   "column": "(1)",
+   "page": "13",
+   "outcome_variable": "MID^e_is (years of employment in mid-wage occupations of worker i in period s)",
+   "target_regressors": [
+    {
+     "name": "ImpComp",
+     "row_index": 0,
+     "why": "The difference-in-differences coefficient alpha1 of Eq. (3), the average effect of import competition."
+    },
+    {
+     "name": "ImpComp × College",
+     "row_index": 2,
+     "why": "The triple-difference coefficient alpha3, giving the differential effect of import competition for college-educated workers; the paper's claim about education rests on it jointly with ImpComp."
+    }
+   ],
+   "spec": {
+    "model_type": "diff_in_diff",
+    "fixed_effects": [
+     "worker",
+     "time (pre/post period)",
+     "education indicators x time"
+    ],
+    "controls": [
+     "Post (post-shock period indicator)",
+     "Post x College (college indicator interacted with time fixed effects)"
+    ],
+    "iv": null,
+    "weights_type": "none",
+    "weights_variable": null,
+    "cluster_level": "workers' initial (1999) firm",
+    "se_type": "clustered",
+    "sample_restrictions": "All 1999 textile and clothing workers who held mid-wage occupations as of the initial year 1999 (about 7000 workers); N = 13,934 worker-period observations in every regression.",
+    "unit_of_observation": "worker i x period s (pre-shock vs post-shock)",
+    "time_period": "1999-2009; Post = years 2002-2009",
+    "outcome_construction": "Number of years in period s that worker i's primary labor market position is employment in a mid-wage occupation (ISCO 4 clerks, ISCO 7 craft and related trade workers, ISCO 8 plant and machine operators and assemblers).",
+    "data_construction_steps": [
+     "Compute Exposure99_ik as the 1999 revenue share of 8-digit CN goods of worker i's employer k that were subject to removal of quotas for China.",
+     "Form ImpComp_is = Exposure99_ik x PostShock_s.",
+     "Define C_i = indicator for at least some college education as of 1999.",
+     "Estimate Eq. (3) X_is = a0 + a1*ImpComp_is + a2*Post_s + a3*ImpComp_is*C_i + a4*Post_s*C_i + delta_i + nu_is, adjusted for two instead of one initial characteristic.",
+     "Restrict to workers in mid-wage occupations in 1999 and aggregate annual data into pre- and post-shock periods."
+    ],
+    "reproduction_notes": "Estimates of alpha2 and alpha4 are not reported. Estimation of Eq. (3) adjusted for two instead of one initial characteristic, by OLS."
+   },
+   "cells": [
+    {
+     "row_label": "ImpComp",
+     "column_label": "(1)",
+     "row_index": 0,
+     "col_index": 0,
+     "raw_text": "-1.991***",
+     "numeric_value": -1.991,
+     "row_type": "coefficient",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 3,
+     "significance_level": 0.01,
+     "is_string": false
+    },
+    {
+     "row_label": "ImpComp",
+     "column_label": "(1)",
+     "row_index": 1,
+     "col_index": 0,
+     "raw_text": "(0.540)",
+     "numeric_value": 0.54,
+     "row_type": "se",
+     "statistic_detail": null,
+     "refers_to": 0,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": false
+    },
+    {
+     "row_label": "ImpComp × College",
+     "column_label": "(1)",
+     "row_index": 2,
+     "col_index": 0,
+     "raw_text": "-0.099",
+     "numeric_value": -0.099,
+     "row_type": "coefficient",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": false
+    },
+    {
+     "row_label": "ImpComp × College",
+     "column_label": "(1)",
+     "row_index": 3,
+     "col_index": 0,
+     "raw_text": "(0.937)",
+     "numeric_value": 0.937,
+     "row_type": "se",
+     "statistic_detail": null,
+     "refers_to": 2,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": false
+    },
+    {
+     "row_label": "Worker FEs",
+     "column_label": "(1)",
+     "row_index": 4,
+     "col_index": 0,
+     "raw_text": "√",
+     "numeric_value": null,
+     "row_type": "string",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": true
+    },
+    {
+     "row_label": "Time FEs",
+     "column_label": "(1)",
+     "row_index": 5,
+     "col_index": 0,
+     "raw_text": "√",
+     "numeric_value": null,
+     "row_type": "string",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": true
+    },
+    {
+     "row_label": "Educ. Indicators × Time FEs",
+     "column_label": "(1)",
+     "row_index": 6,
+     "col_index": 0,
+     "raw_text": "√",
+     "numeric_value": null,
+     "row_type": "string",
+     "statistic_detail": null,
+     "refers_to": null,
+     "significance_stars": 0,
+     "significance_level": null,
+     "is_string": true
+    }
+   ],
+   "evidence": [
+    {
+     "snippet": "Estimation of Eq. (3) adjusted for two instead of one initial characteristic by OLS. Sample is all textile workers in mid-wage occupations as of the initial year 1999. The number of observations in every regression is N = 13,934.",
+     "page": "13",
+     "source": "table_notes",
+     "field": "spec.sample_restrictions"
+    },
+    {
+     "snippet": "Robust standard errors clustered at the firm level are reported in parentheses.",
+     "page": "13",
+     "source": "table_notes",
+     "field": "spec.cluster_level"
+    }
+   ],
+   "notes": "The rows 'Worker FEs', 'Time FEs' and 'Educ. Indicators × Time FEs' are printed once under 'For all panels:' and apply to Panels A, B and C."
+  }
+ ]
+}
