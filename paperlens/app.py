@@ -733,7 +733,7 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
     version of the dataset's Zenodo record). Permanent and issued under the server's Zenodo
     account, so guarded: the allow-list when set, a daily cap per account, a release with papers.
     400 when Zenodo is not configured, 409 when the release already has one."""
-    from . import auth, releases, zenodo
+    from . import auth, github_publish, releases, zenodo
     if not _dataset_gate(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Only the owner can mint a DOI.")
     if not zenodo.configured():
@@ -751,9 +751,16 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
     if zenodo.counts_here(rel.get("doi")):
         raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
     try:
-        return releases.public_row(zenodo.deposit(db, rel))
+        minted = zenodo.deposit(db, rel)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    out = releases.public_row(minted)
+    if minted.get("published_at") and github_publish.token():       # already on GitHub: the copy there learns its DOI
+        try:
+            out["github"] = github_publish.push_release_doi(db, minted)
+        except Exception as exc:                                     # the DOI exists either way; say what did not follow
+            out["github"] = {"error": f"the GitHub copy could not be updated: {exc}"}
+    return out
 
 
 @app.get("/api/datasets/{dataset_id}/releases/pending")

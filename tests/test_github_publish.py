@@ -6,6 +6,7 @@ fails cleanly. No real network. Skips without Postgres.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -140,3 +141,51 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+def test_a_doi_minted_after_publishing_reaches_the_github_copy() -> None:
+    """release.json, README.md and latest.json of that release are rewritten with the DOI in a
+    small pull request; the tables and evidence are not touched."""
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    import uuid
+    from paperlens import releases
+    from test_analysis_table import HAC, _seed
+    conn = records.connect(); records.init_db(conn)
+    ds, _ = _seed(conn, HAC, "human-ai-collab", f"doi-gh-{uuid.uuid4().hex[:6]}")
+    rel = releases.create(conn, ds)
+    releases.mark_published(conn, rel["id"])
+    conn.execute("UPDATE dataset_release SET doi = '10.5281/zenodo.99', zenodo_record_id = 99 WHERE id = %s::uuid", (rel["id"],)); conn.commit()
+    puts: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if request.method == "GET" and p.endswith("/metalens-datasets"):
+            return httpx.Response(200, json={"default_branch": "main"})
+        if request.method == "GET" and "/git/ref/heads/" in p:
+            return httpx.Response(200, json={"object": {"sha": "base"}})
+        if request.method == "POST" and p.endswith("/git/refs"):
+            return httpx.Response(422, json={})                 # the branch exists: reused
+        if request.method == "GET" and "/contents/" in p:
+            return httpx.Response(200, json={"sha": "old-blob"})   # the files exist: updated in place
+        if request.method == "PUT" and "/contents/" in p:
+            body = json.loads(request.content); assert body.get("sha") == "old-blob"
+            puts[p.split("/contents/")[1]] = base64.b64decode(body["content"])
+            return httpx.Response(200, json={"content": {"sha": "new"}})
+        if request.method == "POST" and p.endswith("/pulls"):
+            return httpx.Response(201, json={"html_url": "https://github.com/o/metalens-datasets/pull/8"})
+        return httpx.Response(500, json={"path": p})
+
+    os.environ["PAPERLENS_GITHUB_TOKEN"] = "ghp_test"
+    try:
+        out = github_publish.push_release_doi(conn, releases.get(conn, rel["id"]), client=httpx.Client(transport=httpx.MockTransport(handler)))
+    finally:
+        os.environ.pop("PAPERLENS_GITHUB_TOKEN", None)
+    slug = (records.get_dataset(conn, ds) or {})["slug"]
+    assert out["pr_url"].endswith("/pull/8") and out["branch"] == f"metalens/{slug}-v1-doi"
+    assert set(puts) == {f"datasets/{slug}/releases/v1/release.json", f"datasets/{slug}/releases/v1/README.md", f"datasets/{slug}/releases/latest.json"}
+    assert json.loads(puts[f"datasets/{slug}/releases/v1/release.json"])["release"]["doi"] == "10.5281/zenodo.99"
+    assert json.loads(puts[f"datasets/{slug}/releases/latest.json"])["doi"] == "10.5281/zenodo.99"
+    assert "10.5281/zenodo.99" in puts[f"datasets/{slug}/releases/v1/README.md"].decode()
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

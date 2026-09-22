@@ -163,7 +163,42 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
     return {"pr_url": pr_url, "branch": branch}
 
 
-# ── Zenodo seam (deferred) ───────────────────────────────────────────────────────
-# A future deposit_to_zenodo(conn, dataset_id, client=None) would create a Zenodo
-# deposition, upload results.json, publish → mint a DOI, and write it back onto the
-# dataset (a new dataset.zenodo_doi column). Not implemented this round.
+def push_release_doi(conn, release: dict, *, client: httpx.Client | None = None) -> dict:
+    """A release already on GitHub got its DOI afterwards: rewrite that release's release.json and
+    README.md (the DOI is metadata; the tables and evidence are untouched) and latest.json when
+    this is the latest release, as a small pull request. Returns {pr_url, branch}."""
+    if not token():
+        raise RuntimeError("PAPERLENS_GITHUB_TOKEN is not set — GitHub publishing is unavailable.")
+    ds = records.get_dataset(conn, release["dataset_id"]) or {}
+    slug = ds.get("slug") or records._slugify(ds.get("title") or release["dataset_id"])
+    gh_repo, d, n = repo(), f"datasets/{ds.get('slug')}", release["number"]
+    full = releases.get(conn, release["id"], with_snapshot=True)
+    files = release_export.build(conn, full)
+    branch = f"metalens/{slug}-v{n}-doi"
+    close = client is None
+    client = client or httpx.Client()
+    try:
+        info = _ok(client.get(f"{_API}/repos/{gh_repo}", headers=_headers(), timeout=30.0), "get repo").json()
+        base = info.get("default_branch", "main")
+        ref = _ok(client.get(f"{_API}/repos/{gh_repo}/git/ref/heads/{base}", headers=_headers(), timeout=30.0), "get ref").json()
+        r = client.post(f"{_API}/repos/{gh_repo}/git/refs", headers=_headers(), timeout=30.0,
+                        json={"ref": f"refs/heads/{branch}", "sha": ref["object"]["sha"]})
+        if r.status_code >= 300 and r.status_code != 422:
+            _ok(r, "create branch")
+        for path in ("release.json", "README.md"):
+            _put_file(client, gh_repo, f"{d}/releases/v{n}/{path}", None, branch, f"metalens: {slug} release v{n} DOI {full['doi']}",
+                      raw=files[path].decode("utf-8"))
+        if (releases.latest(conn, release["dataset_id"]) or {}).get("number") == n:
+            _put_file(client, gh_repo, f"{d}/releases/latest.json",
+                      {"number": n, "path": f"releases/v{n}", "created_at": full["created_at"], "content_sha": full["content_sha"],
+                       "credibility": full.get("credibility"), "doi": full["doi"], "files": sorted(files)},
+                      branch, f"metalens: {slug} latest release v{n} has DOI {full['doi']}")
+        pr = _ok(client.post(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,
+                             json={"title": f"{ds.get('title') or slug}: DOI for release v{n}", "head": branch, "base": base,
+                                   "body": f"Release v{n} now has the DOI https://doi.org/{full['doi']} (Zenodo). Only release.json, README.md"
+                                           f" and latest.json change; the tables and evidence are the same files.\n\n🤖 Generated with Metalens"}),
+                 "open PR").json()
+    finally:
+        if close:
+            client.close()
+    return {"pr_url": pr.get("html_url"), "branch": branch}
