@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Dashboards</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+  <main class="wrap">
+    <div class="ds-head" style="align-items:flex-start">
+      <div><h2 style="margin:.2em 0 4px">Dashboards</h2>
+        <p class="muted" style="margin:0;max-width:760px">Living views over published datasets. Every number traces back to the paper it came from. A dashboard is pinned to one release of its dataset and updated on purpose when the dataset grows.</p></div>
+      <span id="dbs-actions" class="dash-toolbar"></span>
+    </div>
+    <div id="dbs-register"></div>
+    <section class="ws-section"><div class="ws-head"><h3>Built by their authors</h3></div>
+      <p class="muted ws-hint">In the authors’ own code, hosted on their own sites, reading a release of a Metalens dataset.</p>
+      <div id="dbs-external" class="proj-grid"></div></section>
+    <section class="ws-section"><div class="ws-head"><h3>Built in Metalens</h3></div>
+      <p class="muted ws-hint">Made with the dashboard builder and published from Metalens.</p>
+      <div id="dbs-metalens" class="proj-grid"></div></section>
+  </main>
+  <script type="module" src="/static/dashboards.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

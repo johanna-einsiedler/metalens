@@ -81,6 +81,7 @@ export const api = {
   pendingRelease: (id) => req(`/api/datasets/${id}/releases/pending`),
   createRelease: (id, notes) => req(`/api/datasets/${id}/releases`, json({ notes: notes || "" })),
   // dashboards built outside Metalens, registered on the dataset
+  publicDashboards: () => req(`/api/dashboards/public`),
   externalDashboards: (id) => req(`/api/datasets/${id}/external-dashboards`),
   addExternalDashboard: (id, body) => req(`/api/datasets/${id}/external-dashboards`, json(body)),
   checkExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}/check`, { method: "POST" }),

@@ -116,3 +116,18 @@ def check(conn: psycopg.Connection, ext: dict, *, client: httpx.Client | None = 
         conn.execute("UPDATE external_dashboard SET release_shown = %s, checked_at = now(), check_note = %s WHERE id = %s::uuid",
                      (shown, note or None, ext["id"]))
     return get(conn, ext["id"])
+
+
+def list_public(conn: psycopg.Connection) -> list[dict]:
+    """Every registered dashboard over a public dataset, with the dataset it belongs to."""
+    rows = conn.execute(
+        """SELECT x.id::text, x.dataset_id::text, x.owner_user_id::text, x.title, x.url, x.repo_url, x.manifest_url, x.release_shown,
+                  x.checked_at, x.check_note, x.created_at, d.title, d.slug,
+                  (SELECT max(number) FROM dataset_release r WHERE r.dataset_id = d.id)
+           FROM external_dashboard x JOIN dataset d ON d.id = x.dataset_id
+           WHERE d.visibility = 'public' ORDER BY x.created_at DESC""").fetchall()
+    out = []
+    for r in rows:
+        item = _row(r[:11]); item.update({"dataset_title": r[11], "dataset_slug": r[12], "latest_release": r[13]})
+        out.append(item)
+    return out

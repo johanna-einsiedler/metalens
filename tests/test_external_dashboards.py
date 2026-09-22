@@ -55,5 +55,12 @@ def test_register_check_and_delete() -> None:
     listed = c.get(f"/api/datasets/{ds}/external-dashboards", headers=mine).json()
     assert listed["latest_release"] == 1 and listed["dashboards"][0]["release_shown"] == 1
     assert stranger.delete(f"/api/external-dashboards/{made['id']}", headers=other).status_code == 404
+    # the public Dashboards page lists it once the dataset is public
+    assert not any(x["id"] == made["id"] for x in c.get("/api/dashboards/public").json()["external"])
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    pub = c.get("/api/dashboards/public").json()
+    hit = next(x for x in pub["external"] if x["id"] == made["id"])
+    assert hit["dataset_title"] == "Analysis set" and hit["latest_release"] == 1 and hit["release_shown"] == 1
+    assert c.get("/dashboards").status_code == 200
     assert c.delete(f"/api/external-dashboards/{made['id']}", headers=mine).json() == {"deleted": 1}
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

@@ -175,3 +175,18 @@ def count_proposal(conn, dashboard_id: str) -> None:
 def delete(conn, dashboard_id: str) -> int:
     with conn.transaction():
         return conn.execute("DELETE FROM dashboard WHERE id = %s::uuid", (dashboard_id,)).rowcount
+
+
+def list_public(conn) -> list[dict]:
+    """Published Metalens dashboards, newest first (for the public Dashboards page)."""
+    from . import releases
+    rows = [_row(r) for r in conn.execute(
+        f"SELECT {_COLS} FROM dashboard WHERE visibility = 'public' AND published_release_id IS NOT NULL ORDER BY published_at DESC LIMIT 200").fetchall()]
+    out = []
+    for d in rows:
+        ds = records.get_dataset(conn, d["dataset_id"]) or {}
+        rel = releases.get(conn, d["published_release_id"]) if d.get("published_release_id") else None
+        out.append({"id": d["id"], "title": d.get("published_title") or d["title"], "dataset_id": d["dataset_id"], "dataset_title": ds.get("title"),
+                    "published_at": d.get("published_at"), "release": rel["number"] if rel else None,
+                    "n_blocks": len((d.get("published_spec") or {}).get("blocks") or []), "author": author_name(conn, d, ds)})
+    return out

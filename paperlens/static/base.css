@@ -749,3 +749,6 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .ds-reldash label { display: flex; gap: 8px; align-items: baseline; }
 .ds-relpub { display: grid; gap: 4px; margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 13px; } .ds-relpub label { display: flex; gap: 8px; align-items: baseline; }
 .ds-relform input[type=text], .ds-relform input[type=url] { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }
+.dbs-in { display: block; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }
+#dbs-ds { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }
+.pt-foot { font-size: 12px; color: var(--text-muted); margin: 4px 2px 0; }

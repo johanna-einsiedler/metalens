@@ -163,6 +163,12 @@ def brand_info(b: brands.Brand = Depends(brand)) -> dict:
     return b.as_json()
 
 
+@app.get("/dashboards")
+def dashboards_page() -> FileResponse:
+    """Public: every published dashboard — built in Metalens or registered from elsewhere."""
+    return _page("dashboards.html")
+
+
 @app.get("/catalog")
 def catalog() -> FileResponse:
     """Tool-faithful dataset/record browser (search + facets)."""
@@ -1029,6 +1035,12 @@ def _dashboard_view(db, d: dict, who: Principal, view: str | None) -> tuple[str,
     if view == "published":
         raise HTTPException(status_code=404, detail="This dashboard is not published.")
     return ("draft" if mine else "live"), None
+
+
+@app.get("/api/dashboards/public")
+def dashboards_public(db=Depends(get_db)) -> dict:
+    from . import dashboards, external_dashboards
+    return {"metalens": dashboards.list_public(db), "external": external_dashboards.list_public(db)}
 
 
 @app.get("/api/dashboards/{dashboard_id}")
