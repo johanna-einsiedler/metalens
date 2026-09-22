@@ -100,6 +100,9 @@ async function init() {
   $("#simpleGen").onclick = genSimple;
   $("#masemUse").onclick = masemUse;
   $("#masemSetupSave").onclick = saveMasemSetup;
+  $("#masemEdit").onclick = masemEditToggle;
+  $("#masemRegen").onclick = masemRegenerate;
+  $("#masemPromptEdit").addEventListener("input", () => { MASEM.custom = true; const md = $("#masemPromptEdit").value; PROMPT_RENDERED = md; $("#prompt").value = md; $("#masemPreviewLen").textContent = md.length; masemEditState(); });
   ["masemEffectSizes", "masemVariables", "masemScaleName", "masemNItems", "masemItems", "masemVarRules", "masemVarGuidance"].forEach((id) => {
     const el = $("#" + id); if (el) { el.addEventListener("input", refreshMasemPreview); el.addEventListener("change", refreshMasemPreview); }
   });
@@ -489,7 +492,7 @@ function showMode(m) {
 const isMasemPreset = (pid) => typeof pid === "string" && pid.startsWith("masem");
 
 // ── MASEMiner guided builder (one preset → Direct/Indirect toggle + live preview) ─
-const MASEM = { starter: null, defaults: {}, cache: {}, timer: null };
+const MASEM = { starter: null, defaults: {}, cache: {}, timer: null, custom: false, editing: false };   // custom: the prompt was edited by hand
 const MASEM_STARTERS = [
   { id: "masem-direct", label: "Direct information", tag: "The paper reports the effect sizes themselves — correlations in text or table(s)." },
   { id: "masem-indirect", label: "Indirect information", tag: "The paper reports the measurement model — factor loadings and factor correlations." },
@@ -560,6 +563,7 @@ async function selectMasemStarter(pid, isUserClick) {
   let detail = MASEM.cache[pid];
   if (!detail) { try { detail = await api.presetDetail(pid); MASEM.cache[pid] = detail; } catch { return; } }
   MASEM.starter = pid;
+  MASEM.custom = false; masemEditState();
   presetId = pid;                       // schemaIdFor() → `${pid}@v1` (masem-direct / masem-indirect)
   MASEM.defaults = JSON.parse(JSON.stringify(detail.template_params || {}));
   renderMasemStarters();
@@ -598,14 +602,35 @@ function readMasemParams() {
 }
 async function doMasemPreview() {
   const pid = MASEM.starter; if (!pid) return;
+  if (MASEM.custom) return;              // a prompt edited by hand is not rewritten by the form
   try {
     const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams() });
     const md = r.prompt || "";
     PROMPT_RENDERED = md;
     $("#masemPreviewBox").innerHTML = renderMarkdown(md);
+    $("#masemPromptEdit").value = md;
     $("#masemPreviewLen").textContent = md.length;
     $("#prompt").value = md;               // the RAW markdown is what the model gets
   } catch { /* best-effort preview */ }
+}
+// "Edit prompt": the preview becomes the raw prompt in a textarea, editable right here (step 2),
+// not only in step 3. Hand edits stick until "Regenerate from the form" or another task is chosen.
+function masemEditToggle() {
+  MASEM.editing = !MASEM.editing;
+  if (MASEM.editing && !MASEM.custom) $("#masemPromptEdit").value = $("#prompt").value;
+  if (!MASEM.editing && MASEM.custom) $("#masemPreviewBox").innerHTML = renderMarkdown($("#masemPromptEdit").value);
+  masemEditState();
+  if (MASEM.editing) $("#masemPromptEdit").focus();
+}
+function masemEditState() {
+  $("#masemPreviewBox").hidden = MASEM.editing;
+  $("#masemPromptEdit").hidden = !MASEM.editing;
+  $("#masemEdit").textContent = MASEM.editing ? "Show preview" : "Edit prompt";
+  $("#masemRegen").hidden = !MASEM.custom;
+  $("#masemEditNote").hidden = !MASEM.custom;
+}
+function masemRegenerate() {
+  MASEM.custom = false; masemEditState(); doMasemPreview();
 }
 function refreshMasemPreview() { if (MASEM.timer) clearTimeout(MASEM.timer); MASEM.timer = setTimeout(doMasemPreview, 350); }
 async function masemUse() {

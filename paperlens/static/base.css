@@ -774,3 +774,5 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .tile-by { font-size: 13px; font-style: italic; color: var(--text-muted); margin: 0 0 8px; }
 .tile-foot { font-size: 12px; color: var(--text-muted); padding: 8px 16px 12px; margin-top: auto; border-top: 1px solid var(--border); }
 .ds-sync .lag { color: var(--conf-med); } .ds-sync.off b { color: inherit; }
+.masem-edit-tools { float: right; display: inline-flex; gap: 6px; }
+#masemPromptEdit { width: 100%; box-sizing: border-box; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
