@@ -152,3 +152,25 @@ def test_api_is_owner_only_and_needs_configuration(monkeypatch) -> None:
     monkeypatch.setenv("PAPERLENS_ZENODO_TOKEN", "t-test")
     assert c.post(f"/api/datasets/{ds}/releases/9/doi", headers=mine).status_code == 404
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_switching_from_the_sandbox_to_the_real_zenodo_starts_a_fresh_record(monkeypatch) -> None:
+    """A sandbox DOI (10.5072) is a test artefact: once the server talks to zenodo.org it no longer
+    counts — the release can be minted again, and the first real deposit is a new record, not a
+    'new version' of something the real Zenodo never saw."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    monkeypatch.setenv("PAPERLENS_ZENODO_TOKEN", "t-test"); monkeypatch.setenv("PAPERLENS_ZENODO_SANDBOX", "1")
+    conn = records.connect(); records.init_db(conn)
+    ds, _ = _seed(conn, HAC, "human-ai-collab", f"zen-sw-{uuid.uuid4().hex[:6]}")
+    rel = releases.create(conn, ds)
+    z = FakeZenodo(); client = httpx.Client(transport=httpx.MockTransport(z.handler))
+    assert zenodo.deposit(conn, rel, client=client)["doi"] == "10.5072/zenodo.101"
+    assert "10.5072/zenodo.101" in (records.get_dataset(conn, ds) or {})["citation"]
+    monkeypatch.delenv("PAPERLENS_ZENODO_SANDBOX")                      # the switch
+    assert not zenodo.counts_here("10.5072/zenodo.101") and zenodo.counts_here("10.5281/zenodo.7")
+    assert "10.5072" not in (records.get_dataset(conn, ds) or {})["citation"]   # the test DOI leaves the citation
+    real = FakeZenodo(); real.n = 500
+    out = zenodo.deposit(conn, releases.get(conn, rel["id"]), client=httpx.Client(transport=httpx.MockTransport(real.handler)))
+    assert out["doi"] == "10.5072/zenodo.501" and real.log[0] == "POST /api/deposit/depositions"   # a fresh record (the fake mints 10.5072 too)
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

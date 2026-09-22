@@ -47,6 +47,17 @@ def base_url() -> str:
     return _SANDBOX if sandbox() else _PROD
 
 
+def is_test_doi(doi: str | None) -> bool:
+    """Sandbox DOIs carry the 10.5072 prefix; they resolve nowhere and never count as real."""
+    return bool(doi) and doi.startswith("10.5072/")
+
+
+def counts_here(doi: str | None) -> bool:
+    """Does this DOI belong to the Zenodo this server talks to? A sandbox DOI is ignored once the
+    server is on the real Zenodo (and vice versa), so a release can be minted again after the switch."""
+    return bool(doi) and is_test_doi(doi) == sandbox()
+
+
 def _headers() -> dict:
     return {"Authorization": f"Bearer {token()}", "Accept": "application/json"}
 
@@ -97,9 +108,9 @@ def metadata(ds: dict, rel: dict, *, github_url: str | None) -> dict:
 
 
 def _prior(conn, dataset_id: str) -> dict | None:
-    r = conn.execute("SELECT zenodo_record_id FROM dataset_release WHERE dataset_id = %s::uuid AND zenodo_record_id IS NOT NULL "
-                     "ORDER BY number DESC LIMIT 1", (dataset_id,)).fetchone()
-    return {"record_id": r[0]} if r else None
+    rows = conn.execute("SELECT zenodo_record_id, doi FROM dataset_release WHERE dataset_id = %s::uuid AND zenodo_record_id IS NOT NULL "
+                        "ORDER BY number DESC", (dataset_id,)).fetchall()
+    return next(({"record_id": r[0]} for r in rows if counts_here(r[1])), None)
 
 
 def deposit(conn, release: dict, *, client: httpx.Client | None = None) -> dict:
@@ -108,7 +119,7 @@ def deposit(conn, release: dict, *, client: httpx.Client | None = None) -> dict:
     is not configured, the release already has a DOI, or Zenodo refuses a step."""
     if not configured():
         raise RuntimeError("Zenodo is not configured on this server (PAPERLENS_ZENODO_TOKEN).")
-    if release.get("doi"):
+    if counts_here(release.get("doi")):
         raise RuntimeError(f"Release v{release['number']} already has a DOI: {release['doi']}.")
     ds = records.get_dataset(conn, release["dataset_id"]) or {}
     base = base_url()

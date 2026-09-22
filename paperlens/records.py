@@ -1393,10 +1393,12 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     # the GitHub copy is the published location once the pull request is merged (the sync
     # flips the status); a legacy public dataset with no GitHub copy has no published_url
     published_url = dataset_github_url(r[1]) if status == "published" and (r[22] or r[13] or r[23]) else None
-    # the concept DOI (Zenodo) is the best address: it always resolves to the newest release
+    # the concept DOI (Zenodo) is the best address: it always resolves to the newest release —
+    # unless it is a sandbox one (10.5072) left from testing, which resolves nowhere
+    concept = r[26] if r[26] and not (r[26].startswith("10.5072/") and (os.environ.get("PAPERLENS_ZENODO_SANDBOX") or "").lower() not in ("1", "true", "yes", "on")) else None
     suggested = dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=author,
                                  anonymous=attribution == "anonymous", year=year, version=r[18] or 1,
-                                 url=f"https://doi.org/{r[26]}" if r[26] else published_url)
+                                 url=f"https://doi.org/{concept}" if concept else published_url)
     # A stored citation that merely equals one of the suggested variants (named/anonymous,
     # page URL/GitHub URL, any version) is not a hand-edit: keep it live so it follows the
     # attribution and the publication instead of freezing an old URL.
@@ -1422,7 +1424,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "readme": r[14], "keywords": list(r[15] or []), "attribution": attribution,
             "citation": custom or suggested, "citation_suggested": suggested,
             "citation_custom": bool(custom), "version": r[18] or 1,
-            "zenodo_concept_doi": r[26],           # the DOI of the newest release, once one was minted
+            "zenodo_concept_doi": concept,         # always resolves to the newest release, once one was minted
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}

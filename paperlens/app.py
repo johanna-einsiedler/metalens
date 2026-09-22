@@ -740,7 +740,7 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
     rel = releases.get_by_number(db, dataset_id, number)
     if rel is None:
         raise HTTPException(status_code=404, detail="This dataset has no such release.")
-    if rel.get("doi"):
+    if zenodo.counts_here(rel.get("doi")):
         raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
     try:
         return releases.public_row(zenodo.deposit(db, rel))
