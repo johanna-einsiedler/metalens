@@ -99,7 +99,8 @@ def build(conn, release: dict) -> dict[str, bytes]:
                         "published_url": d.get("published_url"), "description": ds.get("description"),
                         "keywords": [k for k in (ds.get("keywords") or []) if isinstance(k, str)]},
             "release": {"number": release["number"], "created_at": release["created_at"], "content_sha": release["content_sha"],
-                        "notes": release.get("notes"), "changes": release.get("changes")},
+                        "notes": release.get("notes"), "changes": release.get("changes"),
+                        "doi": release.get("doi"), "concept_doi": ds.get("zenodo_concept_doi")},
             "credibility": release.get("credibility"), "engine": release.get("engine"), "preset": d.get("preset"),
             "schema_id": release.get("schema_id"), "n_papers": d.get("n_papers"), "left_out": d.get("left_out"),
             "units": units, "files": sorted([*files, "release.json", "README.md"])}
@@ -113,8 +114,10 @@ def _readme(meta: dict) -> str:
     lines = [f"# {ds.get('title') or 'Dataset'} — release v{rel['number']}", "",
              f"Frozen on {str(rel['created_at'])[:10]} · content sha256 `{rel['content_sha']}` · "
              f"{(meta.get('credibility') or {}).get('label') or ''} · {meta.get('n_papers')} papers", ""]
+    if rel.get("doi"):
+        lines[2] += f" · DOI [{rel['doi']}](https://doi.org/{rel['doi']})"
     if ds.get("citation"):
-        lines += ["## How to cite", "", ds["citation"], ""]
+        lines += ["## How to cite", "", ds["citation"] + (f" https://doi.org/{rel['doi']}" if rel.get("doi") else ""), ""]
     lines += ["## Files", "",
               "- `release.json` — what this release is, and per row layout the columns it offers",
               *[f"- `{u['file']}` — one row per {u['label'].lower()} ({u['n_rows']} rows)" for u in meta["units"]],

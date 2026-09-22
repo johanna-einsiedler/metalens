@@ -721,8 +721,31 @@ def dataset_releases(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     rows = releases.list_for_dataset(db, dataset_id)
     out = {"releases": [releases.public_row(r) for r in rows]}
     if owner:
+        from . import zenodo
         out["head"] = {"changed": releases.changed_since(db, dataset_id, rows[0] if rows else None)}
+        out["zenodo"] = zenodo.status()
     return out
+
+
+@app.post("/api/datasets/{dataset_id}/releases/{number}/doi")
+def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only: mint a DOI for this release on Zenodo (a new version of the dataset's Zenodo
+    record). Permanent, so never implied by anything else. 400 when Zenodo is not configured,
+    409 when the release already has one."""
+    from . import releases, zenodo
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can mint a DOI.")
+    if not zenodo.configured():
+        raise HTTPException(status_code=400, detail="Zenodo isn’t configured on this server.")
+    rel = releases.get_by_number(db, dataset_id, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="This dataset has no such release.")
+    if rel.get("doi"):
+        raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
+    try:
+        return releases.public_row(zenodo.deposit(db, rel))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @app.get("/api/datasets/{dataset_id}/releases/pending")

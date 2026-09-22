@@ -88,6 +88,7 @@ export const api = {
   deleteExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}`, { method: "DELETE" }),
   publishRelease: (id, number, target) => req(`/api/datasets/${id}/publish`, json({ target, release: number })),
   // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads
+  releaseDoi: (id, number) => req(`/api/datasets/${id}/releases/${number}/doi`, { method: "POST" }),
   releaseExport: async (id, n) => {
     const r = await fetch(`/api/datasets/${id}/releases/${n}/export`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);

@@ -144,7 +144,7 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
             releases.mark_published(conn, rel["id"])
             _put_file(client, gh_repo, f"{d}/releases/latest.json",
                       {"number": rel["number"], "path": f"releases/v{rel['number']}", "created_at": rel["created_at"],
-                       "content_sha": rel["content_sha"], "credibility": rel.get("credibility"),
+                       "content_sha": rel["content_sha"], "credibility": rel.get("credibility"), "doi": rel.get("doi"),
                        "files": sorted(files)}, branch, f"metalens: {slug} latest release → v{rel['number']}")
 
         # 4) open the PR

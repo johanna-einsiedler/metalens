@@ -106,14 +106,15 @@ def diff_snapshots(prev: dict | None, new: dict) -> dict:
 
 # ── rows ─────────────────────────────────────────────────────────────────────
 _COLS = ("id::text, dataset_id::text, number, created_at, created_by::text, reason, notes, changes, fingerprint, "
-         "content_sha, spec_sha, schema_id, engine, stats, credibility, published_at")
+         "content_sha, spec_sha, schema_id, engine, stats, credibility, published_at, doi, zenodo_record_id, zenodo_url")
 
 
 def _row(r, snap: dict | None = None) -> dict:
     out = {"id": r[0], "dataset_id": r[1], "number": r[2], "created_at": r[3].isoformat(timespec="seconds") if r[3] else None,
            "created_by": r[4], "reason": r[5], "notes": r[6], "changes": r[7], "fingerprint": r[8], "content_sha": r[9],
            "spec_sha": r[10], "schema_id": r[11], "engine": r[12], "stats": r[13], "credibility": r[14],
-           "published_at": r[15].isoformat(timespec="seconds") if r[15] else None}
+           "published_at": r[15].isoformat(timespec="seconds") if r[15] else None,
+           "doi": r[16], "zenodo_record_id": r[17], "zenodo_url": r[18]}
     if snap is not None:
         out["snapshot"] = snap
     return out
@@ -147,7 +148,8 @@ def latest(conn: psycopg.Connection, dataset_id: str, *, with_snapshot: bool = F
 
 def public_row(rel: dict) -> dict:
     """What anyone who may see the dataset may know about a release."""
-    return {k: rel.get(k) for k in ("number", "created_at", "reason", "notes", "changes", "content_sha", "stats", "credibility", "published_at")}
+    return {k: rel.get(k) for k in ("number", "created_at", "reason", "notes", "changes", "content_sha", "stats", "credibility", "published_at",
+                                    "doi", "zenodo_url")}
 
 
 def list_for_dataset(conn: psycopg.Connection, dataset_id: str) -> list[dict]:

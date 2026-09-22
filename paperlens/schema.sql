@@ -488,3 +488,9 @@ ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS authors text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS keywords jsonb;   -- from the manifest; the dataset's otherwise
 
+-- a DOI per release (Zenodo); the dataset's concept DOI always resolves to the newest version
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi text;
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_record_id bigint;
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_url text;
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS zenodo_concept_doi text;
+

@@ -14,7 +14,7 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-let OV = null, OWNER = false, ANON = false, AUDIT = null;
+let OV = null, OWNER = false, ANON = false, AUDIT = null, ZEN = { configured: false, sandbox: false };   // ZEN: can a DOI be minted here?
 let FINALIZED = new URLSearchParams(location.search).get("finalized") === "1";   // arrived from "Finalize" in the review
 
 async function init() {
@@ -176,10 +176,13 @@ async function loadReleases() {
   const host = $("#ds-rellist"); if (!host) return;
   let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
   const list = r.releases || [];
+  ZEN = r.zenodo || ZEN;
   const gh = OV.published_url || (OV.git_pr_url ? OV.git_pr_url.replace(/\/pull\/\d+$/, "") : "");
   const pubState = (x, k) => x.published_at ? (k === 0 && OV.publish_status === "pending" ? `<span class="badge">pull request open</span>` : `<a class="badge" href="${esc(gh ? gh + "/releases/v" + x.number : "#")}" target="_blank" rel="noopener" title="on GitHub since ${esc(fmtDate(x.published_at))}">on GitHub ↗</a>`)
     : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
-  host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
+  const doiState = (x) => x.doi ? ` <a class="badge" href="https://doi.org/${encodeURIComponent(x.doi)}" target="_blank" rel="noopener" title="the DOI of this release${x.zenodo_url ? " · " + esc(x.zenodo_url) : ""}">DOI ${esc(x.doi)}</a>`
+    : (OWNER && !ANON && ZEN.configured ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
+  host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
     + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
     + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
     + ` · <a href="#" data-relzip="${x.number}" title="this release as static files (tables, evidence, metadata): what a dashboard you write yourself reads">⬇ files</a></span>${x.notes ? `<div class="muted" style="margin:2px 0 0 0">${esc(x.notes)}</div>` : ""}</div>`).join("")
@@ -191,6 +194,12 @@ async function loadReleases() {
     const target = confirm("Publish to GitHub AND list it in the Metalens catalogue? (Cancel = GitHub only)") ? "github+metalens" : "github";
     b.disabled = true; b.textContent = "Publishing…";
     try { await publishRelease(+b.dataset.relpub, target); } catch (e) { alert(`Publishing failed: ${e.message}`); loadReleases(); }
+  }));
+  host.querySelectorAll("[data-reldoi]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Mint a DOI for release v${b.dataset.reldoi} on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the release's files are deposited under it and cannot be withdrawn.`)) return;
+    b.disabled = true; b.textContent = "Minting…";
+    try { await api.releaseDoi(id, +b.dataset.reldoi); } catch (e) { alert(`Minting the DOI failed: ${e.message}`); }
+    loadReleases();
   }));
   host.querySelectorAll("[data-relzip]").forEach((a) => (a.onclick = async (e) => {
     e.preventDefault(); const was = a.textContent; a.textContent = "preparing…";
@@ -221,7 +230,8 @@ async function openReleaseForm() {
     + (ANON ? "" : `<div class="ds-relpub"><b>Publish it?</b> <span class="muted">Only releases are published: the release's files go to the datasets repository on GitHub as a pull request; the dataset is listed in the catalogue once it is merged.</span>`
       + `<label><input type="radio" name="ds-relpub" value="none"${OV.publish_status === "published" || OV.publish_status === "pending" ? "" : " checked"}/> Keep it in Metalens only (you can publish it later from the release history)</label>`
       + `<label><input type="radio" name="ds-relpub" value="github+metalens"${OV.publish_status === "published" || OV.publish_status === "pending" ? " checked" : ""}/> Publish to GitHub and the Metalens catalogue</label>`
-      + `<label><input type="radio" name="ds-relpub" value="github"/> Publish to GitHub only (not listed here)</label></div>`)
+      + `<label><input type="radio" name="ds-relpub" value="github"/> Publish to GitHub only (not listed here)</label>`
+      + (ZEN.configured ? `<label style="margin-top:6px"><input type="checkbox" id="ds-rel-doi"/> Also mint a DOI on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} <span class="muted">· permanent; the release's files are deposited under it</span></label>` : "") + `</div>`)
     + `<div id="ds-rel-dash"></div>`
     + `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-primary btn-sm" id="ds-rel-go">Create release v${p.next_number}</button>`
     + `<button type="button" class="btn btn-ghost btn-sm" id="ds-rel-no">Cancel</button><span class="muted" id="ds-rel-msg" style="font-size:12.5px"></span></div></div>`;
@@ -247,6 +257,10 @@ async function openReleaseForm() {
     const msg = $("#ds-rel-msg"), chosen = [...document.querySelectorAll(".ds-rel-upd:checked")].map((x) => x.value);
     try {
       const rel = await api.createRelease(id, $("#ds-rel-notes").value);
+      if (($("#ds-rel-doi") || {}).checked) {                 // first, so the GitHub copy names the DOI
+        msg.textContent = `Release v${rel.number} created. Minting the DOI…`;
+        try { await api.releaseDoi(id, rel.number); } catch (e) { alert(`The release was created, but minting the DOI failed: ${e.message}`); }
+      }
       const target = (document.querySelector('input[name="ds-relpub"]:checked') || {}).value;
       if (target && target !== "none") {                      // publishing is OF this release
         msg.textContent = `Release v${rel.number} created. Publishing…`;

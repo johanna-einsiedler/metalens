@@ -1379,7 +1379,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
                   d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
                   d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta,
-                  d.catalogue
+                  d.catalogue, d.zenodo_concept_doi
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1393,9 +1393,10 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     # the GitHub copy is the published location once the pull request is merged (the sync
     # flips the status); a legacy public dataset with no GitHub copy has no published_url
     published_url = dataset_github_url(r[1]) if status == "published" and (r[22] or r[13] or r[23]) else None
+    # the concept DOI (Zenodo) is the best address: it always resolves to the newest release
     suggested = dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=author,
                                  anonymous=attribution == "anonymous", year=year, version=r[18] or 1,
-                                 url=published_url)
+                                 url=f"https://doi.org/{r[26]}" if r[26] else published_url)
     # A stored citation that merely equals one of the suggested variants (named/anonymous,
     # page URL/GitHub URL, any version) is not a hand-edit: keep it live so it follows the
     # attribution and the publication instead of freezing an old URL.
@@ -1403,7 +1404,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     if custom:
         variants = {dataset_citation(title=r[2], slug=r[1], dataset_id=str(r[0]), author=a, anonymous=an, year=year, version=v, url=u)
                     for a in (r[9] or None, None) for an in (False, True)
-                    for u in (None, dataset_github_url(r[1])) for v in range(1, (r[18] or 1) + 1)}
+                    for u in (None, dataset_github_url(r[1]), *([f"https://doi.org/{r[26]}"] if r[26] else [])) for v in range(1, (r[18] or 1) + 1)}
         if custom.strip() in {x.strip() for x in variants}:
             custom = None
     return {"id": str(r[0]), "slug": r[1], "title": r[2], "description": r[3],
@@ -1421,6 +1422,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "readme": r[14], "keywords": list(r[15] or []), "attribution": attribution,
             "citation": custom or suggested, "citation_suggested": suggested,
             "citation_custom": bool(custom), "version": r[18] or 1,
+            "zenodo_concept_doi": r[26],           # the DOI of the newest release, once one was minted
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
