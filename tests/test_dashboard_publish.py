@@ -72,6 +72,7 @@ def test_publish_pins_a_release_and_the_public_page_stays_put() -> None:
     assert c.get(f"/api/dashboards/{did}?view=published").json()["title"] == "Teams"                                # the owner can look at the public page
     tile = next(x for x in reader.get("/api/dashboards/public").json()["metalens"] if x["id"] == did)                # the Dashboards page tile
     assert tile["title"] == "Teams" and tile["release"] == 1 and tile["n_blocks"] == len(spec["blocks"]) and tile["preview"]["icon"]
+    assert tile["n_papers"] == 1 and tile["keywords"] == []
 
     # a new release → "update available" → ONE call moves the page, keeping the published spec
     assert c.post(f"/api/datasets/{ds}/releases", json={"notes": "second paper"}).json()["number"] == 2

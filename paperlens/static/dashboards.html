@@ -13,16 +13,16 @@
   <main class="wrap">
     <div class="ds-head" style="align-items:flex-start">
       <div><h2 style="margin:.2em 0 4px">Dashboards</h2>
-        <p class="muted" style="margin:0;max-width:760px">Living views over published datasets. Every number traces back to the paper it came from. A dashboard is pinned to one release of its dataset and updated on purpose when the dataset grows.</p></div>
+        <p class="muted" style="margin:0;max-width:760px">Living views over published datasets. A dashboard is pinned to one release of its dataset. All numbers can be traced back to articles.</p></div>
       <span id="dbs-actions" class="dash-toolbar"></span>
     </div>
     <div id="dbs-register"></div>
-    <section class="ws-section"><div class="ws-head"><h3>Built by their authors</h3></div>
-      <p class="muted ws-hint">In the authors’ own code, hosted on their own sites, reading a release of a Metalens dataset.</p>
-      <div id="dbs-external" class="tiles"></div></section>
-    <section class="ws-section"><div class="ws-head"><h3>Built in Metalens</h3></div>
+    <section class="ws-section"><div class="ws-head"><h3>Internal dashboards</h3></div>
       <p class="muted ws-hint">Made with the dashboard builder and published from Metalens.</p>
       <div id="dbs-metalens" class="tiles"></div></section>
+    <section class="ws-section"><div class="ws-head"><h3>External dashboards</h3></div>
+      <p class="muted ws-hint">In the authors’ own code, hosted on their own sites, reading a release of a Metalens dataset.</p>
+      <div id="dbs-external" class="tiles"></div></section>
   </main>
   <script type="module" src="/static/dashboards.js"></script>
   <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>

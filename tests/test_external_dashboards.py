@@ -49,12 +49,12 @@ def test_register_check_and_delete() -> None:
             return httpx.Response(404)
         if req.url.path.endswith("/data/config.json"):
             return httpx.Response(200, json={"release": "genai-human-in-the-loop-1636f30f-v1", "source": {}, "preview": "img/card.png",
-                                             "description": "  Forest plots\n and subgroups. ", "authors": "A. Author, B. Author", "ignored": "x"})
+                                             "description": "  Forest plots\n and subgroups. ", "authors": "A. Author, B. Author", "keywords": ["human–AI", " teams "], "ignored": "x"})
         return httpx.Response(404)
     ext = xd.check(conn, xd.get(conn, made["id"]), client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert ext["release_shown"] == 1 and ext["check_note"] is None and ext["checked_at"]
     assert ext["preview_url"] == "https://x.github.io/dash/data/img/card.png" and ext["authors"] == "A. Author, B. Author"   # tile fields; the image path is relative to the manifest
-    assert ext["description"] == "Forest plots and subgroups."
+    assert ext["description"] == "Forest plots and subgroups." and ext["keywords"] == ["human–AI", "teams"]
     listed = c.get(f"/api/datasets/{ds}/external-dashboards", headers=mine).json()
     assert listed["latest_release"] == 1 and listed["dashboards"][0]["release_shown"] == 1
     assert stranger.delete(f"/api/external-dashboards/{made['id']}", headers=other).status_code == 404
@@ -64,6 +64,7 @@ def test_register_check_and_delete() -> None:
     pub = c.get("/api/dashboards/public").json()
     hit = next(x for x in pub["external"] if x["id"] == made["id"])
     assert hit["dataset_title"] == "Analysis set" and hit["latest_release"] == 1 and hit["release_shown"] == 1
+    assert hit["n_papers"] == 1 and hit["keywords"] == ["human–AI", "teams"]                    # the release's paper count; the page's own keywords
     assert c.get("/dashboards").status_code == 200
     assert c.delete(f"/api/external-dashboards/{made['id']}", headers=mine).json() == {"deleted": 1}
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

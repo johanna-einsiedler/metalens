@@ -96,7 +96,8 @@ def build(conn, release: dict) -> dict[str, bytes]:
                                      "items": items, "cells": cells})
     meta = {"format": FORMAT, "format_version": FORMAT_VERSION,
             "dataset": {"title": d.get("title"), "slug": ds.get("slug"), "author": d.get("author"), "citation": d.get("citation"),
-                        "published_url": d.get("published_url")},
+                        "published_url": d.get("published_url"), "description": ds.get("description"),
+                        "keywords": [k for k in (ds.get("keywords") or []) if isinstance(k, str)]},
             "release": {"number": release["number"], "created_at": release["created_at"], "content_sha": release["content_sha"],
                         "notes": release.get("notes"), "changes": release.get("changes")},
             "credibility": release.get("credibility"), "engine": release.get("engine"), "preset": d.get("preset"),

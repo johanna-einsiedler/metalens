@@ -18,14 +18,14 @@ import psycopg
 
 from . import records
 
-_COLS = "id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, check_note, created_at, preview_url, description, authors"
+_COLS = "id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, check_note, created_at, preview_url, description, authors, keywords"
 
 
 def _row(r) -> dict:
     return {"id": r[0], "dataset_id": r[1], "owner_user_id": r[2], "title": r[3], "url": r[4], "repo_url": r[5], "manifest_url": r[6],
             "release_shown": r[7], "checked_at": r[8].isoformat(timespec="seconds") if r[8] else None, "check_note": r[9],
             "created_at": r[10].isoformat(timespec="seconds") if r[10] else None,
-            "preview_url": r[11], "description": r[12], "authors": r[13]}
+            "preview_url": r[11], "description": r[12], "authors": r[13], "keywords": list(r[14] or [])}
 
 
 def valid_url(u: str | None) -> bool:
@@ -115,15 +115,17 @@ def check(conn: psycopg.Connection, ext: dict, *, client: httpx.Client | None = 
             client.close()
     with conn.transaction():
         conn.execute("""UPDATE external_dashboard SET release_shown = %s, checked_at = now(), check_note = %s,
-                               preview_url = COALESCE(%s, preview_url), description = COALESCE(%s, description), authors = COALESCE(%s, authors)
+                               preview_url = COALESCE(%s, preview_url), description = COALESCE(%s, description), authors = COALESCE(%s, authors),
+                               keywords = COALESCE(%s::jsonb, keywords)
                         WHERE id = %s::uuid""",
-                     (shown, note or None, about.get("preview_url"), about.get("description"), about.get("authors"), ext["id"]))
+                     (shown, note or None, about.get("preview_url"), about.get("description"), about.get("authors"),
+                      json.dumps(about["keywords"]) if about.get("keywords") else None, ext["id"]))
     return get(conn, ext["id"])
 
 
 def _about(m: dict, manifest_url: str) -> dict:
     """What the manifest says about the page, for its tile: preview image (resolved against the
-    manifest's location, http(s) only), one line of description, authors."""
+    manifest's location, http(s) only), one line of description, authors, keywords."""
     from urllib.parse import urljoin
     out = {}
     prev = m.get("preview")
@@ -135,6 +137,13 @@ def _about(m: dict, manifest_url: str) -> dict:
         v = m.get(k)
         if isinstance(v, str) and v.strip():
             out[k] = re.sub(r"\s+", " ", v).strip()[:300]
+    kw = m.get("keywords")
+    if isinstance(kw, str):
+        kw = kw.split(",")
+    if isinstance(kw, list):
+        kw = [re.sub(r"\s+", " ", k).strip()[:40] for k in kw if isinstance(k, str) and k.strip()][:8]
+        if kw:
+            out["keywords"] = kw
     return out
 
 
@@ -142,12 +151,15 @@ def list_public(conn: psycopg.Connection) -> list[dict]:
     """Every registered dashboard over a public dataset, with the dataset it belongs to."""
     rows = conn.execute(
         """SELECT x.id::text, x.dataset_id::text, x.owner_user_id::text, x.title, x.url, x.repo_url, x.manifest_url, x.release_shown,
-                  x.checked_at, x.check_note, x.created_at, x.preview_url, x.description, x.authors, d.title, d.slug,
-                  (SELECT max(number) FROM dataset_release r WHERE r.dataset_id = d.id)
+                  x.checked_at, x.check_note, x.created_at, x.preview_url, x.description, x.authors, x.keywords, d.title, d.slug,
+                  (SELECT max(number) FROM dataset_release r WHERE r.dataset_id = d.id), d.keywords,
+                  (SELECT (r.stats->>'n_papers')::int FROM dataset_release r WHERE r.dataset_id = d.id AND r.number = x.release_shown)
            FROM external_dashboard x JOIN dataset d ON d.id = x.dataset_id
            WHERE d.visibility = 'public' ORDER BY x.created_at DESC""").fetchall()
     out = []
     for r in rows:
-        item = _row(r[:14]); item.update({"dataset_title": r[14], "dataset_slug": r[15], "latest_release": r[16]})
+        item = _row(r[:15])
+        item.update({"dataset_title": r[15], "dataset_slug": r[16], "latest_release": r[17], "n_papers": r[19],
+                     "keywords": item["keywords"] or [k for k in (r[18] or []) if isinstance(k, str)]})   # the dataset's unless the page names its own
         out.append(item)
     return out

@@ -486,4 +486,5 @@ CREATE INDEX IF NOT EXISTS external_dashboard_dataset_idx ON external_dashboard(
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS preview_url text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS authors text;
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS keywords jsonb;   -- from the manifest; the dataset's otherwise
 

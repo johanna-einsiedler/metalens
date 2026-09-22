@@ -171,13 +171,7 @@ def dashboards_page() -> FileResponse:
 
 @app.get("/catalog")
 def catalog() -> FileResponse:
-    """Tool-faithful dataset/record browser (search + facets)."""
-    return _page("catalog.html")
-
-
-@app.get("/catalog/record/{record_id}")
-def catalog_record(record_id: str) -> FileResponse:
-    """Same shell; the JS reads the path → record detail (deep-link/refresh-safe)."""
+    """The published datasets, one card each (records are read inside a dataset)."""
     return _page("catalog.html")
 
 

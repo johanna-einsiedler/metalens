@@ -31,6 +31,7 @@ def test_files_hold_the_release_tables_and_evidence() -> None:
     meta = json.loads(files["release.json"])
     assert meta["format"] == "metalens-release" and meta["release"]["number"] == 1 and meta["release"]["content_sha"] == rel["content_sha"]
     assert meta["release"]["notes"] == "first" and meta["preset"]["id"] == "human-ai-collab" and sorted(meta["files"]) == sorted(files)
+    assert meta["dataset"]["keywords"] == [] and "description" in meta["dataset"]                # what a dashboard's manifest can carry over
     unit = next(u for u in meta["units"] if u["default"])
     assert unit["id"] == "conditions.measures" and unit["file"] == "tables/conditions.measures.json" and unit["n_rows"] == 2
     g = next(c for c in unit["columns"] if c["name"] == "g_team_vs_human")
