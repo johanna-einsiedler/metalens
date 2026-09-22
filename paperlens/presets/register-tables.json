@@ -1,0 +1,481 @@
+{
+  "format": 2,
+  "id": "register-tables",
+  "version": 1,
+  "meta": {
+    "title": "Register-data tables",
+    "tagline": "Every regression table of an empirical paper, one entry per estimated column, transcribed cell by cell with the specification needed to re-run it.",
+    "description": "One entry per regression column (a (panel, column) pair of a table that reports estimated coefficients): outcome, target regressor, the full specification (controls itemised, fixed effects, instruments, weights, clustering, sample restrictions) and every printed cell with its row type. Written for the danish-register-econ reproduction pipeline; the companion of the Register-data claims preset, whose point estimates Metalens cross-checks against these cells.",
+    "mode": "extraction",
+    "hidden": false,
+    "brands": [
+      "metalens"
+    ]
+  },
+  "prompt": {
+    "file": "register-tables.prompt.md"
+  },
+  "paper": {
+    "fields": []
+  },
+  "entries": {
+    "key": "regressions",
+    "label": "Regression column",
+    "help": "one estimated column of a table that reports regression coefficients; a table with panels that each report their own regressions gives one entry per (panel, column) pair. Summary-statistics, correlation and variable-definition tables are not entries",
+    "cardinality": "many",
+    "id_field": "regression_id",
+    "title": "{table_number} {panel} col {column}",
+    "evidence": "row",
+    "fields": [
+      {
+        "name": "regression_id",
+        "type": "string",
+        "required": true,
+        "label": "Regression id",
+        "evidence": "row",
+        "help": "exactly T<table>::<panel>::C<column>: the table number, the panel letter or _ when there are no panels, the column label with punctuation stripped — Table 3 column (2) without panels is T3::_::C2, Table A1 panel B column (1) is TA1::B::C1"
+      },
+      {
+        "name": "table_number",
+        "type": "string",
+        "required": true,
+        "label": "Table",
+        "evidence": "row",
+        "help": "as printed: 'Table 3', 'Table A1'"
+      },
+      {
+        "name": "table_title",
+        "type": "string",
+        "label": "Title",
+        "evidence": "row",
+        "help": "the full caption"
+      },
+      {
+        "name": "panel",
+        "type": "string",
+        "label": "Panel",
+        "evidence": "row",
+        "help": "the panel label ('A', 'B') or null"
+      },
+      {
+        "name": "column",
+        "type": "string",
+        "required": true,
+        "label": "Column",
+        "evidence": "row",
+        "help": "the column label exactly as printed: '(2)', 'Percent'"
+      },
+      {
+        "name": "column_label",
+        "type": "string",
+        "label": "Column heading",
+        "evidence": "row",
+        "help": "the heading above the column when there is one beyond the number ('Log earnings', 'Women')"
+      },
+      {
+        "name": "outcome_variable",
+        "type": "string",
+        "required": true,
+        "label": "Outcome",
+        "evidence": "row",
+        "confidence": "spec",
+        "help": "the dependent variable of this column as the paper names it"
+      },
+      {
+        "name": "target_regressors",
+        "type": "list",
+        "label": "Target regressors",
+        "evidence": "none",
+        "confidence": "spec",
+        "help": "the row label(s), as printed, of the coefficient(s) the column is ABOUT — the treatment, the instrumented regressor, the policy variable; several only when the claim rests on them jointly; empty when the column has no focal coefficient (balance table, pure first stage) — say so in notes"
+      },
+      {
+        "name": "model_type",
+        "type": "enum",
+        "label": "Model",
+        "options": [
+          "OLS",
+          "2SLS",
+          "first_stage",
+          "reduced_form",
+          "diff_in_diff",
+          "event_study",
+          "RD",
+          "probit_logit",
+          "poisson",
+          "quantile",
+          "other",
+          "unknown"
+        ],
+        "allow_other": true,
+        "evidence": "none",
+        "confidence": "spec",
+        "help": "the estimator as the paper states it; unknown when it does not say"
+      },
+      {
+        "name": "fixed_effects",
+        "type": "list",
+        "label": "Fixed effects",
+        "evidence": "none",
+        "confidence": "spec",
+        "help": "each dimension separately ('individual', 'year', 'municipality × year')"
+      },
+      {
+        "name": "controls",
+        "type": "list",
+        "label": "Controls",
+        "evidence": "none",
+        "confidence": "spec",
+        "help": "every control individually ('age', 'age squared', 'years of schooling'), never 'demographic controls'; dereference 'as in Table 3' and footnotes"
+      },
+      {
+        "name": "iv",
+        "type": "string",
+        "label": "Instruments",
+        "evidence": "none",
+        "help": "the endogenous variable and its instruments; null when not an IV column"
+      },
+      {
+        "name": "weights_type",
+        "type": "enum",
+        "label": "Weights",
+        "options": [
+          "none",
+          "aweight",
+          "pweight",
+          "fweight",
+          "unknown"
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "weights_variable",
+        "type": "string",
+        "label": "Weight variable",
+        "evidence": "none"
+      },
+      {
+        "name": "cluster_level",
+        "type": "string",
+        "label": "Clustering",
+        "evidence": "none",
+        "help": "the level standard errors are clustered at; null when not clustered or not stated"
+      },
+      {
+        "name": "se_type",
+        "type": "enum",
+        "label": "SE type",
+        "options": [
+          "conventional",
+          "robust",
+          "clustered",
+          "bootstrap",
+          "unknown"
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "sample_restrictions",
+        "type": "text",
+        "label": "Sample",
+        "evidence": "none",
+        "confidence": "spec",
+        "help": "operational: the rule and the resulting N where the paper states it ('workers employed in textile manufacturing firms in 1999; N = 12,410'), not 'the estimation sample'"
+      },
+      {
+        "name": "unit_of_observation",
+        "type": "string",
+        "label": "Unit",
+        "evidence": "none",
+        "help": "'individual-year', 'firm', 'municipality'"
+      },
+      {
+        "name": "time_period",
+        "type": "string",
+        "label": "Period",
+        "evidence": "none"
+      },
+      {
+        "name": "outcome_construction",
+        "type": "text",
+        "label": "Outcome construction",
+        "evidence": "none",
+        "help": "how the outcome is built from the registers ('log of annual labour income from the IND register, deflated to 2015 prices')"
+      },
+      {
+        "name": "data_construction_steps",
+        "type": "list",
+        "label": "Data construction",
+        "evidence": "none",
+        "help": "the steps someone with the data would take to build the estimation sample"
+      },
+      {
+        "name": "reproduction_notes",
+        "type": "text",
+        "label": "Reproduction notes",
+        "evidence": "none"
+      },
+      {
+        "name": "notes",
+        "type": "text",
+        "label": "Notes",
+        "evidence": "none",
+        "help": "anything else about this column: parenthesised values are t-statistics, the focal regressor could not be told, …"
+      },
+      {
+        "name": "cells",
+        "type": "table",
+        "label": "Cells",
+        "evidence": "table",
+        "confidence": "cells",
+        "help": "every value printed in the column, top to bottom, including controls, the constant and the statistics rows; nothing skipped, reordered, rounded or added",
+        "columns": [
+          {
+            "name": "row_label",
+            "type": "string",
+            "required": true,
+            "label": "Row",
+            "help": "exactly as printed"
+          },
+          {
+            "name": "row_index",
+            "type": "integer",
+            "required": true,
+            "label": "Row index",
+            "help": "0-based position down the column counting every printed row (standard-error and statistics rows included)"
+          },
+          {
+            "name": "column_label",
+            "type": "string",
+            "label": "Column",
+            "help": "the column label as printed"
+          },
+          {
+            "name": "raw_text",
+            "type": "string",
+            "required": true,
+            "label": "As printed",
+            "help": "the cell verbatim, stars and parentheses included: '0.94***', '(0.31)', 'Yes'"
+          },
+          {
+            "name": "numeric_value",
+            "type": "number",
+            "label": "Value",
+            "help": "the number with stars, parentheses, commas and % stripped, sign and every printed digit preserved; null for non-numeric cells"
+          },
+          {
+            "name": "row_type",
+            "type": "enum",
+            "required": true,
+            "label": "Row type",
+            "options": [
+              "coefficient",
+              "se",
+              "t_stat",
+              "p_value",
+              "ci",
+              "statistic_r2",
+              "statistic_n_obs",
+              "statistic_f",
+              "statistic_other",
+              "string",
+              "panel_header"
+            ],
+            "help": "read the table notes first: parenthesised values are standard errors in most papers but t-statistics or p-values in some"
+          },
+          {
+            "name": "refers_to",
+            "type": "integer",
+            "label": "Refers to",
+            "help": "on an se / t_stat / p_value / ci row: the row_index of the coefficient it belongs to; null on coefficient rows"
+          },
+          {
+            "name": "significance_stars",
+            "type": "integer",
+            "label": "Stars",
+            "range": [
+              0,
+              3
+            ],
+            "help": "0–3"
+          }
+        ]
+      }
+    ]
+  },
+  "confidence": {
+    "levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "notes": true,
+    "groups": [
+      {
+        "id": "spec",
+        "label": "Specification",
+        "scope": "entry",
+        "help": "outcome, target regressor, model, controls, sample"
+      },
+      {
+        "id": "cells",
+        "label": "Cells",
+        "scope": "entry",
+        "help": "every printed value transcribed with the right row type and the right coefficient link"
+      }
+    ]
+  },
+  "display": {
+    "tabs": [
+      {
+        "id": "cells",
+        "label": "Cells",
+        "fields": [
+          "cells"
+        ]
+      },
+      {
+        "id": "column",
+        "label": "Column",
+        "fields": [
+          "regression_id",
+          "table_number",
+          "table_title",
+          "panel",
+          "column",
+          "column_label",
+          "outcome_variable",
+          "target_regressors",
+          "notes"
+        ]
+      },
+      {
+        "id": "spec",
+        "label": "Specification",
+        "fields": [
+          "model_type",
+          "fixed_effects",
+          "controls",
+          "iv",
+          "weights_type",
+          "weights_variable",
+          "cluster_level",
+          "se_type",
+          "sample_restrictions",
+          "unit_of_observation",
+          "time_period",
+          "outcome_construction",
+          "data_construction_steps",
+          "reproduction_notes"
+        ]
+      }
+    ],
+    "entries": "cards",
+    "grid_rows": "entries",
+    "triage": "low_confidence_first",
+    "paper_panel": "open",
+    "audit": {
+      "cells": {
+        "key": [
+          "row_index"
+        ]
+      }
+    },
+    "analysis": {
+      "default_unit": "cells",
+      "roles": {
+        "regression_id": [
+          "identifier",
+          "label"
+        ],
+        "table_number": [
+          "dimension"
+        ],
+        "row_type": [
+          "dimension"
+        ],
+        "model_type": [
+          "dimension"
+        ],
+        "numeric_value": [
+          "measure"
+        ],
+        "row_index": [
+          "identifier"
+        ]
+      },
+      "default_dashboard": [
+        {
+          "template": "stat_count",
+          "title": "Papers",
+          "unit": "cells",
+          "bindings": {
+            "column": {
+              "column": "_study"
+            }
+          }
+        },
+        {
+          "template": "stat_count",
+          "title": "Regression columns",
+          "unit": "entries",
+          "bindings": {}
+        },
+        {
+          "template": "stat_count",
+          "title": "Cells",
+          "unit": "cells",
+          "bindings": {}
+        },
+        {
+          "template": "bar",
+          "title": "Columns by model",
+          "unit": "entries",
+          "bindings": {
+            "category": {
+              "column": "model_type"
+            }
+          }
+        },
+        {
+          "template": "bar",
+          "title": "Cells by row type",
+          "unit": "cells",
+          "bindings": {
+            "category": {
+              "column": "row_type"
+            }
+          }
+        },
+        {
+          "template": "rows_table",
+          "title": "Coefficients",
+          "unit": "cells",
+          "bindings": {
+            "columns": {
+              "columns": [
+                "_study",
+                "regression_id",
+                "outcome_variable",
+                "row_label",
+                "raw_text",
+                "numeric_value",
+                "row_type",
+                "significance_stars"
+              ]
+            }
+          },
+          "transform": {
+            "filter": [
+              {
+                "column": "row_type",
+                "op": "eq",
+                "value": "coefficient"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

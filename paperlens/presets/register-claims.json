@@ -1,0 +1,546 @@
+{
+  "format": 2,
+  "id": "register-claims",
+  "version": 1,
+  "meta": {
+    "title": "Register-data claims",
+    "tagline": "What an empirical paper says it found (abstract, refined by the introduction), as atomic directional claims, each traced to the table result that shows it.",
+    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentence that says how the finding was obtained, and the table (or figure) results that operationalise it with their point estimates. Written for economics papers using Danish register data (the danish-register-econ protocol), usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell.",
+    "mode": "extraction",
+    "hidden": false,
+    "brands": [
+      "metalens"
+    ]
+  },
+  "prompt": {
+    "file": "register-claims.prompt.md"
+  },
+  "paper": {
+    "fields": [
+      {
+        "name": "abstract_source",
+        "type": "enum",
+        "label": "Abstract",
+        "options": [
+          "printed",
+          "none"
+        ],
+        "required": true,
+        "evidence": "none",
+        "help": "printed = the PDF carries the paper's abstract (usually on its first page); none = no abstract is printed, in which case claims must be empty"
+      }
+    ]
+  },
+  "entries": {
+    "key": "claims",
+    "label": "Stated claim",
+    "help": "one atomic, directional finding the ABSTRACT states or announces (refined by the introduction where the abstract only announces it); comparisons and not_causal statements are listed too so nothing is silently dropped",
+    "cardinality": "many",
+    "id_field": "claim_id",
+    "title": "{claim_id} · {statement}",
+    "evidence": "row",
+    "fields": [
+      {
+        "name": "claim_id",
+        "type": "string",
+        "required": true,
+        "label": "Claim id",
+        "help": "S1, S2, … in the order of the abstract",
+        "evidence": "row"
+      },
+      {
+        "name": "type",
+        "type": "enum",
+        "required": true,
+        "label": "Type",
+        "options": [
+          "edge",
+          "comparison",
+          "not_causal"
+        ],
+        "evidence": "row",
+        "confidence": "claim",
+        "help": "edge = a causal effect of one variable on another; comparison = the abstract compares effects (larger for A than B) and qualifies edges; not_causal = a descriptive fact, method or data presented as a finding"
+      },
+      {
+        "name": "statement",
+        "type": "string",
+        "required": true,
+        "label": "Statement",
+        "evidence": "row",
+        "confidence": "claim",
+        "help": "'<cause> increases | decreases | has no effect on | has mixed effects on <effect>' — no numbers, no 'significantly', no method, setting or population; for not_causal the sentence's finding in one line"
+      },
+      {
+        "name": "cause",
+        "type": "string",
+        "label": "Cause",
+        "evidence": "row",
+        "help": "the cause as the abstract names it: a short noun phrase, no transformation ('earnings', not 'log earnings'); null for not_causal"
+      },
+      {
+        "name": "effect",
+        "type": "string",
+        "label": "Effect",
+        "evidence": "row",
+        "help": "the effect as the abstract names it; null for not_causal"
+      },
+      {
+        "name": "sign",
+        "type": "enum",
+        "label": "Sign",
+        "options": [
+          "+",
+          "-",
+          "0",
+          "mixed"
+        ],
+        "evidence": "value",
+        "confidence": "claim",
+        "help": "in the paper's own orientation: + increases, - decreases, 0 the authors report testing and finding no effect, mixed the sign differs across groups or settings and the text says so; null for not_causal"
+      },
+      {
+        "name": "anchor_quote",
+        "type": "text",
+        "required": true,
+        "label": "Abstract anchor",
+        "evidence": "value",
+        "help": "the abstract sentence that states or announces this finding, VERBATIM (at most 60 words); cite it with source 'abstract'"
+      },
+      {
+        "name": "intro_sentence",
+        "type": "text",
+        "label": "Introduction sentence",
+        "evidence": "value",
+        "help": "the introduction sentence that completes the claim (which variables, which direction) or says HOW the finding was obtained — the design, the sample, the comparison, the exhibit; VERBATIM, at most 60 words, source 'introduction'; null when the abstract alone carries everything and the introduction adds nothing"
+      },
+      {
+        "name": "support",
+        "type": "enum",
+        "required": true,
+        "label": "Support",
+        "options": [
+          "explicit",
+          "assembled",
+          "weak"
+        ],
+        "evidence": "none",
+        "confidence": "claim",
+        "help": "explicit = the anchor alone states cause, effect and direction; assembled = anchor plus introduction sentence(s) together state all three; weak = a variable or the direction is your inference (say which in notes). Never upgraded"
+      },
+      {
+        "name": "refined_by_introduction",
+        "type": "boolean",
+        "label": "Refined by the introduction",
+        "evidence": "none",
+        "help": "true when the abstract only announces the finding and the introduction supplied the variables or the direction"
+      },
+      {
+        "name": "scope_setting",
+        "type": "string",
+        "label": "Setting",
+        "evidence": "row",
+        "confidence": "scope",
+        "help": "where: 'Denmark, administrative registers'; null when not stated"
+      },
+      {
+        "name": "scope_period",
+        "type": "string",
+        "label": "Period",
+        "evidence": "row",
+        "confidence": "scope",
+        "help": "when: '1980 to 2019'; null when not stated"
+      },
+      {
+        "name": "scope_population",
+        "type": "string",
+        "label": "Population",
+        "evidence": "row",
+        "confidence": "scope",
+        "help": "who the finding is about: 'wage earners', 'men'. A finding that differs only in who it is about is a separate claim with the same cause and effect; null when not stated"
+      },
+      {
+        "name": "scope_identification",
+        "type": "string",
+        "label": "Identification",
+        "evidence": "row",
+        "confidence": "scope",
+        "help": "how the effect is identified, in the authors' words: 'matched-control difference-in-differences exploiting the timing of sudden parental deaths'; null when not stated"
+      },
+      {
+        "name": "magnitude_stated",
+        "type": "string",
+        "label": "Stated magnitude",
+        "evidence": "value",
+        "help": "a magnitude the abstract or introduction states, verbatim ('earnings decline by 2 percent'); null when none is stated"
+      },
+      {
+        "name": "qualifies",
+        "type": "list",
+        "label": "Qualifies",
+        "evidence": "none",
+        "help": "comparison claims only: the claim ids of the edges compared"
+      },
+      {
+        "name": "moderator",
+        "type": "string",
+        "label": "Moderator",
+        "evidence": "none",
+        "help": "comparison claims only: what the effect is compared across ('gender', 'firm size')"
+      },
+      {
+        "name": "relation",
+        "type": "string",
+        "label": "Relation",
+        "evidence": "none",
+        "help": "comparison claims only: the comparison stated ('larger for women than for men')"
+      },
+      {
+        "name": "notes",
+        "type": "text",
+        "label": "Notes",
+        "evidence": "none",
+        "help": "what a reader must know: which variable or direction was inferred (weak support), why no result matches ('shown only graphically'), flags"
+      }
+    ],
+    "children": [
+      {
+        "key": "results",
+        "label": "Table result",
+        "help": "the extracted results that OPERATIONALISE the claim: a table column (or a figure) whose target regressor measures the cause, whose outcome measures the effect, and whose setting, period, population and design fall inside the claim's scope. Prefer few, right matches over many plausible ones; at most two 'main' per claim unless the finding is genuinely carried by several estimates. Empty when nothing matches — do not force a match",
+        "title": "{source_table} {panel} {column}",
+        "evidence": "row",
+        "layout": "table",
+        "fields": [
+          {
+            "name": "result_id",
+            "type": "string",
+            "required": true,
+            "label": "Result id",
+            "evidence": "row",
+            "help": "R1, R2, … within the claim"
+          },
+          {
+            "name": "role",
+            "type": "enum",
+            "required": true,
+            "label": "Role",
+            "options": [
+              "main",
+              "supporting",
+              "robustness",
+              "heterogeneity"
+            ],
+            "evidence": "none",
+            "confidence": "results",
+            "help": "main = the estimate the authors would point to for this finding; supporting = another specification of the same finding they rely on; robustness; heterogeneity = a subgroup split of it"
+          },
+          {
+            "name": "exhibit",
+            "type": "enum",
+            "required": true,
+            "label": "Exhibit",
+            "options": [
+              "table",
+              "figure"
+            ],
+            "evidence": "none",
+            "help": "where the result is printed"
+          },
+          {
+            "name": "source_table",
+            "type": "string",
+            "required": true,
+            "label": "Table / figure",
+            "evidence": "row",
+            "help": "as printed: 'Table 3', 'Table A2', 'Figure 4'"
+          },
+          {
+            "name": "panel",
+            "type": "string",
+            "label": "Panel",
+            "evidence": "row",
+            "help": "the panel label ('A', 'B') or null when the table has no panels"
+          },
+          {
+            "name": "column",
+            "type": "string",
+            "label": "Column",
+            "evidence": "row",
+            "help": "the column label exactly as printed: '(2)', 'Percent'; null for a figure"
+          },
+          {
+            "name": "row_label",
+            "type": "string",
+            "label": "Row",
+            "evidence": "row",
+            "help": "the row label of the coefficient as printed; for a figure the annotation or series it comes from"
+          },
+          {
+            "name": "outcome_variable",
+            "type": "string",
+            "label": "Outcome",
+            "evidence": "row",
+            "help": "the dependent variable of that column as the paper names it"
+          },
+          {
+            "name": "regressor",
+            "type": "string",
+            "label": "Regressor",
+            "evidence": "row",
+            "help": "the coefficient's regressor as printed (the treatment, the instrumented variable, the policy variable)"
+          },
+          {
+            "name": "point_estimate",
+            "type": "number",
+            "label": "Point estimate",
+            "evidence": "value",
+            "confidence": "results",
+            "help": "the coefficient exactly as printed in that cell (sign, every digit; stars, parentheses and commas stripped); for a figure only a value the figure PRINTS (an annotation) — never read off an axis; null when no number is printed"
+          },
+          {
+            "name": "estimate_se",
+            "type": "number",
+            "label": "Standard error",
+            "evidence": "none",
+            "help": "the standard error printed for that coefficient (the parenthesised value); null when the table prints a t-statistic or p-value instead, or nothing"
+          },
+          {
+            "name": "treatment_relation",
+            "type": "enum",
+            "label": "Treatment relation",
+            "options": [
+              "direct",
+              "proxy",
+              "assignment"
+            ],
+            "evidence": "none",
+            "confidence": "results",
+            "help": "direct = the regressor measures the cause itself; proxy; assignment = a treatment-group, reform or instrument indicator standing in for the cause"
+          },
+          {
+            "name": "outcome_relation",
+            "type": "enum",
+            "label": "Outcome relation",
+            "options": [
+              "direct",
+              "proxy"
+            ],
+            "evidence": "none",
+            "confidence": "results",
+            "help": "direct = the outcome measures the effect itself; proxy"
+          },
+          {
+            "name": "sign_consistent",
+            "type": "boolean",
+            "label": "Sign consistent",
+            "evidence": "none",
+            "confidence": "results",
+            "help": "read in its OWN variable orientation, does the estimate agree with the claim's direction? (a net-of-tax-rate elasticity of +0.2 agrees with 'the tax rate decreases income'); null when there is no estimate or it cannot be told. A disagreeing result is still a match — that is a finding"
+          },
+          {
+            "name": "why",
+            "type": "text",
+            "label": "Why",
+            "evidence": "none",
+            "help": "one sentence: why this result operationalises the claim (and, for a comparison, which side it is)"
+          }
+        ]
+      }
+    ]
+  },
+  "confidence": {
+    "levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "notes": true,
+    "groups": [
+      {
+        "id": "claim",
+        "label": "Claim",
+        "scope": "entry",
+        "help": "type, statement, sign, support: is this what the abstract states?"
+      },
+      {
+        "id": "scope",
+        "label": "Scope",
+        "scope": "entry",
+        "help": "setting, period, population, identification"
+      },
+      {
+        "id": "results",
+        "label": "Results",
+        "scope": "child",
+        "help": "the right table cell, the right role, the value as printed"
+      }
+    ]
+  },
+  "display": {
+    "tabs": [
+      {
+        "id": "claim",
+        "label": "Claim",
+        "fields": [
+          "claim_id",
+          "type",
+          "statement",
+          "cause",
+          "effect",
+          "sign",
+          "anchor_quote",
+          "intro_sentence",
+          "support",
+          "refined_by_introduction",
+          "magnitude_stated",
+          "notes"
+        ]
+      },
+      {
+        "id": "scope",
+        "label": "Scope",
+        "fields": [
+          "scope_setting",
+          "scope_period",
+          "scope_population",
+          "scope_identification",
+          "qualifies",
+          "moderator",
+          "relation"
+        ]
+      },
+      {
+        "id": "results",
+        "label": "Results",
+        "fields": [
+          "results"
+        ]
+      }
+    ],
+    "entries": "cards",
+    "grid_rows": "results",
+    "triage": "low_confidence_first",
+    "paper_panel": "open",
+    "analysis": {
+      "default_unit": "results",
+      "roles": {
+        "claim_id": [
+          "identifier",
+          "label"
+        ],
+        "result_id": [
+          "identifier"
+        ],
+        "sign": [
+          "dimension"
+        ],
+        "type": [
+          "dimension"
+        ],
+        "role": [
+          "dimension"
+        ],
+        "exhibit": [
+          "dimension"
+        ],
+        "support": [
+          "dimension"
+        ],
+        "point_estimate": [
+          "measure"
+        ],
+        "estimate_se": [
+          "dispersion"
+        ]
+      },
+      "default_dashboard": [
+        {
+          "template": "stat_count",
+          "title": "Papers",
+          "unit": "results",
+          "bindings": {
+            "column": {
+              "column": "_study"
+            }
+          }
+        },
+        {
+          "template": "stat_count",
+          "title": "Claims",
+          "unit": "entries",
+          "bindings": {}
+        },
+        {
+          "template": "stat_count",
+          "title": "Table results",
+          "unit": "results",
+          "bindings": {}
+        },
+        {
+          "template": "bar",
+          "title": "Claims by sign",
+          "unit": "entries",
+          "bindings": {
+            "category": {
+              "column": "sign"
+            }
+          }
+        },
+        {
+          "template": "bar",
+          "title": "Results by role",
+          "unit": "results",
+          "bindings": {
+            "category": {
+              "column": "role"
+            }
+          }
+        },
+        {
+          "template": "dot_strip",
+          "title": "Point estimates by paper",
+          "unit": "results",
+          "main_message": "One dot per matched table result, as printed; scales differ across papers.",
+          "bindings": {
+            "x": {
+              "column": "point_estimate"
+            },
+            "group": {
+              "column": "_study"
+            }
+          },
+          "transform": {
+            "filter": [
+              {
+                "column": "point_estimate",
+                "op": "not_null"
+              }
+            ]
+          }
+        },
+        {
+          "template": "rows_table",
+          "title": "Claims and their results",
+          "unit": "results",
+          "bindings": {
+            "columns": {
+              "columns": [
+                "_study",
+                "claim_id",
+                "statement",
+                "sign",
+                "role",
+                "source_table",
+                "column",
+                "point_estimate",
+                "estimate_se",
+                "sign_consistent"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
