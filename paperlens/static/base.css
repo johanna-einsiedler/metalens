@@ -775,4 +775,6 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .tile-foot { font-size: 12px; color: var(--text-muted); padding: 8px 16px 12px; margin-top: auto; border-top: 1px solid var(--border); }
 .ds-sync .lag { color: var(--conf-med); } .ds-sync.off b { color: inherit; }
 .masem-edit-tools { float: right; display: inline-flex; gap: 6px; }
-#masemPromptEdit { width: 100%; box-sizing: border-box; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.masem-raw { width: 100%; box-sizing: border-box; margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+textarea.masem-raw { min-height: 360px; resize: vertical; }

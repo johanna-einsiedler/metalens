@@ -116,10 +116,9 @@
                 </div>
 
                 <div class="wf-field"><label>Live preview <span class="muted"><span id="masemPreviewLen">0</span> characters</span>
-                    <span class="masem-edit-tools"><button type="button" class="btn btn-ghost btn-sm" id="masemEdit">Edit prompt</button>
-                      <button type="button" class="btn btn-ghost btn-sm" id="masemRegen" hidden title="throw the hand edits away and build the prompt from the form again">Regenerate from the form</button></span></label>
-                  <div id="masemPreviewBox" class="md-preview"></div>
-                  <textarea id="masemPromptEdit" class="promptbox" rows="18" hidden spellcheck="false"></textarea>
+                    <span class="masem-edit-tools"><button type="button" class="btn btn-ghost btn-sm" id="masemRegen" hidden title="throw the hand edits away and build the prompt from the form again">Regenerate from the form</button></span></label>
+                  <pre id="masemPreviewBox" class="masem-raw"></pre>
+                  <textarea id="masemPromptEdit" class="promptbox masem-raw" rows="18" hidden spellcheck="false"></textarea>
                   <div id="masemEditNote" class="sf-help" hidden>Edited by hand: the form no longer rewrites this prompt. What you see here is what the model gets; you can still change it in step 3.</div></div>
                 <div class="wf-field masem-setup"><label>Save this setup <span class="muted">(private to you)</span></label>
                   <div class="sf-help">Keep these values as a sub-preset of MASEMiner — next time pick it in step 1 instead of pasting the scale again.</div>
@@ -130,6 +129,7 @@
                   </div></div>
                 <div class="wf-actions">
                   <button type="button" class="btn btn-ghost" data-back="1">Back</button>
+                  <button type="button" class="btn btn-ghost" id="masemEdit">Edit raw prompt</button>
                   <button type="button" class="btn btn-primary" id="masemUse">Use this prompt →</button>
                 </div>
               </div>

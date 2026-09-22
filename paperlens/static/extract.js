@@ -4,7 +4,7 @@
 // model (from models.json) → API key + test connection.
 import { api } from "/static/api.js";
 import { getBrand } from "/static/chrome.js";
-import { esc, renderMarkdown } from "/static/grammar.js";
+import { esc } from "/static/grammar.js";
 import { saveToWorkspace } from "/static/save.js";
 import { getKey, setKey } from "/static/keys.js";
 
@@ -607,7 +607,7 @@ async function doMasemPreview() {
     const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams() });
     const md = r.prompt || "";
     PROMPT_RENDERED = md;
-    $("#masemPreviewBox").innerHTML = renderMarkdown(md);
+    $("#masemPreviewBox").textContent = md;          // the raw prompt, as the model sees it
     $("#masemPromptEdit").value = md;
     $("#masemPreviewLen").textContent = md.length;
     $("#prompt").value = md;               // the RAW markdown is what the model gets
@@ -618,14 +618,14 @@ async function doMasemPreview() {
 function masemEditToggle() {
   MASEM.editing = !MASEM.editing;
   if (MASEM.editing && !MASEM.custom) $("#masemPromptEdit").value = $("#prompt").value;
-  if (!MASEM.editing && MASEM.custom) $("#masemPreviewBox").innerHTML = renderMarkdown($("#masemPromptEdit").value);
+  if (!MASEM.editing && MASEM.custom) $("#masemPreviewBox").textContent = $("#masemPromptEdit").value;
   masemEditState();
   if (MASEM.editing) $("#masemPromptEdit").focus();
 }
 function masemEditState() {
   $("#masemPreviewBox").hidden = MASEM.editing;
   $("#masemPromptEdit").hidden = !MASEM.editing;
-  $("#masemEdit").textContent = MASEM.editing ? "Show preview" : "Edit prompt";
+  $("#masemEdit").textContent = MASEM.editing ? "Back to preview" : "Edit raw prompt";
   $("#masemRegen").hidden = !MASEM.custom;
   $("#masemEditNote").hidden = !MASEM.custom;
 }
