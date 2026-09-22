@@ -4,28 +4,28 @@
   "providers": {
     "openai": [
       {
-        "value": "gpt-5.5-pro-2026-04-23",
-        "label": "GPT-5.5 Pro 2026 04 23",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.5-pro",
-        "label": "GPT-5.5 Pro",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.5-2026-04-23",
-        "label": "GPT-5.5-2026-04-23",
-        "vision": true
-      },
-      {
         "value": "gpt-5.5",
         "label": "GPT-5.5",
         "vision": true
       },
       {
+        "value": "gpt-5.4",
+        "label": "GPT-5.4",
+        "vision": true
+      },
+      {
         "value": "gpt-5.4-mini",
         "label": "GPT-5.4 Mini",
+        "vision": true
+      },
+      {
+        "value": "gpt-5.2",
+        "label": "GPT-5.2",
+        "vision": true
+      },
+      {
+        "value": "gpt-5.1",
+        "label": "GPT-5.1",
         "vision": true
       }
     ],

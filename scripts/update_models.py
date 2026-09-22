@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 import urllib.request
@@ -78,6 +79,19 @@ def _clean_model_id(name: str) -> str:
 
 def _our_provider(litellm_provider: str | None) -> str | None:
     return _LITELLM_PROVIDER_MAP.get(litellm_provider or "")
+
+
+# OpenAI ids that exist only on the Responses API: chat/completions answers 404 "not a chat
+# model" for them (the -pro line, deep research, computer use). Google's "-pro" models are
+# ordinary chat models, so this is OpenAI-specific.
+_OPENAI_RESPONSES_ONLY = re.compile(r"(^o\d+-pro|-pro(-\d{4}-\d{2}-\d{2})?$|deep-research|computer-use|-codex|-cyber)")
+_DATED = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def _usable(provider: str, model_id: str) -> bool:
+    if provider == "openai" and _OPENAI_RESPONSES_ONLY.search(model_id):
+        return False
+    return _is_chat_model(model_id)
 
 
 def _is_chat_model(model_id: str) -> bool:
@@ -154,10 +168,11 @@ def newest_for_provider(
     so the dropdown is never emptied by a transient failure."""
     if not api_models:
         return fallback_list
-    candidates = [m for m in api_models if m.get("id") and _is_chat_model(m["id"])]
+    candidates = [m for m in api_models if m.get("id") and _usable(provider, m["id"])]
     if not candidates:
         return fallback_list
     candidates.sort(key=lambda m: m.get("created", 0), reverse=True)
+    ids = {m["id"] for m in candidates}
     out: list[dict] = []
     seen: set[str] = set()
     for m in candidates:
@@ -165,6 +180,8 @@ def newest_for_provider(
         if mid in seen:
             continue
         seen.add(mid)
+        if _DATED.search(mid) and _DATED.sub("", mid) in ids:     # a snapshot of an alias that is listed anyway
+            continue
         info = _litellm_entry(litellm_data, provider, mid)
         out.append({
             "value": mid,
