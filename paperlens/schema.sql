@@ -461,3 +461,25 @@ ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_title      text;
 ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_release_id uuid REFERENCES dataset_release(id);
 ALTER TABLE dashboard ADD COLUMN IF NOT EXISTS published_at         timestamptz;
 
+-- publishing is OF a release: when this release was sent to the datasets repository (a PR)
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS published_at timestamptz;
+
+-- ── dashboards built OUTSIDE Metalens over a dataset's releases ─────────────────────────────
+-- Metalens hosts only dashboards made with its builder; a dashboard in the author's own code lives
+-- on their own site. Registering it here lets the dataset page list it, and lets Metalens check which
+-- release it shows: the page publishes a small manifest (/metalens.json, or its data/config.json).
+CREATE TABLE IF NOT EXISTS external_dashboard (
+    id            uuid PRIMARY KEY,
+    dataset_id    uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    owner_user_id uuid,
+    title         text NOT NULL,
+    url           text NOT NULL,
+    repo_url      text,
+    manifest_url  text,                          -- where the page says which release it shows
+    release_shown integer,                       -- from the last check
+    checked_at    timestamptz,
+    check_note    text,                          -- what the last check found (error text, or empty)
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS external_dashboard_dataset_idx ON external_dashboard(dataset_id);
+

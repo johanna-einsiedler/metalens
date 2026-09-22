@@ -141,6 +141,7 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
             for path, content in sorted(files.items()):
                 _put_file(client, gh_repo, f"{d}/releases/v{rel['number']}/{path}", None, branch,
                           f"metalens: {slug} release v{rel['number']} {path}", raw=content.decode("utf-8"))
+            releases.mark_published(conn, rel["id"])
             _put_file(client, gh_repo, f"{d}/releases/latest.json",
                       {"number": rel["number"], "path": f"releases/v{rel['number']}", "created_at": rel["created_at"],
                        "content_sha": rel["content_sha"], "credibility": rel.get("credibility"),

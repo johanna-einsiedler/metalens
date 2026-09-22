@@ -106,13 +106,14 @@ def diff_snapshots(prev: dict | None, new: dict) -> dict:
 
 # ── rows ─────────────────────────────────────────────────────────────────────
 _COLS = ("id::text, dataset_id::text, number, created_at, created_by::text, reason, notes, changes, fingerprint, "
-         "content_sha, spec_sha, schema_id, engine, stats, credibility")
+         "content_sha, spec_sha, schema_id, engine, stats, credibility, published_at")
 
 
 def _row(r, snap: dict | None = None) -> dict:
     out = {"id": r[0], "dataset_id": r[1], "number": r[2], "created_at": r[3].isoformat(timespec="seconds") if r[3] else None,
            "created_by": r[4], "reason": r[5], "notes": r[6], "changes": r[7], "fingerprint": r[8], "content_sha": r[9],
-           "spec_sha": r[10], "schema_id": r[11], "engine": r[12], "stats": r[13], "credibility": r[14]}
+           "spec_sha": r[10], "schema_id": r[11], "engine": r[12], "stats": r[13], "credibility": r[14],
+           "published_at": r[15].isoformat(timespec="seconds") if r[15] else None}
     if snap is not None:
         out["snapshot"] = snap
     return out
@@ -146,7 +147,7 @@ def latest(conn: psycopg.Connection, dataset_id: str, *, with_snapshot: bool = F
 
 def public_row(rel: dict) -> dict:
     """What anyone who may see the dataset may know about a release."""
-    return {k: rel.get(k) for k in ("number", "created_at", "reason", "notes", "changes", "content_sha", "stats", "credibility")}
+    return {k: rel.get(k) for k in ("number", "created_at", "reason", "notes", "changes", "content_sha", "stats", "credibility", "published_at")}
 
 
 def list_for_dataset(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
@@ -227,3 +228,9 @@ def ensure_current(conn: psycopg.Connection, dataset_id: str, *, reason: str, cr
     if last and not changed_since(conn, dataset_id, last):
         return last
     return create(conn, dataset_id, reason=reason, created_by=created_by)
+
+
+def mark_published(conn: psycopg.Connection, release_id: str) -> None:
+    """This release was sent to the datasets repository."""
+    with conn.transaction():
+        conn.execute("UPDATE dataset_release SET published_at = COALESCE(published_at, now()) WHERE id = %s::uuid", (release_id,))

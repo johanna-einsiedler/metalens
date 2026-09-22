@@ -80,6 +80,12 @@ export const api = {
   releases: (id) => req(`/api/datasets/${id}/releases`),
   pendingRelease: (id) => req(`/api/datasets/${id}/releases/pending`),
   createRelease: (id, notes) => req(`/api/datasets/${id}/releases`, json({ notes: notes || "" })),
+  // dashboards built outside Metalens, registered on the dataset
+  externalDashboards: (id) => req(`/api/datasets/${id}/external-dashboards`),
+  addExternalDashboard: (id, body) => req(`/api/datasets/${id}/external-dashboards`, json(body)),
+  checkExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}/check`, { method: "POST" }),
+  deleteExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}`, { method: "DELETE" }),
+  publishRelease: (id, number, target) => req(`/api/datasets/${id}/publish`, json({ target, release: number })),
   // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads
   releaseExport: async (id, n) => {
     const r = await fetch(`/api/datasets/${id}/releases/${n}/export`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });

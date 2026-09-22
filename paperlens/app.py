@@ -754,6 +754,59 @@ def dataset_release_export(dataset_id: str, number: int, file: str | None = None
                     headers={"Content-Disposition": f'attachment; filename="{name}.zip"'})
 
 
+# ── dashboards built outside Metalens, registered on the dataset ────────────────────────────────
+class ExternalDashboardBody(BaseModel):
+    title: str
+    url: str
+    repo_url: str | None = None
+    manifest_url: str | None = None
+
+
+@app.get("/api/datasets/{dataset_id}/external-dashboards")
+def external_dashboards_list(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import external_dashboards, releases
+    _dataset_gate(db, dataset_id, who)
+    latest = releases.latest(db, dataset_id)
+    return {"dashboards": external_dashboards.list_for_dataset(db, dataset_id), "latest_release": latest["number"] if latest else None}
+
+
+@app.post("/api/datasets/{dataset_id}/external-dashboards")
+def external_dashboards_create(dataset_id: str, body: ExternalDashboardBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only, signed in: register a dashboard hosted elsewhere; it is checked right away."""
+    from . import external_dashboards
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can register dashboards.")
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to register a dashboard.")
+    for u in (body.url, body.repo_url, body.manifest_url):
+        if u and not external_dashboards.valid_url(u):
+            raise HTTPException(status_code=422, detail=f"Not an http(s) URL: {u}")
+    if not body.title.strip():
+        raise HTTPException(status_code=422, detail="A title is needed.")
+    ext = external_dashboards.create(db, dataset_id=dataset_id, owner_user_id=who.user_id, title=body.title, url=body.url,
+                                     repo_url=body.repo_url, manifest_url=body.manifest_url)
+    return external_dashboards.check(db, ext)
+
+
+@app.post("/api/external-dashboards/{ext_id}/check")
+def external_dashboards_check(ext_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import external_dashboards
+    ext = external_dashboards.get(db, ext_id)
+    if ext is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    _dataset_gate(db, ext["dataset_id"], who)
+    return external_dashboards.check(db, ext)
+
+
+@app.delete("/api/external-dashboards/{ext_id}")
+def external_dashboards_delete(ext_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import external_dashboards
+    ext = external_dashboards.get(db, ext_id)
+    if ext is None or not _dataset_gate(db, ext["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Not found.")
+    return {"deleted": external_dashboards.delete(db, ext_id)}
+
+
 class ReleaseBody(BaseModel):
     notes: str = ""
 
@@ -1427,6 +1480,7 @@ def github_sync_now(db=Depends(get_db), who: Principal = Depends(principal)) -> 
 
 class PublishBody(BaseModel):
     target: str = "github+metalens"     # github+metalens | github | metalens
+    release: int | None = None          # publish this release (default: the current data, releasing it first)
 
 
 @app.post("/api/datasets/{dataset_id}/publish")
@@ -1457,7 +1511,14 @@ def publish_dataset(dataset_id: str, body: PublishBody | None = None, db=Depends
     already = (records.get_dataset(db, dataset_id) or {}).get("publish_status") == "published"
     # what goes to GitHub is a RELEASE: the current one when nothing changed since, else a new one
     # (a re-publication of changed data is the next version). Dashboards elsewhere pin its files.
-    rel = releases.ensure_current(db, dataset_id, reason="github_publish", created_by=who.user_id)
+    if body and body.release is not None:
+        rel = releases.get_by_number(db, dataset_id, body.release)
+        if rel is None:
+            raise HTTPException(status_code=404, detail="This dataset has no such release.")
+        if (releases.latest(db, dataset_id) or {}).get("number") != rel["number"]:
+            raise HTTPException(status_code=409, detail="Only the latest release can be published (GitHub holds one current copy).")
+    else:
+        rel = releases.ensure_current(db, dataset_id, reason="github_publish", created_by=who.user_id)
     new_version = rel["number"] if rel else None
     if target == "github+metalens" and not already:
         records.set_dataset_visibility(db, dataset_id, "public")    # viewable by link while the PR is open

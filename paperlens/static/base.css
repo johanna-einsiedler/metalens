@@ -747,3 +747,5 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .ds-papers { max-height: 460px; overflow: auto; }
 .ds-reldash { margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
 .ds-reldash label { display: flex; gap: 8px; align-items: baseline; }
+.ds-relpub { display: grid; gap: 4px; margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 13px; } .ds-relpub label { display: flex; gap: 8px; align-items: baseline; }
+.ds-relform input[type=text], .ds-relform input[type=url] { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }

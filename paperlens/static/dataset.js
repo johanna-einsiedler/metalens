@@ -63,10 +63,6 @@ function render() {
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <button class="btn btn-ghost btn-sm" id="ds-rel-btn" hidden title="freeze the dataset as it is now; published dashboards pin a release">Create release</button>
-      ${ANON ? "" : OV.publish_status === "published" && OV.changed_since_publish
-        ? `<button class="btn btn-primary btn-sm" id="ds-update" title="changes since the last publication: opens a pull request with version ${(OV.version || 1) + 1}">⬆ Publish update (v${(OV.version || 1) + 1})</button>`
-        : OV.publish_status === "published" || OV.publish_status === "pending" ? ""
-        : `<button class="btn btn-ghost btn-sm" id="ds-publish" hidden title="choose where: GitHub and the catalogue, GitHub only, or here only">⬆ Publish…</button>`}
       ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
@@ -131,12 +127,18 @@ function render() {
           ${ANON ? `<a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(`/dashboard?dataset=${id}&edit=1`)}" title="dashboards are kept, updated and published from an account">Sign in to build a dashboard</a>`
             : `<a class="btn btn-primary btn-sm" href="/dashboard?dataset=${esc(id)}&edit=1">＋ Build a dashboard</a>`}</span></div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">Interactive figures, tables and key numbers over this dataset. Every point traces back to its paper, its verification status and the quoted evidence.</p>
-      <div id="ds-dashlist" class="muted" style="font-size:13px">…</div></div>`;
+      <div id="ds-dashlist" class="muted" style="font-size:13px">…</div>
+      <div class="ds-card-h" style="margin-top:18px">Dashboards built elsewhere
+        ${OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" id="ds-ext-add" style="margin-left:auto">＋ Register a dashboard</button>` : ""}</div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">Pages in their authors’ own code over a release of this dataset, hosted on their own sites (e.g. GitHub Pages). Metalens lists them and checks which release each one shows; the release files they read are in the datasets repository.</p>
+      <div id="ds-ext-new"></div>
+      <div id="ds-extlist" class="muted" style="font-size:13px">…</div></div>`;
 
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
   loadReleases();
   loadDashboards();
+  loadExternal();
   const sf = $("#ds-saveform");
   if (sf) sf.onsubmit = async (e) => {
     e.preventDefault();
@@ -169,13 +171,15 @@ function changesInWords(c) {
 }
 function showPublishing(on) {
   const w = $("#ds-pubwrap"); if (w) w.hidden = !on;
-  const b = $("#ds-publish"); if (b) b.hidden = !on;
 }
 async function loadReleases() {
   const host = $("#ds-rellist"); if (!host) return;
   let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
   const list = r.releases || [];
-  host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
+  const gh = OV.published_url || (OV.git_pr_url ? OV.git_pr_url.replace(/\/pull\/\d+$/, "") : "");
+  const pubState = (x, k) => x.published_at ? (k === 0 && OV.publish_status === "pending" ? `<span class="badge">pull request open</span>` : `<a class="badge" href="${esc(gh ? gh + "/releases/v" + x.number : "#")}" target="_blank" rel="noopener" title="on GitHub since ${esc(fmtDate(x.published_at))}">on GitHub ↗</a>`)
+    : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
+  host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
     + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
     + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
     + ` · <a href="#" data-relzip="${x.number}" title="this release as static files (tables, evidence, metadata): what a dashboard you write yourself reads">⬇ files</a></span>${x.notes ? `<div class="muted" style="margin:2px 0 0 0">${esc(x.notes)}</div>` : ""}</div>`).join("")
@@ -183,6 +187,11 @@ async function loadReleases() {
   // A dataset nobody released is just a working artifact in its owner's account: the publishing
   // details (description, keywords, citation, where to publish) come with the first release.
   showPublishing(list.length > 0 || ["published", "pending"].includes(OV.publish_status) || !OWNER);
+  host.querySelectorAll("[data-relpub]").forEach((b) => (b.onclick = async () => {
+    const target = confirm("Publish to GitHub AND list it in the Metalens catalogue? (Cancel = GitHub only)") ? "github+metalens" : "github";
+    b.disabled = true; b.textContent = "Publishing…";
+    try { await publishRelease(+b.dataset.relpub, target); } catch (e) { alert(`Publishing failed: ${e.message}`); loadReleases(); }
+  }));
   host.querySelectorAll("[data-relzip]").forEach((a) => (a.onclick = async (e) => {
     e.preventDefault(); const was = a.textContent; a.textContent = "preparing…";
     try {
@@ -209,6 +218,10 @@ async function openReleaseForm() {
     + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}">${esc(p.credibility.label || "")}</span></div>`
     + (warn.length ? `<ul class="ds-relwarn">${warn.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
     + `<textarea id="ds-rel-notes" rows="2" maxlength="4000" placeholder="Release notes (optional): what is new in this release?"></textarea>`
+    + (ANON ? "" : `<div class="ds-relpub"><b>Publish it?</b> <span class="muted">Only releases are published: the release's files go to the datasets repository on GitHub as a pull request; the dataset is listed in the catalogue once it is merged.</span>`
+      + `<label><input type="radio" name="ds-relpub" value="none"${OV.publish_status === "published" || OV.publish_status === "pending" ? "" : " checked"}/> Keep it in Metalens only (you can publish it later from the release history)</label>`
+      + `<label><input type="radio" name="ds-relpub" value="github+metalens"${OV.publish_status === "published" || OV.publish_status === "pending" ? " checked" : ""}/> Publish to GitHub and the Metalens catalogue</label>`
+      + `<label><input type="radio" name="ds-relpub" value="github"/> Publish to GitHub only (not listed here)</label></div>`)
     + `<div id="ds-rel-dash"></div>`
     + `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-primary btn-sm" id="ds-rel-go">Create release v${p.next_number}</button>`
     + `<button type="button" class="btn btn-ghost btn-sm" id="ds-rel-no">Cancel</button><span class="muted" id="ds-rel-msg" style="font-size:12.5px"></span></div></div>`;
@@ -234,6 +247,11 @@ async function openReleaseForm() {
     const msg = $("#ds-rel-msg"), chosen = [...document.querySelectorAll(".ds-rel-upd:checked")].map((x) => x.value);
     try {
       const rel = await api.createRelease(id, $("#ds-rel-notes").value);
+      const target = (document.querySelector('input[name="ds-relpub"]:checked') || {}).value;
+      if (target && target !== "none") {                      // publishing is OF this release
+        msg.textContent = `Release v${rel.number} created. Publishing…`;
+        try { await publishRelease(rel.number, target); } catch (e) { alert(`The release was created, but publishing failed: ${e.message}`); }
+      }
       const done = [];
       for (const did of chosen) {
         msg.textContent = `Release v${rel.number} created. Updating dashboards…`;
@@ -243,6 +261,42 @@ async function openReleaseForm() {
       if (done.length === 1) { location.href = `/dashboard?id=${encodeURIComponent(done[0])}&view=published`; return; }   // go and look at it
       host.innerHTML = ""; await loadReleases(); loadDashboards();
     } catch (e) { msg.textContent = e.message; $("#ds-rel-go").disabled = false; }
+  };
+}
+
+// ── dashboards built elsewhere: URL, the release they show, last check ─────────────────────────
+async function loadExternal() {
+  const host = $("#ds-extlist"); if (!host) return;
+  let r; try { r = await api.externalDashboards(id); } catch { host.textContent = ""; return; }
+  const list = r.dashboards || [], latest = r.latest_release;
+  const state = (x) => x.release_shown == null ? `<span class="badge" title="${esc(x.check_note || "")}">release unknown</span>`
+    : latest && x.release_shown < latest ? `<span class="badge tier-sample_verified" title="the page shows an older release than the latest">shows v${x.release_shown} · v${latest} available</span>`
+    : `<span class="badge tier-human_verified">shows v${x.release_shown}${latest ? " · current" : ""}</span>`;
+  host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b> ↗</a> ${state(x)}`
+    + ` <span class="muted">${x.repo_url ? `· <a href="${esc(x.repo_url)}" target="_blank" rel="noopener">source</a> ` : ""}· ${x.checked_at ? `checked ${esc(fmtDate(x.checked_at))}` : "not checked yet"}${x.check_note ? ` · ${esc(x.check_note)}` : ""}</span>`
+    + (OWNER && !ANON ? ` <a class="muted" href="#" data-extcheck="${esc(x.id)}">check now</a> · <a class="muted" href="#" data-extdel="${esc(x.id)}">remove</a>` : "") + `</div>`).join("")
+    : "None registered yet.";
+  host.querySelectorAll("[data-extcheck]").forEach((a) => (a.onclick = async (e) => { e.preventDefault(); a.textContent = "checking…"; try { await api.checkExternalDashboard(a.dataset.extcheck); } catch (ex) { alert(ex.message); } loadExternal(); }));
+  host.querySelectorAll("[data-extdel]").forEach((a) => (a.onclick = async (e) => {
+    e.preventDefault(); if (!confirm("Remove this dashboard from the list? The page itself is not affected.")) return;
+    try { await api.deleteExternalDashboard(a.dataset.extdel); } catch (ex) { alert(ex.message); } loadExternal();
+  }));
+  const add = $("#ds-ext-add");
+  if (add) add.onclick = () => {
+    const f = $("#ds-ext-new");
+    f.innerHTML = `<form class="ds-relform" id="ds-ext-form"><b>Register a dashboard</b>
+      <input id="ds-ext-title" type="text" required maxlength="200" placeholder="title, e.g. Humans & GenAI in Decision Tasks"/>
+      <input id="ds-ext-url" type="url" required placeholder="page URL, e.g. https://name.github.io/dashboard/"/>
+      <input id="ds-ext-repo" type="url" placeholder="source repository (optional)"/>
+      <p class="muted" style="margin:6px 0 0">To be checked, the page publishes <code>metalens.json</code> next to its index (a dev-kit page does) naming the release it shows.</p>
+      <div style="display:flex;gap:8px;margin-top:8px"><button type="submit" class="btn btn-primary btn-sm">Register</button><button type="button" class="btn btn-ghost btn-sm" id="ds-ext-no">Cancel</button><span class="muted" id="ds-ext-msg"></span></div></form>`;
+    f.querySelectorAll("input").forEach((i) => { i.style.cssText = "display:block;width:100%;margin-top:6px"; });
+    $("#ds-ext-no").onclick = () => { f.innerHTML = ""; };
+    $("#ds-ext-form").onsubmit = async (e) => {
+      e.preventDefault();
+      try { await api.addExternalDashboard(id, { title: $("#ds-ext-title").value, url: $("#ds-ext-url").value, repo_url: $("#ds-ext-repo").value || null }); f.innerHTML = ""; loadExternal(); }
+      catch (ex) { $("#ds-ext-msg").textContent = ex.message; }
+    };
   };
 }
 
@@ -562,11 +616,8 @@ function wireActions() {
     try {
       const r = await api.verifyAllDataset(id); OV = await api.datasetOverview(id); render();
       alert(`${r.verified} record${r.verified === 1 ? "" : "s"} marked verified · ${r.credibility.label}`);
-      // the published copy carries the old badge: offer to push the verified state as a new version
-      if (OV.publish_status === "published" && r.verified > 0
-          && confirm(`Publish the verified dataset as version ${(OV.version || 1) + 1} on GitHub now?`)) {
-        await publishWith(OV.catalogue === false ? "github" : "github+metalens");
-      }
+      // the published copy carries the old badge: the next release (and its publication) carries the new one
+      if (OV.publish_status === "published" && r.verified > 0) openReleaseForm();
     }
     catch (ex) { alert("failed: " + ex.message); va.disabled = false; }
   };
@@ -577,13 +628,6 @@ function wireActions() {
     dd.disabled = true;
     try { const r = await api.dedupeDataset(id); OV = await api.datasetOverview(id); render(); if (!r.n_removed) alert("Nothing to remove."); }
     catch (ex) { alert("cleanup failed: " + ex.message); dd.disabled = false; }
-  };
-  const pb = $("#ds-publish"); if (pb) pb.onclick = openPublishDialog;
-  const ub = $("#ds-update"); if (ub) ub.onclick = async () => {
-    if (!confirm(`Publish the changes as version ${(OV.version || 1) + 1}? This opens a pull request in the datasets repository; the current version stays listed until it is merged.`)) return;
-    ub.disabled = true; ub.textContent = "Publishing…";
-    try { await publishWith(OV.catalogue === false ? "github" : "github+metalens"); }
-    catch (ex) { alert(ex.message); ub.disabled = false; ub.textContent = "⬆ Publish update"; }
   };
   const rn = $("#ds-rename"); if (rn) rn.onclick = doRename;
   $("#ds-export").onclick = doExport;
@@ -625,67 +669,6 @@ async function doRename() {
 // One Publish button, three destinations. GitHub is the source of truth: a pull request in
 // the datasets repository, listed in this catalogue once merged (or never, for "GitHub
 // only"). "Here only" exists for servers without GitHub configured.
-async function openPublishDialog() {
-  let cfg = {}; try { cfg = await api.extractionConfig(); } catch { /* defaults */ }
-  const gh = !!cfg.github_publishing;
-  const ov = document.createElement("div"); ov.className = "modal-overlay";
-  ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true">
-    <h3>Publish this dataset</h3>
-    <p class="muted">The datasets repository on GitHub is the citable, versioned copy. Publishing opens a pull request there; the dataset is listed once it is merged.</p>
-    <form id="pub-form">
-      ${gh ? `<label class="radio"><input type="radio" name="pub-target" value="github+metalens" checked/> <b>GitHub and the Metalens catalogue</b> — pull request now, listed here after the merge</label>
-      <label class="radio"><input type="radio" name="pub-target" value="github"/> <b>GitHub only</b> — pull request, never listed in this catalogue</label>`
-         : `<label class="radio"><input type="radio" name="pub-target" value="metalens" checked/> <b>Metalens catalogue only</b> — GitHub publishing is not configured on this server</label>`}
-      <div id="pub-err" class="pl-err"></div>
-      <div class="modal-actions"><button type="button" class="btn btn-ghost" id="pub-cancel">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="pub-go">Publish</button></div>
-    </form></div>`;
-  document.body.appendChild(ov);
-  const close = () => ov.remove();
-  ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
-  ov.querySelector("#pub-cancel").onclick = close;
-  ov.querySelector("#pub-form").onsubmit = async (e) => {
-    e.preventDefault();
-    const target = ov.querySelector('input[name="pub-target"]:checked').value;
-    const go = ov.querySelector("#pub-go"); go.disabled = true; go.textContent = "Publishing…";
-    try { await publishWith(target); close(); }
-    catch (ex) { ov.querySelector("#pub-err").textContent = ex.message; go.disabled = false; go.textContent = "Publish"; }
-  };
-}
-
-async function publishWith(target) {
-  let res = await api.publishDataset(id, { target });
-  if (res.queued) {
-    for (let i = 0; i < 60 && res.queued; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const j = await api.job(res.job_id);
-      if (j.status === "complete") { res = j.result || {}; break; }
-      if (j.status === "failed") throw new Error(j.error || "publish failed");
-    }
-  }
-  OV = await api.datasetOverview(id); render();
-}
-
-async function publishToGithub(btn) {
-  btn.disabled = true; const label = btn.textContent; btn.textContent = "Publishing…";
-  try {
-    let res = await api.publishDataset(id);
-    if (res.queued) {
-      for (let i = 0; i < 60 && res.queued; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const j = await api.job(res.job_id);
-        if (j.status === "complete") { res = j.result || {}; break; }
-        if (j.status === "failed") throw new Error(j.error || "publish failed");
-      }
-    }
-    if (res.pr_url) { OV.git_pr_url = res.pr_url; render(); }
-    else { btn.textContent = "Published ✓"; }
-  } catch (e) {
-    alert("Publish failed: " + e.message);
-    btn.disabled = false; btn.textContent = label;
-  }
-}
-
 // Grouped by paper: every row carries its record id and the paper it came from.
 // The old flat `records: [field_values]` shape dropped both, so a row could not be
 // traced back to its source — unusable once a dataset spans more than a paper or two.
