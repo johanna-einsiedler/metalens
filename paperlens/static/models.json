@@ -27,6 +27,11 @@
         "value": "gpt-5.1",
         "label": "GPT-5.1",
         "vision": true
+      },
+      {
+        "value": "gpt-5.5-pro",
+        "label": "GPT-5.5 Pro (slow, costly)",
+        "vision": true
       }
     ],
     "google": [

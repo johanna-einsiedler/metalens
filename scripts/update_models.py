@@ -81,15 +81,16 @@ def _our_provider(litellm_provider: str | None) -> str | None:
     return _LITELLM_PROVIDER_MAP.get(litellm_provider or "")
 
 
-# OpenAI ids that exist only on the Responses API: chat/completions answers 404 "not a chat
-# model" for them (the -pro line, deep research, computer use). Google's "-pro" models are
-# ordinary chat models, so this is OpenAI-specific.
-_OPENAI_RESPONSES_ONLY = re.compile(r"(^o\d+-pro|-pro(-\d{4}-\d{2}-\d{2})?$|deep-research|computer-use|-codex|-cyber)")
+# OpenAI ids that are not extraction models (deep research, computer use, codex, cyber). The
+# "-pro" line is kept: it lives on the Responses API, which providers.py speaks for it — but it
+# is slow and costly, so it sorts after the ordinary models rather than becoming the default.
+_OPENAI_NOT_FOR_US = re.compile(r"(deep-research|computer-use|-codex|-cyber)")
+_OPENAI_PRO = re.compile(r"(^o\d+-pro|-pro(-\d{4}-\d{2}-\d{2})?$)")
 _DATED = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 
 
 def _usable(provider: str, model_id: str) -> bool:
-    if provider == "openai" and _OPENAI_RESPONSES_ONLY.search(model_id):
+    if provider == "openai" and _OPENAI_NOT_FOR_US.search(model_id):
         return False
     return _is_chat_model(model_id)
 
@@ -172,6 +173,8 @@ def newest_for_provider(
     if not candidates:
         return fallback_list
     candidates.sort(key=lambda m: m.get("created", 0), reverse=True)
+    if provider == "openai":                                       # Pro last, never the default
+        candidates.sort(key=lambda m: bool(_OPENAI_PRO.search(m["id"])))
     ids = {m["id"] for m in candidates}
     out: list[dict] = []
     seen: set[str] = set()

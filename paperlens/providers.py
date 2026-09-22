@@ -87,6 +87,47 @@ def _openai_compat_client(api_key: str, base_url: str | None = None) -> openai.O
     return openai.OpenAI(api_key=effective_key)
 
 
+# OpenAI's "Pro" models (gpt-5.5-pro, o3-pro …) live on the Responses API only: chat/completions
+# answers 404 "not a chat model". They take the same text and images, so they are called through
+# that API and everything else — prompts, image blocks, usage, the served snapshot — stays as is.
+_RESPONSES_ONLY = re.compile(r"(^o\d+-pro|-pro(-\d{4}-\d{2}-\d{2})?$)")
+
+
+def uses_responses_api(model: str, provider: str) -> bool:
+    return provider == "openai" and bool(_RESPONSES_ONLY.search(model))
+
+
+def _responses_input(content):
+    """Chat-completions content (a string, or text + image_url blocks) → Responses API input."""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for b in content:
+        if b.get("type") == "text":
+            parts.append({"type": "input_text", "text": b.get("text", "")})
+        elif b.get("type") == "image_url":
+            u = b.get("image_url")
+            url = u.get("url") if isinstance(u, dict) else u
+            parts.append({"type": "input_image", "image_url": url, "detail": (u.get("detail") if isinstance(u, dict) else None) or "auto"})
+    return [{"role": "user", "content": parts}]
+
+
+def _responses_call(client, model: str, content, *, max_tokens: int | None = None) -> tuple[str, str, dict, str | None]:
+    """One Responses API call, reported like a chat completion: (text, finish reason, usage, served model)."""
+    kwargs: dict = {"model": model, "input": _responses_input(content)}
+    if max_tokens:
+        kwargs["max_output_tokens"] = max_tokens
+    r = client.responses.create(**kwargs)
+    text = (getattr(r, "output_text", "") or "").strip()
+    status = getattr(r, "status", None)
+    reason = getattr(getattr(r, "incomplete_details", None), "reason", None)
+    finish = "length" if status == "incomplete" and reason == "max_output_tokens" else ("stop" if status in (None, "completed") else str(status))
+    u = getattr(r, "usage", None)
+    usage = ({"prompt": getattr(u, "input_tokens", 0) or 0, "completion": getattr(u, "output_tokens", 0) or 0,
+              "total": getattr(u, "total_tokens", 0) or 0} if u is not None else _EMPTY_USAGE)
+    return text, finish, usage, _resolved_model(r, "openai")
+
+
 def generate_text(
     model: str,
     api_key: str,
@@ -147,6 +188,8 @@ def generate_text(
 
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
+    if uses_responses_api(model, provider):
+        return _responses_call(client, model, prompt, max_tokens=max_tokens)[0]
     kwargs: dict = {
         "model":    model,
         "messages": [{"role": "user", "content": prompt}],
@@ -296,6 +339,8 @@ def extract_with_images(
 
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
+    if uses_responses_api(model, provider):
+        return _responses_call(client, model, content_blocks)
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": content_blocks}],
@@ -392,6 +437,8 @@ def extract_with_text(
     # ── OpenAI or vLLM (OpenAI-compatible) ───────────────────────────────────
     if provider in ("openai", "vllm"):
         client = _openai_compat_client(api_key, base_url)
+        if uses_responses_api(model, provider):
+            return _responses_call(client, model, full_prompt)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": full_prompt}],
