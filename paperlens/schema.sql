@@ -492,5 +492,6 @@ ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS keywords jsonb;   -- fro
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi text;
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_record_id bigint;
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_url text;
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi_minted_at timestamptz;   -- for the per-account daily cap
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS zenodo_concept_doi text;
 

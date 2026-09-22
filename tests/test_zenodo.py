@@ -148,9 +148,30 @@ def test_api_is_owner_only_and_needs_configuration(monkeypatch) -> None:
     c, stranger = TestClient(appmod.app), TestClient(appmod.app)
     assert stranger.post(f"/api/datasets/{ds}/releases/1/doi", headers=other).status_code in (403, 404)
     assert c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine).status_code == 400          # not configured
-    assert c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["zenodo"] == {"configured": False, "sandbox": False}
+    z = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["zenodo"]
+    assert z["configured"] is False and z["allowed"] is False
     monkeypatch.setenv("PAPERLENS_ZENODO_TOKEN", "t-test")
+    # configured, but an anonymous session may not mint: DOIs are permanent and under the server's account
+    r = c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine)
+    assert r.status_code == 401 and "Sign in" in r.json()["detail"]
+    email = f"zen-{uuid.uuid4().hex[:8]}@example.org"
+    uid = c.post("/api/auth/register", json={"email": email, "password": "zenodo-test-pass-1"}, headers=mine).json()["user"]["id"]
+    conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
+    monkeypatch.setenv("PAPERLENS_ZENODO_USERS", "someone-else@example.org")               # an allow-list without this account
+    r = c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine)
+    assert r.status_code == 403 and "isn’t allowed" in r.json()["detail"]
+    assert c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["zenodo"]["allowed"] is False
+    monkeypatch.setenv("PAPERLENS_ZENODO_USERS", f" {email.upper()} , other@example.org")   # case and spaces do not matter
+    assert c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["zenodo"] == {"configured": True, "sandbox": False, "allowed": True, "why_not": None}
     assert c.post(f"/api/datasets/{ds}/releases/9/doi", headers=mine).status_code == 404
+    # the daily cap counts deposits made by this account
+    monkeypatch.setenv("PAPERLENS_ZENODO_PER_DAY", "1")
+    conn.execute("UPDATE dataset_release SET zenodo_record_id = 7, doi = '10.5281/zenodo.7', doi_minted_at = now() WHERE dataset_id = %s::uuid", (ds,)); conn.commit()
+    _seed_into(conn, _second_paper(), "human-ai-collab", sess, ds)
+    conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
+    releases.create(conn, ds)
+    r = c.post(f"/api/datasets/{ds}/releases/2/doi", headers=mine)
+    assert r.status_code == 403 and "limit is 1" in r.json()["detail"]
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
 
 

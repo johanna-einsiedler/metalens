@@ -14,7 +14,7 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-let OV = null, OWNER = false, ANON = false, AUDIT = null, ZEN = { configured: false, sandbox: false };   // ZEN: can a DOI be minted here?
+let OV = null, OWNER = false, ANON = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
 let FINALIZED = new URLSearchParams(location.search).get("finalized") === "1";   // arrived from "Finalize" in the review
 
 async function init() {
@@ -182,7 +182,7 @@ async function loadReleases() {
     : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
   const testDoi = (x) => (x.doi || "").startsWith("10.5072/");
   const doiState = (x) => x.doi && (testDoi(x) === ZEN.sandbox || !ZEN.configured) ? ` <a class="badge" href="${esc(testDoi(x) ? x.zenodo_url || "#" : "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this release" + (x.zenodo_url ? " · " + esc(x.zenodo_url) : "")}">${testDoi(x) ? "test " : ""}DOI ${esc(x.doi)}</a>`
-    : (OWNER && !ANON && ZEN.configured ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
+    : (OWNER && !ANON && ZEN.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
   host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
     + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
     + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
@@ -232,7 +232,7 @@ async function openReleaseForm() {
       + `<label><input type="radio" name="ds-relpub" value="none"${OV.publish_status === "published" || OV.publish_status === "pending" ? "" : " checked"}/> Keep it in Metalens only (you can publish it later from the release history)</label>`
       + `<label><input type="radio" name="ds-relpub" value="github+metalens"${OV.publish_status === "published" || OV.publish_status === "pending" ? " checked" : ""}/> Publish to GitHub and the Metalens catalogue</label>`
       + `<label><input type="radio" name="ds-relpub" value="github"/> Publish to GitHub only (not listed here)</label>`
-      + (ZEN.configured ? `<label style="margin-top:6px"><input type="checkbox" id="ds-rel-doi"/> Also mint a DOI on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} <span class="muted">· permanent; the release's files are deposited under it</span></label>` : "") + `</div>`)
+      + (ZEN.allowed ? `<label style="margin-top:6px"><input type="checkbox" id="ds-rel-doi"/> Also mint a DOI on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} <span class="muted">· permanent; the release's files are deposited under it</span></label>` : "") + `</div>`)
     + `<div id="ds-rel-dash"></div>`
     + `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-primary btn-sm" id="ds-rel-go">Create release v${p.next_number}</button>`
     + `<button type="button" class="btn btn-ghost btn-sm" id="ds-rel-no">Cancel</button><span class="muted" id="ds-rel-msg" style="font-size:12.5px"></span></div></div>`;

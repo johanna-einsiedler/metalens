@@ -10,8 +10,13 @@ Configuration (environment)
   PAPERLENS_ZENODO_TOKEN     personal access token with ``deposit:write`` and ``deposit:actions``
   PAPERLENS_ZENODO_SANDBOX   truthy → sandbox.zenodo.org (test DOIs that resolve nowhere)
 
-Minting is opt-in per release (a DOI is permanent) and owner-only. Nothing here is queued: the
-files are small and the whole exchange takes a few seconds.
+  PAPERLENS_ZENODO_USERS     optional: comma-separated account e-mails allowed to mint; unset → any account
+  PAPERLENS_ZENODO_PER_DAY   deposits one account may make per 24 h (default 5)
+
+Minting is opt-in per release (a DOI is permanent) and every DOI lands under the token's Zenodo
+account, so it is guarded: a signed-in owner who owns every record, a release with at least one
+paper, the allow-list when set, and the daily cap. Nothing here is queued: the files are small
+and the whole exchange takes a few seconds.
 """
 from __future__ import annotations
 
@@ -38,9 +43,44 @@ def configured() -> bool:
     return bool(token())
 
 
-def status() -> dict:
-    """What the dataset page shows: whether a DOI can be minted here, and whether it would be a test one."""
-    return {"configured": configured(), "sandbox": sandbox()}
+def allowed_users() -> set[str] | None:
+    raw = os.environ.get("PAPERLENS_ZENODO_USERS") or ""
+    users = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    return users or None
+
+
+def per_day() -> int:
+    try:
+        return max(1, int(os.environ.get("PAPERLENS_ZENODO_PER_DAY") or 5))
+    except ValueError:
+        return 5
+
+
+def may_mint(conn, user: dict | None) -> str | None:
+    """Why this account may not mint a DOI here — None when it may."""
+    if not configured():
+        return "Zenodo isn’t configured on this server."
+    if not user:
+        return "Sign in to mint a DOI: it is issued under the server’s Zenodo account and is permanent."
+    allow = allowed_users()
+    if allow is not None and (user.get("email") or "").lower() not in allow:
+        return "This account isn’t allowed to mint DOIs on this server."
+    n = conn.execute("SELECT count(*) FROM dataset_release r JOIN dataset d ON d.id = r.dataset_id "
+                     "WHERE d.owner_user_id = %s::uuid AND r.zenodo_record_id IS NOT NULL AND r.doi_minted_at > now() - interval '1 day'",
+                     (user["id"],)).fetchone()[0]
+    if n >= per_day():
+        return f"This account minted {n} DOIs in the last 24 hours; the limit is {per_day()}."
+    return None
+
+
+def status(conn=None, user: dict | None = None) -> dict:
+    """What the dataset page shows: whether a DOI can be minted here (and by this account), and
+    whether it would be a test one."""
+    out = {"configured": configured(), "sandbox": sandbox()}
+    if conn is not None:
+        why = may_mint(conn, user)
+        out["allowed"], out["why_not"] = why is None, why
+    return out
 
 
 def base_url() -> str:
@@ -156,7 +196,7 @@ def deposit(conn, release: dict, *, client: httpx.Client | None = None) -> dict:
     links = rec.get("links") or {}
     url = links.get("record_html") or links.get("html") or f"https://doi.org/{doi}"     # the public record page, not the deposit form
     with conn.transaction():
-        conn.execute("UPDATE dataset_release SET doi = %s, zenodo_record_id = %s, zenodo_url = %s WHERE id = %s::uuid",
+        conn.execute("UPDATE dataset_release SET doi = %s, zenodo_record_id = %s, zenodo_url = %s, doi_minted_at = now() WHERE id = %s::uuid",
                      (doi, rec.get("id") or draft["id"], url, release["id"]))
         if rec.get("conceptdoi"):
             conn.execute("UPDATE dataset SET zenodo_concept_doi = %s WHERE id = %s::uuid", (rec["conceptdoi"], release["dataset_id"]))
