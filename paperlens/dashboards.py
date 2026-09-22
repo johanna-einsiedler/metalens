@@ -186,7 +186,13 @@ def list_public(conn) -> list[dict]:
     for d in rows:
         ds = records.get_dataset(conn, d["dataset_id"]) or {}
         rel = releases.get(conn, d["published_release_id"]) if d.get("published_release_id") else None
+        spec = d.get("published_spec") or {}
+        blocks = spec.get("blocks") or []
+        fig = next((b for b in blocks if b.get("type") == "figure"), blocks[0] if blocks else None)
         out.append({"id": d["id"], "title": d.get("published_title") or d["title"], "dataset_id": d["dataset_id"], "dataset_title": ds.get("title"),
-                    "published_at": d.get("published_at"), "release": rel["number"] if rel else None,
-                    "n_blocks": len((d.get("published_spec") or {}).get("blocks") or []), "author": author_name(conn, d, ds)})
+                    "published_at": d.get("published_at"), "release": rel["number"] if rel else None, "n_blocks": len(blocks),
+                    "author": author_name(conn, d, ds), "description": (spec.get("questions") or [{}])[0].get("text"),
+                    # for the tile: the first figure's template and its bound column labels
+                    "preview": {"icon": (dashboard_spec._BY_ID.get(fig.get("template")) or {}).get("icon", "rows_table"),   # noqa: SLF001
+                                "title": fig.get("title")} if fig else None})
     return out

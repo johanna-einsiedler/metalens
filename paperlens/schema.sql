@@ -482,4 +482,8 @@ CREATE TABLE IF NOT EXISTS external_dashboard (
     created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS external_dashboard_dataset_idx ON external_dashboard(dataset_id);
+-- what the page says about itself (from its metalens.json): a preview image, a line, its authors
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS preview_url text;
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS authors text;
 

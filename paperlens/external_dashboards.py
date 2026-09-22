@@ -18,13 +18,14 @@ import psycopg
 
 from . import records
 
-_COLS = "id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, check_note, created_at"
+_COLS = "id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, check_note, created_at, preview_url, description, authors"
 
 
 def _row(r) -> dict:
     return {"id": r[0], "dataset_id": r[1], "owner_user_id": r[2], "title": r[3], "url": r[4], "repo_url": r[5], "manifest_url": r[6],
             "release_shown": r[7], "checked_at": r[8].isoformat(timespec="seconds") if r[8] else None, "check_note": r[9],
-            "created_at": r[10].isoformat(timespec="seconds") if r[10] else None}
+            "created_at": r[10].isoformat(timespec="seconds") if r[10] else None,
+            "preview_url": r[11], "description": r[12], "authors": r[13]}
 
 
 def valid_url(u: str | None) -> bool:
@@ -90,7 +91,7 @@ def check(conn: psycopg.Connection, ext: dict, *, client: httpx.Client | None = 
     """Ask the page which release it shows; record the answer (or why there is none)."""
     close = client is None
     client = client or httpx.Client(timeout=10.0, follow_redirects=True)
-    shown, note = None, "the page publishes no manifest (metalens.json or data/config.json)"
+    shown, note, about = None, "the page publishes no manifest (metalens.json or data/config.json)", {}
     try:
         for u in candidates(ext):
             if not valid_url(u):
@@ -108,26 +109,45 @@ def check(conn: psycopg.Connection, ext: dict, *, client: httpx.Client | None = 
             shown = release_number(m) if isinstance(m, dict) else None
             note = "" if shown is not None else "the manifest names no release"
             if shown is not None:
-                break
+                about = _about(m, u); break
     finally:
         if close:
             client.close()
     with conn.transaction():
-        conn.execute("UPDATE external_dashboard SET release_shown = %s, checked_at = now(), check_note = %s WHERE id = %s::uuid",
-                     (shown, note or None, ext["id"]))
+        conn.execute("""UPDATE external_dashboard SET release_shown = %s, checked_at = now(), check_note = %s,
+                               preview_url = COALESCE(%s, preview_url), description = COALESCE(%s, description), authors = COALESCE(%s, authors)
+                        WHERE id = %s::uuid""",
+                     (shown, note or None, about.get("preview_url"), about.get("description"), about.get("authors"), ext["id"]))
     return get(conn, ext["id"])
+
+
+def _about(m: dict, manifest_url: str) -> dict:
+    """What the manifest says about the page, for its tile: preview image (resolved against the
+    manifest's location, http(s) only), one line of description, authors."""
+    from urllib.parse import urljoin
+    out = {}
+    prev = m.get("preview")
+    if isinstance(prev, str) and prev.strip():
+        u = urljoin(manifest_url, prev.strip())
+        if valid_url(u) and re.search(r"\.(png|jpe?g|webp|svg)(\?|$)", u, re.I):
+            out["preview_url"] = u[:500]
+    for k in ("description", "authors"):
+        v = m.get(k)
+        if isinstance(v, str) and v.strip():
+            out[k] = re.sub(r"\s+", " ", v).strip()[:300]
+    return out
 
 
 def list_public(conn: psycopg.Connection) -> list[dict]:
     """Every registered dashboard over a public dataset, with the dataset it belongs to."""
     rows = conn.execute(
         """SELECT x.id::text, x.dataset_id::text, x.owner_user_id::text, x.title, x.url, x.repo_url, x.manifest_url, x.release_shown,
-                  x.checked_at, x.check_note, x.created_at, d.title, d.slug,
+                  x.checked_at, x.check_note, x.created_at, x.preview_url, x.description, x.authors, d.title, d.slug,
                   (SELECT max(number) FROM dataset_release r WHERE r.dataset_id = d.id)
            FROM external_dashboard x JOIN dataset d ON d.id = x.dataset_id
            WHERE d.visibility = 'public' ORDER BY x.created_at DESC""").fetchall()
     out = []
     for r in rows:
-        item = _row(r[:11]); item.update({"dataset_title": r[11], "dataset_slug": r[12], "latest_release": r[13]})
+        item = _row(r[:14]); item.update({"dataset_title": r[14], "dataset_slug": r[15], "latest_release": r[16]})
         out.append(item)
     return out

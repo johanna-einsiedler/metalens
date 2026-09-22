@@ -48,10 +48,13 @@ def test_register_check_and_delete() -> None:
         if req.url.path.endswith("/metalens.json"):
             return httpx.Response(404)
         if req.url.path.endswith("/data/config.json"):
-            return httpx.Response(200, json={"release": "genai-human-in-the-loop-1636f30f-v1", "source": {}})
+            return httpx.Response(200, json={"release": "genai-human-in-the-loop-1636f30f-v1", "source": {}, "preview": "img/card.png",
+                                             "description": "  Forest plots\n and subgroups. ", "authors": "A. Author, B. Author", "ignored": "x"})
         return httpx.Response(404)
     ext = xd.check(conn, xd.get(conn, made["id"]), client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert ext["release_shown"] == 1 and ext["check_note"] is None and ext["checked_at"]
+    assert ext["preview_url"] == "https://x.github.io/dash/data/img/card.png" and ext["authors"] == "A. Author, B. Author"   # tile fields; the image path is relative to the manifest
+    assert ext["description"] == "Forest plots and subgroups."
     listed = c.get(f"/api/datasets/{ds}/external-dashboards", headers=mine).json()
     assert listed["latest_release"] == 1 and listed["dashboards"][0]["release_shown"] == 1
     assert stranger.delete(f"/api/external-dashboards/{made['id']}", headers=other).status_code == 404

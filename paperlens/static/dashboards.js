@@ -1,6 +1,7 @@
 // /dashboards — every published dashboard: registered ones built elsewhere, and Metalens-built ones.
 import { api } from "/static/api.js";
 import { esc } from "/static/grammar.js";
+import { iconSvg } from "/static/dash/icons.js";
 const $ = (s) => document.querySelector(s);
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
 const host = (u) => { try { return new URL(u).host; } catch { return u; } };
@@ -8,20 +9,23 @@ const host = (u) => { try { return new URL(u).host; } catch { return u; } };
 async function init() {
   const [data, me] = await Promise.all([api.publicDashboards(), api.me()]);
   const signed = !!(me && (me.email || me.local_mode));
-  $("#dbs-external").innerHTML = data.external.length ? data.external.map((x) => {
-    const state = x.release_shown == null ? `<span class="badge" title="${esc(x.check_note || "")}">release unknown</span>`
-      : x.latest_release && x.release_shown < x.latest_release ? `<span class="badge tier-sample_verified">release v${x.release_shown} · v${x.latest_release} available</span>`
-      : `<span class="badge tier-human_verified">release v${x.release_shown}</span>`;
-    // no link inside the tile link: the dataset and source links sit in a footer below it
-    return `<div class="proj-tile-wrap"><a class="proj-tile" href="${esc(x.url)}" target="_blank" rel="noopener"><div class="pt-title">${esc(x.title)} ↗</div>
-      <div class="pt-meta">${esc(host(x.url))} · data: ${esc(x.dataset_title || "dataset")}</div>
-      <div class="pt-meta">${state}${x.checked_at ? ` <span class="muted">· checked ${esc(day(x.checked_at))}</span>` : ""}</div></a>
-      <div class="pt-foot"><a href="/dataset?id=${encodeURIComponent(x.dataset_id)}">dataset</a>${x.repo_url ? ` · <a href="${esc(x.repo_url)}" target="_blank" rel="noopener">source</a>` : ""}</div></div>`;
-  }).join("") : `<p class="muted">None yet.</p>`;
+  const kicker = (x) => x.release_shown == null ? `<span class="tile-k" title="${esc(x.check_note || "")}">Dashboard · release unknown</span>`
+    : x.latest_release && x.release_shown < x.latest_release ? `<span class="tile-k">Dashboard · release v${x.release_shown} <span class="tile-new">v${x.latest_release} available</span></span>`
+    : `<span class="tile-k">Dashboard · release v${x.release_shown}</span>`;
+  $("#dbs-external").innerHTML = data.external.length ? data.external.map((x) =>
+    `<article class="tile"><a class="tile-a" href="${esc(x.url)}" target="_blank" rel="noopener">
+      <div class="tile-img">${x.preview_url ? `<img src="${esc(x.preview_url)}" alt="" loading="lazy"/>` : `<div class="tile-ph">${iconSvg("forest", {})}</div>`}</div>
+      <div class="tile-body">${kicker(x)}<h3 class="tile-h">${esc(x.title)}</h3>
+      ${x.description ? `<p class="tile-p">${esc(x.description)}</p>` : ""}
+      ${x.authors ? `<p class="tile-by">${esc(x.authors)}</p>` : ""}</div></a>
+      <div class="tile-foot"><span>${esc(host(x.url))}</span> · <a href="/dataset?id=${encodeURIComponent(x.dataset_id)}">${esc(x.dataset_title || "dataset")}</a>${x.repo_url ? ` · <a href="${esc(x.repo_url)}" target="_blank" rel="noopener">source</a>` : ""}${x.checked_at ? ` · checked ${esc(day(x.checked_at))}` : ""}</div></article>`).join("")
+    : `<p class="muted">None yet.</p>`;
   $("#dbs-metalens").innerHTML = data.metalens.length ? data.metalens.map((d) =>
-    `<div class="proj-tile-wrap"><a class="proj-tile" href="/dashboard?id=${encodeURIComponent(d.id)}"><div class="pt-title">📊 ${esc(d.title || "Untitled dashboard")}</div>
-      <div class="pt-meta">data: ${esc(d.dataset_title || "dataset")}${d.author ? ` · by ${esc(d.author)}` : ""}</div>
-      <div class="pt-meta"><span class="badge tier-human_verified">release v${d.release}</span> <span class="muted">· ${d.n_blocks} block${d.n_blocks === 1 ? "" : "s"} · published ${esc(day(d.published_at))}</span></div></a></div>`).join("")
+    `<article class="tile"><a class="tile-a" href="/dashboard?id=${encodeURIComponent(d.id)}">
+      <div class="tile-img tile-sketch">${iconSvg((d.preview || {}).icon || "rows_table", { x: (d.preview || {}).title || "" })}</div>
+      <div class="tile-body"><span class="tile-k">Dashboard · release v${d.release} · ${d.n_blocks} block${d.n_blocks === 1 ? "" : "s"}</span><h3 class="tile-h">${esc(d.title || "Untitled dashboard")}</h3>
+      ${d.description ? `<p class="tile-p">${esc(d.description)}</p>` : ""}${d.author ? `<p class="tile-by">${esc(d.author)}</p>` : ""}</div></a>
+      <div class="tile-foot"><span>Metalens</span> · <a href="/dataset?id=${encodeURIComponent(d.dataset_id)}">${esc(d.dataset_title || "dataset")}</a> · published ${esc(day(d.published_at))}</div></article>`).join("")
     : `<p class="muted">None yet.</p>`;
   // registering needs a dataset the visitor owns: the form asks which
   $("#dbs-actions").innerHTML = signed ? `<button type="button" class="btn btn-primary btn-sm" id="dbs-add">＋ Register a dashboard</button>`

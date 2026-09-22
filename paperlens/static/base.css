@@ -752,3 +752,20 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .dbs-in { display: block; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }
 #dbs-ds { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); font: 13px var(--font); background: var(--surface); color: var(--text); }
 .pt-foot { font-size: 12px; color: var(--text-muted); margin: 4px 2px 0; }
+
+/* the Dashboards page: picture tiles (image, kicker, serif headline, one line, authors) */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 22px; margin: 6px 0 12px; }
+.tile { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.tile:hover { box-shadow: var(--shadow-md); border-color: var(--accent-3); }
+.tile-a { display: block; color: inherit; text-decoration: none; }
+.tile-img { aspect-ratio: 1200 / 630; background: var(--bg); border-bottom: 1px solid var(--border); overflow: hidden; }
+.tile-img img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.tile-ph, .tile-sketch { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 14px 18px; }
+.tile-sketch svg, .tile-ph svg { width: 100%; height: 100%; }
+.tile-body { padding: 14px 16px 6px; }
+.tile-k { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--accent-2); margin-bottom: 6px; }
+.tile-new { color: var(--conf-med); text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.tile-h { font: 600 20px/1.25 var(--font-serif); color: var(--accent-dark); margin: 0 0 8px; }
+.tile-p { font-size: 14px; line-height: 1.5; color: var(--text); margin: 0 0 8px; }
+.tile-by { font-size: 13px; font-style: italic; color: var(--text-muted); margin: 0 0 8px; }
+.tile-foot { font-size: 12px; color: var(--text-muted); padding: 8px 16px 12px; margin-top: auto; border-top: 1px solid var(--border); }
