@@ -50,13 +50,18 @@ function renderDatasets(pub) {
   const main = document.getElementById("main");
   main.innerHTML = `<div class="section-h">Datasets <span class="muted">(${(pub.datasets || []).length})</span></div>`
     + ((pub.datasets || []).map((d) => `
-      <a class="dataset-card" href="/dataset?id=${esc(d.id)}">
+      <div class="dataset-card" data-href="/dataset?id=${esc(d.id)}" role="link" tabindex="0">
         <div><div class="ptitle">${esc(d.title || d.slug)}</div>
           ${d.description ? `<div class="muted" style="font-size:13px;margin:2px 0">${esc(d.description)}</div>` : ""}
-          <div class="muted" style="font-size:12px">${d.credibility.n_records} records · ${esc(d.schema_id || "")}${d.cite_as ? ` · by ${esc(d.cite_as)}` : ""}${d.published_url ? ` · <a href="${esc(d.published_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">GitHub ↗</a>` : ""}</div>
+          <div class="muted" style="font-size:12px">${d.credibility.n_records} records · ${esc(d.schema_id || "")}${d.cite_as ? ` · by ${esc(d.cite_as)}` : ""}${d.published_url ? ` · <a href="${esc(d.published_url)}" target="_blank" rel="noopener">GitHub ↗</a>` : ""}</div>
           ${(d.keywords || []).length ? `<div class="ds-kws">${(d.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join(" ")}</div>` : ""}</div>
         <span class="badge tier-${d.credibility.tier}">${esc(d.credibility.label)}</span>
-      </a>`).join("") || '<p class="muted">No public datasets yet.</p>');
+      </div>`).join("") || '<p class="muted">No public datasets yet.</p>');
+  // the card is the link (a GitHub link sits inside it, so it cannot be an <a> itself)
+  main.querySelectorAll(".dataset-card").forEach((c) => {
+    c.onclick = (e) => { if (!e.target.closest("a")) location.href = c.dataset.href; };
+    c.onkeydown = (e) => { if (e.key === "Enter") location.href = c.dataset.href; };
+  });
 }
 
 render();

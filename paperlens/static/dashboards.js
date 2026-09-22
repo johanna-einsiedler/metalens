@@ -12,7 +12,7 @@ async function init() {
   const papers = (n) => (n == null ? "" : ` · ${n} paper${n === 1 ? "" : "s"}`);
   const kicker = (x) => x.release_shown == null ? `<span class="tile-k" title="${esc(x.check_note || "")}">Dashboard · release unknown</span>`
     : `<span class="tile-k">Dashboard · release v${x.release_shown}${papers(x.n_papers)}${x.latest_release && x.release_shown < x.latest_release ? ` <span class="tile-new">v${x.latest_release} available</span>` : ""}</span>`;
-  const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
+  const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice(0, 7).map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
   $("#dbs-external").innerHTML = data.external.length ? data.external.map((x) =>
     `<article class="tile"><a class="tile-a" href="${esc(x.url)}" target="_blank" rel="noopener">
       <div class="tile-img">${x.preview_url ? `<img src="${esc(x.preview_url)}" alt="" loading="lazy"/>` : `<div class="tile-ph">${iconSvg("forest", {})}</div>`}</div>
