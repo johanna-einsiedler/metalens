@@ -74,7 +74,7 @@ _ALLOWED_KEYS = {
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
-    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis"},
+    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review"},
     "tab": {"id", "label", "fields"},
 }
 
@@ -560,6 +560,44 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # (e.g. the item wording); without an anchor, on the cited page.
         # analysis: how the dataset is laid out for dashboards — {"default_unit": "<unit>", "roles":
         # {column: [roles]}, "derived": [{name, label, formula, unit, inputs{…}, when?, flip?}]}
+        # review: a layout the workspace draws INSTEAD of the generic card — "chain" reads each entry
+        # as cause → effect with a sign, its quotes, and the child results that carry it
+        rv = display.get("review")
+        if rv is not None:
+            if not isinstance(rv, dict) or rv.get("layout") != "chain":
+                E("$.display.review must be an object with layout 'chain'")
+            else:
+                enames = {f.get("name") for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+                kids = {c.get("key"): {f.get("name") for f in (c.get("fields") or []) if isinstance(f, dict)}
+                        for c in ((spec.get("entries") or {}).get("children") or []) if isinstance(c, dict)}
+                edge = rv.get("edge") if isinstance(rv.get("edge"), dict) else {}
+                for k in ("from", "to", "sign"):
+                    if edge.get(k) not in enames:
+                        E(f"$.display.review.edge.{k} must name an entry field")
+                for k in ("support", "notes", "statement"):
+                    if rv.get(k) is not None and rv[k] not in enames:
+                        E(f"$.display.review.{k} must name an entry field")
+                for n in rv.get("scope") or []:
+                    if n not in enames:
+                        E(f"$.display.review.scope: {n!r} is not an entry field")
+                for q in rv.get("quotes") or []:
+                    if not isinstance(q, dict) or q.get("field") not in enames:
+                        E("$.display.review.quotes: each item needs an entry field ({label, field})")
+                res = rv.get("results")
+                if res is not None:
+                    if not isinstance(res, dict) or res.get("child") not in kids:
+                        E("$.display.review.results.child must name a child of the entries")
+                    else:
+                        cf = kids[res["child"]]
+                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation"):
+                            if res.get(k) is not None and res[k] not in cf:
+                                E(f"$.display.review.results.{k} must name a field of {res['child']}")
+                        for n in res.get("exhibit") or []:
+                            if n not in cf:
+                                E(f"$.display.review.results.exhibit: {n!r} is not a field of {res['child']}")
+                qual = rv.get("qualifies")
+                if qual is not None and (not isinstance(qual, dict) or any(qual.get(k) is not None and qual[k] not in enames for k in ("field", "text", "moderator", "type"))):
+                    E("$.display.review.qualifies needs entry fields: field (the list of claim ids), text, moderator, type")
         ana = display.get("analysis")
         if ana is not None:
             if not isinstance(ana, dict) or set(ana) - {"default_unit", "roles", "derived", "default_dashboard", "units", "complete"}:

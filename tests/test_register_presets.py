@@ -76,6 +76,11 @@ def test_presets_load_and_their_prompts_carry_the_rules() -> None:
     for must in ("T<table>::<panel>::C<column>", "refers_to", "Enumerate every control individually", "regressions[i].cells"):
         assert must in q, must
     real = lambda issues: [i for i in issues if i["code"] != "missing_confidence"]   # noqa: E731  (the fixtures carry no ratings)
+    rv = claims["display"]["review"]
+    assert rv["layout"] == "chain" and rv["edge"] == {"from": "cause", "to": "effect", "sign": "sign", "signs": {"+": "increases", "-": "decreases", "0": "no effect", "mixed": "mixed"}}
+    broken = copy.deepcopy(claims); broken["display"]["review"]["results"]["value"] = "no_such_field"; broken["display"]["review"]["quotes"].append({"label": "X", "field": "nope"})
+    errs, _ = preset_spec.validate(broken)
+    assert any("results.value" in e for e in errs) and any("quotes" in e for e in errs)
     assert not real(preset_spec.validate_result(copy.deepcopy(CLAIMS), claims, {})), real(preset_spec.validate_result(copy.deepcopy(CLAIMS), claims, {}))
     assert not real(preset_spec.validate_result(copy.deepcopy(TABLES), tables, {})), real(preset_spec.validate_result(copy.deepcopy(TABLES), tables, {}))
 

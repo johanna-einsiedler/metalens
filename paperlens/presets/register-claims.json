@@ -541,6 +541,68 @@
           }
         }
       ]
+    },
+    "review": {
+      "layout": "chain",
+      "edge": {
+        "from": "cause",
+        "to": "effect",
+        "sign": "sign",
+        "signs": {
+          "+": "increases",
+          "-": "decreases",
+          "0": "no effect",
+          "mixed": "mixed"
+        }
+      },
+      "statement": "statement",
+      "scope": [
+        "scope_setting",
+        "scope_population",
+        "scope_period",
+        "scope_identification"
+      ],
+      "quotes": [
+        {
+          "label": "Abstract",
+          "field": "anchor_quote"
+        },
+        {
+          "label": "Introduction",
+          "field": "intro_sentence"
+        }
+      ],
+      "results": {
+        "child": "results",
+        "label": "Table",
+        "exhibit": [
+          "source_table",
+          "panel",
+          "column"
+        ],
+        "row": "row_label",
+        "value": "point_estimate",
+        "se": "estimate_se",
+        "cause": "regressor",
+        "effect": "outcome_variable",
+        "cause_relation": "treatment_relation",
+        "effect_relation": "outcome_relation",
+        "role": "role",
+        "sign_consistent": "sign_consistent",
+        "why": "why"
+      },
+      "qualifies": {
+        "type": "type",
+        "field": "qualifies",
+        "text": "relation",
+        "moderator": "moderator"
+      },
+      "support": "support",
+      "notes": "notes",
+      "support_labels": {
+        "weak": "direction or variable inferred",
+        "assembled": "assembled from the introduction"
+      }
     }
   }
 }

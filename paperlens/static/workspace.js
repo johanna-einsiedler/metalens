@@ -17,6 +17,8 @@ import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, e
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
+let CHAIN_OFF = false;                                   // a chain-layout preset, but the reviewer wants the field view
+let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
@@ -336,6 +338,7 @@ async function load(docId) {
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   renderPanel();
   if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
+  if (chainSpec()) loadChainAux(docId);
 }
 
 // Scroll to a specific record's card, pulse it, and flash its first evidence (from a
@@ -577,6 +580,7 @@ function renderPanel() {
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
     + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code> ${triage}</span>`
     + `<span class="dlbtns">`
+    + (chainSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? "the claims as cause → effect chains with their quotes and results" : "every field, editable"}">${CHAIN_OFF ? "⛓ Chain" : "▤ Fields"}</button>` : "")
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
@@ -636,6 +640,7 @@ function renderPanel() {
     return;
   }
   if (GRID) { renderPaperPanel(panel); renderGridInto(panel); wirePanelHead(); return; }
+  if (chainSpec() && !CHAIN_OFF) { renderChainPanel(panel, chainSpec()); wirePanelHead(); renderDocTabs(); return; }
   const recs = DATA.records;
   if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
     if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
@@ -753,6 +758,7 @@ function renderEntryBody(rec) {
 }
 
 function wirePanelHead() {
+  const ct = $("#chaintoggle"); if (ct) ct.onclick = () => { CHAIN_OFF = !CHAIN_OFF; renderPanel(); };
   const dj = $("#dljson"); if (dj) dj.onclick = downloadJSON;
   const dc = $("#dlcsv"); if (dc) dc.onclick = downloadCSV;
   const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
@@ -960,8 +966,10 @@ function mountKeys() {
     if (!DATA || e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
     if (t && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
-    const card = document.querySelector(".record[data-rid]");
-    if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
+    const chain = chainSpec() && !CHAIN_OFF && !GRID && !RAW;
+    const card = (chain && document.querySelector(".chain-card.cur[data-rid]")) || document.querySelector(".record[data-rid]");
+    if (chain && (e.key === "j" || e.key === "]" || e.key === "k" || e.key === "[")) { chainStep(e.key === "j" || e.key === "]" ? 1 : -1); e.preventDefault(); }
+    else if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
     else if (e.key === "v" && card) { const b = card.querySelector('.vbtn[data-status="verified"]'); if (b) b.click(); }
@@ -990,6 +998,243 @@ function confirmNoRecords(btn) {
 function setStatus(card, status) {
   const badge = card.querySelector(".status");
   badge.textContent = status; badge.className = `status ${status}`;
+}
+
+// ── the chain layout: a preset-declared review of claims as cause → effect edges ────────────
+// Declared by display.review (layout "chain"): which entry fields are the two ends and the sign,
+// which fields hold the quotes (abstract, introduction), which child holds the results that carry
+// the claim. Drawn per paper: a small graph of its claims, then one card per claim with the quotes
+// (each a jump into the PDF), the results with the cross-check verdict, and OK / Flag.
+function chainSpec() {
+  const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
+  return rv && rv.layout === "chain" ? rv : null;
+}
+const SIGN_CLASS = { "+": "cs-plus", "-": "cs-minus", "0": "cs-zero", "mixed": "cs-mixed" };
+const SIGN_GLYPH = { "+": "+", "-": "−", "0": "0", "mixed": "±" };
+
+async function loadChainAux(docId) {
+  const ds = PROJECT || ((DATA.records || [])[0] || {}).dataset_id || null;
+  if (!ds) { AUX = { dataset: null, cross: null, concepts: null }; return; }
+  if (AUX.dataset === ds && AUX.cross !== undefined) { /* refresh anyway: verdicts follow edits */ }
+  const [cross, vocabs] = await Promise.all([api.crosscheck(ds).catch(() => null), api.vocabularies(ds).catch(() => ({ vocabularies: [] }))]);
+  let concepts = null;
+  if ((vocabs.vocabularies || []).some((v) => v.status === "committed")) {
+    try {
+      const t = await api.analysisTable(ds, "entries");
+      const at = Object.fromEntries(t.columns.map((c, k) => [c.name, k]));
+      concepts = {};
+      for (const row of t.rows) {
+        const rec = t.records[row.r]; const m = {};
+        for (const c of t.columns) if (c.scope === "vocabulary" && c.name.endsWith("_concept")) m[c.name] = row.v[at[c.name]];
+        concepts[rec.id] = m;
+      }
+    } catch { concepts = null; }
+  }
+  const byKey = {};
+  for (const r of (cross && cross.rows) || []) byKey[`${r.record_id}|${r.path}`] = r;
+  AUX = { dataset: ds, cross: cross && cross.companion ? byKey : null, concepts };
+  if (DOCID === docId && chainSpec() && !CHAIN_OFF && !GRID && !RAW) renderPanel();
+}
+
+function chainEdges(rv) {
+  const F = rv.edge;
+  return (DATA.records || []).filter((r) => (r.field_values || {})[F.from] && (r.field_values || {})[F.to]).map((r) => ({
+    rid: r.id, from: String(r.field_values[F.from]).trim(), to: String(r.field_values[F.to]).trim(), sign: r.field_values[F.sign] || "0" }));
+}
+
+function renderChainPanel(panel, rv) {
+  const pr = docProgress();
+  const i = DOCS.findIndex((d) => d.document_id === DOCID);
+  const pm = DATA.paper_metadata || DATA.paper || {};
+  const title = pm.title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
+  const head = document.createElement("div"); head.className = "chain-head";
+  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper (←)"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
+    + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
+    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
+    + `<button type="button" class="chain-nav" data-dir="1" title="next paper (→)"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
+  head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
+  panel.appendChild(head);
+  renderChainDag(panel, rv);
+  const recs = (DATA.records || []).slice().sort((a, b) => a.entry_index - b.entry_index);
+  for (const rec of recs) renderChainCard(panel, rec, rv);
+  if (!recs.length) panel.insertAdjacentHTML("beforeend", `<p class="muted">No claims were extracted from this paper.</p>`);
+  setContextEvidence(null);
+}
+
+// The paper's claims as a small graph: nodes are the distinct causes and effects, edges the
+// claims, ranked left to right; click an edge to focus its cards.
+function renderChainDag(panel, rv) {
+  const edges = chainEdges(rv);
+  const box = document.createElement("div"); box.className = "chain-dag";
+  if (!edges.length) { box.innerHTML = `<p class="muted" style="margin:0">The abstract states no directional causal finding.</p>`; panel.appendChild(box); return; }
+  const wrap = (t, n) => { const w = String(t).split(/\s+/), L = []; let c = ""; for (const x of w) { if ((c + " " + x).trim().length > n && c) { L.push(c); c = x; } else c = (c + " " + x).trim(); } if (c) L.push(c); if (L.length > 3) { L.length = 3; L[2] = L[2].replace(/.{0,2}$/, "…"); } return L; };
+  const conceptOf = (rid, which) => AUX.concepts && AUX.concepts[rid] ? AUX.concepts[rid][`${rv.edge[which]}_concept`] : null;
+  const nodes = new Map();
+  for (const e of edges) {
+    for (const [key, which] of [[e.from, "from"], [e.to, "to"]]) {
+      const k = key.toLowerCase();
+      if (!nodes.has(k)) nodes.set(k, { id: k, label: key, lines: wrap(key, 24), concept: conceptOf(e.rid, which) });
+      else if (!nodes.get(k).concept) nodes.get(k).concept = conceptOf(e.rid, which);
+    }
+  }
+  const N = [...nodes.values()], E = edges.map((e) => ({ ...e, from: e.from.toLowerCase(), to: e.to.toLowerCase() }));
+  const rank = {}; N.forEach((n) => (rank[n.id] = 0));
+  for (let it = 0; it < N.length + 1; it++) { let ch = false; for (const e of E) if (e.from !== e.to && rank[e.to] < rank[e.from] + 1 && rank[e.from] + 1 <= 3) { rank[e.to] = rank[e.from] + 1; ch = true; } if (!ch) break; }
+  const cols = {}; N.forEach((n) => (cols[rank[n.id]] = cols[rank[n.id]] || []).push(n));
+  const ks = Object.keys(cols).map(Number).sort((a, b) => a - b);
+  const W = 150, GAPX = 96, GAPY = 12, pos = {};
+  ks.forEach((k, ci) => {
+    const col = cols[k];
+    if (ci > 0) { col.forEach((n) => { const ys = E.filter((e) => e.to === n.id && pos[e.from]).map((e) => pos[e.from].cy); n.bc = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 1e6; }); col.sort((a, b) => a.bc - b.bc); }
+    else col.sort((a, b) => a.label.localeCompare(b.label));
+    let y = 8; col.forEach((n) => { const h = 14 * n.lines.length + 12; pos[n.id] = { x: 8 + ci * (W + GAPX), y, w: W, h, cy: y + h / 2 }; y += h + GAPY; }); cols[k].H = y;
+  });
+  const H = Math.max(...ks.map((k) => cols[k].H)) + 4, WW = 8 + ks.length * (W + GAPX) - GAPX + 16;
+  ks.forEach((k) => { const off = (H - cols[k].H) / 2; cols[k].forEach((n) => { pos[n.id].y += off; pos[n.id].cy += off; }); });
+  const pair = {}; E.forEach((e) => (pair[`${e.from}>${e.to}`] = pair[`${e.from}>${e.to}`] || []).push(e));
+  const outN = {}, inN = {}; E.forEach((e) => { outN[e.from] = (outN[e.from] || 0) + 1; inN[e.to] = (inN[e.to] || 0) + 1; }); const slot = {};
+  const bez = (t, a, b, c, d) => { const u = 1 - t; return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d; };
+  let svg = `<svg class="chain-svg" viewBox="0 0 ${WW} ${H}" width="${WW}" height="${H}"><defs>`
+    + Object.entries(SIGN_CLASS).map(([, cls]) => `<marker id="ah-${cls}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="${cls}" d="M0,0 L10,5 L0,10 z"/></marker>`).join("") + `</defs>`;
+  for (const e of E) {
+    const a = pos[e.from], b = pos[e.to]; if (!a || !b) continue;
+    const cls = SIGN_CLASS[e.sign] || "cs-zero", sib = pair[`${e.from}>${e.to}`], off = (sib.indexOf(e) - (sib.length - 1) / 2) * 16;
+    let d, mx, my;
+    if (rank[e.to] > rank[e.from]) {
+      const x1 = a.x + a.w, y1 = a.cy + off * .4, x2 = b.x - 2, y2 = b.cy + off * .4, c = (x2 - x1) * .5;
+      d = `M${x1},${y1} C${x1 + c},${y1 + off} ${x2 - c},${y2 + off} ${x2},${y2}`;
+      const nearTarget = (outN[e.from] || 0) >= (inN[e.to] || 0), sk = nearTarget ? `t:${e.to}` : `s:${e.from}`, k = slot[sk] = (slot[sk] || 0) + 1;
+      const t = nearTarget ? Math.max(.5, .96 - .2 * k) : Math.min(.5, .04 + .2 * k);
+      mx = bez(t, x1, x1 + c, x2 - c, x2); my = bez(t, y1, y1 + off, y2 + off, y2);
+    } else {
+      const x1 = a.x + a.w, y1 = a.cy, x2 = b.x + b.w + 2, y2 = b.cy + 6, r = 54 + Math.abs(off);
+      d = `M${x1},${y1} C${x1 + r},${y1} ${x2 + r},${y2} ${x2},${y2}`; mx = Math.max(x1, x2) + r * .75; my = (y1 + y2) / 2;
+    }
+    svg += `<g class="chain-e" data-rid="${esc(e.rid)}" data-edge="${esc(`${e.from}|${e.to}|${e.sign}`)}"><title>click to focus this claim</title>`
+      + `<path class="${cls} chain-line" d="${d}" marker-end="url(#ah-${cls})"/><path class="chain-hit" d="${d}"/>`
+      + `<circle class="${cls} chain-dot" cx="${mx}" cy="${my}" r="8"/><text class="${cls} chain-sign" x="${mx}" y="${my + 4}" text-anchor="middle">${SIGN_GLYPH[e.sign] || "0"}</text></g>`;
+  }
+  for (const n of N) {
+    const q = pos[n.id];
+    svg += `<g class="chain-n${n.concept ? "" : " unplaced"}"><title>${esc(n.concept || "not placed in a vocabulary")}</title><rect x="${q.x}" y="${q.y}" width="${q.w}" height="${q.h}" rx="6"/>`
+      + n.lines.map((ln, k) => `<text x="${q.x + q.w / 2}" y="${q.y + 16 + k * 14}" text-anchor="middle">${esc(ln)}</text>`).join("") + `</g>`;
+  }
+  svg += `</svg>`;
+  box.innerHTML = `<div class="chain-dagscroll">${svg}</div><div class="chain-legend">`
+    + Object.entries(rv.edge.signs || {}).map(([sg, word]) => `<span><i class="${SIGN_CLASS[sg] || "cs-zero"}"></i>${esc(word)}</span>`).join("") + `</div>`;
+  box.querySelectorAll(".chain-e").forEach((g) => (g.onclick = (ev) => { ev.stopPropagation(); chainFocus(g.dataset.edge, true); }));
+  box.querySelector("svg").onclick = () => chainFocus(null);
+  panel.appendChild(box);
+}
+let CHAIN_FOCUS = null;
+function chainFocus(edge, scroll) {
+  CHAIN_FOCUS = edge;
+  document.querySelectorAll(".chain-e").forEach((g) => { g.classList.toggle("on", edge !== null && g.dataset.edge === edge); g.classList.toggle("dim", edge !== null && g.dataset.edge !== edge); });
+  let first = null;
+  document.querySelectorAll(".chain-card").forEach((c) => { const on = edge === null || c.dataset.edge === edge; c.classList.toggle("dim", !on); if (on && edge !== null && !first) first = c; });
+  if (scroll && first) first.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+function chainStep(dir) {
+  const cards = [...document.querySelectorAll(".chain-card:not(.dim)")]; if (!cards.length) return;
+  const cur = cards.findIndex((c) => c.classList.contains("cur"));
+  const next = cards[Math.max(0, Math.min(cards.length - 1, cur + dir))];
+  document.querySelectorAll(".chain-card").forEach((c) => c.classList.remove("cur"));
+  next.classList.add("cur"); next.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+// a quote as the card shows it: verbatim, with the page it was found on as a jump into the PDF
+function chainQuote(rec, field, text) {
+  const hit = text ? evidenceFor(EV, VM, rec.id, field) : null;
+  const ids = hit && hit.kind === "exact" ? hit.ids : null;
+  const page = ids ? DATA.evidence[ids[0]].page : null;
+  return `<div class="chain-q">“${esc(text)}”` + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : ` <span class="chain-pg muted">not located in the PDF</span>`) + `</div>`;
+}
+
+function renderChainCard(panel, rec, rv) {
+  const fv = rec.field_values || {}, F = rv.edge, R = rv.results || null;
+  const cause = fv[F.from], effect = fv[F.to], sign = fv[F.sign];
+  const isEdge = !!(cause && effect);
+  const edgeKey = isEdge ? `${String(cause).trim().toLowerCase()}|${String(effect).trim().toLowerCase()}|${sign || "0"}` : "";
+  const concepts = AUX.concepts && AUX.concepts[rec.id] ? AUX.concepts[rec.id] : {};
+  const cls = SIGN_CLASS[sign] || "cs-zero";
+  const idField = VM.entries.id_field;
+  const typeField = rv.qualifies && rv.qualifies.type;
+  const kind = typeField ? fv[typeField] : null;
+  const card = document.createElement("article");
+  card.className = "record chain-card"; card.dataset.rid = rec.id; if (edgeKey) card.dataset.edge = edgeKey;
+  const node = (text, concept) => `<span class="chain-node">${esc(text)}${concept ? `<small>${esc(concept)}</small>` : ""}</span>`;
+  const edge = isEdge
+    ? `<div class="chain-edge">${node(cause, concepts[`${F.from}_concept`])}<span class="chain-arrow ${cls}"><span class="ln"></span><span class="sg ${cls}">${SIGN_GLYPH[sign] || "0"}</span><span class="ln"></span><span class="hd"></span></span>${node(effect, concepts[`${F.to}_concept`])}</div>`
+    : `<div class="chain-stmt">${esc(fv[rv.statement] || entryTitle(VM, rec, rec.entry_index))}${kind ? ` <span class="tag">${esc(kind)}</span>` : ""}</div>`;
+  const scope = (rv.scope || []).map((n) => fv[n]).filter((v) => v !== null && v !== undefined && v !== "");
+  // the quotes
+  let dl = "";
+  for (const q of rv.quotes || []) {
+    const text = fv[q.field];
+    dl += `<dt>${esc(q.label)}</dt><dd>${text ? chainQuote(rec, q.field, text) : `<span class="chain-none muted">${q.field === (rv.quotes[0] || {}).field ? "not stated in the abstract" : "no sentence recorded"}</span>`}</dd>`;
+  }
+  // the results that carry the claim
+  if (R) {
+    const rows = Array.isArray(fv[R.child]) ? fv[R.child] : [];
+    let body = "";
+    rows.forEach((row, j) => {
+      const path = `${R.child}[${j}]`;
+      const hit = evidenceFor(EV, VM, rec.id, `${path}.${R.value}`) || evidenceFor(EV, VM, rec.id, path);
+      const ids = hit && hit.kind !== "entry" ? hit.ids : null;
+      const page = ids ? DATA.evidence[ids[0]].page : null;
+      const verdict = AUX.cross ? AUX.cross[`${rec.id}|${path}`] : null;
+      const chk = !verdict ? (AUX.cross ? "" : `<span class="chain-chk unchecked">not cross-checked</span>`)
+        : verdict.status === "exact" ? `<span class="chain-chk agrees" title="${esc(verdict.detail || "")}">✓ matches the table extraction</span>`
+        : verdict.status === "mismatch" ? `<span class="chain-chk mismatch" title="${esc(verdict.detail || "")}">✗ DISAGREES with the table extraction</span>`
+        : verdict.status === "figure" ? `<span class="chain-chk unchecked">a figure · nothing to transcribe against</span>`
+        : `<span class="chain-chk unchecked" title="${esc(verdict.detail || "")}">${esc(verdict.status === "unlinked" ? "no matching table column" : verdict.status.replace("_", " "))}</span>`;
+      const ex = (R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" ");
+      const val = row[R.value], se = R.se ? row[R.se] : null;
+      const rel = (which) => { const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return ""; return v === "direct" ? `<span class="tag">direct measure</span>` : `<span class="tag warn">${esc(v === "assignment" ? "assignment indicator (stands in for the cause)" : v)}</span>`; };
+      const role = R.role && row[R.role] && row[R.role] !== "main" ? ` <span class="tag">${esc(row[R.role])}</span>` : "";
+      const signOpp = R.sign_consistent && row[R.sign_consistent] === false ? ` <span class="chain-chk mismatch">sign opposes the claim</span>` : "";
+      body += `<div class="chain-res" data-path="${esc(path)}"><div class="chain-line"><b>${esc(ex || "—")}</b>`
+        + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : "")
+        + ` <span class="chain-num">${val === null || val === undefined ? "—" : esc(String(val))}${se !== null && se !== undefined ? ` (${esc(String(se))})` : ""}</span> ${chk}${signOpp}${role}</div>`
+        + (R.row && row[R.row] ? `<div class="chain-rowlab muted">${esc(row[R.row])}</div>` : "")
+        + (R.cause ? `<div class="chain-op"><span class="k">cause</span><span>${esc(row[R.cause] || "—")} ${rel("cause")}</span></div>` : "")
+        + (R.effect ? `<div class="chain-op"><span class="k">effect</span><span>${esc(row[R.effect] || "—")} ${rel("effect")}</span></div>` : "")
+        + (R.why && row[R.why] ? `<details class="chain-why"><summary class="muted">why this result</summary><div class="muted">${esc(row[R.why])}</div></details>` : "")
+        + `</div>`;
+    });
+    if (!rows.length) body = `<span class="chain-none muted">${isEdge ? (fv[rv.notes] ? `no extracted result carries this claim — ${esc(fv[rv.notes])}` : "no result mapped") : "—"}</span>`;
+    dl += `<dt>${esc(R.label || "Results")}</dt><dd>${body}</dd>`;
+  }
+  // comparisons that qualify this claim
+  if (rv.qualifies && idField) {
+    const Q = rv.qualifies;
+    const mine = String(fv[idField] || "");
+    const quals = (DATA.records || []).filter((r) => r.id !== rec.id && Array.isArray((r.field_values || {})[Q.field]) && r.field_values[Q.field].map(String).includes(mine));
+    if (quals.length) dl += `<dt>Qualified by</dt><dd>${quals.map((r) => `<div class="chain-lineq">${esc(r.field_values[rv.statement] || entryTitle(VM, r, r.entry_index))}${Q.moderator && r.field_values[Q.moderator] ? ` <span class="muted">(${esc(r.field_values[Q.moderator])})</span>` : ""}</div>`).join("")}</dd>`;
+  }
+  const support = rv.support ? fv[rv.support] : null;
+  const label = (rv.support_labels || {})[support] || (rv.refined && fv[rv.refined] ? "abstract announces it · the introduction spells it out" : "");
+  const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+  card.innerHTML = `<div class="rectitle"><code class="chain-id">${esc(idField ? fv[idField] || "" : entryTitle(VM, rec, rec.entry_index))}</code>`
+    + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>` + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+    + `<span style="margin-left:auto"></span><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
+    + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
+    + `<dl class="chain-dl">${dl}</dl>`
+    + `<div class="chain-foot"><button class="vbtn ok" data-status="verified">OK</button><button class="vbtn flag" data-status="flagged">Flag</button>`
+    + (rv.notes && fv[rv.notes] && isEdge ? `<span class="chain-note muted" title="${esc(fv[rv.notes])}">note</span>` : "")
+    + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
+  // wiring: history, delete, verify/flag, the quotes' jumps, the edge focus
+  card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
+  card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
+  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+  card.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map(Number);
+    b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
+  });
+  const ed = card.querySelector(".chain-edge"); if (ed) ed.onclick = () => chainFocus(CHAIN_FOCUS === edgeKey ? null : edgeKey, false);
+  card.addEventListener("click", () => { document.querySelectorAll(".chain-card").forEach((c) => c.classList.remove("cur")); card.classList.add("cur"); });
+  panel.appendChild(card);
 }
 
 // ── change history (verification events, across sessions) ────────────────────
