@@ -15,7 +15,7 @@ async function init() {
   const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice(0, 7).map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
   $("#dbs-external").innerHTML = data.external.length ? data.external.map((x) =>
     `<article class="tile"><a class="tile-a" href="${esc(x.url)}" target="_blank" rel="noopener">
-      <div class="tile-img">${x.preview_url ? `<img src="${esc(x.preview_url)}" alt="" loading="lazy"/>` : `<div class="tile-ph">${iconSvg("forest", {})}</div>`}</div>
+      <div class="tile-img">${x.preview_url ? `<img src="${esc(x.preview_url + (x.preview_url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(x.checked_at || ""))}" alt="" loading="lazy"/>` : `<div class="tile-ph">${iconSvg("forest", {})}</div>`}</div>
       <div class="tile-body">${kicker(x)}<h3 class="tile-h">${esc(x.title)}</h3>${kws(x.keywords)}
       ${x.description ? `<p class="tile-p">${esc(x.description)}</p>` : ""}
       ${x.authors ? `<p class="tile-by">${esc(x.authors)}</p>` : ""}</div></a>
