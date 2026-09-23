@@ -918,10 +918,11 @@ function wireConfBadges(root) {
   }));
 }
 
-async function sendVerify(card, rec, status) {
+async function sendVerify(card, rec, status, notes) {
   card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = true));
   try {
-    await api.verify(rec.id, { status });
+    await api.verify(rec.id, notes === undefined ? { status } : { status, notes });
+    if (notes !== undefined) rec.note = notes ? { text: notes, status, by: "you", at: new Date().toISOString() } : null;
     maybeOfferRepublish();
     rec.verification_status = status;
     setStatus(card, status);
@@ -1220,13 +1221,20 @@ function renderChainCard(panel, rec, rv) {
     + `<span style="margin-left:auto"></span><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
     + `<dl class="chain-dl">${dl}</dl>`
-    + `<div class="chain-foot"><button class="vbtn ok" data-status="verified">OK</button><button class="vbtn flag" data-status="flagged">Flag</button>`
+    + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
+    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">Flag</button>`
+    + chainReviewNote(rec)
     + (rv.notes && fv[rv.notes] && isEdge ? `<span class="chain-note muted" title="${esc(fv[rv.notes])}">note</span>` : "")
     + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
   // wiring: history, delete, verify/flag, the quotes' jumps, the edge focus
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
-  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = async () => {
+    await sendVerify(card, rec, b.dataset.status, chainNoteText(card));
+    card.querySelectorAll(".vbtn").forEach((x) => x.classList.toggle("on", x.dataset.status === rec.verification_status));
+    card.querySelector(".chain-review").hidden = rec.verification_status !== "flagged" && !rec.note;
+  }));
+  wireChainNote(card, rec);
   card.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
     const ids = b.dataset.eids.split(",").map(Number);
     b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
@@ -1235,6 +1243,43 @@ function renderChainCard(panel, rec, rv) {
   const ed = card.querySelector(".chain-edge"); if (ed) ed.onclick = () => chainFocus(CHAIN_FOCUS === edgeKey ? null : edgeKey, false);
   card.addEventListener("click", () => { document.querySelectorAll(".chain-card").forEach((c) => c.classList.remove("cur")); card.classList.add("cur"); });
   panel.appendChild(card);
+}
+
+// The reviewer's verdict in the chain layout: OK / Flag write a verification event on the entry
+// (who, when, status — the same record the audit report and the credibility badge read). A flag
+// also carries WHY: a reason and a free note, stored as the event's notes and shown back here.
+const CHAIN_REASONS = [["", "what is wrong…"], ["claim", "the claim itself (cause / effect / sign)"],
+                       ["split", "should be split or merged"], ["evidence", "the evidence does not support it"],
+                       ["table", "wrong table line / result"], ["measurement", "the operationalisation"], ["other", "other"]];
+function chainSplitNote(text) {
+  for (const [, label] of CHAIN_REASONS) {
+    if (label && text && (text === label || text.startsWith(`${label} — `))) return [label, text.slice(label.length + 3)];
+  }
+  return ["", text || ""];
+}
+function chainReviewNote(rec) {
+  const [reason, text] = chainSplitNote((rec.note || {}).text);
+  const open = rec.verification_status === "flagged" || !!(rec.note || {}).text;
+  return `<span class="chain-review"${open ? "" : " hidden"}>`
+    + `<select class="chain-reason">${CHAIN_REASONS.map(([v, t]) => `<option value="${esc(t)}"${t === reason ? " selected" : ""}${v ? "" : ' data-empty="1"'}>${esc(t)}</option>`).join("")}</select>`
+    + `<input class="chain-notein" placeholder="note" value="${esc(text)}"/></span>`;
+}
+function chainNoteText(card) {
+  const box = card.querySelector(".chain-review"); if (!box) return undefined;
+  const sel = box.querySelector(".chain-reason"), inp = box.querySelector(".chain-notein");
+  const reason = sel.selectedOptions[0] && !sel.selectedOptions[0].dataset.empty ? sel.value : "";
+  const text = inp.value.trim();
+  return reason && text ? `${reason} — ${text}` : reason || text;
+}
+function wireChainNote(card, rec) {
+  const box = card.querySelector(".chain-review"); if (!box) return;
+  const save = async () => {
+    const status = rec.verification_status === "unverified" ? "flagged" : rec.verification_status;
+    await sendVerify(card, rec, status, chainNoteText(card));
+    card.querySelectorAll(".vbtn").forEach((x) => x.classList.toggle("on", x.dataset.status === rec.verification_status));
+  };
+  box.querySelector(".chain-reason").onchange = save;
+  box.querySelector(".chain-notein").onchange = save;
 }
 
 // ── change history (verification events, across sessions) ────────────────────
@@ -1256,7 +1301,8 @@ function fmtEvent(e) {
         `<div class="hist-diff"><code>${esc(d.field_path)}</code>: `
         + `${esc(String(d.original_value))} → <b>${esc(String(d.final_value))}</b></div>`).join("")
     : "";
-  return `<div class="hist-row"><span class="hist-meta">${esc(e.status)} · ${esc(who)} · ${esc(when)}</span>${changes}</div>`;
+  const note = e.notes ? `<div class="hist-note">${esc(e.notes)}</div>` : "";
+  return `<div class="hist-row"><span class="hist-meta">${esc(e.status)} · ${esc(who)} · ${esc(when)}</span>${note}${changes}</div>`;
 }
 
 // ── value ↔ evidence linking ────────────────────────────────────────────────

@@ -13,7 +13,7 @@ for p in (_ROOT, _HERE):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from paperlens import analysis_table as at, preset_spec, presets  # noqa: E402
+from paperlens import analysis_table as at, preset_spec, presets, records  # noqa: E402
 from paperlens.ingest import ingest  # noqa: E402
 
 CLAIMS = {
@@ -106,3 +106,28 @@ def test_units_and_rows() -> None:
     assert trows[0]["vals"]["regression_id"] == "T3::_::C1" and trows[0]["vals"]["outcome_variable"] == "Mid-wage employment"
     tcols = {c["name"]: c for c in at.catalogue(tables, at._unit(tables, None), trows)}
     assert tcols["numeric_value"]["roles"] == ["measure"] and "dimension" in tcols["row_type"]["roles"]
+
+
+def test_a_verdict_and_its_note_are_stored_on_the_entry() -> None:
+    """What the chain review's OK / Flag write: a verification event on the claim (status, who,
+    why), the entry's status, and the note the card shows back on the next load."""
+    import uuid
+    from test_analysis_table import _db_ok, _seed
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    conn = records.connect(); records.init_db(conn)
+    ds, doc = _seed(conn, CLAIMS, "register-claims", f"rev-{uuid.uuid4().hex[:6]}")
+    rid = records.dataset_records(conn, ds)[0]["id"]
+    records.verify_record(conn, rid, status="flagged", notes="the evidence does not support it — the quote is from the conclusion",
+                          verifier_kind="maintainer")
+    view = records.document_view(conn, doc)
+    rec = next(r for r in view["records"] if r["id"] == rid)
+    assert rec["verification_status"] == "flagged"
+    assert rec["note"]["text"].startswith("the evidence does not support it —") and rec["note"]["status"] == "flagged"
+    ev = records.record_events(conn, rid)
+    assert ev[0]["status"] == "flagged" and "conclusion" in ev[0]["notes"] and ev[0]["verifier_kind"] == "maintainer"
+    records.verify_record(conn, rid, status="verified", notes="", verifier_kind="maintainer")   # checked after all
+    rec2 = next(r for r in records.document_view(conn, doc)["records"] if r["id"] == rid)
+    assert rec2["verification_status"] == "verified" and rec2["note"]["text"].startswith("the evidence")   # the last REASONED note stays visible
+    assert len(records.record_events(conn, rid)) == 2                                            # both verdicts are kept
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

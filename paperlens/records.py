@@ -591,11 +591,23 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
                     "final_value": d.get("final_value"),
                     "editor": email or kind, "at": created.isoformat() if created else None,
                 })
+    # the reviewer's latest note on each entry ("why I flagged this"), shown back on the card
+    notes_by_rec: dict[str, dict] = {}
+    if rec_ids:
+        for (rid, status, notes, email, kind, created) in conn.execute(
+            """SELECT DISTINCT ON (e.record_id) e.record_id, e.status, e.notes, u.email, e.verifier_kind, e.created_at
+               FROM verification_event e LEFT JOIN users u ON u.id = e.verifier_user_id
+               WHERE e.record_id = ANY(%s::uuid[]) AND coalesce(e.notes, '') <> ''
+               ORDER BY e.record_id, e.created_at DESC""",
+            (rec_ids,),
+        ).fetchall():
+            notes_by_rec[str(rid)] = {"text": notes, "status": status, "by": email or kind,
+                                      "at": created.isoformat() if created else None}
     conf = document_confidence(conn, document_id)
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
          "verification_status": vs, "extraction": _ex, "screened_empty": bool(_se),
-         "corrections": corrections_by_rec.get(str(rid), []),
+         "corrections": corrections_by_rec.get(str(rid), []), "note": notes_by_rec.get(str(rid)),
          # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
          # sub-entries — the badges the review UI shows next to each group's fields
          "confidence": conf["by_record"].get(str(rid), {}),
