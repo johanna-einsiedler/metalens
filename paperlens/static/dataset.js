@@ -133,13 +133,17 @@ function render() {
         ${OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" id="ds-ext-add" style="margin-left:auto">＋ Register a dashboard</button>` : ""}</div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">Pages in their authors’ own code over a release of this dataset, hosted on their own sites (e.g. GitHub Pages). Metalens lists them and checks which release each one shows; the release files they read are in the datasets repository.</p>
       <div id="ds-ext-new"></div>
-      <div id="ds-extlist" class="muted" style="font-size:13px">…</div></div>`;
+      <div id="ds-extlist" class="muted" style="font-size:13px">…</div></div>
+
+    <!-- 5 · the other side of the same papers (only for presets with a registered check) -->
+    <div class="ds-card" id="ds-crosscheck" hidden></div>`;
 
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
   loadReleases();
   loadDashboards();
   loadExternal();
+  loadCrosscheck();
   const sf = $("#ds-saveform");
   if (sf) sf.onsubmit = async (e) => {
     e.preventDefault();
@@ -271,6 +275,8 @@ async function openReleaseForm() {
   if (w.empty) warn.push("The dataset has no entries yet.");
   if (w.unverified) warn.push(`${plural(w.unverified, "entry is", "entries are")} not yet verified${w.unverified_in_new_papers ? ` (${w.unverified_in_new_papers} of them in papers added since v${p.latest.number})` : ""}: they enter the release as unverified.`);
   if (w.flagged) warn.push(`${plural(w.flagged, "entry is", "entries are")} flagged.`);
+  if (w.crosscheck_mismatch) warn.push(`${plural(w.crosscheck_mismatch, "point estimate disagrees", "point estimates disagree")} with the companion dataset's table cells: the release freezes that verdict.`);
+  if (w.companion_moved) warn.push("The companion dataset changed since the last release; the cross-check is redone against its latest release.");
   host.innerHTML = `<div class="ds-relform"><b>Release v${p.next_number}</b> <span class="muted">· ${esc(changesInWords(p.changes))}</span>`
     + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}">${esc(p.credibility.label || "")}</span></div>`
     + (warn.length ? `<ul class="ds-relwarn">${warn.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
@@ -315,6 +321,39 @@ async function openReleaseForm() {
       host.innerHTML = ""; await loadReleases(); loadDashboards();
     } catch (e) { msg.textContent = e.message; $("#ds-rel-go").disabled = false; }
   };
+}
+
+// ── cross-check against a companion dataset (claims ↔ tables): one verdict per row ─────────────
+// Shown only for presets with a registered check; the companion is chosen under "Advanced".
+async function loadCrosscheck() {
+  const host = $("#ds-crosscheck"); if (!host) return;
+  let r; try { r = await api.crosscheck(id); } catch { host.hidden = true; return; }
+  if (!r.applies) { host.hidden = true; return; }
+  host.hidden = false;
+  const STATUS = { exact: "exact", mismatch: "mismatch", unlinked: "unlinked", no_estimate: "no estimate", figure: "figure" };
+  const sm = r.summary || {};
+  const order = { mismatch: 0, unlinked: 1, no_estimate: 2, exact: 3, figure: 4 };
+  const rows = (r.rows || []).slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).slice(0, 80);
+  host.innerHTML = `<div class="ds-card-h">Cross-check${r.companion ? ` against <a href="/dataset?id=${esc(r.companion.id)}" style="margin-left:4px">${esc(r.companion.title || "companion dataset")}</a>` : ""}
+      ${r.frozen ? `<span class="badge" title="as frozen in this release">release</span>` : ""}</div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px">${r.companion
+      ? `Every table result a claim cites is looked up in the companion’s regression columns (transcribed cell by cell, independently) and the printed coefficient must agree.${r.companion.release != null ? ` Checked against its release v${r.companion.release}.` : " The companion has no release yet: checked against its live data."}`
+      : `Claims can be checked row by row against a <b>${esc(r.companion_preset || "companion")}</b> dataset of the same papers: each cited table result must reappear as a transcribed coefficient cell. No companion is set${OWNER && !ANON ? " — choose one under Advanced." : "."}`}</p>
+    ${r.companion && r.summary ? `<div class="ds-sync${sm.mismatch ? " off" : ""}" style="font-size:13px;margin:0 0 8px"><b>${sm.exact || 0}</b> exact · <span${sm.mismatch ? ' class="lag"' : ""}><b>${sm.mismatch || 0}</b> mismatch</span> · <b>${sm.unlinked || 0}</b> unlinked · <b>${sm.no_estimate || 0}</b> without estimate · <b>${sm.figure || 0}</b> figures</div>
+      ${rows.length ? `<table class="ds-cc"><thead><tr><th>Claim</th><th>Result</th><th>Exhibit</th><th>Estimate</th><th>Cells</th><th>Status</th></tr></thead><tbody>${rows.map((x) => `<tr class="cc-${esc(x.status)}"><td>${esc(x.claim_id || "")}</td><td>${esc(x.result_id || "")}</td><td>${esc([x.source_table, x.panel, x.column].filter(Boolean).join(" "))}</td><td>${x.point_estimate == null ? "—" : esc(String(x.point_estimate))}</td><td class="muted">${esc((x.table_coefficients || []).map(String).join(", "))}</td><td title="${esc(x.detail || "")}">${esc(STATUS[x.status] || x.status)}</td></tr>`).join("")}</tbody></table>${(r.rows || []).length > rows.length ? `<p class="muted" style="font-size:12px">first ${rows.length} of ${r.rows.length} rows; every row is in the analysis table as <code>_crosscheck</code></p>` : ""}` : ""}` : ""}
+    ${OWNER && !ANON ? `<details class="ds-adv" style="margin-top:10px"><summary class="muted" style="font-size:13px;cursor:pointer">Advanced</summary>
+      <div style="margin:8px 0 0;font-size:13px">Companion dataset (a <b>${esc(r.companion_preset || "")}</b> dataset of yours over the same papers): <select id="ds-companion"><option value="">— none —</option></select> <button type="button" class="btn btn-ghost btn-sm" id="ds-companion-set">Set</button> <span class="muted" id="ds-companion-msg"></span></div></details>` : ""}`;
+  const sel = $("#ds-companion");
+  if (sel) {
+    try {
+      const mine = ((await api.myDatasets()).datasets || []).filter((d) => d.id !== id && String(d.schema_id || "").startsWith(`${r.companion_preset}@`));
+      sel.innerHTML = `<option value="">— none —</option>` + mine.map((d) => `<option value="${esc(d.id)}"${r.companion && r.companion.id === d.id ? " selected" : ""}>${esc(d.title || d.slug || d.id)}</option>`).join("");
+    } catch { /* keep the empty select */ }
+    $("#ds-companion-set").onclick = async () => {
+      const msg = $("#ds-companion-msg"); msg.textContent = "saving…";
+      try { await api.setCompanion(id, sel.value); msg.textContent = ""; loadCrosscheck(); loadReleases(); } catch (e) { msg.textContent = e.message; }
+    };
+  }
 }
 
 // ── dashboards built elsewhere: URL, the release they show, last check ─────────────────────────

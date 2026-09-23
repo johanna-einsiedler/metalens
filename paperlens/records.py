@@ -1379,7 +1379,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
                   d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
                   d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta,
-                  d.catalogue, d.zenodo_concept_doi
+                  d.catalogue, d.zenodo_concept_doi, d.companion_dataset_id::text
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1425,6 +1425,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "citation": custom or suggested, "citation_suggested": suggested,
             "citation_custom": bool(custom), "version": r[18] or 1,
             "zenodo_concept_doi": concept,         # always resolves to the newest release, once one was minted
+            "companion_dataset_id": r[27],         # the dataset this one is cross-checked against (crosscheck.py)
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
@@ -1543,6 +1544,11 @@ def dataset_citation(*, title: str | None, slug: str | None, dataset_id: str, au
     where = url or f"{base}/dataset?id={dataset_id}"
     return (f"{who} ({year or _dt.date.today().year}). {title or slug or 'Untitled dataset'} "
             f"(version {version}) [Data set]. Metalens. {where}")
+
+
+def set_companion(conn: psycopg.Connection, dataset_id: str, companion_id: str | None) -> None:
+    with conn.transaction():
+        conn.execute("UPDATE dataset SET companion_dataset_id = %s::uuid WHERE id = %s::uuid", (companion_id, dataset_id))
 
 
 def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> dict:

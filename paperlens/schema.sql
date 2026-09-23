@@ -495,3 +495,6 @@ ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_url text;
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi_minted_at timestamptz;   -- for the per-account daily cap
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS zenodo_concept_doi text;
 
+-- a companion dataset read from the other side of the same papers (crosscheck.py): claims ↔ tables
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS companion_dataset_id uuid REFERENCES dataset(id) ON DELETE SET NULL;
+

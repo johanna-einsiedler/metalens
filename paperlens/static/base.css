@@ -778,3 +778,8 @@ header.topbar select { padding: 5px 8px; border: 1px solid var(--border); border
 .masem-raw { width: 100%; box-sizing: border-box; margin: 0; max-height: 360px; overflow: auto; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 textarea.masem-raw { min-height: 360px; resize: vertical; }
+.ds-cc { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+.ds-cc th, .ds-cc td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ds-cc th { font-weight: 600; color: var(--text-muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+.ds-cc tr.cc-mismatch td:last-child { color: var(--conf-low); font-weight: 600; }
+.ds-cc tr.cc-exact td:last-child { color: var(--conf-high); }

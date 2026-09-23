@@ -88,6 +88,9 @@ export const api = {
   deleteExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}`, { method: "DELETE" }),
   publishRelease: (id, number, target) => req(`/api/datasets/${id}/publish`, json({ target, release: number })),
   // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads
+  crosscheck: (id, release) => req(`/api/datasets/${id}/crosscheck${release ? `?release=${release}` : ""}`),
+  setCompanion: (id, companionId) => req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
+                                                                 body: JSON.stringify({ companion_dataset_id: companionId || "" }) }),
   releaseDoi: (id, number) => req(`/api/datasets/${id}/releases/${number}/doi`, { method: "POST" }),
   releaseExport: async (id, n) => {
     const r = await fetch(`/api/datasets/${id}/releases/${n}/export`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });

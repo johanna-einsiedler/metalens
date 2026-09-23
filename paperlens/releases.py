@@ -63,8 +63,10 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
+    from . import crosscheck
+    fz = crosscheck.frozen(conn, dataset_id)
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
-            "corrected": src["corrected"], "evidence": ev}
+            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {})}
 
 
 def content_sha(snap: dict) -> str:
@@ -183,8 +185,21 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
             "warnings": {"unverified": sum(1 for r in unverified if r.get("status") != "flagged"),
                          "flagged": sum(1 for r in unverified if r.get("status") == "flagged"),
                          "unverified_in_new_papers": sum(1 for r in unverified if r["doc"] not in old_docs) if last else 0,
-                         "empty": not snap["records"]},
+                         "empty": not snap["records"],
+                         **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None)},
             "credibility": {"tier": cred.get("tier"), "label": cred.get("label")}}
+
+
+def _crosscheck_warnings(now: dict | None, before: dict | None) -> dict:
+    """The next release's cross-check: mismatches to look at, and whether the companion moved since the last release."""
+    if not now:
+        return {}
+    from . import crosscheck
+    s = crosscheck.summary(now["rows"])
+    out = {"crosscheck_mismatch": s.get("mismatch", 0), "crosscheck_unlinked": s.get("unlinked", 0)}
+    if before and before.get("companion_content_sha") != now.get("companion_content_sha"):
+        out["companion_moved"] = True
+    return out
 
 
 def _next_number(conn, dataset_id: str, last: dict | None) -> int:

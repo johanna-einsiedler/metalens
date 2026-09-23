@@ -750,6 +750,24 @@ def _release_sync(db, dataset_id: str, rows: list[dict]) -> dict:
             "behind": behind, "in_sync": not behind}
 
 
+@app.get("/api/datasets/{dataset_id}/crosscheck")
+def dataset_crosscheck(dataset_id: str, release: int | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The dataset checked against its companion (claims' point estimates against the tables'
+    cells): one verdict per row, live or as frozen in a release. Whoever may see the dataset may
+    see the check; without a companion it only says whether a check applies."""
+    from . import crosscheck, releases
+    _dataset_gate(db, dataset_id, who)
+    rel = None
+    if release is not None:
+        rel = releases.get_by_number(db, dataset_id, release, with_snapshot=True)
+        if rel is None:
+            raise HTTPException(status_code=404, detail="This dataset has no such release.")
+    out = crosscheck.run(db, dataset_id, release=rel)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return out
+
+
 @app.post("/api/datasets/{dataset_id}/releases/{number}/doi")
 def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Signed-in owner only (owning every record): mint a DOI for this release on Zenodo (a new
@@ -1502,6 +1520,7 @@ class DatasetPatch(BaseModel):
     keywords: list[str] | None = None
     attribution: str | None = None         # named | anonymous
     citation: str | None = None            # custom citation text; "" resets to the suggested one
+    companion_dataset_id: str | None = None   # the dataset this one is cross-checked against; "" clears it
 
 
 @app.patch("/api/datasets/{dataset_id}")
@@ -1513,8 +1532,19 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
         raise HTTPException(status_code=403, detail="Not authorized.")
     meta = {k: v for k, v in body.model_dump(exclude_unset=True).items()
             if k in ("description", "readme", "keywords", "attribution", "citation")}
-    if body.visibility is None and body.title is None and not meta:
+    companion = "companion_dataset_id" in body.model_fields_set
+    if body.visibility is None and body.title is None and not meta and not companion:
         raise HTTPException(status_code=422, detail="Nothing to change.")
+    if companion:                         # the other side of the same papers, checked row by row (crosscheck.py)
+        from . import crosscheck
+        cid = (body.companion_dataset_id or "").strip() or None
+        if cid:
+            other = records.get_dataset(db, cid) if records._is_uuid(cid) else None   # noqa: SLF001
+            if other is None or not records.is_dataset_owner(db, cid, who):
+                raise HTTPException(status_code=404, detail="Companion dataset not found (it must be yours).")
+            if cid == dataset_id or not crosscheck.check_for((records.get_dataset(db, dataset_id) or {}).get("schema_id"), other.get("schema_id")):
+                raise HTTPException(status_code=422, detail="No cross-check is registered for these two presets.")
+        records.set_companion(db, dataset_id, cid)
     if "attribution" in meta and meta["attribution"] not in ("named", "anonymous"):
         raise HTTPException(status_code=422, detail="attribution must be named|anonymous")
     if "keywords" in meta and meta["keywords"] is not None and len(meta["keywords"]) > 20:

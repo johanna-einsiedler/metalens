@@ -104,6 +104,17 @@ def build(conn, release: dict) -> dict[str, bytes]:
             "credibility": release.get("credibility"), "engine": release.get("engine"), "preset": d.get("preset"),
             "schema_id": release.get("schema_id"), "n_papers": d.get("n_papers"), "left_out": d.get("left_out"),
             "units": units, "files": sorted([*files, "release.json", "README.md"])}
+    fz = (release.get("snapshot") or {}).get("crosscheck")
+    if fz:
+        from . import crosscheck
+        comp = records.get_dataset(conn, fz["companion_dataset_id"]) or {}
+        meta["companion"] = {"dataset": comp.get("title"), "slug": comp.get("slug"), "release": fz.get("companion_release"),
+                             "content_sha": fz.get("companion_content_sha"), "unit": fz.get("unit"), "summary": crosscheck.summary(fz["rows"]), "file": "crosscheck.json"}
+        files["crosscheck.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION, "companion": meta["companion"],
+                                           "statuses": {"exact": "a coefficient cell of the companion equals the estimate", "mismatch": "the exhibit resolves but no cell equals it",
+                                                        "unlinked": "no regression column matches the cited exhibit", "no_estimate": "nothing to check", "figure": "a figure"},
+                                           "rows": fz["rows"]})
+        meta["files"] = sorted(set(meta["files"]) | {"crosscheck.json"})
     files["release.json"] = json.dumps(meta, ensure_ascii=False, indent=1, default=str).encode("utf-8")
     files["README.md"] = _readme(meta).encode("utf-8")
     return files

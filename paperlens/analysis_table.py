@@ -439,7 +439,7 @@ def release_source(conn, release: dict) -> dict | None:
             "release": {"number": release["number"], "created_at": release["created_at"], "content_sha": release["content_sha"]}}
 
 
-def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, release: dict | None = None) -> dict | None:
+def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, release: dict | None = None, crosscheck: bool = True) -> dict | None:
     src = release_source(conn, release) if release else live_source(conn, dataset_id)
     if src is None:
         return None
@@ -473,6 +473,14 @@ def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, rel
     truncated = len(rows) > MAX_ROWS
     rows = rows[:MAX_ROWS]
     cols = catalogue(spec, unit, rows)
+    if crosscheck and (d.get("companion_dataset_id") or (release and (release.get("snapshot") or {}).get("crosscheck"))):   # checked against a companion: one verdict per row
+        from . import crosscheck as _cc
+        verdicts = _cc.column_values(conn, d, unit["id"], rows, recs_out, release)
+        if verdicts is not None:
+            for row in rows:
+                row["vals"]["_crosscheck"] = verdicts.get((recs_out[row["r"]]["id"], row["p"]))
+            present = [row["vals"]["_crosscheck"] for row in rows if row["vals"].get("_crosscheck")]
+            cols.append({**_cc.CHECK_COLUMN, "n": len(present), "distinct": len(set(present)), "samples": sorted(set(present))[:5], "roles": ["dimension"]})
     corrected = src["corrected"]
     wire = []
     for row in rows:
