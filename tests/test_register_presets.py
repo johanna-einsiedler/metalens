@@ -148,6 +148,28 @@ def test_a_verdict_and_its_note_are_stored_on_the_entry() -> None:
     assert len(records.record_events(conn, rid)) == 2                                            # both verdicts are kept
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
 
+def test_a_stated_magnitude_no_estimate_reproduces_is_flagged() -> None:
+    """The paper says 'earnings decline by 2 percent' and every extracted estimate is something
+    else: usually a different quantity (another horizon), which belongs to its own estimand."""
+    spec = presets.load_all()["register-claims"]
+    obj = copy.deepcopy(CLAIMS)
+    obj["claims"][0]["magnitude_stated"] = "earnings decline by 5 percent"          # the estimates are -1.292 / -1.991
+    flagged = [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"]
+    assert len(flagged) == 1 and flagged[0]["path"] == "claims[0].magnitude_stated" and "reproduces 5" in flagged[0]["message"]
+    # one coincidental match must not hide the other number's absence
+    obj["claims"][0]["magnitude_stated"] = "men decline by 2 percent, women by 5 percent"
+    assert [i["message"] for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"][0].endswith(
+        "give it its own estimand") 
+    obj["claims"][0]["magnitude_stated"] = "a 2 percent decline in 2019"             # a year is not a magnitude
+    assert not [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"]
+    obj["claims"][0]["magnitude_stated"] = "a decline of 1.292"                     # the same quantity, stated
+    assert not [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"]
+    obj["claims"][0]["magnitude_stated"] = "a decline of 129.2 percent of a point"  # the percent/proportion scale gap
+    assert not [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"]
+    obj["claims"][0]["magnitude_stated"] = None
+    assert not [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "magnitude_unmatched"]
+
+
 def test_two_preferred_estimates_of_one_estimand_are_flagged() -> None:
     """The invariant the preset states: several estimates may measure one quantity, but exactly
     one of them is the preferred one. Two 'main' rows under one estimand is an extraction issue."""

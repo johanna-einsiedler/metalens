@@ -686,7 +686,8 @@
         "to": "effect_construct",
         "basis": "construct_basis",
         "note": "construct_note"
-      }
+      },
+      "magnitude": "magnitude_stated"
     }
   }
 }

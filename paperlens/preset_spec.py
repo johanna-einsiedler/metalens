@@ -574,7 +574,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 for k in ("from", "to", "sign"):
                     if edge.get(k) not in enames:
                         E(f"$.display.review.edge.{k} must name an entry field")
-                for k in ("support", "notes", "statement"):
+                for k in ("support", "notes", "statement", "magnitude"):
                     if rv.get(k) is not None and rv[k] not in enames:
                         E(f"$.display.review.{k} must name an entry field")
                 con = rv.get("constructs")
@@ -1289,6 +1289,43 @@ def render_prompt(spec: dict, params: dict | None = None) -> str:
 
 # ── post-extraction validation ────────────────────────────────────────────────
 
+_MAGNITUDE_NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+def _magnitude_issues(spec: dict, entry: dict, at: str) -> list[dict]:
+    """The paper states a magnitude ("earnings decline by 2 percent") and the extracted estimates
+    are all something else. Usually right and confusing: the stated number is a different quantity
+    (the fifth year, not the pooled effect), so it belongs to its own estimand. Flag it so the
+    reviewer sees the discrepancy instead of comparing two numbers by eye and distrusting both."""
+    rv = ((spec.get("display") or {}).get("review") or {})
+    res, mag_field = rv.get("results") or {}, rv.get("magnitude")
+    if not mag_field or not res.get("value"):
+        return []
+    text = entry.get(mag_field)
+    if not isinstance(text, str) or not text.strip():
+        return []
+    # years and counts are not magnitudes ("2 percent in 2019", "N = 12,410")
+    stated = [v for v in (abs(float(m.group(0).replace(",", "."))) for m in _MAGNITUDE_NUM.finditer(text))
+              if v and not (1900 <= v <= 2100) and v < 1000]
+    rows = entry.get(res["child"]) if isinstance(entry.get(res["child"]), list) else []
+    got = [abs(float(r[res["value"]])) for r in rows
+           if isinstance(r, dict) and isinstance(r.get(res["value"]), (int, float)) and not isinstance(r.get(res["value"]), bool)]
+    if not stated or not got:
+        return []
+    # EVERY number the sentence states should be reproduced by some estimate: an abstract that
+    # quotes 2 and 3 percent against estimates of 1.5 and 2.0 is two claims about two quantities,
+    # and one coincidental match must not hide the other's absence. The scales 1 / 100 are both
+    # tried, because a paper says "2 percent" for an estimate printed as 0.02 or as 2.
+    near = lambda a, b: abs(a - b) <= max(5e-3, 0.05 * max(a, b))   # noqa: E731
+    missing = [s for s in stated if not any(near(s, g) or near(s, g * 100) or near(s, g / 100) for g in got)]
+    if not missing:
+        return []
+    return [{"path": f"{at}.{mag_field}", "code": "magnitude_unmatched",
+             "message": f"the paper states {text!r} but no extracted estimate reproduces "
+                        + (f"{missing[0]:g}" if len(missing) == 1 else ", ".join(f"{m:g}" for m in missing))
+                        + " — if that is a different quantity (another horizon, another subgroup), give it its own estimand"}]
+
+
 def _estimand_issues(spec: dict, child: dict, rows: list, at: str) -> list[dict]:
     """A preset whose review declares an ``estimand`` and a ``role`` states an invariant: several
     rows may estimate the same quantity, but exactly ONE of them is the preferred estimate. Two
@@ -1389,6 +1426,7 @@ def validate_result(obj: dict, spec: dict, params: dict | None = None) -> list[d
         for gid in egroups:
             if not rated(el, gid):
                 issues.append({"path": f"{at}.confidence.{gid}", "code": "missing_confidence", "message": "no rating"})
+        issues += _magnitude_issues(spec, el, at)
         for ch in ent.get("children") or []:
             rows = el.get(ch["key"])
             if rows is None:

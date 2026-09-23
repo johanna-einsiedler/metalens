@@ -1217,6 +1217,7 @@ function renderChainCard(panel, rec, rv) {
     const quals = (DATA.records || []).filter((r) => r.id !== rec.id && Array.isArray((r.field_values || {})[Q.field]) && r.field_values[Q.field].map(String).includes(mine));
     if (quals.length) dl += `<dt>Qualified by</dt><dd>${quals.map((r) => `<div class="chain-lineq">${esc(r.field_values[rv.statement] || entryTitle(VM, r, r.entry_index))}${Q.moderator && r.field_values[Q.moderator] ? ` <span class="muted">(${esc(r.field_values[Q.moderator])})</span>` : ""}</div>`).join("")}</dd>`;
   }
+  if (rv.notes && fv[rv.notes]) dl += `<dt>Note</dt><dd class="chain-modelnote">${esc(fv[rv.notes])}</dd>`;
   const support = rv.support ? fv[rv.support] : null;
   const label = (rv.support_labels || {})[support] || (rv.refined && fv[rv.refined] ? "abstract announces it · the introduction spells it out" : "");
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
@@ -1228,7 +1229,6 @@ function renderChainCard(panel, rec, rv) {
     + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">Flag</button>`
     + chainReviewNote(rec)
-    + (rv.notes && fv[rv.notes] && isEdge ? `<span class="chain-note muted" title="${esc(fv[rv.notes])}">note</span>` : "")
     + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
   // wiring: history, delete, verify/flag, the quotes' jumps, the edge focus
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
