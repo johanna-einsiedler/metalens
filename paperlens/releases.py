@@ -63,10 +63,11 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
-    from . import crosscheck
+    from . import crosscheck, vocabulary
     fz = crosscheck.frozen(conn, dataset_id)
+    vocabs = vocabulary.snapshot(conn, dataset_id)
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
-            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {})}
+            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}), **({"vocabularies": vocabs} if vocabs else {})}
 
 
 def content_sha(snap: dict) -> str:
@@ -186,7 +187,8 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
                          "flagged": sum(1 for r in unverified if r.get("status") == "flagged"),
                          "unverified_in_new_papers": sum(1 for r in unverified if r["doc"] not in old_docs) if last else 0,
                          "empty": not snap["records"],
-                         **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None)},
+                         **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None),
+                         **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies"))},
             "credibility": {"tier": cred.get("tier"), "label": cred.get("label")}}
 
 
@@ -200,6 +202,17 @@ def _crosscheck_warnings(now: dict | None, before: dict | None) -> dict:
     if before and before.get("companion_content_sha") != now.get("companion_content_sha"):
         out["companion_moved"] = True
     return out
+
+
+def _vocabulary_warnings(conn, dataset_id: str, vocabs: list | None) -> dict:
+    """Values of a harmonised column the committed vocabulary does not cover yet."""
+    if not vocabs:
+        return {}
+    from . import vocabulary
+    n = 0
+    for v in vocabs:
+        n += len(vocabulary.unresolved(vocabulary.values(conn, dataset_id, v["unit"], v["column"], examples=False), v.get("assignments") or {}))
+    return {"vocabulary_unresolved": n} if n else {}
 
 
 def _next_number(conn, dataset_id: str, last: dict | None) -> int:

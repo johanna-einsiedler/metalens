@@ -104,6 +104,11 @@ def build(conn, release: dict) -> dict[str, bytes]:
             "credibility": release.get("credibility"), "engine": release.get("engine"), "preset": d.get("preset"),
             "schema_id": release.get("schema_id"), "n_papers": d.get("n_papers"), "left_out": d.get("left_out"),
             "units": units, "files": sorted([*files, "release.json", "README.md"])}
+    vocabs = (release.get("snapshot") or {}).get("vocabularies")
+    if vocabs:
+        meta["vocabularies"] = [{"unit": v["unit"], "column": v["column"], "version": v["version"], "committed_at": v.get("committed_at"),
+                                 "domains": v.get("domains") or [], "concepts": v["concepts"], "left_out": v["left_out"], "assignments": v["assignments"],
+                                 "columns": [f"{v['column']}_concept", f"{v['column']}_polarity"]} for v in vocabs]
     fz = (release.get("snapshot") or {}).get("crosscheck")
     if fz:
         from . import crosscheck

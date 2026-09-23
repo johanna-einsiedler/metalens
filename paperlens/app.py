@@ -163,6 +163,12 @@ def brand_info(b: brands.Brand = Depends(brand)) -> dict:
     return b.as_json()
 
 
+@app.get("/vocabulary")
+def vocabulary_page() -> FileResponse:
+    """Owner: harmonise a column of a dataset into concepts (an optional, separate feature)."""
+    return _page("vocabulary.html")
+
+
 @app.get("/dashboards")
 def dashboards_page() -> FileResponse:
     """Public: every published dashboard — built in Metalens or registered from elsewhere."""
@@ -748,6 +754,214 @@ def _release_sync(db, dataset_id: str, rows: list[dict]) -> dict:
         behind.append("catalogue")
     return {"latest": latest, "zenodo": on_zenodo, "github": on_github, "catalogue": listed, "pending": ds.get("publish_status") == "pending",
             "behind": behind, "in_sync": not behind}
+
+
+# ── vocabularies: a column harmonised into concepts (optional; vocabulary.py) ───────────────
+class VocabularyProposeBody(BaseModel):
+    unit: str
+    column: str
+    model: str = ""
+    api_key: str = ""
+    base_url: str | None = None
+    use_credits: bool = False
+    vocabulary_id: str | None = None     # a residual pass: propose for the values a committed vocabulary does not cover
+
+
+class VocabularyDraftBody(BaseModel):
+    domains: list[dict] = []
+    concepts: list[dict] = []
+    left_out: list[dict] = []
+
+
+class VocabularyExtendBody(BaseModel):
+    decisions: list[dict] = []
+
+
+def _vocab_model(db, who: Principal, body: VocabularyProposeBody) -> tuple[str, str, str | None, bool]:
+    """(model, key, base_url, charged) — the dashboard proposer's rule: own key or local model
+    free and never stored; credits one per pass; refunded by the caller on failure."""
+    own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
+    if own:
+        return body.model, body.api_key, body.base_url, False
+    if body.use_credits:
+        if localmode.enabled():
+            raise HTTPException(status_code=422, detail="Local mode runs on your own API key or a local model.")
+        if not who.user_id:
+            raise HTTPException(status_code=401, detail="Sign in to use credits, or add your own API key.")
+        if not credits.offered():
+            raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
+        model = credits.credit_model()
+        if not credits.try_consume(db, who.user_id, model=model, reason="vocabulary"):
+            raise HTTPException(status_code=402, detail="No credits left. Add your own API key.")
+        return model, credits.server_key_for(providers.get_provider(model, None)), None, True
+    raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model.")
+
+
+def _vocab_column(db, dataset_id: str, unit: str, column: str) -> tuple[str, str]:
+    """(label, help) of the column, 422 when the unit or the column does not exist."""
+    from . import analysis_table
+    t = analysis_table.build(db, dataset_id, unit, owner=True, crosscheck=False, vocabulary=False)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    col = next((c for c in t["columns"] if c["name"] == column), None)
+    if col is None or col.get("scope") in ("system", "derived", "check", "vocabulary") or col.get("type") not in ("string", "text", "enum"):
+        raise HTTPException(status_code=422, detail="Choose a text column of this dataset.")
+    return col.get("label") or column, col.get("help") or ""
+
+
+@app.get("/api/datasets/{dataset_id}/vocabularies")
+def dataset_vocabularies(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The dataset's vocabularies: every version for the owner, committed ones for everyone
+    else; committed ones say how many live values they do not cover yet."""
+    from . import vocabulary
+    owner = _dataset_gate(db, dataset_id, who)
+    rows = vocabulary.list_for_dataset(db, dataset_id)
+    out = []
+    for v in rows:
+        if v["status"] != "committed" and not owner:
+            continue
+        item = {k: v[k] for k in ("id", "unit", "column", "version", "status", "model", "created_at", "committed_at")}
+        item["n_concepts"] = len(v["concepts"]); item["n_left_out"] = len(v["left_out"])
+        if v["status"] == "committed" and owner and not any(x["unit"] == v["unit"] and x["column"] == v["column"] and x["version"] > v["version"] and x["status"] == "committed" for x in rows):
+            item["unresolved"] = len(vocabulary.unresolved(vocabulary.values(db, dataset_id, v["unit"], v["column"], examples=False), v["assignments"]))
+        out.append(item)
+    return {"vocabularies": out, "owner": owner}
+
+
+@app.get("/api/vocabularies/{vid}")
+def vocabulary_get(vid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """One vocabulary with the column's current values (indexed as the concepts reference them)."""
+    from . import vocabulary
+    v = vocabulary.get(db, vid)
+    if v is None:
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    owner = _dataset_gate(db, v["dataset_id"], who)
+    if v["status"] != "committed" and not owner:
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    vals = (v.get("proposal") or {}).get("values") or vocabulary.values(db, v["dataset_id"], v["unit"], v["column"], examples=False)
+    live = vocabulary.values(db, v["dataset_id"], v["unit"], v["column"], examples=False) if v["status"] == "committed" else vals
+    out = {**v, "values": vals, "draft": vocabulary.as_draft(v), "owner": owner}
+    if v["status"] == "committed":
+        out["unresolved"] = vocabulary.unresolved(live, v["assignments"])
+    out.pop("proposal", None)
+    out["repairs"] = (v.get("proposal") or {}).get("repairs") or []
+    return out
+
+
+@app.post("/api/datasets/{dataset_id}/vocabularies/propose")
+def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner, signed in: a model groups the distinct values of a text column into concepts
+    (the structure pass) — or, with ``vocabulary_id``, places the values a committed
+    vocabulary does not cover (map | new | skip). Either way a person reviews before anything
+    is committed. Own key or local model: never stored. Credits: one per pass, refunded on failure."""
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to build a vocabulary.")
+    from . import contract, vocabulary
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can build a vocabulary.")
+    label, help_ = _vocab_column(db, dataset_id, body.unit, body.column)
+    ds = records.get_dataset(db, dataset_id) or {}
+    model, key, base_url, charged = _vocab_model(db, who, body)
+    if not model:
+        raise HTTPException(status_code=422, detail="Choose a model.")
+    prior = vocabulary.get(db, body.vocabulary_id) if body.vocabulary_id else None
+    if body.vocabulary_id and (prior is None or prior["dataset_id"] != dataset_id or prior["status"] != "committed"):
+        raise HTTPException(status_code=404, detail="No committed vocabulary with that id.")
+    vals = vocabulary.values(db, dataset_id, body.unit, body.column)
+    if not vals:
+        raise HTTPException(status_code=422, detail="The column holds no values yet.")
+    if prior:
+        todo = vocabulary.unresolved(vals, prior["assignments"])
+        if not todo:
+            return {"ok": True, "residual": True, "decisions": [], "note": "every value is covered already"}
+        prompt = vocabulary.residual_prompt(ds.get("title") or "", label, vocabulary.as_draft(prior), todo)
+    else:
+        prompt = vocabulary.build_prompt(ds.get("title") or "", label, help_, vals)
+    raw, parsed = "", None
+    try:
+        for nudge in ("", "\n\nReturn ONLY the JSON object described above."):
+            raw = providers.generate_text(model, key, prompt + nudge, base_url=base_url, max_tokens=16384, json_mode=True)
+            parsed = contract.parse_result_json(raw)
+            if isinstance(parsed, dict) and (parsed.get("concepts") or parsed.get("decisions")):
+                break
+    except Exception as exc:  # noqa: BLE001 — provider errors
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="vocabulary refund")
+        return {"ok": False, "error": providers.extract_provider_message(exc)}
+    if not isinstance(parsed, dict) or not (parsed.get("concepts") or parsed.get("decisions")):
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="vocabulary refund")
+        return {"ok": False, "error": "The model answered, but no concept in its answer could be used.", "raw": (raw or "")[:_RAW_CAP]}
+    sha = vocabulary.prompt_sha(prompt)
+    if prior:
+        idx = {v["idx"] for v in todo}
+        decisions = [d for d in parsed.get("decisions") or [] if isinstance(d, dict) and d.get("value") in idx and d.get("action") in ("map", "new", "skip")]
+        return {"ok": True, "residual": True, "vocabulary_id": prior["id"], "values": todo, "decisions": decisions, "model": model,
+                "prompt_sha256": sha, "charged": charged, "raw": (raw or "")[:_RAW_CAP]}
+    draft, repairs = vocabulary.validate_draft(parsed, vals)
+    v = vocabulary.create(db, dataset_id, unit=body.unit, column=body.column, draft=draft, model=model, prompt_sha256=sha,
+                          proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "values": vals, "charged": charged}, owner_user_id=who.user_id)
+    return {"ok": True, "vocabulary": {**v, "values": vals, "draft": draft, "repairs": repairs}, "prompt": prompt}
+
+
+@app.patch("/api/vocabularies/{vid}")
+def vocabulary_patch(vid: str, body: VocabularyDraftBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the reviewed draft (rename, merge, reparent, direction, detach) — validated again."""
+    from . import vocabulary
+    v = vocabulary.get(db, vid)
+    if v is None or not _dataset_gate(db, v["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    if v["status"] != "draft":
+        raise HTTPException(status_code=409, detail="A committed vocabulary is not edited; extend it with the values it does not cover.")
+    vals = (v.get("proposal") or {}).get("values") or vocabulary.values(db, v["dataset_id"], v["unit"], v["column"], examples=False)
+    draft, repairs = vocabulary.validate_draft(body.model_dump(), vals)
+    out = vocabulary.update_draft(db, vid, draft)
+    return {**out, "values": vals, "draft": draft, "repairs": repairs}
+
+
+@app.post("/api/vocabularies/{vid}/commit")
+def vocabulary_commit(vid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the draft becomes the vocabulary the analysis table resolves with."""
+    from . import vocabulary
+    v = vocabulary.get(db, vid)
+    if v is None or not _dataset_gate(db, v["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    if v["status"] != "draft":
+        raise HTTPException(status_code=409, detail="Already committed.")
+    vals = vocabulary.values(db, v["dataset_id"], v["unit"], v["column"], examples=False)
+    prior = next((c for c in vocabulary.committed(db, v["dataset_id"]) if c["unit"] == v["unit"] and c["column"] == v["column"]), None)
+    assignments = vocabulary.resolve((v.get("proposal") or {}).get("values") or vals, vocabulary.as_draft(v), (prior or {}).get("assignments"))
+    out = vocabulary.commit(db, vid, assignments)
+    return {**out, "unresolved": vocabulary.unresolved(vals, assignments)}
+
+
+@app.post("/api/vocabularies/{vid}/extend")
+def vocabulary_extend(vid: str, body: VocabularyExtendBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the reviewed residual decisions (map | new | skip) become the next committed version."""
+    from . import vocabulary
+    v = vocabulary.get(db, vid)
+    if v is None or not _dataset_gate(db, v["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    if v["status"] != "committed":
+        raise HTTPException(status_code=409, detail="Commit the vocabulary first.")
+    vals = vocabulary.values(db, v["dataset_id"], v["unit"], v["column"], examples=False)
+    merged, notes = vocabulary.apply_decisions(vocabulary.as_draft(v), vals, body.decisions)
+    draft, repairs = vocabulary.validate_draft(merged, vals)
+    assignments = vocabulary.resolve(vals, draft, v["assignments"])
+    nv = vocabulary.create(db, v["dataset_id"], unit=v["unit"], column=v["column"], draft=draft, model=v.get("model"), prompt_sha256=None,
+                           proposal={"values": vals, "repairs": repairs + notes, "extended_from": v["id"]}, owner_user_id=who.user_id,
+                           status="committed", assignments=assignments)
+    return {**nv, "values": vals, "draft": draft, "repairs": repairs + notes, "unresolved": vocabulary.unresolved(vals, assignments)}
+
+
+@app.delete("/api/vocabularies/{vid}")
+def vocabulary_delete(vid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: drop a draft (committed versions stay: releases were cut with them)."""
+    from . import vocabulary
+    v = vocabulary.get(db, vid)
+    if v is None or not _dataset_gate(db, v["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Vocabulary not found.")
+    return {"deleted": vocabulary.delete(db, vid)}
 
 
 @app.get("/api/datasets/{dataset_id}/crosscheck")

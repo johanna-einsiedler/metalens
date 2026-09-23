@@ -495,6 +495,26 @@ ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS zenodo_url text;
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi_minted_at timestamptz;   -- for the per-account daily cap
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS zenodo_concept_doi text;
 
+-- a column harmonised into concepts (vocabulary.py): one row per version, drafts until committed
+CREATE TABLE IF NOT EXISTS dataset_vocabulary (
+    id            uuid PRIMARY KEY,
+    dataset_id    uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    unit          text NOT NULL,
+    "column"      text NOT NULL,
+    version       integer NOT NULL,
+    status        text NOT NULL DEFAULT 'draft',      -- draft | committed
+    concepts      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    left_out      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    assignments   jsonb NOT NULL DEFAULT '{}'::jsonb, -- {normalised value: {value, concept_id, polarity, basis}}
+    model         text,
+    prompt_sha256 text,
+    proposal      jsonb NOT NULL DEFAULT '{}'::jsonb, -- the model's answer, repairs, domains
+    owner_user_id uuid,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    committed_at  timestamptz,
+    UNIQUE (dataset_id, unit, "column", version)
+);
+
 -- a companion dataset read from the other side of the same papers (crosscheck.py): claims ↔ tables
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS companion_dataset_id uuid REFERENCES dataset(id) ON DELETE SET NULL;
 

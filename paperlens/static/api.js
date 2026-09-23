@@ -88,6 +88,13 @@ export const api = {
   deleteExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}`, { method: "DELETE" }),
   publishRelease: (id, number, target) => req(`/api/datasets/${id}/publish`, json({ target, release: number })),
   // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads
+  vocabularies: (id) => req(`/api/datasets/${id}/vocabularies`),
+  vocabulary: (vid) => req(`/api/vocabularies/${vid}`),
+  proposeVocabulary: (id, body) => req(`/api/datasets/${id}/vocabularies/propose`, json(body)),
+  saveVocabulary: (vid, draft) => req(`/api/vocabularies/${vid}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) }),
+  commitVocabulary: (vid) => req(`/api/vocabularies/${vid}/commit`, { method: "POST" }),
+  extendVocabulary: (vid, decisions) => req(`/api/vocabularies/${vid}/extend`, json({ decisions })),
+  deleteVocabulary: (vid) => req(`/api/vocabularies/${vid}`, { method: "DELETE" }),
   crosscheck: (id, release) => req(`/api/datasets/${id}/crosscheck${release ? `?release=${release}` : ""}`),
   setCompanion: (id, companionId) => req(`/api/datasets/${id}`, { method: "PATCH", headers: { "content-type": "application/json" },
                                                                  body: JSON.stringify({ companion_dataset_id: companionId || "" }) }),

@@ -439,7 +439,8 @@ def release_source(conn, release: dict) -> dict | None:
             "release": {"number": release["number"], "created_at": release["created_at"], "content_sha": release["content_sha"]}}
 
 
-def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, release: dict | None = None, crosscheck: bool = True) -> dict | None:
+def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, release: dict | None = None, crosscheck: bool = True,
+          vocabulary: bool = True) -> dict | None:
     src = release_source(conn, release) if release else live_source(conn, dataset_id)
     if src is None:
         return None
@@ -481,6 +482,15 @@ def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, rel
                 row["vals"]["_crosscheck"] = verdicts.get((recs_out[row["r"]]["id"], row["p"]))
             present = [row["vals"]["_crosscheck"] for row in rows if row["vals"].get("_crosscheck")]
             cols.append({**_cc.CHECK_COLUMN, "n": len(present), "distinct": len(set(present)), "samples": sorted(set(present))[:5], "roles": ["dimension"]})
+    if vocabulary:                                           # a column harmonised into concepts: two columns per committed vocabulary
+        from . import vocabulary as _voc
+        for concept_col, polarity_col, col_name, mapping in _voc.extra_columns(conn, dataset_id, [c["name"] for c in cols], release):
+            for row in rows:
+                hit = mapping.get(_voc.norm(row["vals"].get(col_name))) if row["vals"].get(col_name) not in (None, "") else None
+                row["vals"][concept_col["name"]], row["vals"][polarity_col["name"]] = (hit[0], hit[1]) if hit else (None, None)
+            for cdef in (concept_col, polarity_col):
+                present = [row["vals"][cdef["name"]] for row in rows if row["vals"].get(cdef["name"])]
+                cols.append({**cdef, "n": len(present), "distinct": len(set(present)), "samples": sorted(set(present))[:5]})
     corrected = src["corrected"]
     wire = []
     for row in rows:

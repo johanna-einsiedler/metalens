@@ -783,3 +783,10 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .ds-cc th { font-weight: 600; color: var(--text-muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
 .ds-cc tr.cc-mismatch td:last-child { color: var(--conf-low); font-weight: 600; }
 .ds-cc tr.cc-exact td:last-child { color: var(--conf-high); }
+.voc-c { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; margin: 6px 0; background: var(--surface); }
+.voc-ch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 2px; }
+.voc-ch input.voc-label { font: inherit; padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 220px; }
+.voc-ch select { font: inherit; font-size: 12.5px; }
+.voc-members { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.voc-members .kw { font-size: 12.5px; padding: 2px 8px; } .voc-members .voc-detach { color: var(--text-muted); text-decoration: none; margin-left: 2px; }
+.voc-lo { padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 13px; }

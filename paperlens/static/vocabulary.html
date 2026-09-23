@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Vocabulary</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/dash.css"/>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+  <main class="wrap">
+    <div class="ds-head" style="align-items:flex-start">
+      <div><h2 style="margin:.2em 0 4px">Vocabulary <span class="muted" id="voc-title"></span></h2>
+        <p class="muted" style="margin:0;max-width:760px">Harmonise a text column into concepts: a model groups the papers’ phrases, you review, and the committed vocabulary adds a <code>…_concept</code> and a <code>…_polarity</code> column to the analysis table. Optional; nothing changes for a dataset without one.</p></div>
+      <span><a class="btn btn-ghost btn-sm" id="voc-back" href="#">← Dataset</a></span>
+    </div>
+    <div id="voc-app"><p class="muted">Loading…</p></div>
+  </main>
+  <script type="module" src="/static/vocabulary.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

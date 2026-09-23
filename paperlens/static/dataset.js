@@ -136,7 +136,14 @@ function render() {
       <div id="ds-extlist" class="muted" style="font-size:13px">…</div></div>
 
     <!-- 5 · the other side of the same papers (only for presets with a registered check) -->
-    <div class="ds-card" id="ds-crosscheck" hidden></div>`;
+    <div class="ds-card" id="ds-crosscheck" hidden></div>
+
+    <!-- 6 · owner-only extras that most datasets never need -->
+    ${OWNER && !ANON ? `<details class="ds-adv" id="ds-advanced" style="margin:10px 0 0"><summary class="muted" style="font-size:13px;cursor:pointer">Advanced</summary>
+      <div class="ds-card" style="margin-top:8px"><div class="ds-card-h">Vocabulary <span class="muted" style="font-weight:400;font-size:12.5px">· harmonise a column into concepts</span>
+          <a class="btn btn-ghost btn-sm" href="/vocabulary?dataset=${esc(id)}" style="margin-left:auto">Open</a></div>
+        <p class="muted" style="font-size:13px;margin:0 0 6px">A model groups the phrases of a text column (a cause, an effect, a measure name) into concepts; you review and commit; the analysis table gains a <code>…_concept</code> column. Optional: nothing changes until you commit one.</p>
+        <div id="ds-voclist" class="muted" style="font-size:13px"></div></div></details>` : ""}`;
 
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
@@ -144,6 +151,7 @@ function render() {
   loadDashboards();
   loadExternal();
   loadCrosscheck();
+  loadVocabularies();
   const sf = $("#ds-saveform");
   if (sf) sf.onsubmit = async (e) => {
     e.preventDefault();
@@ -321,6 +329,14 @@ async function openReleaseForm() {
       host.innerHTML = ""; await loadReleases(); loadDashboards();
     } catch (e) { msg.textContent = e.message; $("#ds-rel-go").disabled = false; }
   };
+}
+
+// ── vocabularies (Advanced): what exists, and whether the live data outgrew it ──────────────────
+async function loadVocabularies() {
+  const host = $("#ds-voclist"); if (!host) return;
+  let r; try { r = await api.vocabularies(id); } catch { host.textContent = ""; return; }
+  const list = r.vocabularies || [];
+  host.innerHTML = list.length ? list.map((v) => `<div><code>${esc(v.column)}</code> · ${esc(v.unit)} · v${v.version} · ${esc(v.status)}${v.unresolved ? ` · <span class="lag">${v.unresolved} new value${v.unresolved === 1 ? "" : "s"} unresolved</span>` : ""} · <a href="/vocabulary?dataset=${esc(id)}&id=${esc(v.id)}">open</a></div>`).join("") : "No vocabulary yet.";
 }
 
 // ── cross-check against a companion dataset (claims ↔ tables): one verdict per row ─────────────
