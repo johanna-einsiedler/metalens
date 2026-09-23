@@ -1196,7 +1196,9 @@ function renderChainCard(panel, rec, rv) {
       const rel = (which) => { const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return ""; return v === "direct" ? `<span class="tag">direct measure</span>` : `<span class="tag warn">${esc(v === "assignment" ? "assignment indicator (stands in for the cause)" : v)}</span>`; };
       const role = R.role && row[R.role] && row[R.role] !== "main" ? ` <span class="tag">${esc(row[R.role])}</span>` : "";
       const stratum = [R.subgroup ? row[R.subgroup] : null, R.horizon ? row[R.horizon] : null].filter(Boolean)
-        .map((x) => `<span class="tag chain-stratum">${esc(x)}</span>`).join("");
+        .map((x) => `<span class="tag chain-stratum">${esc(x)}</span>`).join("")
+        + (R.value_from && row[R.value_from] === "text" ? `<span class="tag warn" title="the exhibit does not print this number; the paper states it in prose">number from the text</span>` : "")
+        + (R.value_from && row[R.value_from] === "absent" ? `<span class="tag warn">no number reported</span>` : "");
       const signOpp = R.sign_consistent && row[R.sign_consistent] === false ? ` <span class="chain-chk mismatch">sign opposes the claim</span>` : "";
       body += `<div class="chain-res" data-path="${esc(path)}"><div class="chain-line"><b>${esc(ex || "—")}</b>`
         + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : "")

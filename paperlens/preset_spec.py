@@ -592,7 +592,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E("$.display.review.results.child must name a child of the entries")
                     else:
                         cf = kids[res["child"]]
-                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation", "subgroup", "horizon", "estimand"):
+                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation", "subgroup", "horizon", "estimand", "value_from"):
                             if res.get(k) is not None and res[k] not in cf:
                                 E(f"$.display.review.results.{k} must name a field of {res['child']}")
                         for n in res.get("exhibit") or []:

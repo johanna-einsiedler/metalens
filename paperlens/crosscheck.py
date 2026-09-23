@@ -13,6 +13,8 @@ Statuses per result row
   unlinked     no regression column of that paper matches the cited table / panel / column
   no_estimate  the claim cites the exhibit but carries no number to check
   figure       the result is a figure; the tables dataset has nothing to check it against
+  stated       the number comes from the paper's prose, not from a printed table cell — the
+               exhibit still says which analysis it is, but there is no cell to compare it to
 
 The check runs on live data and on releases alike; a release freezes its rows (``snapshot
 ["crosscheck"]``) against the companion's latest release at the time, so a published page
@@ -143,10 +145,15 @@ def statuses(claim_rows: list[dict], regressions: list[dict]) -> list[dict]:
     out = []
     for row in claim_rows:
         base = {k: row.get(k) for k in ("record_id", "path", "claim_id", "result_id", "source_table", "panel", "column", "point_estimate")}
-        kind = row.get("exhibit") or "table"
-        if kind in ("figure", "text"):
+        kind, whence = row.get("exhibit") or "table", row.get("value_from") or "printed"
+        if whence != "printed":
+            out.append({**base, "status": "stated", "regression_id": None, "table_coefficients": [],
+                        "detail": ("the paper states this number in its prose, not in the exhibit — the analysis is "
+                                   f"{row.get('source_table') or 'not identified'}" if whence == "text" else "the paper reports no number here")}); continue
+        if kind in ("figure", "none"):
             out.append({**base, "status": "figure", "regression_id": None, "table_coefficients": [],
-                        "detail": f"{'a figure' if kind == 'figure' else 'stated in the text'}: nothing to transcribe against"}); continue
+                        "detail": "a figure: nothing to transcribe against" if kind == "figure"
+                                  else "the paper shows no exhibit for this estimate — its method cannot be read off one"}); continue
         tok, pan, col = table_token(row.get("source_table")), panel_token(row.get("panel")), column_digits(row.get("column"))
         cands = [r for r in by_paper.get(_paper_key(row.get("doi"), row.get("title")), [])
                  if tok and r["table"] == tok and (not col or r["column"] == col) and panels_compatible(pan, r["panel"])]
@@ -168,7 +175,7 @@ def statuses(claim_rows: list[dict], regressions: list[dict]) -> list[dict]:
 
 
 def summary(rows: list[dict]) -> dict:
-    out = {"exact": 0, "mismatch": 0, "unlinked": 0, "no_estimate": 0, "figure": 0}
+    out = {"exact": 0, "mismatch": 0, "unlinked": 0, "no_estimate": 0, "figure": 0, "stated": 0}
     for r in rows:
         out[r["status"]] = out.get(r["status"], 0) + 1
     return out

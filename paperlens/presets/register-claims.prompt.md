@@ -165,17 +165,24 @@ it is a match with `sign_consistent: false`, and that is a finding. The same res
 more than one claim. For a `comparison` claim, match the results on BOTH sides (`role: main`,
 one per side, each with its own `subgroup` and `estimand`) and say in `why` which side each is.
 
-A finding shown only in a figure: `exhibit: figure`, `source_table` the figure number,
-`point_estimate` only when the figure PRINTS the value (an annotation such as "DD elasticity =
-0.214 (0.011)"); never read a value off an axis.
+Two different questions, kept apart, because a number without its analysis cannot be compared
+with anything:
 
-**When no exhibit prints the number but the paper states it in its own text** — "women visit
-psychologists 0.10 more times per year", "opioid prescriptions rise by about 6 percent for men"
-— that sentence IS the estimate: `exhibit: "text"`, `source_table` the section it stands in
-("Introduction", "Section IV.B"), the number in `point_estimate` and the standard error in
-`estimate_se` when the text gives one, and the sentence itself as the evidence. A finding whose
-size the paper states in words is not a finding without a number. Only when neither an exhibit
-nor the text gives a number does the estimand go without one.
+- **Which analysis is this?** `exhibit` and `source_table` (+ `panel`, `column`) — the table or
+  figure whose specification, sample and estimator produced the number. Fill them even when the
+  number itself is not printed there. `exhibit: none` only when the paper reports the analysis
+  in prose alone ("in unreported regressions we find …"): that estimate has no method a reader
+  can check, and saying so is the point.
+- **Where does the number come from?** `value_from`: `printed` when the exhibit prints it (a
+  table cell, a figure annotation such as "DD elasticity = 0.214 (0.011)" — never read off an
+  axis); `text` when the exhibit shows the result but only the prose gives the number ("women
+  visit psychologists 0.10 more times per year"); `absent` when no number is reported at all.
+
+So a finding shown in Figure 3 whose value appears only in the introduction is
+`exhibit: "figure"`, `source_table: "Figure 3"`, `panel: "A"`, `value_from: "text"`, with the
+sentence as the evidence for `point_estimate` — the figure tells a reader what was estimated and
+how, the sentence gives the number. Only `printed` table values can be cross-checked against an
+independent transcription of the table, so the distinction is never cosmetic.
 
 ## Step 3 — the checks (they never delete a claim)
 

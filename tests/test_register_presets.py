@@ -77,7 +77,7 @@ def test_presets_load_and_their_prompts_carry_the_rules() -> None:
                  "is THREE claims", 'effect_construct: "mental health"', "A subgroup does NOT split the claim",
                  "Two `main` rows with the same `estimand` is an error", "a different **definition of the treatment**",
                  "which quantities does the paper estimate", "Never drop a claim because it carries no number",
-                 "construct_note` writes that auxiliary assumption", "When no exhibit prints the number but the paper states it in its own text",
+                 "construct_note` writes that auxiliary assumption", "Two different questions, kept apart", "never read off an axis", "`exhibit: none` only when the paper reports the analysis",
                  "a subgroup the abstract names ANYWHERE counts", "is filled even when the estimates below are split into subgroups"):
         assert must in p, must
     q = flat(preset_spec.render_prompt(tables, {}))

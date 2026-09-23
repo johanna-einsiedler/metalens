@@ -282,10 +282,10 @@
             "options": [
               "table",
               "figure",
-              "text"
+              "none"
             ],
             "evidence": "none",
-            "help": "where the number is printed: a table cell, a figure annotation, or the paper's own prose when no exhibit prints it"
+            "help": "which exhibit shows the ANALYSIS this estimate comes from — a table, a figure, or none when the paper reports the analysis only in prose ('in unreported regressions …'). Fill it even when the number itself is not printed there: the exhibit is what tells a reader the estimator, the sample and the specification"
           },
           {
             "name": "source_table",
@@ -293,7 +293,7 @@
             "required": true,
             "label": "Table / figure",
             "evidence": "row",
-            "help": "as printed: 'Table 3', 'Table A2', 'Figure 4'; for a prose estimate the section it is stated in ('Introduction', 'Section IV.B')"
+            "help": "the exhibit as printed: 'Table 3', 'Table A2', 'Figure 4' — the analysis this estimate belongs to, even when its value is only stated in the text; null only when the paper shows no exhibit for it"
           },
           {
             "name": "panel",
@@ -343,6 +343,18 @@
             "label": "Regressor",
             "evidence": "row",
             "help": "the coefficient's regressor as printed (the treatment, the instrumented variable, the policy variable)"
+          },
+          {
+            "name": "value_from",
+            "type": "enum",
+            "label": "Number from",
+            "options": [
+              "printed",
+              "text",
+              "absent"
+            ],
+            "evidence": "none",
+            "help": "where the NUMBER comes from: printed = it is printed in the exhibit (a table cell, a figure annotation); text = the exhibit does not print it but the paper states it in prose ('women visit psychologists 0.10 more times per year'); absent = the paper reports no number for this estimate. Only a printed table value can be cross-checked against the transcribed cells"
           },
           {
             "name": "point_estimate",
@@ -525,6 +537,9 @@
         ],
         "construct_basis": [
           "dimension"
+        ],
+        "value_from": [
+          "dimension"
         ]
       },
       "default_dashboard": [
@@ -667,7 +682,8 @@
         "why": "why",
         "subgroup": "subgroup",
         "horizon": "horizon",
-        "estimand": "estimand"
+        "estimand": "estimand",
+        "value_from": "value_from"
       },
       "qualifies": {
         "type": "type",

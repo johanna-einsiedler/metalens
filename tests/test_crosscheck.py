@@ -42,12 +42,12 @@ def test_matching_rules() -> None:
                        _row(result_id="R4", source_table="Table 3", point_estimate=-1.3),                             # resolves, no cell equals it
                        _row(result_id="R5", source_table="Table 9"), _row(result_id="R6", point_estimate=None),
                        _row(result_id="R7", exhibit="figure", source_table="Figure 2"),
-                       _row(result_id="R7b", exhibit="text", source_table="Introduction"),      # a number the paper states in prose
+                       _row(result_id="R7b", exhibit="figure", source_table="Figure 3", value_from="text"),   # the analysis is a figure, the number is in the prose
                        _row(result_id="R8", doi="10.9/other", title="Other")], regs)
-    assert [r["status"] for r in out] == ["exact", "exact", "exact", "mismatch", "unlinked", "no_estimate", "figure", "figure", "unlinked"]
-    assert "stated in the text" in out[7]["detail"]
+    assert [r["status"] for r in out] == ["exact", "exact", "exact", "mismatch", "unlinked", "no_estimate", "figure", "stated", "unlinked"]
+    assert "states this number in its prose" in out[7]["detail"] and "Figure 3" in out[7]["detail"]
     assert out[0]["regression_id"] == "T3::_::C1" and out[3]["table_coefficients"] == [-1.292, 0.4]
-    assert cc.summary(out) == {"exact": 3, "mismatch": 1, "unlinked": 2, "no_estimate": 1, "figure": 2}
+    assert cc.summary(out) == {"exact": 3, "mismatch": 1, "unlinked": 2, "no_estimate": 1, "figure": 1, "stated": 1}
     assert cc.companion_preset("register-claims@abc") == "register-tables" and cc.companion_preset("human-ai-collab@x") is None
     assert cc.check_for("register-claims@1", "register-tables@2")["unit"] == "results" and cc.check_for("register-tables@2", "register-claims@1") is None
 
@@ -78,7 +78,7 @@ def test_column_release_export_and_api() -> None:
     k = t["columns"].index(col)
     assert col["scope"] == "check" and [r["v"][k] for r in t["rows"]] == ["exact", "unlinked", None]     # the claim without results has no verdict
     live = c.get(f"/api/datasets/{claims_ds}/crosscheck", headers=mine).json()
-    assert live["companion"]["id"] == tables_ds and live["companion_unreleased"] is True and live["summary"] == {"exact": 1, "mismatch": 0, "unlinked": 1, "no_estimate": 0, "figure": 0}
+    assert live["companion"]["id"] == tables_ds and live["companion_unreleased"] is True and live["summary"] == {"exact": 1, "mismatch": 0, "unlinked": 1, "no_estimate": 0, "figure": 0, "stated": 0}
     assert live["rows"][0]["regression_id"] == "T3::_::C1" and live["rows"][0]["result_id"] == "R1"
     # a release freezes the verdicts (against the companion's release, once it has one) and exports them
     assert c.post(f"/api/datasets/{tables_ds}/releases", json={}, headers=mine).json()["number"] == 1
