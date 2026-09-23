@@ -2,7 +2,7 @@
 
 One engine, two products, for turning research papers into structured, verifiable data.
 
-- **Metalens** ([beta.metalens.tech](https://beta.metalens.tech)) — the general platform:
+- **Metalens** ([metalens.tech](https://metalens.tech)) — the general platform:
   extract, label or summarise papers with any preset, review every value against the
   highlighted passage it came from, build datasets, publish them.
 - **MASEMiner** — the focused product for meta-analytic structural equation modelling:

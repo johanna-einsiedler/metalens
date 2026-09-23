@@ -1,8 +1,9 @@
-# Metalens beta — Fly.io deployment (beta.metalens.tech).
+# Metalens — Fly.io deployment (metalens.tech; beta.metalens.tech points at the same app).
 #
 # Two processes off one image: `app` (web) and `worker` (arq). Postgres + Redis are
-# managed services; PDFs/page images live in Cloudflare R2 (S3-compatible). The whole
-# site sits behind a shared-password HTTP Basic Auth gate (PAPERLENS_BASIC_PASSWORD).
+# managed services; PDFs/page images live in Cloudflare R2 (S3-compatible). Setting
+# PAPERLENS_BASIC_PASSWORD puts the whole site behind one shared password (staging); unset it
+# and the site is public.
 #
 # One-time setup:
 #   fly launch --no-deploy --name metalens-beta        # or `fly apps create metalens-beta`
@@ -10,7 +11,7 @@
 #     PAPERLENS_DATABASE_URL="postgres://…"  \          # managed Postgres DSN
 #     PAPERLENS_REDIS_URL="rediss://…"       \          # Upstash/Fly Redis (TLS ok)
 #     PAPERLENS_SECRET="$(openssl rand -hex 32)" \      # artifact-token HMAC key
-#     PAPERLENS_BASIC_PASSWORD="choose-a-beta-password" \
+#     PAPERLENS_PUBLIC_URL="https://metalens.tech" \            # the address in citations and links
 #     PAPERLENS_S3_BUCKET="metalens" PAPERLENS_S3_ENDPOINT="https://<acct>.r2.cloudflarestorage.com" \
 #     AWS_ACCESS_KEY_ID="…" AWS_SECRET_ACCESS_KEY="…" AWS_REGION="auto"
 #   # optional — enable Metalens credits (keyless extraction) and GitHub publishing.
@@ -20,7 +21,9 @@
 #   fly secrets set PAPERLENS_GOOGLE_KEY="AIza…"
 #   fly secrets set PAPERLENS_GITHUB_TOKEN="ghp_…"
 #   fly deploy
-#   fly certs add beta.metalens.tech      # then add the shown CNAME/A records in DNS
+#   fly certs add metalens.tech && fly certs add www.metalens.tech   # then the shown A/AAAA + CNAME
+#   #   apex  metalens.tech      A/AAAA → the addresses `fly ips list` prints
+#   #   www   www.metalens.tech  CNAME  → metalens-beta.fly.dev   (the app redirects www → apex)
 #   fly certs add maseminer.metalens.tech # the MASEMiner surface: same app, brand by hostname
 #   fly ssh console -C "python scripts/create_user.py --email you@example.org --password … --credits 25"
 #

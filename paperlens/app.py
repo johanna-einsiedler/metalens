@@ -63,6 +63,17 @@ def healthz() -> dict:
 
 
 @app.middleware("http")
+async def _canonical_host(request, call_next):
+    """``www.`` → the bare host, permanently. Fly serves whatever hostname points at it, so
+    without this both spellings would answer and split links, sessions and search results."""
+    host = (request.headers.get("host") or "").split(":")[0]
+    if host.startswith("www.") and request.method in ("GET", "HEAD"):
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme   # behind Fly's proxy
+        return Response(status_code=301, headers={"Location": str(request.url.replace(scheme=scheme, netloc=host[4:]))})
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def _beta_password_gate(request, call_next):
     password = os.environ.get("PAPERLENS_BASIC_PASSWORD")
     if password and request.url.path not in _GATE_EXEMPT:

@@ -1552,7 +1552,8 @@ def dataset_citation(*, title: str | None, slug: str | None, dataset_id: str, au
     server's page. Editable by the owner; regenerated when nothing custom is set."""
     import datetime as _dt
     who = "Anonymous" if anonymous else (author or "[author]")
-    base = os.environ.get("PAPERLENS_PUBLIC_URL", "https://beta.metalens.tech").rstrip("/")
+    from . import brands
+    base = brands.public_url()
     where = url or f"{base}/dataset?id={dataset_id}"
     return (f"{who} ({year or _dt.date.today().year}). {title or slug or 'Untitled dataset'} "
             f"(version {version}) [Data set]. Metalens. {where}")

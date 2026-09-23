@@ -39,7 +39,18 @@ class Brand:
         d = asdict(self)
         d["nav_shared"] = [{"href": h, "label": l} for h, l in self.nav_shared]
         d["nav_personal"] = [{"href": h, "label": l} for h, l in self.nav_personal]
+        if d["links"].get("parent") == _PARENT:          # resolved per request, never frozen at import
+            d["links"] = {**d["links"], "parent": public_url()}
         return d
+
+
+_PARENT = "\x00parent"      # a placeholder the serializer swaps for the live public URL
+
+
+def public_url() -> str:
+    """Where this deployment is reachable — for citations, the MASEMiner parent link and the
+    canonical host. One env var, so moving the site is a secret, not a deploy."""
+    return os.environ.get("PAPERLENS_PUBLIC_URL", "https://metalens.tech").rstrip("/")
 
 
 METALENS = Brand(
@@ -63,7 +74,7 @@ MASEMINER = Brand(
     nav_personal=(("/extract", "Extract"), ("/import", "Import"), ("/workspace", "Review")),
     links={"source": "https://github.com/johanna-einsiedler/metalens",
            "run_locally": "https://github.com/johanna-einsiedler/metalens#run-maseminer-locally",
-           "parent": "https://beta.metalens.tech"},
+           "parent": _PARENT},
 )
 
 BRANDS: dict[str, Brand] = {b.id: b for b in (METALENS, MASEMINER)}

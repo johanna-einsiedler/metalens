@@ -156,3 +156,19 @@ def test_authz() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(run())
+
+
+def test_www_redirects_to_the_bare_host_and_the_gate_is_opt_in(monkeypatch) -> None:
+    """One spelling of the address: www is a permanent redirect to the apex, keeping the scheme
+    the proxy reports. The shared-password gate exists but is a no-op unless a password is set."""
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    c = TestClient(app)
+    r = c.get("/healthz", headers={"host": "www.metalens.tech", "x-forwarded-proto": "https"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://metalens.tech/healthz"
+    assert c.get("/healthz", headers={"host": "metalens.tech"}).status_code == 200
+    monkeypatch.setenv("PAPERLENS_BASIC_PASSWORD", "shared")
+    assert c.get("/", headers={"host": "metalens.tech"}).status_code == 401
+    assert c.get("/healthz", headers={"host": "metalens.tech"}).status_code == 200      # Fly's health check is exempt
+    monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD")
+    assert c.get("/", headers={"host": "metalens.tech"}).status_code == 200
