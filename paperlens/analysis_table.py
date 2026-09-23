@@ -407,7 +407,16 @@ def live_source(conn, dataset_id: str) -> dict | None:
     if d is None:
         return None
     raw = _load(conn, dataset_id)
+    # The dataset names the schema it was created with; the RECORDS are the data. When every
+    # record has moved to one other version of the same preset (the preset gained a field and the
+    # papers were re-extracted or re-imported), read them with that version — otherwise the new
+    # columns would stay invisible. Mixed versions keep the dataset's own, as before.
     schema_id = d.get("schema_id") or next((r[6] for r in raw if r[6]), None)
+    theirs = {r[6] for r in raw if r[6]}
+    if len(theirs) == 1 and schema_id not in theirs:
+        only = next(iter(theirs))
+        if only.partition("@")[0] == (schema_id or "").partition("@")[0]:
+            schema_id = only
     cred = records.dataset_credibility(conn, dataset_id)
     # when the DATA last changed: a paper added, a row verified or corrected, the dataset edited
     changed = conn.execute(

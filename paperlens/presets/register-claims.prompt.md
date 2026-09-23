@@ -38,8 +38,14 @@ If the PDF prints no abstract, set `paper_metadata.abstract_source` to `none` an
 
 # RULES FOR EACH CLAIM
 
-1. Atomic. One cause, one effect. "X increases labor and capital income" is two claims. Never
-   use placeholder variables ("one income type", "the other group"): one claim per CONCRETE pair.
+1. Atomic — one cause, one effect, as granular as the sentence allows. "X increases labor and
+   capital income" is two claims. Never use placeholder variables ("one income type", "the other
+   group"): one claim per CONCRETE pair. A sentence that names several measured things is that
+   many claims: "Both women and men experience mental health deterioration, leading to increased
+   use of psychological assistance and prescriptions for mental health conditions and opioids"
+   is THREE claims — parental death → + use of psychological assistance, → + prescriptions for
+   mental-health conditions, → + opioid prescriptions. Split to the variable the paper actually
+   measures, never to the umbrella it stands for.
 2. Directional only. `statement` reads `<cause> increases | decreases | has no effect on |
    has mixed effects on <effect>`. NO numbers, no "significantly", no method, no setting, no
    population in it. A stated magnitude goes, verbatim, in `magnitude_stated`.
@@ -48,30 +54,40 @@ If the PDF prints no abstract, set `paper_metadata.abstract_source` to `none` an
    Name `cause` and `effect` the way the abstract names them: short noun phrases, no
    transformations ("earnings", not "log earnings"). Use the authors' OWN variable; do not
    convert it to its mirror image (net-of-tax rate vs tax rate).
-4. Scope as fields, never in the statement and never inside a variable: `scope_setting`,
-   `scope_period`, `scope_population`, `scope_identification`. "labor income of wage earners"
-   is effect "labor income" with population "wage earners"; two findings that differ only in
-   who they are about are two claims with the same cause and effect and different scope. null
-   when not stated.
-5. Anchor and introduction sentence, VERBATIM. `anchor_quote` is the abstract sentence (at most
+4. Keep the hierarchy: `cause_construct` / `effect_construct`. When a paper measures one
+   construct through several variables, each claim names its own concrete variable AND the
+   construct it indicates: the three claims above all carry `effect_construct: "mental health"`,
+   written identically. That is what lets them be read together later without merging them now.
+   Null when the variable IS the construct ("earnings" needs no umbrella). Never put the
+   construct in `cause` / `effect`, and never invent one the paper does not talk about.
+5. Scope as fields, never in the statement and never inside a variable: `scope_setting`,
+   `scope_period`, `scope_population`, `scope_identification` — the setting, period, population
+   and design of the STUDY. "labor income of wage earners" is effect "labor income" with
+   population "wage earners". null when not stated.
+6. A subgroup does NOT split the claim. "men's earnings decline by 2 percent, while women's
+   decline by 3 percent" is ONE claim — parental death → − earnings — whose two estimates are
+   two `results` rows with `subgroup: "men"` and `subgroup: "women"`. Split into separate claims
+   only when the DIRECTION differs between the groups (then each claim names its group in
+   `scope_population`, and the abstract's comparison is a `comparison` claim on top).
+7. Anchor and introduction sentence, VERBATIM. `anchor_quote` is the abstract sentence (at most
    60 words). `intro_sentence` is the introduction sentence that completes the claim or says
    HOW the finding was obtained or WHERE it is shown — the design, the sample, the comparison,
    the exhibit; it is the bridge from the claim to the results. Only when the introduction does
    not identify the analysis may it be the body sentence that introduces the exhibit. A
    paraphrase fails the check.
-6. Support grade, never upgraded. `explicit`: the anchor alone states cause, effect and
+8. Support grade, never upgraded. `explicit`: the anchor alone states cause, effect and
    direction. `assembled`: anchor plus introduction sentence together state all three. `weak`:
    a variable or the direction is your inference — say which in `notes`.
-7. Type. `edge`: a causal effect of one variable on another. `comparison`: the ABSTRACT
+9. Type. `edge`: a causal effect of one variable on another. `comparison`: the ABSTRACT
    compares effects (larger for A than B) — give `qualifies` (the ids of the edge claims
    compared), `moderator`, `relation`; a comparison never creates a variable, and if an edge it
    qualifies is not otherwise stated, add that edge. `not_causal`: an abstract sentence that
    presents a descriptive fact, a method or data as a finding — list it (statement, anchor;
    no cause / effect / sign) so nothing is silently dropped.
-8. Only this paper's findings. Not prior literature, motivation, hypotheses or what "could"
+10. Only this paper's findings. Not prior literature, motivation, hypotheses or what "could"
    happen. Tested nulls ARE findings.
-9. No duplicates. The same (cause, effect, sign, scope) is ONE claim.
-10. Ids `S1`, `S2`, … in the order of the abstract.
+11. No duplicates. The same (cause, effect, sign, scope) is ONE claim.
+12. Ids `S1`, `S2`, … in the order of the abstract.
 
 # FROM WHAT THE PAPER SAYS TO WHAT ITS TABLES SHOW
 
@@ -81,8 +97,12 @@ cause, whose outcome measures the claim's effect, and whose setting, period, pop
 design fall inside the claim's scope. Read the whole paper for this part, appendix tables
 included.
 
-For each result:
+One result row is ONE printed estimate. For each:
 - `source_table`, `panel`, `column`, `row_label`: where the coefficient is printed, as printed.
+- `subgroup`: whose estimate it is when the column or panel restricts the claim's population
+  ("men", "women", "top earnings quartile"); null when it covers the whole population of the
+  claim. `horizon`: the window it covers when the paper reports several ("years 0-1", "year 5",
+  "long run"), as printed in the panel or column heading; null when there is only one.
 - `point_estimate`: the coefficient exactly as printed in that cell — sign and every digit;
   stars, parentheses, commas and % stripped; never rounded, never computed, never read off an
   axis. `estimate_se`: the standard error printed for it, if the table prints one.
@@ -97,12 +117,21 @@ For each result:
   income".) null when there is no estimate or it cannot be told.
 - `why`: one sentence.
 
+**One `main` per stratum.** A stratum is one (`subgroup`, `horizon`) pair of a claim. Within a
+stratum exactly one result is the estimate the authors would point to — `role: main`. Every
+further printed estimate of that same stratum is the same finding measured again and is
+`supporting` (another specification they rely on), `robustness` (a check) or `heterogeneity`
+(a split they only report as a check, not as the claim). So a claim with estimates for men and
+women over two horizons has four `main` rows and as many alternatives as the paper prints;
+a claim the paper estimates once under six specifications has ONE `main` and five alternatives.
+Different definitions of the treatment (continuous exposure vs a discrete indicator, one reform
+vs another) are alternatives, not strata — unless the abstract states them as separate findings.
+
 Sign agreement is NOT a criterion for matching: a result that tests the claim and disagrees
 with it is a match with `sign_consistent: false`, and that is a finding. Prefer few, right
-matches over many plausible ones; at most two `main` per claim unless the finding is genuinely
-carried by several estimates. The same result may serve more than one claim. For a
-`comparison` claim, match the results on BOTH sides of the comparison (`role: main`) and say
-in `why` which side each is.
+matches over many plausible ones. The same result may serve more than one claim. For a
+`comparison` claim, match the results on BOTH sides of the comparison (`role: main`, one per
+side, each with its `subgroup`) and say in `why` which side each is.
 
 A finding shown only in a figure: `exhibit: figure`, `source_table` the figure number,
 `point_estimate` only when the figure PRINTS the value (an annotation such as "DD elasticity

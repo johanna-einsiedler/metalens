@@ -86,6 +86,20 @@
         "help": "the effect as the abstract names it; null for not_causal"
       },
       {
+        "name": "cause_construct",
+        "type": "string",
+        "label": "Cause construct",
+        "evidence": "row",
+        "help": "the broader construct the cause is an indicator of, when this paper measures one construct through several variables: 'tax incentives' for 'marginal net-of-tax rate'. Write it the SAME way in every claim that indicates it; null when the cause IS the construct"
+      },
+      {
+        "name": "effect_construct",
+        "type": "string",
+        "label": "Effect construct",
+        "evidence": "row",
+        "help": "the broader construct the effect is an indicator of: 'mental health' for 'use of psychological assistance', 'prescriptions for mental-health conditions' and 'opioid prescriptions' — three claims, one construct, written identically in all three. Null when the effect IS the construct"
+      },
+      {
         "name": "sign",
         "type": "enum",
         "label": "Sign",
@@ -277,6 +291,20 @@
             "help": "the row label of the coefficient as printed; for a figure the annotation or series it comes from"
           },
           {
+            "name": "subgroup",
+            "type": "string",
+            "label": "Subgroup",
+            "evidence": "row",
+            "help": "who this estimate is for when the column or panel restricts the claim's population: 'men', 'women', 'top earnings quartile', 'manufacturing'. Null when it covers the claim's whole population. The claim itself stays general — the subgroup lives here, so the estimates for men and women stay apart"
+          },
+          {
+            "name": "horizon",
+            "type": "string",
+            "label": "Horizon",
+            "evidence": "row",
+            "help": "the window this estimate covers when the paper reports several: 'years 0-1', 'year 5', 'the post-reform period', 'long run'. Null when the paper reports only one. As printed in the panel or column heading"
+          },
+          {
             "name": "outcome_variable",
             "type": "string",
             "label": "Outcome",
@@ -452,6 +480,18 @@
         ],
         "estimate_se": [
           "dispersion"
+        ],
+        "cause_construct": [
+          "dimension"
+        ],
+        "effect_construct": [
+          "dimension"
+        ],
+        "subgroup": [
+          "dimension"
+        ],
+        "horizon": [
+          "dimension"
         ]
       },
       "default_dashboard": [
@@ -530,6 +570,8 @@
                 "claim_id",
                 "statement",
                 "sign",
+                "subgroup",
+                "horizon",
                 "role",
                 "source_table",
                 "column",
@@ -589,7 +631,9 @@
         "effect_relation": "outcome_relation",
         "role": "role",
         "sign_consistent": "sign_consistent",
-        "why": "why"
+        "why": "why",
+        "subgroup": "subgroup",
+        "horizon": "horizon"
       },
       "qualifies": {
         "type": "type",
@@ -602,6 +646,10 @@
       "support_labels": {
         "weak": "direction or variable inferred",
         "assembled": "assembled from the introduction"
+      },
+      "constructs": {
+        "from": "cause_construct",
+        "to": "effect_construct"
       }
     }
   }

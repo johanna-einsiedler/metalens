@@ -1163,9 +1163,11 @@ function renderChainCard(panel, rec, rv) {
   const kind = typeField ? fv[typeField] : null;
   const card = document.createElement("article");
   card.className = "record chain-card"; card.dataset.rid = rec.id; if (edgeKey) card.dataset.edge = edgeKey;
-  const node = (text, concept) => `<span class="chain-node">${esc(text)}${concept ? `<small>${esc(concept)}</small>` : ""}</span>`;
+  const K = rv.constructs || {};
+  const node = (text, concept, construct) => `<span class="chain-node">${esc(text)}`
+    + (concept ? `<small>${esc(concept)}</small>` : construct ? `<small class="chain-construct" title="the construct this variable indicates">↳ ${esc(construct)}</small>` : "") + `</span>`;
   const edge = isEdge
-    ? `<div class="chain-edge">${node(cause, concepts[`${F.from}_concept`])}<span class="chain-arrow ${cls}"><span class="ln"></span><span class="sg ${cls}">${SIGN_GLYPH[sign] || "0"}</span><span class="ln"></span><span class="hd"></span></span>${node(effect, concepts[`${F.to}_concept`])}</div>`
+    ? `<div class="chain-edge">${node(cause, concepts[`${F.from}_concept`], K.from ? fv[K.from] : null)}<span class="chain-arrow ${cls}"><span class="ln"></span><span class="sg ${cls}">${SIGN_GLYPH[sign] || "0"}</span><span class="ln"></span><span class="hd"></span></span>${node(effect, concepts[`${F.to}_concept`], K.to ? fv[K.to] : null)}</div>`
     : `<div class="chain-stmt">${esc(fv[rv.statement] || entryTitle(VM, rec, rec.entry_index))}${kind ? ` <span class="tag">${esc(kind)}</span>` : ""}</div>`;
   const scope = (rv.scope || []).map((n) => fv[n]).filter((v) => v !== null && v !== undefined && v !== "");
   // the quotes
@@ -1193,10 +1195,12 @@ function renderChainCard(panel, rec, rv) {
       const val = row[R.value], se = R.se ? row[R.se] : null;
       const rel = (which) => { const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return ""; return v === "direct" ? `<span class="tag">direct measure</span>` : `<span class="tag warn">${esc(v === "assignment" ? "assignment indicator (stands in for the cause)" : v)}</span>`; };
       const role = R.role && row[R.role] && row[R.role] !== "main" ? ` <span class="tag">${esc(row[R.role])}</span>` : "";
+      const stratum = [R.subgroup ? row[R.subgroup] : null, R.horizon ? row[R.horizon] : null].filter(Boolean)
+        .map((x) => `<span class="tag chain-stratum">${esc(x)}</span>`).join("");
       const signOpp = R.sign_consistent && row[R.sign_consistent] === false ? ` <span class="chain-chk mismatch">sign opposes the claim</span>` : "";
       body += `<div class="chain-res" data-path="${esc(path)}"><div class="chain-line"><b>${esc(ex || "—")}</b>`
         + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : "")
-        + ` <span class="chain-num">${val === null || val === undefined ? "—" : esc(String(val))}${se !== null && se !== undefined ? ` (${esc(String(se))})` : ""}</span> ${chk}${signOpp}${role}</div>`
+        + ` <span class="chain-num">${val === null || val === undefined ? "—" : esc(String(val))}${se !== null && se !== undefined ? ` (${esc(String(se))})` : ""}</span> ${stratum}${chk}${signOpp}${role}</div>`
         + (R.row && row[R.row] ? `<div class="chain-rowlab muted">${esc(row[R.row])}</div>` : "")
         + (R.cause ? `<div class="chain-op"><span class="k">cause</span><span>${esc(row[R.cause] || "—")} ${rel("cause")}</span></div>` : "")
         + (R.effect ? `<div class="chain-op"><span class="k">effect</span><span>${esc(row[R.effect] || "—")} ${rel("effect")}</span></div>` : "")

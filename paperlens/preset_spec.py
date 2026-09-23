@@ -577,6 +577,9 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 for k in ("support", "notes", "statement"):
                     if rv.get(k) is not None and rv[k] not in enames:
                         E(f"$.display.review.{k} must name an entry field")
+                con = rv.get("constructs")
+                if con is not None and (not isinstance(con, dict) or any(con.get(k) is not None and con[k] not in enames for k in ("from", "to"))):
+                    E("$.display.review.constructs needs entry fields: from, to (the construct each end indicates)")
                 for n in rv.get("scope") or []:
                     if n not in enames:
                         E(f"$.display.review.scope: {n!r} is not an entry field")
@@ -589,7 +592,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E("$.display.review.results.child must name a child of the entries")
                     else:
                         cf = kids[res["child"]]
-                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation"):
+                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation", "subgroup", "horizon"):
                             if res.get(k) is not None and res[k] not in cf:
                                 E(f"$.display.review.results.{k} must name a field of {res['child']}")
                         for n in res.get("exhibit") or []:

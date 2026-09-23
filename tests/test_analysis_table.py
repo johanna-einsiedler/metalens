@@ -216,3 +216,28 @@ def test_only_complete_rows_are_analysed_and_the_rest_is_counted() -> None:
     assert {u["id"]: u["n"] for u in t["units"]} == {"entries": 1, "conditions": 1, "conditions.measures": 2}
     assert len(at.build(conn, ds, "entries", owner=True)["rows"]) == 1          # experiment 2 has no complete measure
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.commit(); conn.close()
+
+
+def test_a_dataset_follows_its_records_when_the_preset_gained_a_field() -> None:
+    """A preset that gains a field mints a new schema version. Once EVERY record of the dataset
+    carries that version (re-extracted, re-imported), the analysis table reads them with it —
+    otherwise the new columns would stay invisible. Mixed versions keep the dataset's own."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    conn = records.connect(); records.init_db(conn)
+    ds, _doc = _seed(conn, HAC, "human-ai-collab", f"ver-{uuid.uuid4().hex[:6]}")
+    old = at.live_source(conn, ds)["schema_id"]
+    newer = f"{old.partition('@')[0]}@ffffffff"
+    with conn.transaction():
+        conn.execute("INSERT INTO schema (id, field_defs) SELECT %s, field_defs FROM schema WHERE id = %s ON CONFLICT (id) DO NOTHING", (newer, old))
+        conn.execute("UPDATE record SET schema_id = %s WHERE dataset_id = %s::uuid", (newer, ds))
+    assert at.live_source(conn, ds)["schema_id"] == newer                      # all records agree: follow them
+    with conn.transaction():
+        conn.execute("UPDATE record SET schema_id = %s WHERE dataset_id = %s::uuid AND entry_index = 0", (old, ds))
+    assert at.live_source(conn, ds)["schema_id"] == old                        # mixed: the dataset's own, as before
+    other = f"other-preset@{uuid.uuid4().hex[:8]}"
+    with conn.transaction():
+        conn.execute("INSERT INTO schema (id, field_defs) SELECT %s, field_defs FROM schema WHERE id = %s", (other, old))
+        conn.execute("UPDATE record SET schema_id = %s WHERE dataset_id = %s::uuid", (other, ds))
+    assert at.live_source(conn, ds)["schema_id"] == old                        # another preset is never silently adopted
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

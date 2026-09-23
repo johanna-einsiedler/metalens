@@ -67,6 +67,16 @@ def norm_table_token(tok) -> str | None:
     return None
 
 
+_HORIZON = re.compile(r"(years?\s*[-–—]?\s*\d+\s*(?:[-–—to]+\s*\d+)?|short[- ]run|long[- ]run|post[- ]\w+\s+period|first\s+\w+\s+years?)", re.I)
+
+
+def horizon_of(src: str) -> str | None:
+    """The window an estimate covers, when the printed reference names one ('Table 3, Panel A.
+    Years 0-1' → 'years 0-1'). Never invented: only what the paper's own label says."""
+    m = _HORIZON.search(src or "")
+    return re.sub(r"\s+", " ", m.group(1)).strip().lower() if m else None
+
+
 def parse_source_table(s: str) -> dict:
     """'Table 3, Panel A, column (2)' → {exhibit: table, source_table: 'Table 3', panel: 'A', column: '(2)'};
     'Figure 4, Panel A …' → {exhibit: figure, source_table: 'Figure 4', panel: 'A', column: None}."""
@@ -192,6 +202,7 @@ def convert_claims(stated: dict, cmap: dict, results: dict, tables: dict, meta: 
                 where = {"exhibit": "table", "source_table": reg.get("table_number") or where["source_table"], "panel": reg.get("panel") or where["panel"], "column": reg.get("column") or where["column"]}
             row = {"result_id": mt["claim_id"], "role": mt.get("role") or "supporting", "exhibit": where["exhibit"], "source_table": where["source_table"],
                    "panel": where["panel"], "column": where["column"], "row_label": (cell or {}).get("row_label") or ((reg or {}).get("target_regressors") or [{}])[0].get("name"),
+                   "subgroup": None, "horizon": horizon_of(src),   # the old extraction records no subgroup; the horizon is in the printed reference
                    "outcome_variable": (reg or {}).get("outcome_variable") or (rc.get("outcome") or {}).get("label"), "regressor": (rc.get("treatment") or {}).get("label"),
                    "point_estimate": pt, "estimate_se": se, "treatment_relation": mt.get("treatment_relation"), "outcome_relation": mt.get("outcome_relation"),
                    "sign_consistent": mt.get("sign_consistent"), "why": mt.get("why"),

@@ -22,15 +22,18 @@ CLAIMS = {
     "claims": [
         {"claim_id": "S1", "type": "edge", "statement": "Import competition decreases employment in mid-wage occupations.",
          "cause": "import competition", "effect": "employment in mid-wage occupations", "sign": "-",
+         "cause_construct": "trade exposure", "effect_construct": "job polarization",
          "anchor_quote": "rising import competition has led to reduced employment in mid-wage occupations", "intro_sentence": "Our difference-in-differences strategy compares occupation trajectories of workers",
          "support": "explicit", "refined_by_introduction": False, "scope_setting": "Denmark", "scope_period": "1999-2009",
          "scope_population": "textile workers", "scope_identification": "difference-in-differences", "magnitude_stated": None,
          "qualifies": [], "moderator": None, "relation": None, "notes": None,
          "results": [
              {"result_id": "R1", "role": "main", "exhibit": "table", "source_table": "Table 3", "panel": None, "column": "(1)", "row_label": "Import Competition",
+              "subgroup": "men", "horizon": "years 0-1",
               "outcome_variable": "Mid-wage employment", "regressor": "Import Competition", "point_estimate": -1.292, "estimate_se": 0.382,
               "treatment_relation": "direct", "outcome_relation": "direct", "sign_consistent": True, "why": "the headline DiD coefficient"},
-             {"result_id": "R2", "role": "supporting", "exhibit": "table", "source_table": "Table 4", "panel": "A", "column": "(1)", "row_label": "Import Competition",
+             {"result_id": "R2", "role": "main", "exhibit": "table", "source_table": "Table 4", "panel": "A", "column": "(1)", "row_label": "Import Competition",
+              "subgroup": "women", "horizon": "years 0-1",
               "outcome_variable": "Mid-wage employment", "regressor": "Import Competition", "point_estimate": -1.991, "estimate_se": None,
               "treatment_relation": "direct", "outcome_relation": "direct", "sign_consistent": True, "why": "same finding, extended sample"}]},
         {"claim_id": "S2", "type": "not_causal", "statement": "The paper uses employer-employee matched data.", "cause": None, "effect": None, "sign": None,
@@ -70,12 +73,16 @@ def test_presets_load_and_their_prompts_carry_the_rules() -> None:
     p = flat(preset_spec.render_prompt(claims, {}))
     for must in ("The abstract decides WHICH findings exist", "is NOT a claim", "Refinement never adds what the anchor does not announce",
                  "Sign agreement is NOT a criterion for matching", "Do not force a match", "THE THREE QUOTES",
-                 'claims[i].anchor_quote, claims[i].intro_sentence', "claims[i].results[j].point_estimate"):
+                 'claims[i].anchor_quote, claims[i].intro_sentence', "claims[i].results[j].point_estimate",
+                 "is THREE claims", 'effect_construct: "mental health"', "A subgroup does NOT split the claim",
+                 "One `main` per stratum", "Different definitions of the treatment"):
         assert must in p, must
     q = flat(preset_spec.render_prompt(tables, {}))
     for must in ("T<table>::<panel>::C<column>", "refers_to", "Enumerate every control individually", "regressions[i].cells"):
         assert must in q, must
     real = lambda issues: [i for i in issues if i["code"] != "missing_confidence"]   # noqa: E731  (the fixtures carry no ratings)
+    assert claims["display"]["review"]["constructs"] == {"from": "cause_construct", "to": "effect_construct"}
+    assert claims["display"]["review"]["results"]["subgroup"] == "subgroup"
     rv = claims["display"]["review"]
     assert rv["layout"] == "chain" and rv["edge"] == {"from": "cause", "to": "effect", "sign": "sign", "signs": {"+": "increases", "-": "decreases", "0": "no effect", "mixed": "mixed"}}
     broken = copy.deepcopy(claims); broken["display"]["review"]["results"]["value"] = "no_such_field"; broken["display"]["review"]["quotes"].append({"label": "X", "field": "nope"})
@@ -94,10 +101,14 @@ def test_units_and_rows() -> None:
     rows = at.flatten(claims, at._unit(claims, None), [{"idx": k, "field_values": r.field_values, "entry_index": k, "sys": {"_study": "Keller (2023)"}} for k, r in enumerate(recs)])
     assert [r["p"] for r in rows] == ["results[0]", "results[1]", ""]                    # claim × result; a claim without results still has a row
     assert rows[0]["vals"]["point_estimate"] == -1.292 and rows[0]["vals"]["claim_id"] == "S1" and rows[0]["vals"]["sign"] == "-"
+    # the claim stays general; the stratum lives on the estimates, so men and women stay apart
+    assert [r["vals"]["subgroup"] for r in rows[:2]] == ["men", "women"] and rows[0]["vals"]["horizon"] == "years 0-1"
+    assert rows[0]["vals"]["effect_construct"] == "job polarization"
     assert rows[2]["vals"]["claim_id"] == "S2" and rows[2]["vals"].get("point_estimate") is None   # no result: the child columns are absent
     cols = {c["name"]: c for c in at.catalogue(claims, at._unit(claims, None), rows)}
     assert cols["point_estimate"]["roles"] == ["measure"] and cols["estimate_se"]["roles"] == ["dispersion"]
     assert "dimension" in cols["sign"]["roles"] and "identifier" in cols["claim_id"]["roles"] and cols["claim_id"]["scope"] == "entry"
+    assert cols["subgroup"]["roles"] == ["dimension"] and cols["effect_construct"]["roles"] == ["dimension"]
 
     trecs = ingest(copy.deepcopy(TABLES), entries_key="regressions").records
     trows = at.flatten(tables, at._unit(tables, None), [{"idx": 0, "field_values": trecs[0].field_values, "entry_index": 0, "sys": {}}])
