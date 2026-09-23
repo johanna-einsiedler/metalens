@@ -256,6 +256,7 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 .chain-foot .vbtn { padding: 4px 12px; font-size: 12px; } .chain-sup { margin-left: auto; cursor: help; } .chain-note { font-size: 11.5px; cursor: help; }
 .chain-card .status { margin-left: 2px; }
 .chain-review { display: inline-flex; gap: 6px; align-items: center; flex: 1; min-width: 0; }
+.chain-review[hidden] { display: none; }        /* an explicit display beats the UA's [hidden] rule */
 .chain-review select, .chain-review input { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .chain-review input { flex: 1; min-width: 90px; }
