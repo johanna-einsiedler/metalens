@@ -44,10 +44,10 @@ async function renderStart() {
     for (const c of t.columns) {
       if (["system", "derived", "check", "vocabulary"].includes(c.scope) || !["string", "text", "enum"].includes(c.type) || (c.distinct || 0) < 1) continue;
       if (c.scope === "entry" && u.id !== "entries") continue;        // an entry field is offered once, on the entries unit
-      opts.push({ unit: u.id, column: c.name, label: `${c.label || c.name} · ${u.label} · ${c.distinct} distinct`, distinct: c.distinct || 0 });
+      opts.push({ unit: u.id, column: c.name, label: `${c.label || c.name} · ${u.label} · ${c.distinct} distinct`, distinct: c.distinct || 0, prose: c.type === "text" || (c.distinct || 0) >= 0.9 * (c.n || 1) });
     }
   }
-  opts.sort((a, b) => b.distinct - a.distinct);
+  opts.sort((a, b) => (a.prose - b.prose) || b.distinct - a.distinct);   // phrases that recur first; free text (a "why", a statement) last
   $("#voc-col").innerHTML = opts.map((o) => `<option value="${esc(o.unit)}|${esc(o.column)}">${esc(o.label)}</option>`).join("") || `<option value="">no text column</option>`;
   const pre = [params.get("unit"), params.get("column")].join("|"); if (opts.some((o) => `${o.unit}|${o.column}` === pre)) $("#voc-col").value = pre;
   renderModelPanel($("#voc-model"));
