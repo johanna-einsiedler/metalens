@@ -100,6 +100,24 @@
         "help": "the broader construct the effect is an indicator of: 'mental health' for 'use of psychological assistance', 'prescriptions for mental-health conditions' and 'opioid prescriptions' — three claims, one construct, written identically in all three. Null when the effect IS the construct"
       },
       {
+        "name": "construct_basis",
+        "type": "enum",
+        "label": "Construct basis",
+        "options": [
+          "stated",
+          "inferred"
+        ],
+        "evidence": "row",
+        "help": "stated = the paper itself presents these variables as measuring the construct ('we study mental health, measured by …'); inferred = treating them as indicators of one construct is YOUR reading. Null when no construct is named"
+      },
+      {
+        "name": "construct_note",
+        "type": "text",
+        "label": "Construct assumption",
+        "evidence": "row",
+        "help": "the auxiliary assumption in one sentence — 'opioid prescriptions are treated as an indicator of mental health'. It is what a reviewer judges; write it whenever the basis is inferred"
+      },
+      {
         "name": "sign",
         "type": "enum",
         "label": "Sign",
@@ -235,6 +253,13 @@
             "help": "R1, R2, … within the claim"
           },
           {
+            "name": "estimand",
+            "type": "string",
+            "label": "Estimand",
+            "evidence": "row",
+            "help": "a short key for WHAT is estimated, identical for every estimate of the same quantity and different whenever the quantity differs: '<claim>/<subgroup>/<horizon>' ('S1/men/years-0-1', 'S3/all/5y', 'S2/all/discrete-exposure'). Exactly ONE estimate per estimand is the preferred one (role main); the others are the same quantity measured again"
+          },
+          {
             "name": "role",
             "type": "enum",
             "required": true,
@@ -256,10 +281,11 @@
             "label": "Exhibit",
             "options": [
               "table",
-              "figure"
+              "figure",
+              "text"
             ],
             "evidence": "none",
-            "help": "where the result is printed"
+            "help": "where the number is printed: a table cell, a figure annotation, or the paper's own prose when no exhibit prints it"
           },
           {
             "name": "source_table",
@@ -267,7 +293,7 @@
             "required": true,
             "label": "Table / figure",
             "evidence": "row",
-            "help": "as printed: 'Table 3', 'Table A2', 'Figure 4'"
+            "help": "as printed: 'Table 3', 'Table A2', 'Figure 4'; for a prose estimate the section it is stated in ('Introduction', 'Section IV.B')"
           },
           {
             "name": "panel",
@@ -492,6 +518,13 @@
         ],
         "horizon": [
           "dimension"
+        ],
+        "estimand": [
+          "identifier",
+          "dimension"
+        ],
+        "construct_basis": [
+          "dimension"
         ]
       },
       "default_dashboard": [
@@ -633,7 +666,8 @@
         "sign_consistent": "sign_consistent",
         "why": "why",
         "subgroup": "subgroup",
-        "horizon": "horizon"
+        "horizon": "horizon",
+        "estimand": "estimand"
       },
       "qualifies": {
         "type": "type",
@@ -649,7 +683,9 @@
       },
       "constructs": {
         "from": "cause_construct",
-        "to": "effect_construct"
+        "to": "effect_construct",
+        "basis": "construct_basis",
+        "note": "construct_note"
       }
     }
   }

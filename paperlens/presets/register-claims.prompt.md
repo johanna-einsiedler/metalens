@@ -60,10 +60,18 @@ If the PDF prints no abstract, set `paper_metadata.abstract_source` to `none` an
    written identically. That is what lets them be read together later without merging them now.
    Null when the variable IS the construct ("earnings" needs no umbrella). Never put the
    construct in `cause` / `effect`, and never invent one the paper does not talk about.
+   Say where the link comes from: `construct_basis` is `stated` when the paper itself presents
+   these variables as measuring the construct, `inferred` when reading them as one construct is
+   YOUR step — and then `construct_note` writes that auxiliary assumption in one sentence
+   ("opioid prescriptions are treated as an indicator of mental health"). It is an assumption a
+   reviewer must be able to reject, so it is never left implicit.
 5. Scope as fields, never in the statement and never inside a variable: `scope_setting`,
    `scope_period`, `scope_population`, `scope_identification` — the setting, period, population
    and design of the STUDY. "labor income of wage earners" is effect "labor income" with
-   population "wage earners". null when not stated.
+   population "wage earners". `scope_population` is the WHOLE population the paper studies
+   ("adult children aged 25-50 who lost a parent") and is filled even when the estimates below
+   are split into subgroups — the subgroups are slices of it. null only when the paper does not
+   say.
 6. A subgroup does NOT split the claim. "men's earnings decline by 2 percent, while women's
    decline by 3 percent" is ONE claim — parental death → − earnings — whose two estimates are
    two `results` rows with `subgroup: "men"` and `subgroup: "women"`. Split into separate claims
@@ -91,55 +99,92 @@ If the PDF prints no abstract, set `paper_metadata.abstract_source` to `none` an
 
 # FROM WHAT THE PAPER SAYS TO WHAT ITS TABLES SHOW
 
-For every `edge` and `comparison` claim, list under `results` the printed results that
-OPERATIONALISE it: a table column (or a figure) whose target regressor measures the claim's
-cause, whose outcome measures the claim's effect, and whose setting, period, population and
-design fall inside the claim's scope. Read the whole paper for this part, appendix tables
+Work from the claim DOWN, in three steps. Read the whole paper for this part, appendix tables
 included.
 
-One result row is ONE printed estimate. For each:
+## Step 1 — which quantities does the paper estimate for this claim?
+
+List the ESTIMANDS: the distinct quantities the paper reports for this cause–effect pair. Two
+estimates are the same estimand when a meta-analyst would average them, and different estimands
+when averaging them would be wrong. What makes a different estimand:
+
+- a different **subgroup** of the population (men / women, a birth cohort, an industry) — and a
+  subgroup the abstract names ANYWHERE counts, not only in the sentence that carries the claim:
+  "women with young children experience a larger decline" adds the estimands
+  `S1/women-with-young-children/…` and `S1/women-without-young-children/…` to the EARNINGS claim.
+  The `comparison` claim that states the contrast then points at those same estimands (it carries
+  the two sides as its own results); it is never the only place a subgroup's number lives,
+- a different **horizon** (years 0–1 vs years 6–10, short vs long run). When the abstract's own
+  magnitude names one ("2 percent in the fifth year"), that horizon is an estimand: the number
+  the paper headlines must have an estimand to land in,
+- a different **definition of the treatment** (continuous exposure vs a discrete indicator, one
+  reform vs another) — the number means something different, so it is its own estimand.
+
+What does NOT make a different estimand: another set of controls, other fixed effects, a
+robustness sample, a different estimator for the same quantity. Those are the same estimand
+measured again.
+
+A subgroup the abstract names ANYWHERE belongs to the claim it slices, even when a different
+sentence names it. "Women with young children experience a comparatively larger earnings decline"
+adds two estimands to the earnings claim — `subgroup: "women with young children"` and
+`subgroup: "women without young children"` — and the `comparison` claim that states the contrast
+then matches those same two estimates rather than carrying estimates of its own.
+
+Give every estimand a short key in `estimand`: `<claim id>/<subgroup>/<horizon>`, e.g.
+`S1/men/years-0-1`, `S3/all/5y`, `S2/all/discrete-exposure`. Use `all` where the dimension does
+not apply. The key is identical on every estimate of that quantity.
+
+## Step 2 — the estimates of each estimand
+
+One row in `results` is ONE printed estimate. For each estimand, exactly one row is the
+estimate the authors would point to: `role: main`. Every further printed estimate of the SAME
+estimand is `supporting` (another specification they rely on), `robustness` (a check) or
+`heterogeneity` (a split reported only as a check). **Two `main` rows with the same `estimand`
+is an error**: either the key is too coarse, or you have not chosen the preferred estimate.
+
+So a claim the paper estimates for men and women over two horizons has four `main` rows plus
+whatever alternatives it prints; a claim it estimates once under six specifications has ONE
+`main` and five alternatives.
+
+For each result row:
 - `source_table`, `panel`, `column`, `row_label`: where the coefficient is printed, as printed.
-- `subgroup`: whose estimate it is when the column or panel restricts the claim's population
-  ("men", "women", "top earnings quartile"); null when it covers the whole population of the
-  claim. `horizon`: the window it covers when the paper reports several ("years 0-1", "year 5",
-  "long run"), as printed in the panel or column heading; null when there is only one.
+- `subgroup` / `horizon`: the dimensions of the estimand, null where the dimension does not apply.
 - `point_estimate`: the coefficient exactly as printed in that cell — sign and every digit;
   stars, parentheses, commas and % stripped; never rounded, never computed, never read off an
   axis. `estimate_se`: the standard error printed for it, if the table prints one.
-- `role`: `main` (the estimate the authors would point to for this finding) | `supporting`
-  (another specification of the same finding they rely on) | `robustness` | `heterogeneity`
-  (a subgroup split of it).
 - `treatment_relation`: `direct` (the regressor measures the cause itself) | `proxy` |
   `assignment` (a treatment-group, reform or instrument indicator standing in for the cause).
-- `outcome_relation`: `direct` | `proxy`.
+  `outcome_relation`: `direct` | `proxy`.
 - `sign_consistent`: read in its OWN variable orientation, does the estimate agree with the
   claim's direction? (A net-of-tax-rate elasticity of +0.2 agrees with "the tax rate decreases
   income".) null when there is no estimate or it cannot be told.
 - `why`: one sentence.
 
-**One `main` per stratum.** A stratum is one (`subgroup`, `horizon`) pair of a claim. Within a
-stratum exactly one result is the estimate the authors would point to — `role: main`. Every
-further printed estimate of that same stratum is the same finding measured again and is
-`supporting` (another specification they rely on), `robustness` (a check) or `heterogeneity`
-(a split they only report as a check, not as the claim). So a claim with estimates for men and
-women over two horizons has four `main` rows and as many alternatives as the paper prints;
-a claim the paper estimates once under six specifications has ONE `main` and five alternatives.
-Different definitions of the treatment (continuous exposure vs a discrete indicator, one reform
-vs another) are alternatives, not strata — unless the abstract states them as separate findings.
-
-Sign agreement is NOT a criterion for matching: a result that tests the claim and disagrees
-with it is a match with `sign_consistent: false`, and that is a finding. Prefer few, right
-matches over many plausible ones. The same result may serve more than one claim. For a
-`comparison` claim, match the results on BOTH sides of the comparison (`role: main`, one per
-side, each with its `subgroup`) and say in `why` which side each is.
+Sign agreement is NOT a criterion for matching: a result that tests the claim and disagrees with
+it is a match with `sign_consistent: false`, and that is a finding. The same result may serve
+more than one claim. For a `comparison` claim, match the results on BOTH sides (`role: main`,
+one per side, each with its own `subgroup` and `estimand`) and say in `why` which side each is.
 
 A finding shown only in a figure: `exhibit: figure`, `source_table` the figure number,
-`point_estimate` only when the figure PRINTS the value (an annotation such as "DD elasticity
-= 0.214 (0.011)"); otherwise null.
+`point_estimate` only when the figure PRINTS the value (an annotation such as "DD elasticity =
+0.214 (0.011)"); never read a value off an axis.
 
-When nothing matches, return `results: []` and say why in `notes` ("shown only graphically;
-no estimate is printed", "the estimate is in an online appendix not bound into this PDF").
-Do not force a match.
+**When no exhibit prints the number but the paper states it in its own text** — "women visit
+psychologists 0.10 more times per year", "opioid prescriptions rise by about 6 percent for men"
+— that sentence IS the estimate: `exhibit: "text"`, `source_table` the section it stands in
+("Introduction", "Section IV.B"), the number in `point_estimate` and the standard error in
+`estimate_se` when the text gives one, and the sentence itself as the evidence. A finding whose
+size the paper states in words is not a finding without a number. Only when neither an exhibit
+nor the text gives a number does the estimand go without one.
+
+## Step 3 — the checks (they never delete a claim)
+
+- If the abstract or the introduction states a magnitude, it must reappear as the
+  `point_estimate` of one `main` row of this claim. If no extracted estimate reproduces it, keep
+  the claim and say so in `notes` — a number you cannot place is a finding about the paper.
+- A claim whose results you cannot find: `results: []` and the reason in `notes` ("shown only
+  graphically; no estimate is printed", "the estimate is in an online appendix not bound into
+  this PDF"). Never drop a claim because it carries no number, and never force a match.
 
 # THE THREE QUOTES
 

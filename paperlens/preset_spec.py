@@ -578,8 +578,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                     if rv.get(k) is not None and rv[k] not in enames:
                         E(f"$.display.review.{k} must name an entry field")
                 con = rv.get("constructs")
-                if con is not None and (not isinstance(con, dict) or any(con.get(k) is not None and con[k] not in enames for k in ("from", "to"))):
-                    E("$.display.review.constructs needs entry fields: from, to (the construct each end indicates)")
+                if con is not None and (not isinstance(con, dict) or any(con.get(k) is not None and con[k] not in enames for k in ("from", "to", "basis", "note"))):
+                    E("$.display.review.constructs needs entry fields: from, to (the construct each end indicates), basis, note")
                 for n in rv.get("scope") or []:
                     if n not in enames:
                         E(f"$.display.review.scope: {n!r} is not an entry field")
@@ -592,7 +592,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E("$.display.review.results.child must name a child of the entries")
                     else:
                         cf = kids[res["child"]]
-                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation", "subgroup", "horizon"):
+                        for k in ("value", "se", "row", "cause", "effect", "why", "role", "sign_consistent", "cause_relation", "effect_relation", "subgroup", "horizon", "estimand"):
                             if res.get(k) is not None and res[k] not in cf:
                                 E(f"$.display.review.results.{k} must name a field of {res['child']}")
                         for n in res.get("exhibit") or []:
@@ -1289,6 +1289,30 @@ def render_prompt(spec: dict, params: dict | None = None) -> str:
 
 # ── post-extraction validation ────────────────────────────────────────────────
 
+def _estimand_issues(spec: dict, child: dict, rows: list, at: str) -> list[dict]:
+    """A preset whose review declares an ``estimand`` and a ``role`` states an invariant: several
+    rows may estimate the same quantity, but exactly ONE of them is the preferred estimate. Two
+    "main" rows for one estimand means either the estimand key is too coarse (two different
+    quantities under one key) or the preferred estimate was not chosen — both need a human."""
+    res = (((spec.get("display") or {}).get("review") or {}).get("results") or {})
+    if res.get("child") != child.get("key") or not res.get("estimand") or not res.get("role"):
+        return []
+    seen: dict[str, int] = {}
+    out = []
+    for j, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get(res["role"]) != "main":
+            continue
+        key = str(row.get(res["estimand"]) or "").strip()
+        if not key:
+            continue
+        if key in seen:
+            out.append({"path": f"{at}.{child['key']}[{j}]", "code": "duplicate_main",
+                        "message": f"a second preferred estimate for {key!r} (the first is row {seen[key]}): split the estimand or make one of them supporting"})
+        else:
+            seen[key] = j
+    return out
+
+
 def validate_result(obj: dict, spec: dict, params: dict | None = None) -> list[dict]:
     """What the model got structurally wrong, for triage — never blocks persistence.
     Each issue: ``{"path", "code", "message"}``."""
@@ -1371,6 +1395,7 @@ def validate_result(obj: dict, spec: dict, params: dict | None = None) -> list[d
                 continue
             if not isinstance(rows, list):
                 issues.append({"path": f"{at}.{ch['key']}", "code": "not_list", "message": "expected an array"}); continue
+            issues += _estimand_issues(spec, ch, rows, at)
             cgroups = [g["id"] for g in groups_by_scope(spec)["child"]
                        if ch["key"] in {n.split("[]")[0] for n in fields_of_group(spec, g["id"])}]
             for j, row in enumerate(rows):

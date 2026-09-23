@@ -143,8 +143,10 @@ def statuses(claim_rows: list[dict], regressions: list[dict]) -> list[dict]:
     out = []
     for row in claim_rows:
         base = {k: row.get(k) for k in ("record_id", "path", "claim_id", "result_id", "source_table", "panel", "column", "point_estimate")}
-        if (row.get("exhibit") or "table") == "figure":
-            out.append({**base, "status": "figure", "regression_id": None, "table_coefficients": [], "detail": "a figure: nothing to transcribe against"}); continue
+        kind = row.get("exhibit") or "table"
+        if kind in ("figure", "text"):
+            out.append({**base, "status": "figure", "regression_id": None, "table_coefficients": [],
+                        "detail": f"{'a figure' if kind == 'figure' else 'stated in the text'}: nothing to transcribe against"}); continue
         tok, pan, col = table_token(row.get("source_table")), panel_token(row.get("panel")), column_digits(row.get("column"))
         cands = [r for r in by_paper.get(_paper_key(row.get("doi"), row.get("title")), [])
                  if tok and r["table"] == tok and (not col or r["column"] == col) and panels_compatible(pan, r["panel"])]

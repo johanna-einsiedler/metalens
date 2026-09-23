@@ -29,11 +29,11 @@ CLAIMS = {
          "qualifies": [], "moderator": None, "relation": None, "notes": None,
          "results": [
              {"result_id": "R1", "role": "main", "exhibit": "table", "source_table": "Table 3", "panel": None, "column": "(1)", "row_label": "Import Competition",
-              "subgroup": "men", "horizon": "years 0-1",
+              "estimand": "S1/men/years-0-1", "subgroup": "men", "horizon": "years 0-1",
               "outcome_variable": "Mid-wage employment", "regressor": "Import Competition", "point_estimate": -1.292, "estimate_se": 0.382,
               "treatment_relation": "direct", "outcome_relation": "direct", "sign_consistent": True, "why": "the headline DiD coefficient"},
              {"result_id": "R2", "role": "main", "exhibit": "table", "source_table": "Table 4", "panel": "A", "column": "(1)", "row_label": "Import Competition",
-              "subgroup": "women", "horizon": "years 0-1",
+              "estimand": "S1/women/years-0-1", "subgroup": "women", "horizon": "years 0-1",
               "outcome_variable": "Mid-wage employment", "regressor": "Import Competition", "point_estimate": -1.991, "estimate_se": None,
               "treatment_relation": "direct", "outcome_relation": "direct", "sign_consistent": True, "why": "same finding, extended sample"}]},
         {"claim_id": "S2", "type": "not_causal", "statement": "The paper uses employer-employee matched data.", "cause": None, "effect": None, "sign": None,
@@ -72,16 +72,19 @@ def test_presets_load_and_their_prompts_carry_the_rules() -> None:
     flat = lambda t: " ".join(t.split())   # noqa: E731  (the prompts are line-wrapped)
     p = flat(preset_spec.render_prompt(claims, {}))
     for must in ("The abstract decides WHICH findings exist", "is NOT a claim", "Refinement never adds what the anchor does not announce",
-                 "Sign agreement is NOT a criterion for matching", "Do not force a match", "THE THREE QUOTES",
+                 "Sign agreement is NOT a criterion for matching", "never force a match", "THE THREE QUOTES",
                  'claims[i].anchor_quote, claims[i].intro_sentence', "claims[i].results[j].point_estimate",
                  "is THREE claims", 'effect_construct: "mental health"', "A subgroup does NOT split the claim",
-                 "One `main` per stratum", "Different definitions of the treatment"):
+                 "Two `main` rows with the same `estimand` is an error", "a different **definition of the treatment**",
+                 "which quantities does the paper estimate", "Never drop a claim because it carries no number",
+                 "construct_note` writes that auxiliary assumption", "When no exhibit prints the number but the paper states it in its own text",
+                 "a subgroup the abstract names ANYWHERE counts", "is filled even when the estimates below are split into subgroups"):
         assert must in p, must
     q = flat(preset_spec.render_prompt(tables, {}))
     for must in ("T<table>::<panel>::C<column>", "refers_to", "Enumerate every control individually", "regressions[i].cells"):
         assert must in q, must
     real = lambda issues: [i for i in issues if i["code"] != "missing_confidence"]   # noqa: E731  (the fixtures carry no ratings)
-    assert claims["display"]["review"]["constructs"] == {"from": "cause_construct", "to": "effect_construct"}
+    assert claims["display"]["review"]["constructs"] == {"from": "cause_construct", "to": "effect_construct", "basis": "construct_basis", "note": "construct_note"}
     assert claims["display"]["review"]["results"]["subgroup"] == "subgroup"
     rv = claims["display"]["review"]
     assert rv["layout"] == "chain" and rv["edge"] == {"from": "cause", "to": "effect", "sign": "sign", "signs": {"+": "increases", "-": "decreases", "0": "no effect", "mixed": "mixed"}}
@@ -103,7 +106,9 @@ def test_units_and_rows() -> None:
     assert rows[0]["vals"]["point_estimate"] == -1.292 and rows[0]["vals"]["claim_id"] == "S1" and rows[0]["vals"]["sign"] == "-"
     # the claim stays general; the stratum lives on the estimates, so men and women stay apart
     assert [r["vals"]["subgroup"] for r in rows[:2]] == ["men", "women"] and rows[0]["vals"]["horizon"] == "years 0-1"
-    assert rows[0]["vals"]["effect_construct"] == "job polarization"
+    assert rows[0]["vals"]["effect_construct"] == "job polarization" and rows[0]["vals"]["estimand"] == "S1/men/years-0-1"
+
+    assert rows[0]["vals"]["estimand"] == "S1/men/years-0-1"
     assert rows[2]["vals"]["claim_id"] == "S2" and rows[2]["vals"].get("point_estimate") is None   # no result: the child columns are absent
     cols = {c["name"]: c for c in at.catalogue(claims, at._unit(claims, None), rows)}
     assert cols["point_estimate"]["roles"] == ["measure"] and cols["estimate_se"]["roles"] == ["dispersion"]
@@ -142,3 +147,13 @@ def test_a_verdict_and_its_note_are_stored_on_the_entry() -> None:
     assert rec2["verification_status"] == "verified" and rec2["note"]["text"].startswith("the evidence")   # the last REASONED note stays visible
     assert len(records.record_events(conn, rid)) == 2                                            # both verdicts are kept
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+def test_two_preferred_estimates_of_one_estimand_are_flagged() -> None:
+    """The invariant the preset states: several estimates may measure one quantity, but exactly
+    one of them is the preferred one. Two 'main' rows under one estimand is an extraction issue."""
+    spec = presets.load_all()["register-claims"]
+    obj = copy.deepcopy(CLAIMS)
+    obj["claims"][0]["results"][1]["estimand"] = "S1/men/years-0-1"          # the same quantity, twice preferred
+    dup = [i for i in preset_spec.validate_result(obj, spec, {}) if i["code"] == "duplicate_main"]
+    assert len(dup) == 1 and dup[0]["path"] == "claims[0].results[1]" and "split the estimand" in dup[0]["message"]
+    assert not [i for i in preset_spec.validate_result(copy.deepcopy(CLAIMS), spec, {}) if i["code"] == "duplicate_main"]

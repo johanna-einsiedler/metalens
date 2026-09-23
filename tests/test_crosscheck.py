@@ -41,10 +41,13 @@ def test_matching_rules() -> None:
                        _row(result_id="R3", source_table="Table 4", panel=None, point_estimate=-1.99),               # no panel: both panels are candidates; tolerance
                        _row(result_id="R4", source_table="Table 3", point_estimate=-1.3),                             # resolves, no cell equals it
                        _row(result_id="R5", source_table="Table 9"), _row(result_id="R6", point_estimate=None),
-                       _row(result_id="R7", exhibit="figure", source_table="Figure 2"), _row(result_id="R8", doi="10.9/other", title="Other")], regs)
-    assert [r["status"] for r in out] == ["exact", "exact", "exact", "mismatch", "unlinked", "no_estimate", "figure", "unlinked"]
+                       _row(result_id="R7", exhibit="figure", source_table="Figure 2"),
+                       _row(result_id="R7b", exhibit="text", source_table="Introduction"),      # a number the paper states in prose
+                       _row(result_id="R8", doi="10.9/other", title="Other")], regs)
+    assert [r["status"] for r in out] == ["exact", "exact", "exact", "mismatch", "unlinked", "no_estimate", "figure", "figure", "unlinked"]
+    assert "stated in the text" in out[7]["detail"]
     assert out[0]["regression_id"] == "T3::_::C1" and out[3]["table_coefficients"] == [-1.292, 0.4]
-    assert cc.summary(out) == {"exact": 3, "mismatch": 1, "unlinked": 2, "no_estimate": 1, "figure": 1}
+    assert cc.summary(out) == {"exact": 3, "mismatch": 1, "unlinked": 2, "no_estimate": 1, "figure": 2}
     assert cc.companion_preset("register-claims@abc") == "register-tables" and cc.companion_preset("human-ai-collab@x") is None
     assert cc.check_for("register-claims@1", "register-tables@2")["unit"] == "results" and cc.check_for("register-tables@2", "register-claims@1") is None
 
