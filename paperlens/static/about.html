@@ -21,6 +21,9 @@
                  border-radius: var(--radius-sm); padding: 11px 14px 13px; }
     .steps b { display: block; font-size: 14px; color: var(--accent-dark); margin-bottom: 4px; }
     .steps span { font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+    .credits { list-style: none; padding-left: 0; }
+    .credits li { padding-left: 16px; border-left: 2px solid var(--accent-3); margin: 8px 0; color: var(--text-muted); }
+    .credits b { color: var(--text); font-weight: 600; }
     .about .box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
                   padding: 12px 16px; margin: 16px 0; font-size: 13.5px; }
   </style>
@@ -31,16 +34,17 @@
   <div class="wrap about">
     <h1>About Metalens</h1>
     <p class="lede">Research findings are published as prose and tables inside PDFs. Metalens turns them into
-      structured data that a person has checked, and keeps that data alive as new papers appear.</p>
+      structured data that a person can easily check, and keeps datasets alive as new papers appear.</p>
 
     <h2>The problem it addresses</h2>
     <p>A systematic review or meta-analysis is an enormous amount of careful reading, and the result is frozen
       on the day it is published. Papers that appear the following month do not change it. Anyone who wants to
       know what the evidence says two years later has to start again, usually from the same PDFs.</p>
     <p>Language models can read those PDFs quickly, but on their own they are not a sound basis for evidence:
-      they make mistakes, and a number with no trail back to its source cannot be checked. Metalens is built
-      around that gap. Every value it produces carries the passage it was read from, and a person decides
-      whether to accept it.</p>
+      they make mistakes, and a number with no trail back to its source cannot be checked.</p>
+    <p>Metalens is built around that gap. The idea is to make data extracted by a language model checkable, and
+      to give every piece of evidence an audit trail, so that any claim can be traced back to its origin. Every
+      value it produces carries the passage it was read from, and a person decides whether to accept it.</p>
 
     <h2>How it works</h2>
     <div class="steps">
@@ -53,21 +57,9 @@
       laid out for review and analysis. Presets can be shared, so a second team extracting the same kind of
       evidence starts from the first team's design rather than from a blank page.</p>
 
-    <h2>What makes a number here checkable</h2>
-    <ul>
-      <li><b>Evidence.</b> Each value is tied to a verbatim quote with its page, so you can see exactly what the
-        model read. A value with no evidence is visible as such.</li>
-      <li><b>Verification history.</b> Who confirmed or corrected a record, when, and with what note. A dataset
-        carries a credibility label that reflects how much of it a person has actually checked.</li>
-      <li><b>The model is recorded.</b> Which model, which prompt and which preset version produced a record are
-        stored with it, so an extraction can be repeated or compared.</li>
-      <li><b>Cross-checks.</b> Where a dataset has a companion — for example claims checked against the
-        regression tables they cite — disagreements are surfaced rather than smoothed over.</li>
-    </ul>
-
     <h2>Publishing and citing</h2>
-    <p>A dataset can be published as a frozen <b>release</b>: the records, the evidence quotes, the preset and
-      the verification history, written out as static files. Releases go to a public
+    <p>A dataset can be published as a frozen <b>release</b> that contains the records, the evidence quotes,
+      the preset and the verification history. Releases go to a public
       <a href="https://github.com/johanna-einsiedler/metalens-datasets" target="_blank" rel="noopener">datasets repository on GitHub</a>
       and can be given a DOI on <a href="https://zenodo.org" target="_blank" rel="noopener">Zenodo</a>, so a
       figure in a paper can point at the exact state of the data it was drawn from. Published datasets are
@@ -86,13 +78,18 @@
     <p>Metalens is open source under the MIT licence:
       <a href="https://github.com/johanna-einsiedler/metalens" target="_blank" rel="noopener">github.com/johanna-einsiedler/metalens</a>.
       You can run the whole thing on your own machine, with an embedded database and no account, and point it at
-      a local model server — in that setup neither the PDF nor its text leaves your computer. This matters where
-      an institutional data agreement rules out a hosted service.</p>
+      a local model server — in that setup neither the PDF nor its text leaves your computer.</p>
 
-    <h2>MASEMiner</h2>
-    <p><a href="/maseminer">MASEMiner</a> is the same engine with a narrower job: extracting the correlation
-      matrices and study metadata that meta-analytic structural equation modelling needs. If that is your task,
-      start there — the presets and the review screen are built for it.</p>
+    <h2>Who builds it</h2>
+    <p>Metalens is built by Claude, Johanna Einsiedler and Linas Vastakas. Credits also go to:</p>
+    <ul class="credits">
+      <li><b>Ulrich Schroeders</b> and <b>Timo Gnambs</b>, for the expertise in meta-analytic structural equation
+        modelling that made the specialised MASEMiner preset possible.</li>
+      <li><b>Maria del Mar Ramiro Ortega</b> and <b>Hilda Bernhardsson</b>, for their support in verifying a great
+        many extractions.</li>
+      <li><b>Martin Haus</b> and <b>Tiago C. Peixoto</b>, for collaborating on the first Metalens-driven dashboard.</li>
+      <li><b>Amanda Bennets</b>, for helping with the design of the website.</li>
+    </ul>
 
     <div class="box">
       Metalens is research software, developed in the open. Questions, bugs and feature requests are welcome as

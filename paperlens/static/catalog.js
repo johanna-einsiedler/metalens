@@ -46,14 +46,24 @@ async function paperCheck(q, out) {
   }).join("");
 }
 
+// record count, preset, author, GitHub — only the parts this dataset actually has, so a missing
+// preset never shows up as a gap between two separators
+function metaLine(d) {
+  const bits = [`${d.credibility.n_records} record${d.credibility.n_records === 1 ? "" : "s"}`];
+  if (d.schema_id) bits.push(esc(d.schema_id));
+  if (d.cite_as) bits.push(`by ${esc(d.cite_as)}`);
+  if (d.published_url) bits.push(`<a href="${esc(d.published_url)}" target="_blank" rel="noopener">GitHub ↗</a>`);
+  return bits.join(" · ");
+}
+
 function renderDatasets(pub) {
   const main = document.getElementById("main");
   main.innerHTML = `<div class="section-h">Datasets <span class="muted">(${(pub.datasets || []).length})</span></div>`
     + ((pub.datasets || []).map((d) => `
       <div class="dataset-card" data-href="/dataset?id=${esc(d.id)}" role="link" tabindex="0">
         <div><div class="ptitle">${esc(d.title || d.slug)}</div>
-          ${d.description ? `<div class="muted" style="font-size:13px;margin:2px 0">${esc(d.description)}</div>` : ""}
-          <div class="muted" style="font-size:12px">${d.credibility.n_records} records · ${esc(d.schema_id || "")}${d.cite_as ? ` · by ${esc(d.cite_as)}` : ""}${d.published_url ? ` · <a href="${esc(d.published_url)}" target="_blank" rel="noopener">GitHub ↗</a>` : ""}</div>
+          ${d.description ? `<div class="ds-desc">${esc(d.description)}</div>` : ""}
+          <div class="ds-meta">${metaLine(d)}</div>
           ${(d.keywords || []).length ? `<div class="ds-kws">${(d.keywords || []).map((k) => `<span class="kw">${esc(k)}</span>`).join(" ")}</div>` : ""}</div>
         <span class="badge tier-${d.credibility.tier}">${esc(d.credibility.label)}</span>
       </div>`).join("") || '<p class="muted">No public datasets yet.</p>');
