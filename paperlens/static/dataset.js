@@ -30,6 +30,10 @@ async function init() {
   loadAudit();
 }
 
+// Was this data made elsewhere? The preset's mode says how it is MEANT to arrive; whether a
+// model was actually called here is a fact about the records, so both have to agree.
+const imported = (r) => r.mode === "import" && !r.extracted_here;
+
 function render() {
   const s = OV.stats, cred = OV.credibility, r = OV.recipe, vis = OV.visibility;
   const range = (s.first_extracted && s.last_extracted && s.first_extracted !== s.last_extracted)
@@ -94,12 +98,16 @@ function render() {
     <div id="ds-pubwrap" hidden>${OWNER && ANON ? "" : publishingCard()}</div>
 
     <div class="ds-card">
-      <div class="ds-card-h">Extraction recipe</div>
+      <div class="ds-card-h">${imported(r) ? "Where this data comes from" : "Extraction recipe"}</div>
       <div class="ds-recipe">
-        <div><span class="rk">Model</span> <code>${esc(r.model || "—")}</code></div>
+        ${imported(r)
+          ? `<div><span class="rk">Produced by</span> ${(r.produced_by || []).length ? (r.produced_by || []).map((m) => `<code>${esc(m)}</code>`).join(" ") : "<code>imported</code>"}</div>`
+          : `<div><span class="rk">Model</span> <code>${esc(r.model || "—")}</code></div>`}
         <div><span class="rk">Schema</span> <code>${esc(r.schema_id || "—")}</code></div>
       </div>
-      ${r.prompt
+      ${imported(r)
+        ? `<p class="muted ds-mixed">These records were <b>not extracted in Metalens</b>. They were produced by a pipeline that runs elsewhere and imported into this preset's schema, so there is no Metalens prompt behind them${r.source_url ? ` — the pipeline and its prompts are at <a href="${esc(r.source_url)}" target="_blank" rel="noopener">${esc(r.source_url.replace(/^https?:\/\//, ""))}</a>` : ""}. Metalens anchors the evidence, reviews and cross-checks them.</p>`
+        : r.prompt
         ? `<details class="ds-prompt"><summary>Prompt</summary><pre>${esc(r.prompt)}</pre></details>`
         : `<p class="muted ds-mixed">Prompt not recorded for this dataset.</p>`}
       ${s.n_schemas > 1

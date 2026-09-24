@@ -5,16 +5,14 @@
   "meta": {
     "title": "Register-data claims",
     "tagline": "What an empirical paper says it found (abstract, refined by the introduction), as atomic directional claims, each traced to the table result that shows it.",
-    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentence that says how the finding was obtained, and the table (or figure) results that operationalise it with their point estimates. Written for economics papers using Danish register data (the danish-register-econ protocol), usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell.",
-    "mode": "extraction",
+    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentence that says how the finding was obtained, and the table (or figure) results that operationalise it with their point estimates. Written for economics papers using Danish register data (the danish-register-econ protocol), usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell. The records are produced OUTSIDE Metalens by the danish-register-econ agent pipeline, which reads each paper in several passes; this preset is the schema they are imported into, not the recipe that made them.",
+    "mode": "import",
     "hidden": false,
     "brands": [
       "metalens"
     ]
   },
-  "prompt": {
-    "file": "register-claims.prompt.md"
-  },
+  "prompt": {},
   "paper": {
     "fields": [
       {

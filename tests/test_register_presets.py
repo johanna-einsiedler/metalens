@@ -1,6 +1,6 @@
-"""The two register-data presets (claims chain, regression tables): they load, their prompts
-carry the rules the chain rests on, and the analysis layer gives one row per claim × result
-and one row per table cell. No database needed."""
+"""The two register-data presets (claims chain, regression tables): they load, they are SCHEMAS
+for data produced outside Metalens rather than extraction recipes, and the analysis layer gives
+one row per claim × result and one row per table cell. No database needed."""
 from __future__ import annotations
 
 import copy
@@ -64,25 +64,29 @@ TABLES = {
 }
 
 
-def test_presets_load_and_their_prompts_carry_the_rules() -> None:
+def test_presets_are_import_schemas_with_no_prompt() -> None:
     all_ = presets.load_all()
     claims, tables = all_["register-claims"], all_["register-tables"]
     assert claims["entries"]["key"] == "claims" and claims["entries"]["children"][0]["key"] == "results"
     assert tables["entries"]["key"] == "regressions" and [f["name"] for f in tables["entries"]["fields"] if f["type"] == "table"] == ["cells"]
-    flat = lambda t: " ".join(t.split())   # noqa: E731  (the prompts are line-wrapped)
-    p = flat(preset_spec.render_prompt(claims, {}))
-    for must in ("The abstract decides WHICH findings exist", "is NOT a claim", "Refinement never adds what the anchor does not announce",
-                 "Sign agreement is NOT a criterion for matching", "never force a match", "THE THREE QUOTES",
-                 'claims[i].anchor_quote, claims[i].intro_sentence', "claims[i].results[j].point_estimate",
-                 "is THREE claims", 'effect_construct: "mental health"', "A subgroup does NOT split the claim",
-                 "Two `main` rows with the same `estimand` is an error", "a different **definition of the treatment**",
-                 "which quantities does the paper estimate", "Never drop a claim because it carries no number",
-                 "construct_note` writes that auxiliary assumption", "Two different questions, kept apart", "never read off an axis", "`exhibit: none` only when the paper reports the analysis",
-                 "a subgroup the abstract names ANYWHERE counts", "is filled even when the estimates below are split into subgroups"):
-        assert must in p, must
-    q = flat(preset_spec.render_prompt(tables, {}))
-    for must in ("T<table>::<panel>::C<column>", "refers_to", "Enumerate every control individually", "regressions[i].cells"):
-        assert must in q, must
+    # the records come from an agent pipeline that runs outside; a prompt here would claim
+    # authorship of data it never produced
+    for spec in (claims, tables):
+        assert spec["meta"]["mode"] == "import"
+        assert not (spec.get("prompt") or {}).get("text")
+        assert "OUTSIDE Metalens" in spec["meta"]["description"]
+    # …and a prompt is then a validation error, not merely unused
+    import copy as _c
+    bad = _c.deepcopy(claims); bad["prompt"] = {"text": "Extract the claims."}
+    errs, _ = preset_spec.validate(bad)
+    assert any("import" in e for e in errs), errs
+
+    assert claims["display"]["review"]["constructs"] == {"from": "cause_construct", "to": "effect_construct", "basis": "construct_basis", "note": "construct_note"}
+    assert claims["display"]["review"]["results"]["subgroup"] == "subgroup"
+    rv = claims["display"]["review"]
+    assert rv["layout"] == "chain" and rv["edge"] == {"from": "cause", "to": "effect", "sign": "sign", "signs": {"+": "increases", "-": "decreases", "0": "no effect", "mixed": "mixed"}}
+    broken = copy.deepcopy(claims); broken["display"]["review"]["results"]["value"] = "no_such_field"; broken["display"]["review"]["quotes"].append({"label": "X", "field": "nope"})
+    errs, _ = preset_spec.validate(broken)
     real = lambda issues: [i for i in issues if i["code"] != "missing_confidence"]   # noqa: E731  (the fixtures carry no ratings)
     assert claims["display"]["review"]["constructs"] == {"from": "cause_construct", "to": "effect_construct", "basis": "construct_basis", "note": "construct_note"}
     assert claims["display"]["review"]["results"]["subgroup"] == "subgroup"

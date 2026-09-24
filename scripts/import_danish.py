@@ -17,6 +17,11 @@ sources and adjustment sets.
 """
 from __future__ import annotations
 
+# What actually made these records. It is stored where a live run stores its model, so a record
+# imported here says the agent pipeline produced it rather than only "imported". The presets are
+# `mode: "import"` for the same reason: no prompt in Metalens made this data.
+PRODUCED_BY = "claude-opus-5 · danish-register-econ agent pipeline"
+
 import argparse
 import csv
 import hashlib
@@ -367,7 +372,8 @@ def main() -> int:
                 for d in dup.get(sha) or []:
                     c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
             r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
-                       data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1", "dataset_id": ids[key]})
+                       data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
+                             "dataset_id": ids[key], "produced_by": PRODUCED_BY})
             if r.status_code != 200:
                 print(f"  ✗ {artid} {key}: HTTP {r.status_code} {r.text[:300]}"); continue
             j = r.json()

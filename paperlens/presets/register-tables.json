@@ -5,16 +5,14 @@
   "meta": {
     "title": "Register-data tables",
     "tagline": "Every regression table of an empirical paper, one entry per estimated column, transcribed cell by cell with the specification needed to re-run it.",
-    "description": "One entry per regression column (a (panel, column) pair of a table that reports estimated coefficients): outcome, target regressor, the full specification (controls itemised, fixed effects, instruments, weights, clustering, sample restrictions) and every printed cell with its row type. Written for the danish-register-econ reproduction pipeline; the companion of the Register-data claims preset, whose point estimates Metalens cross-checks against these cells.",
-    "mode": "extraction",
+    "description": "One entry per regression column (a (panel, column) pair of a table that reports estimated coefficients): outcome, target regressor, the full specification (controls itemised, fixed effects, instruments, weights, clustering, sample restrictions) and every printed cell with its row type. Written for the danish-register-econ reproduction pipeline; the companion of the Register-data claims preset, whose point estimates Metalens cross-checks against these cells. The records are produced OUTSIDE Metalens by the danish-register-econ agent pipeline; this preset is the schema they are imported into, not the recipe that made them.",
+    "mode": "import",
     "hidden": false,
     "brands": [
       "metalens"
     ]
   },
-  "prompt": {
-    "file": "register-tables.prompt.md"
-  },
+  "prompt": {},
   "paper": {
     "fields": []
   },

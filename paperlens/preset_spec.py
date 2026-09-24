@@ -63,7 +63,7 @@ IDENTITY_FIELDS = (
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
-    "meta": {"title", "tagline", "description", "mode", "hidden", "brands"},
+    "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
     "paper": {"fields"},
@@ -282,7 +282,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         unknown(meta, "meta", "$.meta")
         if not (isinstance(meta.get("title"), str) and meta["title"].strip()):
             E("$.meta.title is required")
-        if meta.get("mode") not in ("extraction", "summarize"):
+        if meta.get("mode") not in ("extraction", "summarize", "import"):
             E("$.meta.mode must be 'extraction' or 'summarize'")
         if not isinstance(meta.get("hidden", False), bool):
             E("$.meta.hidden must be a boolean")
@@ -290,6 +290,9 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         brands = meta.get("brands", [])
         if not (isinstance(brands, list) and all(isinstance(b, str) and b for b in brands)):
             E("$.meta.brands must be a list of brand ids")
+        su = meta.get("source_url")
+        if su is not None and not (isinstance(su, str) and su.startswith(("http://", "https://"))):
+            E("$.meta.source_url must be an http(s) URL (where the pipeline that produces this data lives)")
 
     prompt = spec.get("prompt")
     params: dict = {}
@@ -297,7 +300,11 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         E("$.prompt must be an object"); prompt = {}
     else:
         unknown(prompt, "prompt", "$.prompt")
-        if not (isinstance(prompt.get("text"), str) and prompt["text"].strip()):
+        if meta.get("mode") == "import":
+            if (prompt.get("text") or "").strip():
+                E("$.prompt must be empty when meta.mode is \"import\": the data is produced outside "
+                  "Metalens, and a prompt here would suggest it made the records")
+        elif not (isinstance(prompt.get("text"), str) and prompt["text"].strip()):
             E("$.prompt.text (or prompt.file) is required and must not be empty")
         params = prompt.get("params") or {}
         if not isinstance(params, dict):
@@ -416,7 +423,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
     child_tables: dict[str, set[str]] = {}   # child key -> its table fields (grid_rows targets)
     entry_field_names: list[str] = []
     table_fields: set[str] = set()
-    if meta.get("mode") in ("extraction", "summarize") and not entries:
+    if meta.get("mode") in ("extraction", "summarize", "import") and not entries:
         E("$.entries is required")
     if entries:
         if not isinstance(entries, dict):
@@ -1617,6 +1624,7 @@ def field_defs_for(spec: dict) -> dict:
         "title": spec["meta"].get("title"),
         "tagline": spec["meta"].get("tagline"),
         "mode": spec["meta"].get("mode"),
+        "source_url": spec["meta"].get("source_url"),
         "schema_version": content_hash(spec)[:8],
         "hash": content_hash(spec),
         "schema_id": schema_id(spec),

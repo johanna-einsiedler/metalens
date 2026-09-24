@@ -676,6 +676,23 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     if d["visibility"] != "public" and not owner:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     ov = records.dataset_overview(db, dataset_id)
+    # A dataset on an "import" preset was not extracted here: say so, and say what did make it,
+    # rather than showing an empty recipe that reads as a missing record.
+    rec = ov.get("recipe") or {}
+    spec = presets.load_all().get((rec.get("schema_id") or "").partition("@")[0])
+    if spec:
+        rec["mode"] = (spec.get("meta") or {}).get("mode")
+        rec["source_url"] = (spec.get("meta") or {}).get("source_url")
+    rec["produced_by"] = sorted({r[0] for r in db.execute(
+        "SELECT DISTINCT extraction->>'resolved_model' FROM record WHERE dataset_id = %s::uuid",
+        (dataset_id,)).fetchall() if r[0]})[:4]
+    # The preset's mode says how this data is MEANT to arrive; whether a model was actually called
+    # here is a fact about the records — a supplied result records no requested model. Judging by
+    # the mode alone would tell a dataset that was extracted here that it was not.
+    rec["extracted_here"] = bool(db.execute(
+        "SELECT 1 FROM record WHERE dataset_id = %s::uuid AND coalesce(extraction->>'model', '') <> '' LIMIT 1",
+        (dataset_id,)).fetchone())
+    ov["recipe"] = rec
     ov["viewer_is_owner"] = bool(owner)
     ov["viewer_is_anonymous"] = not who.user_id
     # an imported dataset has no owner; a moderator is the only one who can remove it
@@ -2522,7 +2539,8 @@ def extract_endpoint(
 
 
 def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
-                     dataset_id: str | None, *, filename: str | None) -> dict:
+                     dataset_id: str | None, *, filename: str | None,
+                     produced_by: str | None = None) -> dict:
     """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
     persist a full viewable document — /api/extract minus the model call."""
     import json as _json
@@ -2544,8 +2562,10 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
 
+    made_by = (produced_by or "").strip()[:200] or "imported"
+
     def _supplied(pdf_bytes, prompt, **kw):
-        return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model="imported")
+        return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model=made_by)
 
     try:
         res = extract.run_extraction(
@@ -2567,6 +2587,7 @@ def ingest_pdf_endpoint(
     result: str = Form(...),
     schema_id: str | None = Form(None),
     dataset_id: str | None = Form(None),
+    produced_by: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2575,9 +2596,12 @@ def ingest_pdf_endpoint(
     viewable document — the SAME pipeline as /api/extract, but with the result SUPPLIED
     instead of calling a model (no model, key, or credits).  Accepts either the canonical
     object or a ``{…, "extraction": {…}}`` wrapper.  With ``dataset_id`` the imported document
-    is added to that dataset (owner-gated)."""
+    is added to that dataset (owner-gated).  ``produced_by`` names what actually made the
+    records — a model, or the agent pipeline that ran outside — and is stored where a normal
+    run stores its model, so an imported record can say where it came from; without it the
+    record only says "imported"."""
     return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
-                            filename=pdf.filename)
+                            filename=pdf.filename, produced_by=produced_by)
 
 
 @app.get("/api/papers/provenance")
@@ -2601,7 +2625,9 @@ def list_presets(db=Depends(get_db), who: Principal = Depends(principal),
     rows = []
     for pid in sorted(allp):
         meta = allp[pid].get("meta") or {}
-        if meta.get("hidden") or not b.shows_preset(meta):
+        # an "import" preset is a schema for data produced elsewhere: offering it here would
+        # suggest a prompt in Metalens made the records
+        if meta.get("hidden") or meta.get("mode") == "import" or not b.shows_preset(meta):
             continue
         row = presets.emit_schema_row(pid)
         if row:
