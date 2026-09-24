@@ -143,8 +143,19 @@ function render() {
       <div class="ds-card" style="margin-top:8px"><div class="ds-card-h">Vocabulary <span class="muted" style="font-weight:400;font-size:12.5px">· harmonise a column into concepts</span>
           <a class="btn btn-ghost btn-sm" href="/vocabulary?dataset=${esc(id)}" style="margin-left:auto">Open</a></div>
         <p class="muted" style="font-size:13px;margin:0 0 6px">A model groups the phrases of a text column (a cause, an effect, a measure name) into concepts; you review and commit; the analysis table gains a <code>…_concept</code> column. Optional: nothing changes until you commit one.</p>
-        <div id="ds-voclist" class="muted" style="font-size:13px"></div></div></details>` : ""}`;
+        <div id="ds-voclist" class="muted" style="font-size:13px"></div></div>
+      ${OV.visibility === "public" ? `<div class="ds-card" style="margin-top:8px"><div class="ds-card-h">Take out of the catalogue</div>
+        <p class="muted" style="font-size:13px;margin:0 0 8px">Removes this dataset from the public <a href="/catalog">data catalogue</a> and from anyone else's view. Nothing is deleted: the records, releases and history stay, and you can publish it again. A copy already merged into the datasets repository on GitHub stays there.</p>
+        <button type="button" class="btn btn-ghost btn-sm" id="ds-unpublish">Unpublish</button> <span class="muted" id="ds-unpub-msg" style="font-size:13px"></span></div>` : ""}
+      </details>` : ""}`;
 
+  const unpub = $("#ds-unpublish");
+  if (unpub) unpub.onclick = async () => {
+    if (!confirm("Take this dataset out of the public catalogue? Nothing is deleted and you can publish it again.")) return;
+    unpub.disabled = true; $("#ds-unpub-msg").textContent = "unpublishing…";
+    try { await api.setDatasetVisibility(id, "private"); location.reload(); }
+    catch (ex) { unpub.disabled = false; $("#ds-unpub-msg").textContent = ex.message; }
+  };
   if (!(OWNER && ANON)) wirePublishing();
   if (AUDIT) renderAudit();
   loadReleases();

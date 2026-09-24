@@ -136,3 +136,30 @@ def test_tile_prompt_is_house_style_and_ships_with_a_release() -> None:
     long = tile_prompt.build("T", "x" * 400)
     assert len(long) < 3000 and "…" in long                            # a long description is cut, not pasted whole
     assert "metalens.json" in tile_prompt.doc("T") and "```" in tile_prompt.doc("T")
+
+
+def test_unpublishing_takes_a_dataset_out_of_the_catalogue() -> None:
+    """The owner can withdraw a published dataset; nothing is deleted and it can go back."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    conn = records.connect(); records.init_db(conn)
+    sess = f"xd-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    c = TestClient(appmod.app)
+    listed = lambda: any(d["id"] == ds for d in c.get("/api/datasets/public").json()["datasets"])
+    assert listed()
+    stranger = TestClient(appmod.app)
+    assert stranger.patch(f"/api/datasets/{ds}", json={"visibility": "private"},
+                          headers={"X-Session-Id": "o-" + uuid.uuid4().hex[:6]}).status_code == 403
+    assert listed()                                              # a stranger cannot withdraw it
+    assert c.patch(f"/api/datasets/{ds}", json={"visibility": "private"}, headers=mine).status_code == 200
+    assert not listed()
+    assert records.get_dataset(conn, ds) is not None             # withdrawn, not deleted
+    # withdrawing clears the `catalogue` flag, so the hourly sync cannot quietly relist it:
+    # getting back into the catalogue means publishing again, not just flipping visibility
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    assert (records.get_dataset(conn, ds) or {}).get("visibility") == "public" and not listed()
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
