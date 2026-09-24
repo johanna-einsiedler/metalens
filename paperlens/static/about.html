@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>About</title>
+  <meta name="description" content="What Metalens is, how a number gets from a paper into a dashboard, and what you may do with the result."/>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <style>
+    .about { max-width: 760px; }
+    .about h1 { margin: 26px 0 6px; font: 600 38px/1.15 var(--font-serif); color: var(--accent-dark); }
+    .about .lede { font-size: 17px; color: var(--text-muted); margin: 0 0 8px; }
+    .about h2 { margin: 34px 0 8px; font-size: 19px; color: var(--accent-dark); }
+    .about p, .about li { font-size: 14.5px; line-height: 1.6; }
+    .about p { margin: 10px 0; }
+    .about ul { margin: 10px 0; padding-left: 20px; }
+    .about li { margin: 5px 0; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 16px 0 6px; }
+    .steps div { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--accent);
+                 border-radius: var(--radius-sm); padding: 11px 14px 13px; }
+    .steps b { display: block; font-size: 14px; color: var(--accent-dark); margin-bottom: 4px; }
+    .steps span { font-size: 13px; color: var(--text-muted); line-height: 1.45; }
+    .about .box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+                  padding: 12px 16px; margin: 16px 0; font-size: 13.5px; }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+
+  <div class="wrap about">
+    <h1>About Metalens</h1>
+    <p class="lede">Research findings are published as prose and tables inside PDFs. Metalens turns them into
+      structured data that a person has checked, and keeps that data alive as new papers appear.</p>
+
+    <h2>The problem it addresses</h2>
+    <p>A systematic review or meta-analysis is an enormous amount of careful reading, and the result is frozen
+      on the day it is published. Papers that appear the following month do not change it. Anyone who wants to
+      know what the evidence says two years later has to start again, usually from the same PDFs.</p>
+    <p>Language models can read those PDFs quickly, but on their own they are not a sound basis for evidence:
+      they make mistakes, and a number with no trail back to its source cannot be checked. Metalens is built
+      around that gap. Every value it produces carries the passage it was read from, and a person decides
+      whether to accept it.</p>
+
+    <h2>How it works</h2>
+    <div class="steps">
+      <div><b>Capture</b><span>A PDF and a preset — the set of fields you want — go to the model you choose. It returns one record per paper.</span></div>
+      <div><b>Verify</b><span>Every value is shown beside the highlighted sentence, table cell or figure it came from. You confirm, correct or reject it.</span></div>
+      <div><b>Visualize</b><span>Records become an analysis table and a dashboard, where each mark can name the rows and quotes behind it.</span></div>
+      <div><b>Stay current</b><span>Add papers, cut a new release, and the dashboards that pin that dataset follow.</span></div>
+    </div>
+    <p>A <b>preset</b> is the reusable part: the fields, their types, the prompt and how the results should be
+      laid out for review and analysis. Presets can be shared, so a second team extracting the same kind of
+      evidence starts from the first team's design rather than from a blank page.</p>
+
+    <h2>What makes a number here checkable</h2>
+    <ul>
+      <li><b>Evidence.</b> Each value is tied to a verbatim quote with its page, so you can see exactly what the
+        model read. A value with no evidence is visible as such.</li>
+      <li><b>Verification history.</b> Who confirmed or corrected a record, when, and with what note. A dataset
+        carries a credibility label that reflects how much of it a person has actually checked.</li>
+      <li><b>The model is recorded.</b> Which model, which prompt and which preset version produced a record are
+        stored with it, so an extraction can be repeated or compared.</li>
+      <li><b>Cross-checks.</b> Where a dataset has a companion — for example claims checked against the
+        regression tables they cite — disagreements are surfaced rather than smoothed over.</li>
+    </ul>
+
+    <h2>Publishing and citing</h2>
+    <p>A dataset can be published as a frozen <b>release</b>: the records, the evidence quotes, the preset and
+      the verification history, written out as static files. Releases go to a public
+      <a href="https://github.com/johanna-einsiedler/metalens-datasets" target="_blank" rel="noopener">datasets repository on GitHub</a>
+      and can be given a DOI on <a href="https://zenodo.org" target="_blank" rel="noopener">Zenodo</a>, so a
+      figure in a paper can point at the exact state of the data it was drawn from. Published datasets are
+      listed in the <a href="/catalog">data catalogue</a>.</p>
+    <p>Dashboards built on a release — inside Metalens or in your own code on your own site — are listed on the
+      <a href="/dashboards">dashboards page</a>. A dashboard pins a release, so it never changes under you; when
+      the dataset grows, you update it deliberately.</p>
+
+    <h2>Your data</h2>
+    <p>Papers, datasets and presets are private to you until you publish. API keys are held in memory for the
+      length of a run and never written to disk. Without an account, everything you upload is deleted two hours
+      after your last activity. The <a href="/faq">FAQ</a> sets out in detail what is stored, for how long, what
+      reaches the model provider, and what you may lawfully upload.</p>
+
+    <h2>Open source, and running it yourself</h2>
+    <p>Metalens is open source under the MIT licence:
+      <a href="https://github.com/johanna-einsiedler/metalens" target="_blank" rel="noopener">github.com/johanna-einsiedler/metalens</a>.
+      You can run the whole thing on your own machine, with an embedded database and no account, and point it at
+      a local model server — in that setup neither the PDF nor its text leaves your computer. This matters where
+      an institutional data agreement rules out a hosted service.</p>
+
+    <h2>MASEMiner</h2>
+    <p><a href="/maseminer">MASEMiner</a> is the same engine with a narrower job: extracting the correlation
+      matrices and study metadata that meta-analytic structural equation modelling needs. If that is your task,
+      start there — the presets and the review screen are built for it.</p>
+
+    <div class="box">
+      Metalens is research software, developed in the open. Questions, bugs and feature requests are welcome as
+      <a href="https://github.com/johanna-einsiedler/metalens/issues" target="_blank" rel="noopener">issues on GitHub</a>.
+    </div>
+  </div>
+
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

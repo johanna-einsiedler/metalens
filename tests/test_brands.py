@@ -53,11 +53,15 @@ def test_landing_and_brand_api_follow_the_host(monkeypatch) -> None:
     assert "mm-hero" in c.get("/maseminer").text                       # reachable on every host
     assert 'href="/extract?preset=masem-direct"' in c.get("/maseminer").text   # CTA lands in the MASEM builder
     assert "What happens to my API key" in c.get("/faq").text          # the FAQ page
+    about = c.get("/about")
+    assert about.status_code == 200 and "About Metalens" in about.text
+    assert 'href="/faq"' in about.text and 'href="/catalog"' in about.text   # it leads on to the detail
     b = c.get("/api/brand", headers={"host": "maseminer.metalens.tech"}).json()
     assert b["id"] == "maseminer" and b["default_preset"] == "masem-direct" and b["logo"].endswith("maseminer-mark.svg")
     assert [n["href"] for n in b["nav_personal"]] == ["/extract", "/import", "/workspace"]
     b = c.get("/api/brand").json()
     assert b["id"] == "metalens" and b["default_preset"] is None
+    assert [n["href"] for n in b["nav_shared"]] == ["/dashboards", "/catalog", "/about"]   # About is reachable from every page
 
 
 def test_beta_gate_realm_names_the_brand(monkeypatch) -> None:

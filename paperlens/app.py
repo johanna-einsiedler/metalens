@@ -252,6 +252,12 @@ def dashboard_page() -> FileResponse:
     return _page("dashboard.html")
 
 
+@app.get("/about")
+def about_page() -> FileResponse:
+    """What Metalens is, how a value gets from a paper into a dashboard, and what may be done with it."""
+    return _page("about.html")
+
+
 @app.get("/faq")
 def faq_page() -> FileResponse:
     """What happens to API keys, PDFs and extracted data; legal access; publishing."""
