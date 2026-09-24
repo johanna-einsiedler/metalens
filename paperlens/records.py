@@ -1084,6 +1084,16 @@ def is_document_owner(conn: psycopg.Connection, document_id: str, principal) -> 
     return r is not None and _owns(principal, r[0], r[1])
 
 
+def dataset_is_ownerless(conn: psycopg.Connection, dataset_id: str) -> bool:
+    """A dataset nobody can reach as its owner. ``github_sync`` imports a folder from the
+    datasets repository with neither an account nor a session on it, so _owns() is False for
+    everyone: without this, an imported dataset can never be withdrawn or deleted by anyone."""
+    if not _is_uuid(dataset_id):
+        return False
+    r = conn.execute("SELECT owner_user_id, session_id FROM dataset WHERE id = %s::uuid", (dataset_id,)).fetchone()
+    return r is not None and r[0] is None and r[1] is None
+
+
 def is_dataset_owner(conn: psycopg.Connection, dataset_id: str, principal) -> bool:
     if not _is_uuid(dataset_id):
         return False

@@ -678,6 +678,8 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     ov = records.dataset_overview(db, dataset_id)
     ov["viewer_is_owner"] = bool(owner)
     ov["viewer_is_anonymous"] = not who.user_id
+    # an imported dataset has no owner; a moderator is the only one who can remove it
+    ov["ownerless"] = records.dataset_is_ownerless(db, dataset_id)
     if not owner:                        # don't leak the uploader's local filenames publicly
         ov.pop("owner_citation_name", None)   # …nor the name behind an anonymous dataset
         for doc in ov.get("documents", []):
@@ -1780,9 +1782,14 @@ def dataset_dedupe_endpoint(dataset_id: str, db=Depends(get_db),
 def delete_dataset(dataset_id: str, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
     """Owner-only: delete the dataset and discard its extraction records; each paper's
-    cached PDF is kept in "All my papers" so it can be re-extracted into another dataset."""
+    cached PDF is kept in "All my papers" so it can be re-extracted into another dataset.
+
+    A dataset imported from the datasets repository has no owner at all, so nobody could ever
+    remove it; a moderator can, and only in that case."""
     if not records.is_dataset_owner(db, dataset_id, who):
-        raise HTTPException(status_code=403, detail="Not authorized.")
+        if not records.dataset_is_ownerless(db, dataset_id):
+            raise HTTPException(status_code=403, detail="Not authorized.")
+        _require_admin(db, who)
     return records.delete_dataset(db, dataset_id)
 
 

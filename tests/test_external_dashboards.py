@@ -163,3 +163,52 @@ def test_unpublishing_takes_a_dataset_out_of_the_catalogue() -> None:
     records.set_dataset_visibility(conn, ds, "public"); conn.commit()
     assert (records.get_dataset(conn, ds) or {}).get("visibility") == "public" and not listed()
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_only_a_moderator_can_remove_an_imported_dataset(monkeypatch) -> None:
+    """github_sync imports a dataset with no owner, so _owns() is False for everyone; without
+    the moderator path such a dataset could never be removed by anybody."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    conn = records.connect(); records.init_db(conn)
+    sess = f"xd-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    conn.execute("UPDATE dataset SET owner_user_id = NULL, session_id = NULL, github_source = true, visibility = 'public' WHERE id = %s::uuid", (ds,))
+    conn.commit()
+    assert records.dataset_is_ownerless(conn, ds)
+
+    c = TestClient(appmod.app)
+    monkeypatch.setenv("PAPERLENS_ADMINS", "nobody@example.org")
+    assert c.delete(f"/api/datasets/{ds}", headers=mine).status_code == 403        # not signed in: no moderator either
+    email = f"xd-{uuid.uuid4().hex[:8]}@example.org"
+    c.post("/api/auth/register", json={"email": email, "password": "xd-test-pass-1"}, headers=mine)
+    assert c.delete(f"/api/datasets/{ds}", headers=mine).status_code == 403        # signed in, but not a moderator
+    assert records.get_dataset(conn, ds) is not None
+    assert c.get(f"/api/datasets/{ds}/overview", headers=mine).json()["ownerless"] is True
+
+    monkeypatch.setenv("PAPERLENS_ADMINS", email)
+    assert c.delete(f"/api/datasets/{ds}", headers=mine).json()["deleted"] == 1
+    assert records.get_dataset(conn, ds) is None
+    conn.close()
+
+
+def test_a_moderator_cannot_delete_someone_elses_owned_dataset(monkeypatch) -> None:
+    """The moderator path is ONLY for ownerless datasets; an owned one stays the owner's."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    conn = records.connect(); records.init_db(conn)
+    owner_sess = f"xd-{uuid.uuid4().hex[:6]}"
+    ds, _ = _seed(conn, HAC, "human-ai-collab", owner_sess)
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    assert not records.dataset_is_ownerless(conn, ds)
+    admin = TestClient(appmod.app); a_sess = {"X-Session-Id": "adm-" + uuid.uuid4().hex[:6]}
+    email = f"adm-{uuid.uuid4().hex[:8]}@example.org"
+    admin.post("/api/auth/register", json={"email": email, "password": "xd-test-pass-1"}, headers=a_sess)
+    monkeypatch.setenv("PAPERLENS_ADMINS", email)
+    assert admin.delete(f"/api/datasets/{ds}", headers=a_sess).status_code == 403
+    assert records.get_dataset(conn, ds) is not None
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

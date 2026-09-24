@@ -14,7 +14,7 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-let OV = null, OWNER = false, ANON = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
+let OV = null, OWNER = false, ANON = false, ADMIN = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
 let FINALIZED = new URLSearchParams(location.search).get("finalized") === "1";   // arrived from "Finalize" in the review
 
 async function init() {
@@ -25,6 +25,7 @@ async function init() {
   // an anonymous browser session can own a dataset too (Finalize without an account)
   OWNER = !!OV.viewer_is_owner || !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
   ANON = !!OV.viewer_is_anonymous;
+  ADMIN = !!(me && me.is_admin);
   render();
   loadAudit();
 }
@@ -138,6 +139,11 @@ function render() {
     <!-- 5 · the other side of the same papers (only for presets with a registered check) -->
     <div class="ds-card" id="ds-crosscheck" hidden></div>
 
+    <!-- 6a · a dataset imported from the datasets repository has no owner: only a moderator can remove it -->
+    ${ADMIN && OV.ownerless ? `<div class="ds-card" style="margin-top:10px"><div class="ds-card-h">Moderator</div>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset was imported from the datasets repository, so it has no owner and nobody can withdraw it the usual way. Deleting removes it and its records from Metalens. The copy in the repository on GitHub is untouched — if the folder is still on the default branch, the hourly sync will import it again.</p>
+      <button type="button" class="btn btn-ghost btn-sm" id="ds-modkill">Delete this dataset</button> <span class="muted" id="ds-modmsg" style="font-size:13px"></span></div>` : ""}
+
     <!-- 6 · owner-only extras that most datasets never need -->
     ${OWNER && !ANON ? `<details class="ds-adv" id="ds-advanced" style="margin:10px 0 0"><summary class="muted" style="font-size:13px;cursor:pointer">Advanced</summary>
       <div class="ds-card" style="margin-top:8px"><div class="ds-card-h">Vocabulary <span class="muted" style="font-weight:400;font-size:12.5px">· harmonise a column into concepts</span>
@@ -149,6 +155,13 @@ function render() {
         <button type="button" class="btn btn-ghost btn-sm" id="ds-unpublish">Unpublish</button> <span class="muted" id="ds-unpub-msg" style="font-size:13px"></span></div>` : ""}
       </details>` : ""}`;
 
+  const modkill = $("#ds-modkill");
+  if (modkill) modkill.onclick = async () => {
+    if (!confirm(`Delete “${OV.title || "this dataset"}” from Metalens? Its records go with it. The GitHub copy is untouched.`)) return;
+    modkill.disabled = true; $("#ds-modmsg").textContent = "deleting…";
+    try { await api.deleteDataset(id); location.href = "/catalog"; }
+    catch (ex) { modkill.disabled = false; $("#ds-modmsg").textContent = ex.message; }
+  };
   const unpub = $("#ds-unpublish");
   if (unpub) unpub.onclick = async () => {
     if (!confirm("Take this dataset out of the public catalogue? Nothing is deleted and you can publish it again.")) return;
