@@ -24,6 +24,10 @@
     .credits { list-style: none; padding-left: 0; }
     .credits li { padding-left: 16px; border-left: 2px solid var(--accent-3); margin: 8px 0; color: var(--text-muted); }
     .credits b { color: var(--text); font-weight: 600; }
+    /* linked and unlinked names sit side by side in this list, and the link colour alone is too
+       close to the text colour to tell them apart — so the ones you can follow are underlined */
+    .credits a { color: var(--accent-2); text-decoration: underline; text-underline-offset: 2px;
+                 text-decoration-thickness: 1px; }
     .about .box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
                   padding: 12px 16px; margin: 16px 0; font-size: 13.5px; }
   </style>
@@ -48,13 +52,12 @@
 
     <h2>How it works</h2>
     <div class="steps">
-      <div><b>Capture</b><span>A PDF and a preset — the set of fields you want — go to the model you choose. It returns one record per paper.</span></div>
-      <div><b>Verify</b><span>Every value is shown beside the highlighted sentence, table cell or figure it came from. You confirm, correct or reject it.</span></div>
-      <div><b>Visualize</b><span>Records become an analysis table and a dashboard, where each mark can name the rows and quotes behind it.</span></div>
-      <div><b>Stay current</b><span>Add papers, cut a new release, and the dashboards that pin that dataset follow.</span></div>
+      <div><b>1 · Define a preset</b><span>Say what you want from each paper: the fields, their types, the prompt, and how the results should be laid out.</span></div>
+      <div><b>2 · Extract</b><span>Your PDFs and the preset go to the model you choose. Every value comes back with the passage it was read from, highlighted in the source for you to confirm or correct.</span></div>
+      <div><b>3 · Visualize</b><span>Records become an analysis table and a dashboard, where each mark can name the rows and quotes behind it.</span></div>
+      <div><b>4 · Update</b><span>Add papers, cut a new release, and the dashboards pinned to that dataset follow.</span></div>
     </div>
-    <p>A <b>preset</b> is the reusable part: the fields, their types, the prompt and how the results should be
-      laid out for review and analysis. Presets can be shared, so a second team extracting the same kind of
+    <p>The preset is the reusable part. Presets can be shared, so a second team extracting the same kind of
       evidence starts from the first team's design rather than from a blank page.</p>
 
     <h2>Publishing and citing</h2>
@@ -81,14 +84,16 @@
       a local model server — in that setup neither the PDF nor its text leaves your computer.</p>
 
     <h2>Who builds it</h2>
-    <p>Metalens is built by Claude, Johanna Einsiedler and Linas Vastakas. Credits also go to:</p>
+    <p>Metalens is built by Claude,
+      <a href="https://johannaeinsiedler.com" target="_blank" rel="noopener">Johanna Einsiedler</a>
+      and Linas Vastakas. Credits also go to:</p>
     <ul class="credits">
       <li><b>Ulrich Schroeders</b> and <b>Timo Gnambs</b>, for the expertise in meta-analytic structural equation
         modelling that made the specialised MASEMiner preset possible.</li>
       <li><b>Maria del Mar Ramiro Ortega</b> and <b>Hilda Bernhardsson</b>, for their support in verifying a great
         many extractions.</li>
-      <li><b>Martin Haus</b> and <b>Tiago C. Peixoto</b>, for collaborating on the first Metalens-driven dashboard.</li>
-      <li><b>Amanda Bennets</b>, for helping with the design of the website.</li>
+      <li><b><a href="https://www.linkedin.com/in/martin-haus-70a401377/" target="_blank" rel="noopener">Martin Haus</a></b> and <b><a href="https://www.linkedin.com/in/tcpeixoto/" target="_blank" rel="noopener">Tiago C. Peixoto</a></b>, for collaborating on the first Metalens-driven dashboard.</li>
+      <li><b><a href="https://www.amandabennetts.art/" target="_blank" rel="noopener">Amanda Bennetts</a></b>, for helping with the design of the website.</li>
     </ul>
 
     <div class="box">
