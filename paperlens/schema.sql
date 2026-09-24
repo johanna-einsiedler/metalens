@@ -487,6 +487,21 @@ ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS preview_url text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS authors text;
 ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS keywords jsonb;   -- from the manifest; the dataset's otherwise
+-- an image the owner supplied for the tile; it wins over whatever the manifest names
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS preview_override text;
+-- A registration is listed publicly only once a moderator has approved it (see paperlens/admins.py).
+-- Registrations made BEFORE moderation existed were already public, so adding the column grandfathers
+-- them in; the backfill runs in the same branch as the ALTER, so it happens exactly once and never
+-- touches a registration made afterwards.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'external_dashboard' AND column_name = 'approved_at') THEN
+        ALTER TABLE external_dashboard ADD COLUMN approved_at timestamptz;
+        UPDATE external_dashboard SET approved_at = created_at;
+    END IF;
+END $$;
+ALTER TABLE external_dashboard ADD COLUMN IF NOT EXISTS approved_by uuid REFERENCES users(id) ON DELETE SET NULL;
 
 -- a DOI per release (Zenodo); the dataset's concept DOI always resolves to the newest version
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS doi text;

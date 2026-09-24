@@ -27,7 +27,8 @@ def test_files_hold_the_release_tables_and_evidence() -> None:
     ds, doc = _seed(conn, HAC, "human-ai-collab", f"rx-{uuid.uuid4().hex[:6]}")
     rel = releases.get(conn, releases.create(conn, ds, notes="first")["id"], with_snapshot=True)
     files = release_export.build(conn, rel)
-    assert set(files) == {"release.json", "README.md", "evidence.json", "tables/entries.json", "tables/conditions.json", "tables/conditions.measures.json"}
+    assert set(files) == {"release.json", "README.md", "tile-prompt.md", "evidence.json", "tables/entries.json", "tables/conditions.json", "tables/conditions.measures.json"}
+    assert b"1200x630" in files["tile-prompt.md"] and b"metalens.json" in files["tile-prompt.md"]   # the house style travels with the release
     meta = json.loads(files["release.json"])
     assert meta["format"] == "metalens-release" and meta["release"]["number"] == 1 and meta["release"]["content_sha"] == rel["content_sha"]
     assert meta["release"]["notes"] == "first" and meta["preset"]["id"] == "human-ai-collab" and sorted(meta["files"]) == sorted(files)

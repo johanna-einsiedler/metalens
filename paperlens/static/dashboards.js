@@ -6,6 +6,15 @@ const $ = (s) => document.querySelector(s);
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
 const host = (u) => { try { return new URL(u).host; } catch { return u; } };
 
+// The tile picture: the image the owner supplied if there is one, else whatever the page's own
+// manifest names. An owner's image is stable, so only the manifest's is cache-busted by the check.
+function tileImg(x) {
+  const own = x.preview_override, url = own || x.tile_url || x.preview_url;
+  if (!url) return `<div class="tile-ph">${iconSvg("forest", {})}</div>`;
+  const src = own ? url : url + (url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(x.checked_at || "");
+  return `<img src="${esc(src)}" alt="" loading="lazy"/>`;
+}
+
 async function init() {
   const [data, me] = await Promise.all([api.publicDashboards(), api.me()]);
   const signed = !!(me && (me.email || me.local_mode));
@@ -15,7 +24,7 @@ async function init() {
   const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice(0, 7).map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
   $("#dbs-external").innerHTML = data.external.length ? data.external.map((x) =>
     `<article class="tile"><a class="tile-a" href="${esc(x.url)}" target="_blank" rel="noopener">
-      <div class="tile-img">${x.preview_url ? `<img src="${esc(x.preview_url + (x.preview_url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(x.checked_at || ""))}" alt="" loading="lazy"/>` : `<div class="tile-ph">${iconSvg("forest", {})}</div>`}</div>
+      <div class="tile-img">${tileImg(x)}</div>
       <div class="tile-body">${kicker(x)}<h3 class="tile-h">${esc(x.title)}</h3>${kws(x.keywords)}
       ${x.description ? `<p class="tile-p">${esc(x.description)}</p>` : ""}
       ${x.authors ? `<p class="tile-by">${esc(x.authors)}</p>` : ""}</div></a>
@@ -28,6 +37,7 @@ async function init() {
       ${d.description ? `<p class="tile-p">${esc(d.description)}</p>` : ""}${d.author ? `<p class="tile-by">${esc(d.author)}</p>` : ""}</div></a>
       <div class="tile-foot"><span>Metalens</span> · <a href="/dataset?id=${encodeURIComponent(d.dataset_id)}">${esc(d.dataset_title || "dataset")}</a> · published ${esc(day(d.published_at))}</div></article>`).join("")
     : `<p class="muted">None yet.</p>`;
+  if (me && me.is_admin) renderQueue();
   // registering needs a dataset the visitor owns: the form asks which
   $("#dbs-actions").innerHTML = signed ? `<button type="button" class="btn btn-primary btn-sm" id="dbs-add">＋ Register a dashboard</button>`
     : `<a class="btn btn-ghost btn-sm" href="/account?next=${encodeURIComponent("/dashboards")}" title="registering needs an account and a dataset of yours">Sign in to register a dashboard</a>`;
@@ -51,3 +61,26 @@ async function init() {
   };
 }
 init().catch((e) => { $("#dbs-external").innerHTML = `<p class="muted">Could not load: ${esc(e.message)}</p>`; });
+
+// ── the moderation queue, for the accounts named in PAPERLENS_ADMINS ──────────────────────────
+// A registration points at someone else's page, and listing it here is Metalens vouching for it,
+// so nothing reaches the public page until one of them says so.
+async function renderQueue() {
+  let pending = [];
+  try { pending = (await api.pendingExternalDashboards()).dashboards || []; } catch { return; }
+  const box = $("#dbs-queue");
+  if (!box) return;
+  box.hidden = false;
+  box.innerHTML = `<div class="section-h">Awaiting approval <span class="muted">(${pending.length})</span></div>`
+    + (pending.length ? pending.map((x) => `<div class="q-row">
+        <div><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b> ↗</a>
+          <div class="muted">${esc(host(x.url))} · <a href="/dataset?id=${encodeURIComponent(x.dataset_id)}">the dataset</a>
+            · registered ${esc(day(x.created_at))}${x.check_note ? ` · ${esc(x.check_note)}` : ""}</div></div>
+        <button type="button" class="btn btn-primary btn-sm" data-approve="${esc(x.id)}">List it</button>
+      </div>`).join("") : `<p class="muted">Nothing waiting.</p>`);
+  box.querySelectorAll("[data-approve]").forEach((b) => (b.onclick = async () => {
+    b.disabled = true; b.textContent = "listing…";
+    try { await api.approveExternalDashboard(b.dataset.approve, true); location.reload(); }
+    catch (ex) { b.disabled = false; b.textContent = "List it"; alert(ex.message); }
+  }));
+}

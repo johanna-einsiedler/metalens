@@ -12,6 +12,7 @@ the page — so it keeps working whatever happens to a Metalens server, and it c
     tables/<unit>.json      one typed table per row layout: columns, papers, records, rows
     evidence.json           the quote, page and source behind every cell that has one
     README.md               what the files are and how to cite them
+    tile-prompt.md          how to make the picture the Dashboards page shows, in the house style
 
 Only what a public reader of a published dashboard could see: never file names, document ids,
 geometry, page images or PDFs. Computed columns (Hedges' g …) carry no evidence of their own:
@@ -24,7 +25,7 @@ import json
 import re
 import zipfile
 
-from . import analysis_table, records
+from . import analysis_table, records, tile_prompt
 
 FORMAT = "metalens-release"
 FORMAT_VERSION = 1
@@ -120,8 +121,13 @@ def build(conn, release: dict) -> dict[str, bytes]:
                                                         "unlinked": "no regression column matches the cited exhibit", "no_estimate": "nothing to check", "figure": "a figure"},
                                            "rows": fz["rows"]})
         meta["files"] = sorted(set(meta["files"]) | {"crosscheck.json"})
+    meta["files"] = sorted(set(meta["files"]) | {"tile-prompt.md"})
     files["release.json"] = json.dumps(meta, ensure_ascii=False, indent=1, default=str).encode("utf-8")
     files["README.md"] = _readme(meta).encode("utf-8")
+    # how to make the picture Metalens shows for a dashboard built on this release, in the house style
+    files["tile-prompt.md"] = tile_prompt.doc(meta["dataset"]["title"] or ds.get("slug") or "",
+                                              meta["dataset"].get("description") or "",
+                                              meta["dataset"].get("keywords") or []).encode("utf-8")
     return files
 
 

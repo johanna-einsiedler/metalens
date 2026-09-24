@@ -85,6 +85,9 @@ export const api = {
   externalDashboards: (id) => req(`/api/datasets/${id}/external-dashboards`),
   addExternalDashboard: (id, body) => req(`/api/datasets/${id}/external-dashboards`, json(body)),
   checkExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}/check`, { method: "POST" }),
+  patchExternalDashboard: (xid, body) => req(`/api/external-dashboards/${xid}`, { ...json(body), method: "PATCH" }),
+  pendingExternalDashboards: () => req("/api/external-dashboards/pending"),
+  approveExternalDashboard: (xid, approved = true) => req(`/api/external-dashboards/${xid}/approve?approved=${approved}`, { method: "POST" }),
   deleteExternalDashboard: (xid) => req(`/api/external-dashboards/${xid}`, { method: "DELETE" }),
   publishRelease: (id, number, target) => req(`/api/datasets/${id}/publish`, json({ target, release: number })),
   // a release as static files (release.json, tables/, evidence.json): what a dashboard written outside Metalens reads

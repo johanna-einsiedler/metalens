@@ -5,6 +5,11 @@ The check reads a manifest the page publishes: ``<page url>/metalens.json`` or, 
 from the dev kit, ``<page url>/data/config.json``. Accepted keys: ``release`` (a folder name or
 number) or ``release_number``; the number is read from the trailing "-vN" / "vN" of a folder name.
 Only http(s) URLs are fetched, with a short timeout and a size cap; nothing is stored but the number.
+
+A registration is not public the moment it is made: it is listed on ``/dashboards`` once a
+moderator approves it (``paperlens/admins.py``), because the page it points at is someone else's
+and Metalens vouches for it by listing it. Its owner may also supply the tile image directly
+(``preview_override``), which wins over whatever the manifest names.
 """
 from __future__ import annotations
 
@@ -18,14 +23,24 @@ import psycopg
 
 from . import records
 
-_COLS = "id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, check_note, created_at, preview_url, description, authors, keywords"
+_COLS = ("id::text, dataset_id::text, owner_user_id::text, title, url, repo_url, manifest_url, release_shown, checked_at, "
+         "check_note, created_at, preview_url, description, authors, keywords, preview_override, approved_at")
+
+
+def _cols(alias: str) -> str:
+    """The same columns, qualified — _COLS is unqualified, and `id` is ambiguous inside a join."""
+    return ", ".join(f"{alias}.{c.strip()}" for c in _COLS.split(","))
 
 
 def _row(r) -> dict:
     return {"id": r[0], "dataset_id": r[1], "owner_user_id": r[2], "title": r[3], "url": r[4], "repo_url": r[5], "manifest_url": r[6],
             "release_shown": r[7], "checked_at": r[8].isoformat(timespec="seconds") if r[8] else None, "check_note": r[9],
             "created_at": r[10].isoformat(timespec="seconds") if r[10] else None,
-            "preview_url": r[11], "description": r[12], "authors": r[13], "keywords": list(r[14] or [])}
+            "preview_url": r[11], "description": r[12], "authors": r[13], "keywords": list(r[14] or []),
+            "preview_override": r[15],
+            "tile_url": r[15] or r[11],                      # what the tile actually shows: the owner's image, else the manifest's
+            "approved": r[16] is not None,
+            "approved_at": r[16].isoformat(timespec="seconds") if r[16] else None}
 
 
 def valid_url(u: str | None) -> bool:
@@ -60,6 +75,33 @@ def create(conn: psycopg.Connection, *, dataset_id: str, owner_user_id: str | No
 def delete(conn: psycopg.Connection, ext_id: str) -> int:
     with conn.transaction():
         return conn.execute("DELETE FROM external_dashboard WHERE id = %s::uuid", (ext_id,)).rowcount
+
+
+def set_preview(conn: psycopg.Connection, ext_id: str, url: str | None) -> dict | None:
+    """The owner's own tile image (None clears it and the manifest's is used again)."""
+    u = (url or "").strip() or None
+    if u is not None and not valid_url(u):
+        raise ValueError("A preview image needs an http(s) URL.")
+    with conn.transaction():
+        conn.execute("UPDATE external_dashboard SET preview_override = %s WHERE id = %s::uuid", (u[:500] if u else None, ext_id))
+    return get(conn, ext_id)
+
+
+def set_approved(conn: psycopg.Connection, ext_id: str, *, by_user_id: str | None, approved: bool) -> dict | None:
+    """List this registration publicly, or take it off the page again."""
+    with conn.transaction():
+        if approved:
+            conn.execute("UPDATE external_dashboard SET approved_at = now(), approved_by = %s::uuid WHERE id = %s::uuid", (by_user_id, ext_id))
+        else:
+            conn.execute("UPDATE external_dashboard SET approved_at = NULL, approved_by = NULL WHERE id = %s::uuid", (ext_id,))
+    return get(conn, ext_id)
+
+
+def list_pending(conn: psycopg.Connection) -> list[dict]:
+    """Registrations over a public dataset that are waiting for a moderator."""
+    rows = conn.execute(f"""SELECT {_cols("x")} FROM external_dashboard x JOIN dataset d ON d.id = x.dataset_id
+                            WHERE x.approved_at IS NULL AND d.visibility = 'public' ORDER BY x.created_at""").fetchall()
+    return [_row(r) for r in rows]
 
 
 _NUM = re.compile(r"[-_/]?v(\d+)$")
@@ -151,15 +193,16 @@ def list_public(conn: psycopg.Connection) -> list[dict]:
     """Every registered dashboard over a public dataset, with the dataset it belongs to."""
     rows = conn.execute(
         """SELECT x.id::text, x.dataset_id::text, x.owner_user_id::text, x.title, x.url, x.repo_url, x.manifest_url, x.release_shown,
-                  x.checked_at, x.check_note, x.created_at, x.preview_url, x.description, x.authors, x.keywords, d.title, d.slug,
+                  x.checked_at, x.check_note, x.created_at, x.preview_url, x.description, x.authors, x.keywords,
+                  x.preview_override, x.approved_at, d.title, d.slug,
                   (SELECT max(number) FROM dataset_release r WHERE r.dataset_id = d.id), d.keywords,
                   (SELECT (r.stats->>'n_papers')::int FROM dataset_release r WHERE r.dataset_id = d.id AND r.number = x.release_shown)
            FROM external_dashboard x JOIN dataset d ON d.id = x.dataset_id
-           WHERE d.visibility = 'public' ORDER BY x.created_at DESC""").fetchall()
+           WHERE d.visibility = 'public' AND x.approved_at IS NOT NULL ORDER BY x.created_at DESC""").fetchall()
     out = []
     for r in rows:
-        item = _row(r[:15])
-        item.update({"dataset_title": r[15], "dataset_slug": r[16], "latest_release": r[17], "n_papers": r[19],
-                     "keywords": item["keywords"] or [k for k in (r[18] or []) if isinstance(k, str)]})   # the dataset's unless the page names its own
+        item = _row(r[:17])
+        item.update({"dataset_title": r[17], "dataset_slug": r[18], "latest_release": r[19], "n_papers": r[21],
+                     "keywords": item["keywords"] or [k for k in (r[20] or []) if isinstance(k, str)]})   # the dataset's unless the page names its own
         out.append(item)
     return out

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -685,6 +685,15 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     return ov
 
 
+def _require_admin(db, who: Principal) -> dict:
+    """The caller as a moderator (paperlens/admins.py), or 403. Never 404: a moderator endpoint
+    that hides itself is only confusing to the one person allowed to use it."""
+    user = auth.get_user(db, who.user_id) if who.user_id else None
+    if not admins.is_admin(user):
+        raise HTTPException(status_code=403, detail="This account does not moderate this server.")
+    return user
+
+
 def _dataset_gate(db, dataset_id: str, who: Principal) -> bool:
     """404 unless the dataset is public or the caller's; returns whether the caller owns it."""
     d = records.get_dataset(db, dataset_id)
@@ -1117,6 +1126,41 @@ def external_dashboards_check(ext_id: str, db=Depends(get_db), who: Principal = 
         raise HTTPException(status_code=404, detail="Not found.")
     _dataset_gate(db, ext["dataset_id"], who)
     return external_dashboards.check(db, ext)
+
+
+class ExternalDashboardPatch(BaseModel):
+    preview_url: str | None = None            # "" or null clears it; the manifest's image is used again
+
+
+@app.patch("/api/external-dashboards/{ext_id}")
+def external_dashboards_patch(ext_id: str, body: ExternalDashboardPatch, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner only: supply the tile image directly, instead of the one the page's manifest names."""
+    from . import external_dashboards
+    ext = external_dashboards.get(db, ext_id)
+    if ext is None or not _dataset_gate(db, ext["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        return external_dashboards.set_preview(db, ext_id, body.preview_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/external-dashboards/pending")
+def external_dashboards_pending(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only: what is waiting to be listed on the public Dashboards page."""
+    from . import external_dashboards
+    _require_admin(db, who)
+    return {"dashboards": external_dashboards.list_pending(db)}
+
+
+@app.post("/api/external-dashboards/{ext_id}/approve")
+def external_dashboards_approve(ext_id: str, approved: bool = True, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only: list this registration publicly, or take it off the page again."""
+    from . import external_dashboards
+    user = _require_admin(db, who)
+    if external_dashboards.get(db, ext_id) is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return external_dashboards.set_approved(db, ext_id, by_user_id=user["id"], approved=approved)
 
 
 @app.delete("/api/external-dashboards/{ext_id}")
@@ -2145,8 +2189,9 @@ def me(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
     if not who.user_id:
         raise HTTPException(status_code=401, detail="Not logged in.")
     if localmode.enabled():                # the fixed local owner; the UI hides the account widget
-        return {"id": who.user_id, "email": localmode.LOCAL_EMAIL, "local_mode": True}
-    return auth.get_user(db, who.user_id)
+        return {"id": who.user_id, "email": localmode.LOCAL_EMAIL, "local_mode": True, "is_admin": True}
+    user = auth.get_user(db, who.user_id)
+    return {**user, "is_admin": admins.is_admin(user)} if user else user
 
 
 # How many papers a logged-OUT visitor may extract on the server's own key before they

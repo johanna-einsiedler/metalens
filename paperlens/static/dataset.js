@@ -380,11 +380,33 @@ async function loadExternal() {
   const state = (x) => x.release_shown == null ? `<span class="badge" title="${esc(x.check_note || "")}">release unknown</span>`
     : latest && x.release_shown < latest ? `<span class="badge tier-sample_verified" title="the page shows an older release than the latest">shows v${x.release_shown} · v${latest} available</span>`
     : `<span class="badge tier-human_verified">shows v${x.release_shown}${latest ? " · current" : ""}</span>`;
-  host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b> ↗</a> ${state(x)}`
+  // a registration is listed on the public Dashboards page only once a moderator approves it
+  const listed = (x) => x.approved
+    ? `<span class="badge tier-human_verified" title="listed on the public Dashboards page">listed</span>`
+    : `<span class="badge" title="a moderator lists it on the public Dashboards page; until then only you see it here">awaiting approval</span>`;
+  host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b> ↗</a> ${state(x)} ${listed(x)}`
     + ` <span class="muted">${x.repo_url ? `· <a href="${esc(x.repo_url)}" target="_blank" rel="noopener">source</a> ` : ""}· ${x.checked_at ? `checked ${esc(fmtDate(x.checked_at))}` : "not checked yet"}${x.check_note ? ` · ${esc(x.check_note)}` : ""}</span>`
-    + (OWNER && !ANON ? ` <a class="muted" href="#" data-extcheck="${esc(x.id)}">check now</a> · <a class="muted" href="#" data-extdel="${esc(x.id)}">remove</a>` : "") + `</div>`).join("")
+    + (OWNER && !ANON ? ` <a class="muted" href="#" data-extcheck="${esc(x.id)}">check now</a> · <a class="muted" href="#" data-extimg="${esc(x.id)}">tile image</a> · <a class="muted" href="#" data-extdel="${esc(x.id)}">remove</a>` : "")
+    + `<div class="ds-extimg" data-imgfor="${esc(x.id)}" hidden></div></div>`).join("")
     : "None registered yet.";
   host.querySelectorAll("[data-extcheck]").forEach((a) => (a.onclick = async (e) => { e.preventDefault(); a.textContent = "checking…"; try { await api.checkExternalDashboard(a.dataset.extcheck); } catch (ex) { alert(ex.message); } loadExternal(); }));
+  host.querySelectorAll("[data-extimg]").forEach((a) => (a.onclick = (e) => {
+    e.preventDefault();
+    const x = list.find((d) => d.id === a.dataset.extimg), box = host.querySelector(`[data-imgfor="${a.dataset.extimg}"]`);
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<p class="muted">The picture on the Dashboards page. Leave it empty and the image your page's
+      <code>metalens.json</code> names is used${x.preview_url ? ` (now: <a href="${esc(x.preview_url)}" target="_blank" rel="noopener">that one</a>)` : ", if it names one"}.
+      <a href="/dashboards" target="_blank">See the tiles</a>; a release's <code>tile-prompt.md</code> has a prompt for generating one in the house style.</p>
+      <input type="url" placeholder="https://…/preview.png" value="${esc(x.preview_override || "")}" style="display:block;width:100%;margin:6px 0"/>
+      <button type="button" class="btn btn-primary btn-sm">Save</button> <span class="muted"></span>`;
+    const input = box.querySelector("input"), msg = box.querySelector("span");
+    box.querySelector("button").onclick = async () => {
+      msg.textContent = "saving…";
+      try { await api.patchExternalDashboard(x.id, { preview_url: input.value.trim() || null }); loadExternal(); }
+      catch (ex) { msg.textContent = ex.message; }
+    };
+  }));
   host.querySelectorAll("[data-extdel]").forEach((a) => (a.onclick = async (e) => {
     e.preventDefault(); if (!confirm("Remove this dashboard from the list? The page itself is not affected.")) return;
     try { await api.deleteExternalDashboard(a.dataset.extdel); } catch (ex) { alert(ex.message); } loadExternal();

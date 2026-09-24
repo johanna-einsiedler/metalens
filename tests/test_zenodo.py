@@ -94,7 +94,7 @@ def test_first_deposit_then_a_new_version(monkeypatch) -> None:
     assert (records.get_dataset(conn, ds) or {}).get("zenodo_concept_doi") == "10.5072/zenodo.101"
     # the deposited release.json names its DOI; the flat bucket holds every export file
     files = z.buckets["b101"]
-    assert set(files) == {"release.json", "README.md", "evidence.json", "tables__entries.json", "tables__conditions.json", "tables__conditions.measures.json"}
+    assert set(files) == {"release.json", "README.md", "tile-prompt.md", "evidence.json", "tables__entries.json", "tables__conditions.json", "tables__conditions.measures.json"}
     meta = json.loads(files["release.json"])
     assert meta["release"]["doi"] == "10.5072/zenodo.101" and "10.5072/zenodo.101" in files["README.md"].decode()
     m = z.deps[101]["metadata"]

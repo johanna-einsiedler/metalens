@@ -58,9 +58,11 @@ def test_register_check_and_delete() -> None:
     listed = c.get(f"/api/datasets/{ds}/external-dashboards", headers=mine).json()
     assert listed["latest_release"] == 1 and listed["dashboards"][0]["release_shown"] == 1
     assert stranger.delete(f"/api/external-dashboards/{made['id']}", headers=other).status_code == 404
-    # the public Dashboards page lists it once the dataset is public
+    # the public Dashboards page lists it once the dataset is public AND a moderator has approved it
     assert not any(x["id"] == made["id"] for x in c.get("/api/dashboards/public").json()["external"])
     records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    assert not any(x["id"] == made["id"] for x in c.get("/api/dashboards/public").json()["external"])   # public, but unapproved
+    xd.set_approved(conn, made["id"], by_user_id=None, approved=True); conn.commit()
     pub = c.get("/api/dashboards/public").json()
     hit = next(x for x in pub["external"] if x["id"] == made["id"])
     assert hit["dataset_title"] == "Analysis set" and hit["latest_release"] == 1 and hit["release_shown"] == 1
@@ -68,3 +70,69 @@ def test_register_check_and_delete() -> None:
     assert c.get("/dashboards").status_code == 200
     assert c.delete(f"/api/external-dashboards/{made['id']}", headers=mine).json() == {"deleted": 1}
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_approval_gates_the_public_page_and_the_owner_supplies_the_tile(monkeypatch) -> None:
+    """Nothing reaches /dashboards until a moderator lists it; the owner's image beats the manifest's."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import admins, app as appmod
+    conn = records.connect(); records.init_db(conn)
+    sess = f"xd-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    releases.create(conn, ds)
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    c = TestClient(appmod.app)
+    email = f"xd-{uuid.uuid4().hex[:8]}@example.org"
+    c.post("/api/auth/register", json={"email": email, "password": "xd-test-pass-1"}, headers=mine)
+    made = c.post(f"/api/datasets/{ds}/external-dashboards",
+                  json={"title": "Own code", "url": "https://x.github.io/own/"}, headers=mine).json()
+    assert made["approved"] is False and made["tile_url"] is None
+
+    # a stranger who is not named in PAPERLENS_ADMINS can neither see the queue nor approve
+    monkeypatch.setenv("PAPERLENS_ADMINS", "someone-else@example.org")
+    assert not admins.is_admin({"email": email})
+    assert c.get("/api/external-dashboards/pending", headers=mine).status_code == 403
+    assert c.post(f"/api/external-dashboards/{made['id']}/approve", headers=mine).status_code == 403
+    assert not any(x["id"] == made["id"] for x in c.get("/api/dashboards/public").json()["external"])
+
+    # the owner's own image wins over whatever the manifest names, and is kept by a later check
+    xd.check(conn, xd.get(conn, made["id"]),
+             client=httpx.Client(transport=httpx.MockTransport(
+                 lambda req: httpx.Response(200, json={"release": "v1", "preview": "from-manifest.png"})
+                 if req.url.path.endswith("/metalens.json") else httpx.Response(404))))
+    assert c.patch(f"/api/external-dashboards/{made['id']}", json={"preview_url": "not a url"}, headers=mine).status_code == 422
+    got = c.patch(f"/api/external-dashboards/{made['id']}", json={"preview_url": "https://cdn.example.org/tile.png"}, headers=mine).json()
+    assert got["preview_override"] == "https://cdn.example.org/tile.png"
+    assert got["preview_url"] == "https://x.github.io/own/from-manifest.png"      # the manifest's is still remembered
+    assert got["tile_url"] == "https://cdn.example.org/tile.png"                  # but the tile shows the owner's
+
+    # a moderator lists it, and only then is it public
+    monkeypatch.setenv("PAPERLENS_ADMINS", f" {email.upper()} ")                  # spacing and case do not matter
+    assert admins.is_admin({"email": email})
+    assert [x["id"] for x in c.get("/api/external-dashboards/pending", headers=mine).json()["dashboards"]] == [made["id"]]
+    assert c.get("/api/auth/me", headers=mine).json()["is_admin"] is True
+    ok = c.post(f"/api/external-dashboards/{made['id']}/approve", headers=mine).json()
+    assert ok["approved"] is True and ok["approved_at"]
+    hit = next(x for x in c.get("/api/dashboards/public").json()["external"] if x["id"] == made["id"])
+    assert hit["tile_url"] == "https://cdn.example.org/tile.png"
+    assert c.get("/api/external-dashboards/pending", headers=mine).json()["dashboards"] == []
+
+    # clearing the override falls back to the manifest's image; unapproving takes it off the page
+    back = c.patch(f"/api/external-dashboards/{made['id']}", json={"preview_url": None}, headers=mine).json()
+    assert back["tile_url"] == "https://x.github.io/own/from-manifest.png"
+    c.post(f"/api/external-dashboards/{made['id']}/approve?approved=false", headers=mine)
+    assert not any(x["id"] == made["id"] for x in c.get("/api/dashboards/public").json()["external"])
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_tile_prompt_is_house_style_and_ships_with_a_release() -> None:
+    from paperlens import tile_prompt
+    p = tile_prompt.build("Humans & GenAI in Decision Tasks", "When do human-AI teams beat either alone?", ["decision tasks", "meta-analysis"])
+    assert "1200x630" in p and "Humans & GenAI in Decision Tasks" in p and "decision tasks, meta-analysis" in p
+    assert "#eb6834" in p and "no text, letters, numbers" in p.lower()
+    assert "no faces" in p and "circuit boards" in p                   # the AI-illustration cliches are ruled out
+    long = tile_prompt.build("T", "x" * 400)
+    assert len(long) < 3000 and "…" in long                            # a long description is cut, not pasted whole
+    assert "metalens.json" in tile_prompt.doc("T") and "```" in tile_prompt.doc("T")

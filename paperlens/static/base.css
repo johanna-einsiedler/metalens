@@ -798,3 +798,12 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .voc-members { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .voc-members .kw { font-size: 12.5px; padding: 2px 8px; } .voc-members .voc-detach { color: var(--text-muted); text-decoration: none; margin-left: 2px; }
 .voc-lo { padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+
+/* the moderation queue on /dashboards, and the owner's tile-image slot on a dataset page */
+.q-row { display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 13.5px; }
+.q-row .muted { font-size: 12.5px; }
+.ds-extimg { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--bg); font-size: 13px; }
+.ds-extimg[hidden] { display: none; }
