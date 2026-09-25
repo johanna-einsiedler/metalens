@@ -143,3 +143,16 @@ def test_masem_indirect_recovers_the_original_schroeders_configuration() -> None
         "scale_name": "Need for Cognition Scale (NCS-18)", "n_items": 18, "item_texts": items})
     assert len(items) == 18 and head in out
     assert "Map factor labels to F1..Fn using [factor_key_mapping]." in out
+
+
+def test_the_two_masem_presets_are_named_as_a_pair() -> None:
+    """They are two halves of one choice — the builder's cards already say "Direct information"
+    and "Indirect information" — so their titles read as a pair rather than one being the
+    unqualified default."""
+    from paperlens import presets, preset_spec
+    allp = presets.load_all()
+    titles = {pid: allp[pid]["meta"]["title"] for pid in ("masem-direct", "masem-indirect")}
+    assert titles == {"masem-direct": "MASEMiner — direct information",
+                      "masem-indirect": "MASEMiner — indirect information"}, titles
+    # wording is not part of the data contract, so renaming must not re-point existing records
+    assert preset_spec.schema_id(allp["masem-direct"]) == "masem-direct@eb5f0287"

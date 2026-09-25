@@ -3,8 +3,8 @@
   "id": "masem-direct",
   "version": 2,
   "meta": {
-    "title": "MASEMiner",
-    "tagline": "Extract effect sizes or factor loadings for Meta-Analytic SEM — choose direct or indirect information on the next step.",
+    "title": "MASEMiner — direct information",
+    "tagline": "Extract the effect sizes a paper reports directly — correlations in the text or in a table — with the sample and study metadata a Meta-Analytic SEM needs. Its companion, MASEMiner — indirect information, covers papers that report the measurement model instead.",
     "description": "Direct-information variant: pairwise effect sizes (with reliability + instrument metadata) per sample, plus coded sample metadata. Use it when papers report the effect sizes themselves — correlation matrices, prose-reported correlations, other bivariate statistics. The sibling indirect-information variant extracts factor loadings and inter-factor correlations instead.",
     "mode": "extraction",
     "hidden": false

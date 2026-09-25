@@ -76,7 +76,9 @@ async function loadPresets() {
   try { PRESETS = (await api.presets("import")).presets || []; } catch { PRESETS = []; }
   const sel = $("#schema");
   const custom = sel.querySelector("option[value='__custom__']");
-  for (const p of PRESETS.filter((x) => x.mode === "extraction" && !x.setup && x.schema_id)) {
+  // "import" presets are schemas for data made elsewhere — the very thing this page loads —
+  // so they belong here even though the extract picker leaves them out
+  for (const p of PRESETS.filter((x) => (x.mode === "extraction" || x.mode === "import") && !x.setup && x.schema_id)) {
     const o = document.createElement("option");
     o.value = p.schema_id; o.textContent = p.title + (p.personal ? " (personal)" : "");
     sel.insertBefore(o, custom);
