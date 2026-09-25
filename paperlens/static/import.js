@@ -71,7 +71,9 @@ async function loadDatasets() {
 // "Review as": every preset in the picker (built-in + personal), by its current schema id,
 // plus the free "other id" for documents that belong to an older schema row.
 async function loadPresets() {
-  try { PRESETS = (await api.presets()).presets || []; } catch { PRESETS = []; }
+  // "import" keeps the schemas the extract picker hides — the MASEMiner factor-loadings
+  // variant and the import-only presets — because those are exactly what lands here
+  try { PRESETS = (await api.presets("import")).presets || []; } catch { PRESETS = []; }
   const sel = $("#schema");
   const custom = sel.querySelector("option[value='__custom__']");
   for (const p of PRESETS.filter((x) => x.mode === "extraction" && !x.setup && x.schema_id)) {

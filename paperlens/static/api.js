@@ -163,7 +163,7 @@ export const api = {
   createView: (body) => req(`/api/views`, json(body)),
   datasetRows: (datasetIds) => req(`/api/datasets/rows${qs({ dataset: datasetIds })}`),
   schema: (id) => req(`/api/schemas/${encodeURIComponent(id)}`),
-  presets: () => req(`/api/presets`),
+  presets: (usage) => req(`/api/presets${usage ? `?usage=${encodeURIComponent(usage)}` : ""}`),
   ingest: (body) => req(`/api/ingest`, json(body)),                    // JSON only, no PDF
   myPresets: () => req(`/api/presets/mine`),
   presetPrompt: (id) => req(`/api/presets/${id}/prompt`),

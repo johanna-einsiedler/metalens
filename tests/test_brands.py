@@ -97,3 +97,19 @@ def test_presets_listed_per_brand(monkeypatch) -> None:
     assert pid not in {p["preset_id"] for p in c.get("/api/presets", headers=other).json()["presets"]}
     assert pid in {p["preset_id"] for p in c.get("/api/presets", headers={"X-Session-Id": sess}).json()["presets"]}
     records.delete_personal_preset(conn, pid); conn.commit(); conn.close()
+
+
+def test_import_picker_keeps_the_presets_the_extract_picker_hides(monkeypatch) -> None:
+    """The extract picker answers "what can I run?"; the import picker answers "what shape is
+    the data I already have?". A landing-hidden variant and an import-only schema are invalid
+    answers to the first and the only sensible answers to the second."""
+    monkeypatch.delenv("PAPERLENS_BRAND", raising=False)
+    monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD", raising=False)
+    c = _client()
+    ids = lambda usage: {r["preset_id"] for r in c.get(f"/api/presets?usage={usage}").json()["presets"]}
+    extract, imprt = ids("extract"), ids("import")
+    assert "masem-direct" in extract and "masem-direct" in imprt          # visible either way
+    assert "masem-indirect" not in extract and "masem-indirect" in imprt  # landing-hidden variant
+    for pid in ("register-claims", "register-tables"):                    # mode: "import" schemas
+        assert pid not in extract and pid in imprt
+    assert c.get("/api/presets").json() == c.get("/api/presets?usage=extract").json()   # the default

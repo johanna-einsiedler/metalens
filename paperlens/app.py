@@ -2614,20 +2614,29 @@ def papers_provenance(doi: str, db=Depends(get_db)) -> dict:
 
 
 @app.get("/api/presets")
-def list_presets(db=Depends(get_db), who: Principal = Depends(principal),
+def list_presets(usage: str = "extract", db=Depends(get_db), who: Principal = Depends(principal),
                  b: brands.Brand = Depends(brand)) -> dict:
     """The resolved view-grammar for every preset in the picker: global file presets
     (minus ``landing_hidden`` ones, e.g. the MASEMiner factor-loadings variant, and minus
     those tagged for another brand) PLUS the principal's own DB-backed personal presets AND
     the PUBLIC ones created on this brand. Each row is tagged ``personal``/``owned`` so the
-    UI can label & manage them."""
+    UI can label & manage them.
+
+    ``usage=import`` asks a different question — not "what can I run?" but "what shape might
+    the data I already have be in?" — so it keeps the presets the extraction picker hides: the
+    landing-hidden variants (the MASEMiner factor-loadings one, reachable in the builder only
+    through its parent) and the ``mode: "import"`` schemas, which exist ONLY to be imported
+    into. Hiding those on the import page leaves data with no selectable schema at all."""
+    for_import = usage == "import"
     allp = presets.load_all()
     rows = []
     for pid in sorted(allp):
         meta = allp[pid].get("meta") or {}
-        # an "import" preset is a schema for data produced elsewhere: offering it here would
-        # suggest a prompt in Metalens made the records
-        if meta.get("hidden") or meta.get("mode") == "import" or not b.shows_preset(meta):
+        # an "import" preset is a schema for data produced elsewhere: offering it on the
+        # EXTRACT picker would suggest a prompt in Metalens made the records
+        if not b.shows_preset(meta):
+            continue
+        if not for_import and (meta.get("hidden") or meta.get("mode") == "import"):
             continue
         row = presets.emit_schema_row(pid)
         if row:
