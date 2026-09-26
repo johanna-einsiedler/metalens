@@ -15,7 +15,8 @@ const $ = (s) => document.querySelector(s);
 const JSONS = {};    // key -> { name, canonical, schema_id, kind } | { name, error }
 const PDFS = {};     // basename -> File
 const MANUAL = {};   // json key -> pdf basename chosen by hand
-const KEYS = {};     // schema id -> entries key (from /api/schemas), for workspace exports
+const KEYS = {};       // schema id -> entries key (from /api/schemas), for workspace exports
+const TABLES = {};     // schema id -> {table field: [column names]}, for reshaping flat maps
 let EXISTING = null; // documents already in the chosen dataset: [{document_id, filename, title, doi}] (null = new dataset)
 const ACTION = {};   // json key -> "replace" | "skip" for papers already in the dataset (default replace)
 let PRESETS = [];
@@ -49,6 +50,7 @@ function setupDrop() {
   };
   const sch = $("#schema");
   sch.onchange = () => { $("#schemaCustom").hidden = sch.value !== "__custom__"; };
+  sch.addEventListener("change", () => { sch.dataset.user = "1"; });       // a real click, not autoSchema()
   loadDatasets();
   loadPresets();
 }
@@ -90,14 +92,32 @@ async function loadPresets() {
 
 // A file that carries its schema id (an export) picks the matching preset, or fills in the
 // custom id when it is an older row the presets no longer mint.
-function autoSchema(schemaId) {
+// A pipeline file names no schema, and the dropdown's default was simply the first MASEMiner
+// preset — so indirect data (factor loadings) silently imported under the direct preset, where
+// none of its fields are declared and every value lands in "Other". Score the importable
+// presets by how many of the entry's own keys each one declares and take a clear winner.
+function guessSchema(entries) {
+  const keys = new Set();
+  for (const e of entries.slice(0, 5)) for (const k of Object.keys(e || {})) keys.add(k);
+  if (!keys.size) return null;
+  const scored = PRESETS.filter((p) => p.schema_id && !p.setup).map((p) => {
+    const declared = new Set(Object.keys(p.field_types || {}));
+    return { p, hit: [...keys].filter((k) => declared.has(k)).length };
+  }).sort((a, b) => b.hit - a.hit);
+  if ($("#schema").dataset.user) return null;                              // they chose one themselves
+  if (scored.length < 1 || scored[0].hit === 0) return null;
+  if (scored.length > 1 && scored[0].hit === scored[1].hit) return null;   // no clear winner: leave it alone
+  return scored[0].p.schema_id;
+}
+
+function autoSchema(schemaId, why) {
   if (!schemaId) return;
   const sel = $("#schema");
   if ([...sel.options].some((o) => o.value === schemaId)) sel.value = schemaId;
   else { sel.value = "__custom__"; $("#schemaCustom").value = schemaId; }
   sel.dataset.auto = "1";
   sel.onchange();
-  $("#schemaHint").textContent = `picked up from the file: ${schemaId}`;
+  $("#schemaHint").textContent = `${why || "picked up from the file"}: ${schemaId} — change it if that is wrong`;
 }
 
 function currentSchemaId() {
@@ -152,6 +172,57 @@ async function fromWorkspaceExport(obj) {
 //     so "samples[2].factor_loadings" may point at a sample that is no longer there. Indices are
 //     therefore remapped onto the kept entries by sample_id, and evidence for a dropped sample is
 //     discarded rather than left pointing at whatever now sits at that index.
+// A pipeline emits a scale's loadings as a flat map — {"F1.1": 0.72, "F2.3": null} for
+// factor 1 item 1, and {"R1.2": 0.74} for the correlation of factors 1 and 2 — while a preset
+// that declares them as a TABLE wants one row per reported value. Convert, driven by the
+// table's own declared columns so nothing is hard-coded to one preset. Unreported cells
+// (null) become an absent row rather than a row of nulls.
+const F_KEY = /^F(\d+)\.(\d+)$/;          // F<factor>.<item>
+const R_KEY = /^R(\d+)\.(\d+)$/;          // R<factor a>.<factor b>
+const has = (cols, ...names) => names.every((n) => cols.includes(n));
+
+function flatMapToRows(obj, cols) {
+  const rows = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null) continue;
+    const f = F_KEY.exec(k), r = R_KEY.exec(k);
+    if (f && has(cols, "item", "factor", "loading")) rows.push({ item: +f[2], factor: +f[1], loading: v });
+    else if (r && has(cols, "factor_a", "factor_b", "r")) rows.push({ factor_a: +r[1], factor_b: +r[2], r: v });
+    else return null;                        // an unfamiliar grammar: leave the value alone
+  }
+  rows.sort((a, b) => (a.factor ?? a.factor_a) - (b.factor ?? b.factor_a) || (a.item ?? a.factor_b) - (b.item ?? b.factor_b));
+  return rows;
+}
+
+// {fieldName: [column names]} for every table the preset declares on its entries
+async function tableColumns(schemaId) {
+  if (!schemaId) return {};
+  if (!(schemaId in TABLES)) {
+    try {
+      const s = await api.schema(schemaId);
+      const fields = ((s && s.spec && s.spec.entries && s.spec.entries.fields) || []);
+      TABLES[schemaId] = Object.fromEntries(fields.filter((f) => f.type === "table")
+        .map((f) => [f.name, (f.columns || []).map((c) => c.name)]));
+    } catch { TABLES[schemaId] = {}; }
+  }
+  return TABLES[schemaId];
+}
+
+function reshapeEntries(entries, tables) {
+  if (!tables || !Object.keys(tables).length) return entries;
+  return entries.map((e) => {
+    const out = { ...e };
+    for (const [name, cols] of Object.entries(tables)) {
+      const v = out[name];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const rows = flatMapToRows(v, cols);
+        if (rows) out[name] = rows;
+      }
+    }
+    return out;
+  });
+}
+
 const RAW_REPLY = ["llm_raw_response", "original_model_response", "raw_response"];
 const rawReplyOf = (o) => {
   for (const k of RAW_REPLY) {
@@ -191,8 +262,8 @@ function pipelineEvidence(raw, entries, key) {
   return out;
 }
 
-function fromPipelinePaper(paper, key) {
-  const entries = (paper.entries || []).filter((e) => e && typeof e === "object");
+function fromPipelinePaper(paper, key, tables) {
+  const entries = reshapeEntries((paper.entries || []).filter((e) => e && typeof e === "object"), tables);
   const raw = rawReplyOf(paper);
   const meta = paper.paper_metadata || (raw && raw.paper_metadata) || paper.paper || {};
   return normalizeResult({ paper_metadata: meta, [key]: entries,
@@ -206,12 +277,14 @@ async function fromDatasetFile(obj) {
   const sid = (obj.recipe && obj.recipe.schema_id) || null;
   // a pipeline batch names no schema, so fall back to whatever "Review as" is showing —
   // otherwise every entry lands under the generic "records" key instead of the preset's own
-  const key = (await entriesKey(sid || currentSchemaId())) || "records";
+  const chosen = sid || currentSchemaId();
+  const key = (await entriesKey(chosen)) || "records";
+  const tables = await tableColumns(chosen);
   const out = [];
   for (const paper of obj.papers || []) {
     if (Array.isArray(paper.entries)) {                 // a pipeline batch: entries + a raw reply
       if (!paper.entries.length) continue;
-      out.push({ filename: paper.filename, result: fromPipelinePaper(paper, key) });
+      out.push({ filename: paper.filename, result: fromPipelinePaper(paper, key, tables) });
       continue;
     }
     const recs = (paper.records || []).filter((r) => r && r.values && typeof r.values === "object");
@@ -231,6 +304,10 @@ async function addFiles(files) {
       catch { JSONS[base(f.name)] = { name: f.name, error: "invalid JSON" }; continue; }
       const kind = classify(obj);
       if (kind === "dataset" || kind === "datasetfile") {
+        if (kind === "datasetfile" && !(obj.recipe && obj.recipe.schema_id)) {
+          const g = guessSchema((obj.papers || []).flatMap((pp) => pp.entries || []));
+          if (g) autoSchema(g, "matched to the fields in the file");
+        }
         const ds = kind === "dataset" ? { schema_id: (obj.metadata && obj.metadata.schema_id) || null, papers: obj.results.papers || [] }
                                       : await fromDatasetFile(obj);
         ds.papers.forEach((paper, i) => {
@@ -241,9 +318,14 @@ async function addFiles(files) {
         if (ds.title && (!name.value || name.value === name.defaultValue)) name.value = ds.title;
         autoSchema(ds.schema_id);
       } else {
-        const sid = obj.schema_id || (obj.extraction && obj.extraction.schema_id) || null;
+        let sid = obj.schema_id || (obj.extraction && obj.extraction.schema_id) || null;
+        if (!sid && kind === "pipeline") {
+          const g = guessSchema(obj.entries || []);
+          if (g) { autoSchema(g, "matched to the fields in the file"); sid = g; }
+        }
         const canonical = kind === "pipeline"
-          ? fromPipelinePaper(obj, (await entriesKey(sid || currentSchemaId())) || "records")
+          ? fromPipelinePaper(obj, (await entriesKey(sid || currentSchemaId())) || "records",
+                              await tableColumns(sid || currentSchemaId()))
           : normalizeResult(kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj);
         // a result that names its own PDF ("source_pdf") pairs with it even when the file names differ
         const hint = canonical && typeof canonical.source_pdf === "string" ? base(canonical.source_pdf.split(/[\\/]/).pop()) : null;
