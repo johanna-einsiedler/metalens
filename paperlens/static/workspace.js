@@ -213,7 +213,7 @@ function startJobTracking(jobIds, since) {
   tick().then(loop);                                   // first check immediately, not after 8s
 }
 
-// While papers of this round are still extracting, "Finalize" would bundle an incomplete
+// While papers of this round are still extracting, "Save" would bundle an incomplete
 // set: show a waiting indicator with the progress in its place until every job has settled.
 function syncJobWait() {
   const wait = $("#jobwait"), save = $("#dlsave"); if (!wait || !save) return;
@@ -593,7 +593,7 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
-    + (PROJECT   // already a dataset: Finalize simply opens its overview (audit report, dashboards, export, publishing)
+    + (PROJECT   // already a dataset: nothing to save, so this simply opens its overview (audit report, dashboards, export, publishing)
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
         : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
@@ -881,7 +881,7 @@ async function doSave() {
     ...Object.values(JOBS).filter((j) => j.status === "complete" && j.document_id).map((j) => j.document_id),
     ...(DATA && DATA.document_id ? [DATA.document_id] : []),
   ].filter(Boolean))];
-  if (!ids.length) { alert("Nothing to finalize yet."); return; }
+  if (!ids.length) { alert("Nothing to save yet."); return; }
   const screened = ids.filter((id) => !((nrecOf.get(id) || 0) > 0)).length;
   if (screened && !confirm(`${screened} of ${ids.length} paper(s) have no extracted records.\n`
       + `They'll be kept as "screened — no records" so the dataset records that they were attempted. Continue?`)) return;
@@ -896,9 +896,9 @@ async function doSave() {
     const ds = await saveToWorkspace(ids, { defaultName: base, recipe, silent: true });
     if (ds) {
       if (ds.failed) alert(`${ds.failed} paper(s) could not be included; the rest are in the overview.`);
-      location.href = `/dataset?id=${encodeURIComponent(ds.id)}&finalized=1`;   // overview: audit report, export, save
+      location.href = `/dataset?id=${encodeURIComponent(ds.id)}&saved=1`;   // overview: name it, audit report, export, publish
     } else b.disabled = false;
-  } catch (e) { alert("finalize failed: " + e.message); b.disabled = false; }
+  } catch (e) { alert("save failed: " + e.message); b.disabled = false; }
 }
 
 function wireCard(card, rec) {

@@ -15,14 +15,14 @@ function fmtDate(iso) {
 }
 
 let OV = null, OWNER = false, ANON = false, ADMIN = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
-let FINALIZED = new URLSearchParams(location.search).get("finalized") === "1";   // arrived from "Finalize" in the review
+let JUST_SAVED = new URLSearchParams(location.search).get("saved") === "1";   // arrived from "Save" in the review
 
 async function init() {
   if (!id) { body.innerHTML = '<p class="muted">No dataset id.</p>'; return; }
   let me;
   try { [OV, me] = await Promise.all([api.datasetOverview(id), api.me()]); }
   catch (e) { body.innerHTML = `<p class="muted">Couldn’t load this dataset: ${esc(e.message)}</p>`; return; }
-  // an anonymous browser session can own a dataset too (Finalize without an account)
+  // an anonymous browser session can own a dataset too (Save without an account)
   OWNER = !!OV.viewer_is_owner || !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
   ANON = !!OV.viewer_is_anonymous;
   ADMIN = !!(me && me.is_admin);
@@ -43,9 +43,9 @@ function render() {
     ${OWNER && ANON ? `<div class="ds-keep">
       <div><b>Save this dataset.</b> You are not signed in, so it stays private and is kept for two hours after your last
         activity, then deleted. Create a free account to save it, or download the results and the audit report now.</div>
-      <a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(location.pathname + "?id=" + id + "&finalized=1")}">Create a free account to save</a>
+      <a class="btn btn-primary btn-sm" href="/account?next=${encodeURIComponent(location.pathname + "?id=" + id + "&saved=1")}">Create a free account to save</a>
     </div>` : ""}
-    ${OWNER && !ANON && FINALIZED ? `<form class="ds-keep" id="ds-saveform">
+    ${OWNER && !ANON && JUST_SAVED ? `<form class="ds-keep" id="ds-saveform">
       <div style="flex:1"><b>Save this dataset.</b> It is in your workspace as a private dataset. Give it a name to find it again; you can publish it later.
         <input id="ds-savename" type="text" value="${esc(OV.title || "")}" placeholder="dataset name" required style="display:block;width:100%;margin-top:8px"/></div>
       <button class="btn btn-primary btn-sm" type="submit">Save</button>
@@ -190,8 +190,8 @@ function render() {
     const title = $("#ds-savename").value.trim(); if (!title) return;
     try {
       if (title !== OV.title) OV.title = (await api.renameDataset(id, title)).title;
-      FINALIZED = false;
-      const u = new URL(location.href); u.searchParams.delete("finalized"); history.replaceState(null, "", u);
+      JUST_SAVED = false;
+      const u = new URL(location.href); u.searchParams.delete("saved"); history.replaceState(null, "", u);
       ACT = null; render();
     } catch (ex) { alert("save failed: " + ex.message); }
   };
