@@ -272,7 +272,7 @@ function docSubList() {
   const item = (sel, label, status) =>
     `<button class="docsub-item${cur === sel ? " active" : ""}" data-sel="${sel}" title="${esc(label)}${status ? " · " + esc(status) : ""}">`
     + `<span class="docsub-title">${esc(shortTitle(label))}</span>${status ? `<span class="st-dot ${esc(status)}"></span>` : ""}</button>`;
-  return `<div class="docsub">` + item("paper", "📄 Paper", "")
+  return `<div class="docsub">` + (paperPanelHasContent() ? item("paper", "📄 Paper", "") : "")
     + ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join("") + `</div>`;
 }
 
@@ -439,15 +439,24 @@ function renderLegacyBody(rec) {
 // (b) the preset's declared paper-level fields (editable → paper_metadata, audited),
 // (c) legacy: any field identical across all entries (editable → propagates to every entry),
 // (d) evidence the model never tied to an entry ("Uncited sources").
+// Is there anything to put in the Paper card? A preset may declare no paper-level fields at all
+// (both MASEMiner presets do), and an import may carry no paper metadata — then the card, and the
+// sidebar row that opens it, are an empty box promising something that never arrives.
+function paperPanelHasContent() {
+  const p = DATA.paper || {}, pm = DATA.paper_metadata || {};
+  const hasIdent = p.title || (Array.isArray(p.authors) ? p.authors.length : p.authors) || p.year || p.journal || p.doi;
+  const extraKeys = VM.legacy ? [] : undeclared(VM, "paper", pm).filter((k) => typeof pm[k] !== "object" || pm[k] === null);
+  return !!(hasIdent || Object.keys(CONSTANT).length || VM.paper.fields.length || extraKeys.length || orphanEvidence().length);
+}
+
 function renderPaperPanel(panel) {
   const p = DATA.paper || {};
   const pm = DATA.paper_metadata || {};
-  const hasIdent = p.title || (Array.isArray(p.authors) ? p.authors.length : p.authors) || p.year || p.journal || p.doi;
-  const hasConst = Object.keys(CONSTANT).length > 0;
   const paperFields = VM.paper.fields;
   const extraKeys = VM.legacy ? [] : undeclared(VM, "paper", pm).filter((k) => typeof pm[k] !== "object" || pm[k] === null);
+  const hasConst = Object.keys(CONSTANT).length > 0;
   const orphans = orphanEvidence();
-  if (!hasIdent && !hasConst && !paperFields.length && !extraKeys.length && !orphans.length) return;
+  if (!paperPanelHasContent()) return;
   const box = document.createElement("details");
   box.className = "study-block"; box.open = VM.paperPanel !== "collapsed";
   const identRows = [
@@ -585,8 +594,8 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
     + (PROJECT   // already a dataset: Finalize simply opens its overview (audit report, dashboards, export, publishing)
-        ? `<a class="btn btn-primary" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export and publishing">✓ Finalize</a>`
-        : `<button class="btn btn-primary" id="dlsave" title="finish the review: overview with the audit report, exports, and the option to save">✓ Finalize</button>`)
+        ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
+        : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
@@ -643,7 +652,9 @@ function renderPanel() {
   if (chainSpec() && !CHAIN_OFF) { renderChainPanel(panel, chainSpec()); wirePanelHead(); renderDocTabs(); return; }
   const recs = DATA.records;
   if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
-    if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
+    const paperTab = paperPanelHasContent();
+    if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" && paperTab ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
+    if (PANEL_SEL === "paper" && !paperTab) PANEL_SEL = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
     renderEntryNav(panel, recs);
     if (PANEL_SEL === "paper" || !recs[PANEL_SEL]) { renderPaperPanel(panel); setContextEvidence(null); }
     else { renderRecordCard(panel, recs[PANEL_SEL]); setContextEvidence(EV.byRecord.get(recs[PANEL_SEL].id) || []); }
@@ -662,7 +673,8 @@ function renderEntryNav(panel, recs) {
   const nav = document.createElement("div");
   nav.className = "rnav";
   const ordered = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues);
-  nav.innerHTML = `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>`
+  nav.innerHTML = (paperPanelHasContent()
+      ? `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>` : "")
     + ordered.map(({ rec, i }) => {
       const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
       const needs = entryNeeds(VM, EV, rec, DATA.issues);
