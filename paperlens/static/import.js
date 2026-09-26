@@ -108,7 +108,8 @@ function currentSchemaId() {
 // ── file shapes → one canonical result per paper ────────────────────────────────────────
 function classify(obj) {
   if (obj && obj.results && Array.isArray(obj.results.papers)) return "dataset";
-  if (obj && Array.isArray(obj.papers) && obj.papers.some((p) => p && Array.isArray(p.records))) return "datasetfile";
+  if (obj && Array.isArray(obj.papers) && obj.papers.some((p) => p && (Array.isArray(p.records) || Array.isArray(p.entries)))) return "datasetfile";
+  if (obj && Array.isArray(obj.entries) && (obj.filename || RAW_REPLY.some((k) => obj[k]))) return "pipeline";
   if (obj && typeof obj.extraction === "object" && obj.extraction && !Array.isArray(obj.extraction)) return "wrapped";
   if (obj && Array.isArray(obj.records) && (obj.provenance || (obj.schema_id && obj.paper))) return "workspace";
   return "single";
@@ -142,14 +143,77 @@ async function fromWorkspaceExport(obj) {
   return { paper_metadata: obj.paper_metadata || {}, [key]: entries, evidence: obj.evidence || [] };
 }
 
+// ── extraction-pipeline files ────────────────────────────────────────────────────────────────
+// A pipeline writes each paper as {filename, entries, llm_raw_response} — or a batch of them
+// under "papers", where the raw reply is "original_model_response". Two things differ from the
+// shapes above and both matter:
+//   * the cleaned `entries` carry NO evidence; the quotes live only inside the raw reply string;
+//   * `entries` is often a SUBSET of the samples the model returned (a curator dropped some),
+//     so "samples[2].factor_loadings" may point at a sample that is no longer there. Indices are
+//     therefore remapped onto the kept entries by sample_id, and evidence for a dropped sample is
+//     discarded rather than left pointing at whatever now sits at that index.
+const RAW_REPLY = ["llm_raw_response", "original_model_response", "raw_response"];
+const rawReplyOf = (o) => {
+  for (const k of RAW_REPLY) {
+    if (typeof o[k] === "string" && o[k].trim()) {
+      try { return JSON.parse(o[k]); } catch { /* a truncated reply is no worse than none */ }
+    } else if (o[k] && typeof o[k] === "object") return o[k];
+  }
+  return null;
+};
+const idOf = (e) => (e && (e.sample_id ?? e.id ?? null));
+
+function pipelineEvidence(raw, entries, key) {
+  if (!raw || !Array.isArray(raw.evidence)) return [];
+  const rawEntries = raw.samples || raw.entries || [];
+  const keptById = new Map();
+  entries.forEach((e, i) => { const id = idOf(e); if (id != null) keptById.set(String(id), i); });
+  const rawToKept = new Map();
+  rawEntries.forEach((e, i) => {
+    const id = idOf(e);
+    if (id != null && keptById.has(String(id))) rawToKept.set(i, keptById.get(String(id)));
+  });
+  // nothing to match on (no ids anywhere): keep the evidence only when the lists line up 1:1
+  const straight = rawToKept.size === 0 && rawEntries.length === entries.length;
+  const out = [];
+  for (const ev of raw.evidence) {
+    const fields = (Array.isArray(ev.field) ? ev.field : [ev.field]).filter((f) => typeof f === "string");
+    const moved = [];
+    for (const f of fields) {
+      const m = f.match(/^(samples|entries)\[(\d+)\]/);
+      if (!m) { moved.push(f); continue; }
+      const kept = straight ? Number(m[2]) : rawToKept.get(Number(m[2]));
+      if (kept === undefined) continue;                       // its sample was dropped by the curator
+      moved.push(`${key}[${kept}]` + f.slice(m[0].length));
+    }
+    if (moved.length) out.push({ ...ev, field: moved.length === 1 ? moved[0] : moved });
+  }
+  return out;
+}
+
+function fromPipelinePaper(paper, key) {
+  const entries = (paper.entries || []).filter((e) => e && typeof e === "object");
+  const raw = rawReplyOf(paper);
+  const meta = paper.paper_metadata || (raw && raw.paper_metadata) || paper.paper || {};
+  return normalizeResult({ paper_metadata: meta, [key]: entries,
+                           evidence: pipelineEvidence(raw, entries, key) });
+}
+
 // The citable dataset file groups records under each paper as {entry_index, values}; a paper
 // may also carry an "evidence" list (hand-added citations, one item per quote, "field" a path
 // or a list of paths). Screened papers (no records) have nothing to review and are skipped.
 async function fromDatasetFile(obj) {
   const sid = (obj.recipe && obj.recipe.schema_id) || null;
-  const key = (await entriesKey(sid)) || "records";
+  // a pipeline batch names no schema, so fall back to whatever "Review as" is showing —
+  // otherwise every entry lands under the generic "records" key instead of the preset's own
+  const key = (await entriesKey(sid || currentSchemaId())) || "records";
   const out = [];
   for (const paper of obj.papers || []) {
+    if (Array.isArray(paper.entries)) {                 // a pipeline batch: entries + a raw reply
+      if (!paper.entries.length) continue;
+      out.push({ filename: paper.filename, result: fromPipelinePaper(paper, key) });
+      continue;
+    }
     const recs = (paper.records || []).filter((r) => r && r.values && typeof r.values === "object");
     if (!recs.length) continue;
     recs.sort((a, b) => (a.entry_index ?? 0) - (b.entry_index ?? 0));
@@ -178,7 +242,9 @@ async function addFiles(files) {
         autoSchema(ds.schema_id);
       } else {
         const sid = obj.schema_id || (obj.extraction && obj.extraction.schema_id) || null;
-        const canonical = normalizeResult(kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj);
+        const canonical = kind === "pipeline"
+          ? fromPipelinePaper(obj, (await entriesKey(sid || currentSchemaId())) || "records")
+          : normalizeResult(kind === "wrapped" ? obj.extraction : kind === "workspace" ? await fromWorkspaceExport(obj) : obj);
         // a result that names its own PDF ("source_pdf") pairs with it even when the file names differ
         const hint = canonical && typeof canonical.source_pdf === "string" ? base(canonical.source_pdf.split(/[\\/]/).pop()) : null;
         JSONS[base(f.name)] = { name: f.name, canonical, schema_id: sid, kind, pdfHint: hint };
