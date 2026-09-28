@@ -329,6 +329,33 @@
             "help": "the window this estimate covers when the paper reports several: 'years 0-1', 'year 5', 'the post-reform period', 'long run'. Null when the paper reports only one. As printed in the panel or column heading"
           },
           {
+            "name": "horizon_lo",
+            "label": "Horizon from (years)",
+            "type": "number",
+            "evidence": "none",
+            "help": "the window's inclusive LOWER edge in years since the event: 'year 4' → 4, 'years 6-10' → 6, 'within five years' → 0. Null when the paper gives no event clock (calendar months, cross-section years) — then `horizon` alone carries the label"
+          },
+          {
+            "name": "horizon_hi",
+            "label": "Horizon to (years)",
+            "type": "number",
+            "evidence": "none",
+            "help": "the window's inclusive UPPER edge in years since the event: 'year 4' → 4, 'years 6-10' → 10, 'within five years' → 5. A point-in-time estimate has horizon_lo = horizon_hi. Null when there is no event clock"
+          },
+          {
+            "name": "horizon_kind",
+            "label": "Horizon kind",
+            "type": "enum",
+            "options": [
+              "point",
+              "average",
+              "cumulative",
+              "difference"
+            ],
+            "evidence": "none",
+            "help": "what the estimate IS over that window — the interval alone does not disambiguate: `point` (the effect AT year 4), `average` (the mean effect over years 0-5), `cumulative` (the total accumulated within five years), `difference` (a change between two dates). Null when horizon_lo/hi are null"
+          },
+          {
             "name": "outcome_variable",
             "type": "string",
             "label": "Outcome",
