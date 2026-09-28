@@ -61,6 +61,63 @@ engine version, the schema id and the model id from your export. `docs/REPRODUCI
 explains how to re-run an extraction later, including on an open-weights model when a
 hosted model has been retired.
 
+## Build your own dashboard on a release
+
+Metalens hosts dashboards built with its own builder. A dashboard in **your** code — plain
+JavaScript and D3, hosted wherever you like — reads the same data and keeps the same evidence
+tooltip, because a published **release** is a folder of static files with no server behind it:
+
+```
+release.json          what this is: dataset, release number, date, content hash, badge,
+                      citation, preset, and the columns of each row layout
+tables/<layout>.json  one typed table per row layout: columns, papers, records, rows
+evidence.json         the quote, page and source behind every cell that has one
+tile-prompt.md        how to make the picture the Dashboards page shows for your page
+```
+
+Get them from the dataset page ("⬇ files"), from the datasets repository on GitHub, or from a
+Zenodo deposit. Pin a folder and your figures never move under you; drop in a newer one to update.
+
+`paperlens/static/devkit/metalens-dash.js` is the helper library. Copy it next to your page —
+it has no dependencies beyond D3 — or fetch the canonical copy from
+`https://metalens.tech/static/devkit/metalens-dash.js`:
+
+```js
+import { loadRelease, createTips, fmt } from "./metalens-dash.js";
+
+const release = await loadRelease("data/my-dataset-v3");  // the folder of static files
+const table   = await release.table();                    // default row layout; table.rows is
+const tips    = createTips({ release, panel: "#evidence" });   // [{ i, rec, paper, path, get, corrected }]
+
+const points = table.rows.map((r) => ({ row: r.i, paper: r.paper.title, g: r.get("hedges_g") }));
+
+// draw `points` with your own D3, then one call per selection: hovering a mark shows the paper,
+// its verification status and the quoted passage the number was read from, with the plotted
+// number highlighted inside the quote; clicking pins the evidence under the figure.
+tips.mark(selection, (d) => ({
+  title:   d.paper,
+  values:  [{ label: "Hedges' g", value: d.g }],
+  rows:    [{ row: d.row }],                                    // which release row backs the mark
+  columns: [{ column: "hedges_g", label: "Hedges' g", value: d.g }],   // and which column
+}));
+```
+
+`rows` and `columns` are how the tooltip finds the quotes: evidence is keyed
+`cells[unit][row index][column]`, so the row index from `table.rows` and the column names you
+plotted are enough. Omit `unit` and the release's default row layout is used. A column marked
+`derived` (Hedges' g and the like) resolves to the evidence of its inputs, so a computed mark
+still shows the passages it rests on.
+
+`release.meta` carries the citation, DOI, credibility badge and paper count, so the page can
+state which release it is showing. Marks from other sources work too — leave out `rows` and pass
+a `note` instead, so a mark Metalens did not produce says so rather than implying evidence it
+has not got.
+
+To be listed on [metalens.tech/dashboards](https://metalens.tech/dashboards), publish a
+`metalens.json` next to your page naming the release it shows, then register it on the dataset
+page; a moderator lists it. A worked example is
+[humans-genai-decisions](https://github.com/johanna-einsiedler/humans-genai-decisions).
+
 ## What's in the engine
 
 | Module | Role |

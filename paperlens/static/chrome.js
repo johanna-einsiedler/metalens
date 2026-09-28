@@ -14,7 +14,7 @@ let brandPromise = null;
 
 const FALLBACK = {
   id: "metalens", title: "Metalens", logo: "/static/logo.svg", credit_label: "Metalens credits",
-  nav_shared: [{ href: "/dashboards", label: "Dashboards" }, { href: "/catalog", label: "Data Catalogue" }, { href: "/about", label: "About" }],
+  nav_shared: [{ href: "/dashboards", label: "Dashboards" }, { href: "/catalog", label: "Data Catalogue" }],
   nav_personal: [{ href: "/extract", label: "Process papers" }, { href: "/import", label: "Import" }, { href: "/workspace", label: "Data review" }],
   links: {}, tokens: {},
 };
@@ -53,6 +53,21 @@ function paint(header, b) {
   document.title = page && page !== b.title ? `${b.title} — ${page}` : b.title;
 }
 
+// The quiet links — what this is, what happens to your data, where the code lives — belong at
+// the end of a page, not competing with the working nav at the top. One footer, mounted with the
+// chrome, so every page has them without each page remembering to.
+function paintFooter(b) {
+  if (document.querySelector("footer.sitefoot")) return;
+  const links = [["/about", "About"], ["/faq", "FAQ"]]
+    .concat((b.links || {}).source ? [[b.links.source, "Source"]] : []);
+  const f = document.createElement("footer");
+  f.className = "sitefoot";
+  f.innerHTML = `<nav>${links.map(([h, l]) =>
+      `<a href="${esc(h)}"${h.startsWith("http") ? ' target="_blank" rel="noopener"' : ""}>${esc(l)}</a>`).join("")}</nav>`
+    + `<span class="muted">${esc(b.title)} · research software, developed in the open</span>`;
+  document.body.appendChild(f);
+}
+
 export async function mountChrome(sel = "header.topbar[data-chrome]") {
   const header = document.querySelector(sel);
   if (!header) { await mountAccount(); return; }
@@ -60,5 +75,6 @@ export async function mountChrome(sel = "header.topbar[data-chrome]") {
   if (cached) paint(header, cached);                 // instant, from the last page
   const b = await getBrand();
   paint(header, b);
+  paintFooter(b);
   await mountAccount();                              // account widget, active nav item, retention note
 }

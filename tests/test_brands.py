@@ -61,7 +61,7 @@ def test_landing_and_brand_api_follow_the_host(monkeypatch) -> None:
     assert [n["href"] for n in b["nav_personal"]] == ["/extract", "/import", "/workspace"]
     b = c.get("/api/brand").json()
     assert b["id"] == "metalens" and b["default_preset"] is None
-    assert [n["href"] for n in b["nav_shared"]] == ["/dashboards", "/catalog", "/about"]   # About is reachable from every page
+    assert [n["href"] for n in b["nav_shared"]] == ["/dashboards", "/catalog"]   # About lives in the footer now
 
 
 def test_beta_gate_realm_names_the_brand(monkeypatch) -> None:
