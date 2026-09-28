@@ -323,6 +323,20 @@ async function addFiles(files) {
           const g = guessSchema(obj.entries || []);
           if (g) { autoSchema(g, "matched to the fields in the file"); sid = g; }
         }
+        if (!sid && kind === "single") {
+          // a canonical result names its entries by the preset's own key ("claims", "samples"),
+          // so take the largest array of objects and guess from its items — otherwise the
+          // dropdown's default decides, silently and often wrongly
+          // every array of objects is a candidate — "evidence" is usually the largest and
+          // matches no preset, so each is tried and the first that names one wins
+          let g = null;
+          for (const v of Object.values(obj)) {
+            if (!Array.isArray(v) || !v.length || !v.every((x) => x && typeof x === "object")) continue;
+            g = guessSchema(v);
+            if (g) break;
+          }
+          if (g) { autoSchema(g, "matched to the fields in the file"); sid = g; }
+        }
         const canonical = kind === "pipeline"
           ? fromPipelinePaper(obj, (await entriesKey(sid || currentSchemaId())) || "records",
                               await tableColumns(sid || currentSchemaId()))

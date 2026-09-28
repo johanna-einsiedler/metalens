@@ -21,7 +21,9 @@ def test_the_regular_forms_from_the_nine_seed_papers() -> None:
     assert parse("years 2–5") == (2, 5, "average")
     assert parse("the fourth year after the event") == (4, 4, "point")
     assert parse("fifth year after parental death") == (5, 5, "point")
-    assert parse("within five years after the first parental death") == (0, 5, "cumulative")
+    # the window is clear; whether the number is a total or a per-year mean is not — the
+    # parental-death paper uses this exact phrase for per-year means, so the kind is judgment
+    assert parse("within five years after the first parental death") == (0, 5, None)
     assert parse("average over the five years after parental death") == (0, 5, "average")
     assert parse("event time 10") == (10, 10, "point")
     assert parse("event time 20") == (20, 20, "point")
@@ -51,5 +53,5 @@ def test_dashes_case_and_digit_forms() -> None:
     assert parse("years 2—5") == (2, 5, "average")                  # em dash
     assert parse("years 2 to 5") == (2, 5, "average")
     assert parse("year 4") == (4, 4, "point")
-    assert parse("within 5 years") == (0, 5, "cumulative")
+    assert parse("within 5 years") == (0, 5, None)
     assert parse("5-year average") == (0, 5, "average")

@@ -6,7 +6,10 @@ Those are honest labels but only comparable as strings. The structured triple
 ``(horizon_lo, horizon_hi, horizon_kind)`` — years since the event, inclusive, plus what
 the estimate IS over that window — makes them comparable across papers.
 
-``parse()`` handles the regular forms deterministically and returns None for everything
+``parse()`` handles the regular forms deterministically — a triple whose ``kind`` may
+itself be None when the window is clear but what the estimate is over it is not ("within
+five years" names an interval, not whether the number is a total or a per-year mean) — and
+returns None for everything
 else: calendar months ("January 2010"), cross-section years ("1980"), reform windows,
 and any phrasing it has not seen. A None is filled by a person during review, or stays
 null — a label with no event clock has no honest numbers. The parser never guesses:
@@ -57,11 +60,14 @@ def parse(text: str | None) -> tuple[float, float, str] | None:
         n = _num(m.group(1))
         return (0.0, n, "average") if n is not None else None
 
-    # "within five years", "in the first five years" → cumulative over [0, n]
+    # "within five years", "in the first five years" → the window is [0, n], but the label
+    # alone does not say whether the estimate is a cumulative total or a per-year average over
+    # it — the parental-death paper writes "within five years" for per-year means. The window
+    # is filled and the KIND is left for judgment, because a wrong kind is worse than a null.
     m = re.search(rf"(?:within|in) (?:the )?(?:first )?{_N} years?", t)
     if m and "before" not in t:
         n = _num(m.group(1))
-        return (0.0, n, "cumulative") if n is not None else None
+        return (0.0, n, None) if n is not None else None
 
     # "years 6–10", "years 0-1", "event years 2 to 5" → the average the panel reports
     m = re.search(rf"years? {_N} ?(?:{_DASH}|to) ?{_N}", t)

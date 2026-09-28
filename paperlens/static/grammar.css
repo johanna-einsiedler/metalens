@@ -88,10 +88,10 @@
    highlights that makes the page unreadable), and clicking a value/field paints just that
    one (.sel), replacing the previous. .hot is the transient hover preview. */
 rect.hl { fill: transparent; stroke: none; }
-rect.hl.sel { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2; }
-rect.hl.hot { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2; }
+rect.hl.sel { fill: var(--highlight-focus); stroke: none; }
+rect.hl.hot { fill: var(--highlight-focus); stroke: none; }
 .val-check { font-size: 11px; color: var(--conf-med); margin-left: 8px; cursor: help; white-space: nowrap; }
-rect.hl.flash { fill: var(--highlight-focus); stroke: var(--highlight-stroke); stroke-width: 2.5;
+rect.hl.flash { fill: var(--highlight-focus); stroke: none;
   animation: hl-pulse .5s ease 0s 3; }
 @keyframes hl-pulse { 50% { fill: var(--green-focus); stroke: var(--green-stroke); } }
 
@@ -265,3 +265,15 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 .hist-note { font-size: 12px; color: var(--text); margin: 2px 0 0 2px; }
 .chain-construct { font-style: italic; } .tag.chain-stratum { border-color: var(--accent-3); color: var(--accent); }
 .chain-modelnote { font-size: 12.5px; color: var(--text-muted); }
+
+/* chain review, editable: the estimate and its se are cells like any other; a row can be
+   taken off a claim, and a result added */
+.chain-num .rv-editable { font: inherit; min-width: 2.2em; text-align: right; }
+.chain-resdel { margin-left: 6px; border: none; background: none; color: var(--text-muted);
+  cursor: pointer; font-size: 12px; border-radius: 3px; padding: 0 4px; visibility: hidden; }
+.chain-res:hover .chain-resdel { visibility: visible; }
+.chain-resdel:hover { color: var(--error); background: var(--error-bg); }
+.chain-addres { margin-top: 6px; border: 1px dashed var(--border); background: none;
+  color: var(--text-muted); border-radius: var(--radius-sm); padding: 3px 10px; cursor: pointer;
+  font-size: 12px; }
+.chain-addres:hover { color: var(--accent); border-color: var(--accent-3); background: var(--accent-wash); }

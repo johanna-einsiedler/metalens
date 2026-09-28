@@ -18,6 +18,7 @@ import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, e
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
 let CHAIN_OFF = false;                                   // a chain-layout preset, but the reviewer wants the field view
+const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
@@ -1069,7 +1070,18 @@ function renderChainPanel(panel, rv) {
   panel.appendChild(head);
   renderChainDag(panel, rv);
   const recs = (DATA.records || []).slice().sort((a, b) => a.entry_index - b.entry_index);
-  for (const rec of recs) renderChainCard(panel, rec, rv);
+  for (const rec of recs) {
+    if (CHAIN_EDIT.has(rec.id)) {
+      renderRecordCard(panel, rec);
+      const t = panel.lastElementChild && panel.lastElementChild.querySelector(".rectitle");
+      if (t) {
+        const back = document.createElement("button");
+        back.className = "histbtn"; back.textContent = "⛓ chain"; back.title = "back to the chain view of this claim";
+        back.onclick = () => { CHAIN_EDIT.delete(rec.id); renderPanel(); };
+        t.insertBefore(back, t.querySelector(".histbtn"));
+      }
+    } else renderChainCard(panel, rec, rv);
+  }
   if (!recs.length) panel.insertAdjacentHTML("beforeend", `<p class="muted">No claims were extracted from this paper.</p>`);
   setContextEvidence(null);
 }
@@ -1214,7 +1226,9 @@ function renderChainCard(panel, rec, rv) {
       const signOpp = R.sign_consistent && row[R.sign_consistent] === false ? ` <span class="chain-chk mismatch">sign opposes the claim</span>` : "";
       body += `<div class="chain-res" data-path="${esc(path)}"><div class="chain-line"><b>${esc(ex || "—")}</b>`
         + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : "")
-        + ` <span class="chain-num">${val === null || val === undefined ? "—" : esc(String(val))}${se !== null && se !== undefined ? ` (${esc(String(se))})` : ""}</span> ${stratum}${chk}${signOpp}${role}</div>`
+        + ` <span class="chain-num"><span class="rv-editable rv-num rv-empty" data-path="${esc(path)}.${esc(R.value)}" contenteditable="plaintext-only" title="the point estimate — click to correct it">${val === null || val === undefined ? "" : esc(String(val))}</span>`
+        + (R.se ? ` (<span class="rv-editable rv-num rv-empty" data-path="${esc(path)}.${esc(R.se)}" contenteditable="plaintext-only" title="the standard error — click to correct it">${se === null || se === undefined ? "" : esc(String(se))}</span>)` : "")
+        + `</span> ${stratum}${chk}${signOpp}${role}<button type="button" class="chain-resdel" data-j="${j}" title="remove this result row from the claim">✕</button></div>`
         + (R.row && row[R.row] ? `<div class="chain-rowlab muted">${esc(row[R.row])}</div>` : "")
         + (R.cause ? `<div class="chain-op"><span class="k">cause</span><span>${esc(row[R.cause] || "—")} ${rel("cause")}</span></div>` : "")
         + (R.effect ? `<div class="chain-op"><span class="k">effect</span><span>${esc(row[R.effect] || "—")} ${rel("effect")}</span></div>` : "")
@@ -1222,6 +1236,7 @@ function renderChainCard(panel, rec, rv) {
         + `</div>`;
     });
     if (!rows.length) body = `<span class="chain-none muted">${isEdge ? (fv[rv.notes] ? `no extracted result carries this claim — ${esc(fv[rv.notes])}` : "no result mapped") : "—"}</span>`;
+    body += `<div><button type="button" class="chain-addres" title="add a table result to this claim">＋ result</button></div>`;
     dl += `<dt>${esc(R.label || "Results")}</dt><dd>${body}</dd>`;
   }
   // comparisons that qualify this claim
@@ -1237,7 +1252,7 @@ function renderChainCard(panel, rec, rv) {
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
   card.innerHTML = `<div class="rectitle"><code class="chain-id">${esc(idField ? fv[idField] || "" : entryTitle(VM, rec, rec.entry_index))}</code>`
     + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>` + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
-    + `<span style="margin-left:auto"></span><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
+    + `<span style="margin-left:auto"></span><button class="histbtn chain-editbtn" title="every field of this claim, editable — corrections are logged">▤ edit</button><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
     + `<dl class="chain-dl">${dl}</dl>`
     + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
@@ -1245,7 +1260,38 @@ function renderChainCard(panel, rec, rv) {
     + chainReviewNote(rec)
     + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
   // wiring: history, delete, verify/flag, the quotes' jumps, the edge focus
-  card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
+  card.querySelector(".chain-editbtn").onclick = () => { CHAIN_EDIT.add(rec.id); renderPanel(); };
+  // a corrected number is a correction, not a verification: same path as the field view
+  wireControls(card, (p, v) => saveFieldEdit(rec, card, p, v, curVal(rec, p)), true);
+  card.querySelectorAll(".chain-resdel").forEach((b) => (b.onclick = async () => {
+    const j = Number(b.dataset.j);
+    const fv2 = JSON.parse(JSON.stringify(rec.field_values || {}));
+    const rows2 = fv2[R.child] || [];
+    const row = rows2[j] || {};
+    const label = [(R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" "), row[R.value]].filter((x) => x !== null && x !== undefined && x !== "").join(" · ") || "this row";
+    if (!confirm(`Remove ${label} from this claim? The change is logged and the claim stays.`)) return;
+    rows2.splice(j, 1);
+    try {
+      await api.verify(rec.id, { status: "corrected", field_values: fv2,
+        diff: [{ field_path: `${R.child}[${j}]`, original_value: label, final_value: "(row removed)" }] });
+      rec.field_values = fv2; maybeOfferRepublish(); renderPanel();
+    } catch (e) { alert("remove failed: " + e.message); }
+  }));
+  const addres = card.querySelector(".chain-addres");
+  if (addres) addres.onclick = async () => {
+    const ch = (VM.fieldIndex.get(R.child) || {}).child;
+    const blank = Object.fromEntries(((ch && ch.fields) || []).map((f) => [f.name, null]));
+    const fv2 = JSON.parse(JSON.stringify(rec.field_values || {}));
+    fv2[R.child] = [...(fv2[R.child] || []), blank];
+    try {
+      await api.verify(rec.id, { status: "corrected", field_values: fv2,
+        diff: [{ field_path: `${R.child}[${fv2[R.child].length - 1}]`, original_value: null, final_value: "(row added)" }] });
+      rec.field_values = fv2; maybeOfferRepublish();
+      CHAIN_EDIT.add(rec.id);                    // straight into the field view to fill it in
+      renderPanel();
+    } catch (e) { alert("add failed: " + e.message); }
+  };
+  card.querySelector(".histbtn:not(.chain-editbtn)").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = async () => {
     await sendVerify(card, rec, b.dataset.status, chainNoteText(card));
