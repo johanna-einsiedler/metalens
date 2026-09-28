@@ -137,3 +137,24 @@ def test_credibility() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(run())
+
+
+def test_a_note_is_an_event_not_a_verdict() -> None:
+    """status "noted" stores the note with author and time and leaves the record's
+    verification exactly where the last judgement put it."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import uuid
+    from paperlens import records
+    from test_analysis_table import HAC, _seed
+    conn = records.connect(); records.init_db(conn)
+    ds, _doc = _seed(conn, HAC, "human-ai-collab", f"note-{uuid.uuid4().hex[:6]}")
+    r0 = conn.execute("SELECT id::text FROM record WHERE dataset_id=%s::uuid LIMIT 1", (ds,)).fetchone()[0]
+    records.verify_record(conn, r0, status="verified")
+    records.verify_record(conn, r0, status="noted", notes="the se looks transposed with column (3)")
+    status = conn.execute("SELECT verification_status FROM record WHERE id=%s::uuid", (r0,)).fetchone()[0]
+    assert status == "verified"                       # the note did not overwrite the judgement
+    ev = records.record_events(conn, r0)
+    top = ev[0]
+    assert top["status"] == "noted" and "transposed" in (top["notes"] or "") and top["created_at"]
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

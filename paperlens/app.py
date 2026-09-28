@@ -2123,7 +2123,7 @@ def aggregate(body: AggregateBody, db=Depends(get_db)) -> dict:
 # ── verification / credibility (Phase 3) ──────────────────────────────────────
 
 class VerifyBody(BaseModel):
-    status: str = "verified"               # verified | flagged | unverified
+    status: str = "verified"               # verified | flagged | unverified | noted (a note alone)
     diff: list[dict] | None = None         # [{field_path, original_value, final_value}]
     notes: str | None = None
     verifier_kind: str | None = None       # maintainer | community | paperlens

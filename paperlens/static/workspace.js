@@ -1257,6 +1257,7 @@ function renderChainCard(panel, rec, rv) {
     + `<dl class="chain-dl">${dl}</dl>`
     + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">Flag</button>`
+    + `<button class="vbtn notebtn" title="write a note on this claim — it is stored with your name and the time, and does not verify or flag anything">✎ Note</button>`
     + chainReviewNote(rec)
     + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
   // wiring: history, delete, verify/flag, the quotes' jumps, the edge focus
@@ -1293,12 +1294,17 @@ function renderChainCard(panel, rec, rv) {
   };
   card.querySelector(".histbtn:not(.chain-editbtn)").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
-  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = async () => {
+  card.querySelectorAll(".vbtn[data-status]").forEach((b) => (b.onclick = async () => {
     await sendVerify(card, rec, b.dataset.status, chainNoteText(card));
     card.querySelectorAll(".vbtn").forEach((x) => x.classList.toggle("on", x.dataset.status === rec.verification_status));
     card.querySelector(".chain-review").hidden = rec.verification_status !== "flagged" && !rec.note;
   }));
   wireChainNote(card, rec);
+  card.querySelector(".notebtn").onclick = () => {
+    const box = card.querySelector(".chain-review");
+    box.hidden = false;
+    box.querySelector(".chain-notein").focus();
+  };
   card.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
     const ids = b.dataset.eids.split(",").map(Number);
     b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
@@ -1324,9 +1330,11 @@ function chainSplitNote(text) {
 function chainReviewNote(rec) {
   const [reason, text] = chainSplitNote((rec.note || {}).text);
   const open = rec.verification_status === "flagged" || !!(rec.note || {}).text;
+  const meta = (rec.note || {}).by
+    ? `<span class="chain-noteby muted" title="who wrote the last note, and when">${esc(rec.note.by)}${rec.note.at ? ` · ${esc(new Date(rec.note.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))}` : ""}</span>` : "";
   return `<span class="chain-review"${open ? "" : " hidden"}>`
     + `<select class="chain-reason">${CHAIN_REASONS.map(([v, t]) => `<option value="${esc(t)}"${t === reason ? " selected" : ""}${v ? "" : ' data-empty="1"'}>${esc(t)}</option>`).join("")}</select>`
-    + `<input class="chain-notein" placeholder="note" value="${esc(text)}"/></span>`;
+    + `<input class="chain-notein" placeholder="note — saved as you leave the field, with your name and the time" value="${esc(text)}"/>${meta}</span>`;
 }
 function chainNoteText(card) {
   const box = card.querySelector(".chain-review"); if (!box) return undefined;
@@ -1337,10 +1345,23 @@ function chainNoteText(card) {
 }
 function wireChainNote(card, rec) {
   const box = card.querySelector(".chain-review"); if (!box) return;
+  // A note used to force the record to "flagged" when it was unverified — so there was no way
+  // to write anything down WITHOUT passing judgement. A note is now its own event ("noted"):
+  // stored with name and time, shown in the history, and the verdict stays whatever the
+  // reviewer last decided with the buttons.
   const save = async () => {
-    const status = rec.verification_status === "unverified" ? "flagged" : rec.verification_status;
-    await sendVerify(card, rec, status, chainNoteText(card));
-    card.querySelectorAll(".vbtn").forEach((x) => x.classList.toggle("on", x.dataset.status === rec.verification_status));
+    const text = chainNoteText(card);
+    if (!text && !(rec.note || {}).text) return;              // nothing to record
+    try {
+      await api.verify(rec.id, { status: "noted", notes: text || "" });
+      rec.note = text ? { text, status: "noted", by: "you", at: new Date().toISOString() } : null;
+      const meta = box.querySelector(".chain-noteby");
+      if (meta) meta.textContent = "you · just now"; else if (text) {
+        const sp = document.createElement("span"); sp.className = "chain-noteby muted"; sp.textContent = "you · just now";
+        box.appendChild(sp);
+      }
+      maybeOfferRepublish();
+    } catch (e) { alert("note failed: " + e.message); }
   };
   box.querySelector(".chain-reason").onchange = save;
   box.querySelector(".chain-notein").onchange = save;

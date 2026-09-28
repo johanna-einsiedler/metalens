@@ -766,7 +766,7 @@ def document_confidence(conn: psycopg.Connection, document_id: str) -> dict:
 # "corrected" logs a human value-edit for provenance/audit WITHOUT claiming the record was
 # verified — editing a value is a correction, not an affirmation, so it must not inflate the
 # verified count. It records an event + updates field_values but leaves verification_status.
-_VALID_STATUS = ("verified", "flagged", "unverified", "corrected")
+_VALID_STATUS = ("verified", "flagged", "unverified", "corrected", "noted")
 
 
 def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
@@ -805,7 +805,8 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
             (eid, record_id, verifier_user_id, verifier_kind, status,
              Json(diff) if diff is not None else None, notes),
         )
-        if status != "corrected":     # a value edit records provenance but is NOT a verification
+        if status not in ("corrected", "noted"):   # an edit or a note records provenance but is
+            # NOT a verification — the record's status stays whatever the reviewer last judged
             conn.execute("UPDATE record SET verification_status = %s WHERE id = %s::uuid",
                          (status, record_id))
         if field_values is not None:
