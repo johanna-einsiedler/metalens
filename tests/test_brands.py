@@ -113,3 +113,14 @@ def test_import_picker_keeps_the_presets_the_extract_picker_hides(monkeypatch) -
     for pid in ("register-claims", "register-tables"):                    # mode: "import" schemas
         assert pid not in extract and pid in imprt
     assert c.get("/api/presets").json() == c.get("/api/presets?usage=extract").json()   # the default
+
+
+def test_the_contact_address_is_not_served_in_the_markup() -> None:
+    """An address written into the HTML is harvested; the pages carry it base64-encoded and the
+    link is assembled in the browser, so the literal string must not appear in what is served."""
+    monkey = _client()
+    for path in ("/about", "/faq"):
+        html = monkey.get(path).text
+        assert "johanna.einsiedler@unibas.ch" not in html, path
+        assert "mailto:" not in html, path
+        assert 'data-ml-mail="am9oYW5uYS5laW5zaWVkbGVyQHVuaWJhcy5jaA=="' in html, path

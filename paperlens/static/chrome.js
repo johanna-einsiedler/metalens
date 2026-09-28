@@ -68,13 +68,28 @@ function paintFooter(b) {
   document.body.appendChild(f);
 }
 
+// An address written into the HTML is harvested within days of going up. The page carries it
+// base64-encoded in a data attribute instead and the link is built here, so the literal string
+// never appears in the served markup. Every page already needs JavaScript, so nothing is lost;
+// a reader without it sees the label rather than a broken link.
+function wireMail(root = document) {
+  for (const el of root.querySelectorAll("[data-ml-mail]")) {
+    let addr;
+    try { addr = atob(el.dataset.mlMail); } catch { continue; }
+    const a = document.createElement("a");
+    a.href = `mailto:${addr}`; a.textContent = addr;
+    el.replaceWith(a);
+  }
+}
+
 export async function mountChrome(sel = "header.topbar[data-chrome]") {
   const header = document.querySelector(sel);
-  if (!header) { await mountAccount(); return; }
+  if (!header) { wireMail(); await mountAccount(); return; }
   const cached = cachedBrand();
   if (cached) paint(header, cached);                 // instant, from the last page
   const b = await getBrand();
   paint(header, b);
   paintFooter(b);
+  wireMail();
   await mountAccount();                              // account widget, active nav item, retention note
 }
