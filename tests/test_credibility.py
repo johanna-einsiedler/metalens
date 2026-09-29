@@ -158,3 +158,29 @@ def test_a_note_is_an_event_not_a_verdict() -> None:
     top = ev[0]
     assert top["status"] == "noted" and "transposed" in (top["notes"] or "") and top["created_at"]
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_an_unverified_verdict_withdraws_the_audit() -> None:
+    """Approving and then setting a record back to "unverified" must not leave the badge
+    claiming a human audit: the last verdict wins, and "unverified" returns the record to
+    the unreviewed pool while its events stay as history."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import uuid
+    from paperlens import records
+    from test_analysis_table import HAC, _seed
+    conn = records.connect(); records.init_db(conn)
+    ds, _doc = _seed(conn, HAC, "human-ai-collab", f"unver-{uuid.uuid4().hex[:6]}")
+    rids = [r[0] for r in conn.execute(
+        "SELECT id::text FROM record WHERE dataset_id=%s::uuid AND NOT screened_empty", (ds,)).fetchall()]
+    for rid in rids:
+        records.verify_record(conn, rid, status="verified")
+    assert records.dataset_credibility(conn, ds)["tier"] == "human_verified"
+    for rid in rids:                                   # the approval is withdrawn, append-only
+        records.verify_record(conn, rid, status="unverified")
+    cred = records.dataset_credibility(conn, ds)
+    assert cred["tier"] == "ai_only" and cred["audited"] == 0
+    records.verify_record(conn, rids[0], status="verified")   # a later real review counts again
+    cred = records.dataset_credibility(conn, ds)
+    assert cred["audited"] == 1 and cred["tier"] != "ai_only"
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

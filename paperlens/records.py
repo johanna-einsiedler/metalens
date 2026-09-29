@@ -863,17 +863,26 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
     rows = conn.execute(
         """SELECT r.id::text, ve.status, ve.diff
            FROM record r JOIN verification_event ve ON ve.record_id = r.id
-           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false)""",
+           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false)
+           ORDER BY ve.created_at, ve.id""",
         (dataset_id,),
     ).fetchall()
 
+    # A record is audited when a person left events on it — UNLESS their last verdict was
+    # "unverified", which withdraws the audit: the record returns to the unreviewed pool and
+    # the badge must not keep counting it (the events themselves stay, as history).
     by_record: dict[str, list] = {}
-    for rid, status, diff in rows:
+    last_verdict: dict[str, str] = {}
+    for rid, status, diff in rows:                 # ordered: the latest verdict wins
         by_record.setdefault(rid, []).append((status, diff))
-    audited = len(by_record)
+        if status in ("verified", "flagged", "unverified"):
+            last_verdict[rid] = status
+    audited_records = [evs for rid, evs in by_record.items()
+                       if last_verdict.get(rid) != "unverified"]
+    audited = len(audited_records)
 
     agreed = 0
-    for evs in by_record.values():
+    for evs in audited_records:
         disagreed = any(s == "flagged" for s, _ in evs) or \
             any(_diff_changes_value(d) for _, d in evs)
         if not disagreed:
