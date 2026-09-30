@@ -212,3 +212,42 @@ def test_a_moderator_cannot_delete_someone_elses_owned_dataset(monkeypatch) -> N
     assert admin.delete(f"/api/datasets/{ds}", headers=a_sess).status_code == 403
     assert records.get_dataset(conn, ds) is not None
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_a_moderator_registers_a_dashboard_on_an_imported_dataset(monkeypatch) -> None:
+    """The same rule as moderator delete: a GitHub-imported dataset has no owner, so the
+    owner-only registration gate would lock everyone out — its own author included. A
+    moderator may register (and manage) an external dashboard there; a signed-in stranger
+    still may not, and an OWNED dataset stays owner-only even for the moderator."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    conn = records.connect(); records.init_db(conn)
+    sess = f"xd-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    conn.execute("UPDATE dataset SET owner_user_id = NULL, session_id = NULL, github_source = true, visibility = 'public' WHERE id = %s::uuid", (ds,))
+    conn.commit()
+    assert records.dataset_is_ownerless(conn, ds)
+
+    c = TestClient(appmod.app)
+    body = {"title": "The Danish Causal Atlas", "url": "https://example.github.io/atlas/", "repo_url": None}
+    monkeypatch.setenv("PAPERLENS_ADMINS", "nobody@example.org")
+    email = f"xd-{uuid.uuid4().hex[:8]}@example.org"
+    c.post("/api/auth/register", json={"email": email, "password": "xd-test-pass-1"}, headers=mine)
+    assert c.post(f"/api/datasets/{ds}/external-dashboards", json=body, headers=mine).status_code == 403
+
+    monkeypatch.setenv("PAPERLENS_ADMINS", email)
+    r = c.post(f"/api/datasets/{ds}/external-dashboards", json=body, headers=mine)
+    assert r.status_code == 200, r.text
+    xid = r.json()["id"]
+    # ... and manages its row: the tile image and the removal go through the same gate
+    assert c.patch(f"/api/external-dashboards/{xid}", json={"preview_url": "https://example.org/p.png"},
+                   headers=mine).status_code == 200
+    assert c.delete(f"/api/external-dashboards/{xid}", headers=mine).json()["deleted"] == 1
+
+    # an owned dataset is untouched by moderatorship
+    other = f"xd2-{uuid.uuid4().hex[:6]}"
+    ds2, _ = _seed(conn, HAC, "human-ai-collab", other)
+    assert c.post(f"/api/datasets/{ds2}/external-dashboards", json=body, headers=mine).status_code in (403, 404)
+    conn.close()

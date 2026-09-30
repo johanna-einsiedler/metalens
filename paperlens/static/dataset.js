@@ -139,7 +139,7 @@ function render() {
       <p class="muted" style="font-size:13px;margin:0 0 8px">Interactive figures, tables and key numbers over this dataset. Every point traces back to its paper, its verification status and the quoted evidence.</p>
       <div id="ds-dashlist" class="muted" style="font-size:13px">…</div>
       <div class="ds-card-h" style="margin-top:18px">Dashboards built elsewhere
-        ${OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" id="ds-ext-add" style="margin-left:auto">＋ Register a dashboard</button>` : ""}</div>
+        ${((OWNER && !ANON) || (ADMIN && OV.ownerless)) ? `<button type="button" class="btn btn-ghost btn-sm" id="ds-ext-add" style="margin-left:auto">＋ Register a dashboard</button>` : ""}</div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">Pages in their authors’ own code over a release of this dataset, hosted on their own sites (e.g. GitHub Pages). Metalens lists them and checks which release each one shows; the release files they read are in the datasets repository.</p>
       <div id="ds-ext-new"></div>
       <div id="ds-extlist" class="muted" style="font-size:13px">…</div></div>
@@ -418,7 +418,7 @@ async function loadExternal() {
     : `<span class="badge" title="a moderator lists it on the public Dashboards page; until then only you see it here">awaiting approval</span>`;
   host.innerHTML = list.length ? list.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b> ↗</a> ${state(x)} ${listed(x)}`
     + ` <span class="muted">${x.repo_url ? `· <a href="${esc(x.repo_url)}" target="_blank" rel="noopener">source</a> ` : ""}· ${x.checked_at ? `checked ${esc(fmtDate(x.checked_at))}` : "not checked yet"}${x.check_note ? ` · ${esc(x.check_note)}` : ""}</span>`
-    + (OWNER && !ANON ? ` <a class="muted" href="#" data-extcheck="${esc(x.id)}">check now</a> · <a class="muted" href="#" data-extimg="${esc(x.id)}">tile image</a> · <a class="muted" href="#" data-extdel="${esc(x.id)}">remove</a>` : "")
+    + ((OWNER && !ANON) || (ADMIN && OV && OV.ownerless) ? ` <a class="muted" href="#" data-extcheck="${esc(x.id)}">check now</a> · <a class="muted" href="#" data-extimg="${esc(x.id)}">tile image</a> · <a class="muted" href="#" data-extdel="${esc(x.id)}">remove</a>` : "")
     + `<div class="ds-extimg" data-imgfor="${esc(x.id)}" hidden></div></div>`).join("")
     : "None registered yet.";
   host.querySelectorAll("[data-extcheck]").forEach((a) => (a.onclick = async (e) => { e.preventDefault(); a.textContent = "checking…"; try { await api.checkExternalDashboard(a.dataset.extcheck); } catch (ex) { alert(ex.message); } loadExternal(); }));

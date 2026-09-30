@@ -1119,12 +1119,22 @@ def external_dashboards_list(dataset_id: str, db=Depends(get_db), who: Principal
     return {"dashboards": external_dashboards.list_for_dataset(db, dataset_id), "latest_release": latest["number"] if latest else None}
 
 
+def _dataset_owner_or_moderator(db, dataset_id: str, who: Principal) -> None:
+    """The owner — or, on a dataset imported from the datasets repository (which has no owner
+    at all), a moderator: the same rule that lets a moderator delete one. 403 otherwise."""
+    if _dataset_gate(db, dataset_id, who):
+        return
+    if not records.dataset_is_ownerless(db, dataset_id):
+        raise HTTPException(status_code=403, detail="Only the owner can manage dashboards here.")
+    _require_admin(db, who)
+
+
 @app.post("/api/datasets/{dataset_id}/external-dashboards")
 def external_dashboards_create(dataset_id: str, body: ExternalDashboardBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
-    """Owner only, signed in: register a dashboard hosted elsewhere; it is checked right away."""
+    """Owner (or a moderator, on an ownerless GitHub-imported dataset), signed in:
+    register a dashboard hosted elsewhere; it is checked right away."""
     from . import external_dashboards
-    if not _dataset_gate(db, dataset_id, who):
-        raise HTTPException(status_code=403, detail="Only the owner can register dashboards.")
+    _dataset_owner_or_moderator(db, dataset_id, who)
     if not who.user_id and not localmode.enabled():
         raise HTTPException(status_code=401, detail="Sign in to register a dashboard.")
     for u in (body.url, body.repo_url, body.manifest_url):
@@ -1156,8 +1166,9 @@ def external_dashboards_patch(ext_id: str, body: ExternalDashboardPatch, db=Depe
     """Owner only: supply the tile image directly, instead of the one the page's manifest names."""
     from . import external_dashboards
     ext = external_dashboards.get(db, ext_id)
-    if ext is None or not _dataset_gate(db, ext["dataset_id"], who):
+    if ext is None:
         raise HTTPException(status_code=404, detail="Not found.")
+    _dataset_owner_or_moderator(db, ext["dataset_id"], who)
     try:
         return external_dashboards.set_preview(db, ext_id, body.preview_url)
     except ValueError as exc:
@@ -1186,8 +1197,9 @@ def external_dashboards_approve(ext_id: str, approved: bool = True, db=Depends(g
 def external_dashboards_delete(ext_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     from . import external_dashboards
     ext = external_dashboards.get(db, ext_id)
-    if ext is None or not _dataset_gate(db, ext["dataset_id"], who):
+    if ext is None:
         raise HTTPException(status_code=404, detail="Not found.")
+    _dataset_owner_or_moderator(db, ext["dataset_id"], who)
     return {"deleted": external_dashboards.delete(db, ext_id)}
 
 
