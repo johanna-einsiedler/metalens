@@ -233,26 +233,34 @@ function renderTypedValue(f, v, path, opts) {
 // editing those keys is exactly what used to corrupt the record.
 function renderTypedTable(f, v, path, opts) {
   const cols = f.columns || [];
+  // a row the coder adds by hand: every declared column, blank — the paper may report a
+  // factor (or any other row) the model missed, and it needs somewhere to go
+  const addBtn = opts.editable && cols.length
+    ? `<button type="button" class="rv-addrow" data-path="${esc(path)}" title="add a row — logged as a correction"`
+      + ` data-blank="${esc(JSON.stringify(Object.fromEntries(cols.map((c) => [c.name, null]))))}">＋ row</button>`
+    : "";
   if (v && typeof v === "object" && !Array.isArray(v) && !Array.isArray(v._table)) {
     const rows = Object.entries(v).map(([k, x]) =>
       `<tr><td class="rv-cell">${esc(k)}</td><td>${renderNode(x, `${path}.${k}`, { ...opts, editable: false })}</td></tr>`).join("");
     return `<div class="rv-tablewrap"><table class="rv-table rv-kv"><thead><tr><th>key</th><th>value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
   const rows = Array.isArray(v) ? v : (v && Array.isArray(v._table) ? v._table : null);
-  if (rows === null || rows === undefined) return `<span class="rv-missing">—</span>`;
-  if (!rows.length) return `<span class="rv-null">empty</span>`;
+  if (rows === null || rows === undefined) return `<span class="rv-missing">—</span> ${addBtn}`;
+  if (!rows.length) return `<span class="rv-null">empty</span> ${addBtn}`;
   const names = cols.map((c) => c.name);
   const extra = [...new Set(rows.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
   const head = cols.map((c) => `<th title="${esc(c.help || "")}">${esc(c.label || formatKey(c.name))}</th>`).join("")
-    + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
+    + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("")
+    + (opts.editable ? `<th class="rv-rowdel-h"></th>` : "");
   const body = rows.map((r, i) => {
     const base = `${path}[${i}]`;
     const cells = cols.map((c) => `<td>${renderTypedValue(c, r ? r[c.name] : undefined, `${base}.${c.name}`, opts)}</td>`).join("")
-      + extra.map((k) => `<td>${renderNode(r ? r[k] : null, `${base}.${k}`, opts)}</td>`).join("");
+      + extra.map((k) => `<td>${renderNode(r ? r[k] : null, `${base}.${k}`, opts)}</td>`).join("")
+      + (opts.editable ? `<td class="rv-rowdel-c"><button type="button" class="rv-rowdel" data-path="${esc(path)}" data-row="${i}" title="remove this row — logged as a correction">✕</button></td>` : "");
     return `<tr data-row="${i}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
   }).join("");
   return `<div class="rv-tablewrap"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
-    + `<tbody>${body}</tbody></table></div>`;
+    + `<tbody>${body}</tbody></table>${addBtn ? `<div class="rv-tableadd">${addBtn}</div>` : ""}</div>`;
 }
 
 // Declared fields of one object level, in declaration order. `defs` is the field list,

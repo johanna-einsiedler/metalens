@@ -919,6 +919,63 @@ function wireCard(card, rec) {
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   wireControls(card, (path, val) => saveFieldEdit(rec, card, path, val, curVal(rec, path)), true);
+  wireTableRows(card, rec);
+}
+
+// Re-render one card in place after a structural edit (a table row added or removed),
+// keeping whichever tab the coder had open.
+function rerenderCard(card, rec) {
+  const active = card.querySelector(".subtab.active");
+  const tmp = document.createElement("div");
+  renderRecordCard(tmp, rec);
+  const fresh = tmp.firstElementChild;
+  card.replaceWith(fresh);
+  if (active) {
+    const b = [...fresh.querySelectorAll(".subtab")].find((x) => x.dataset.vi === active.dataset.vi);
+    if (b) b.click();
+  }
+  return fresh;
+}
+
+// ＋ row / ✕ on a typed table (factor loadings, correlations, …): the paper may report a
+// row the model missed — a whole factor, say — and a coder must be able to put it in.
+// Both go through the verify layer as corrections, like every other edit.
+function wireTableRows(card, rec) {
+  card.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
+    const path = b.dataset.path;
+    const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+    const cur = getByPath(fv, path);
+    const rows = Array.isArray(cur) ? cur : [];
+    rows.push(JSON.parse(b.dataset.blank || "{}"));
+    if (!Array.isArray(cur)) setByPath(fv, path, rows);
+    try {
+      await api.verify(rec.id, { status: "corrected", field_values: fv,
+        diff: [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }] });
+      rec.field_values = fv; maybeOfferRepublish();
+      const fresh = rerenderCard(card, rec);
+      // inside a quoted attribute selector the brackets are literal — no escaping
+      const first = fresh.querySelector(`[data-path^="${path}[${rows.length - 1}]."]`);
+      if (first && first.focus) first.focus();
+    } catch (e) { alert("add failed: " + e.message); }
+  }));
+  card.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = async () => {
+    const path = b.dataset.path, i = Number(b.dataset.row);
+    const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+    const rows = getByPath(fv, path);
+    if (!Array.isArray(rows) || !(i in rows)) return;
+    const row = rows[i];
+    const label = row && typeof row === "object"
+      ? Object.entries(row).filter(([k, x]) => !k.startsWith("_") && x !== null && x !== undefined && x !== "")
+          .slice(0, 3).map(([, x]) => String(x)).join(" · ") || "this row"
+      : String(row);
+    if (!confirm(`Remove ${label}? The change is logged in the record's history.`)) return;
+    rows.splice(i, 1);
+    try {
+      await api.verify(rec.id, { status: "corrected", field_values: fv,
+        diff: [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }] });
+      rec.field_values = fv; maybeOfferRepublish(); rerenderCard(card, rec);
+    } catch (e) { alert("remove failed: " + e.message); }
+  }));
 }
 
 // A badge's notes open on click — the notes are what tell the coder what to check.

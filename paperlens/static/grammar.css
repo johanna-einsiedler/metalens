@@ -281,3 +281,14 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 /* the standalone note: who wrote it and when, beside the input */
 .chain-noteby { font-size: 11.5px; white-space: nowrap; align-self: center; }
 .vbtn.notebtn { opacity: .85; }
+
+/* ＋ row / ✕ on a typed table — structural edits, logged as corrections */
+.rv-tableadd { margin: 3px 0 0; }
+.rv-addrow { border: 1px dashed var(--border); background: none; border-radius: var(--radius-sm);
+             color: var(--text-muted); font-size: 11.5px; padding: 1px 8px; cursor: pointer; }
+.rv-addrow:hover { color: var(--accent-dark); border-color: var(--accent); }
+.rv-rowdel-h, .rv-rowdel-c { width: 18px; }
+.rv-rowdel { border: none; background: none; color: var(--text-muted); cursor: pointer;
+             font-size: 11px; padding: 0 2px; opacity: 0; transition: opacity .12s; }
+tr:hover .rv-rowdel { opacity: .75; }
+.rv-rowdel:hover { color: #b3261e; opacity: 1; }
