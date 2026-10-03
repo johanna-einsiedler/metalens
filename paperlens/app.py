@@ -48,6 +48,15 @@ def _migrate_on_startup() -> None:
     except Exception as exc:   # pragma: no cover - migration is best-effort
         import logging
         logging.getLogger("paperlens").warning("startup init_db skipped: %s", exc)
+    try:                       # warm the request pool so the first visitor doesn't wait for it
+        records.open_pool()
+    except Exception:          # pragma: no cover - requests fall back to direct connections
+        pass
+
+
+@app.on_event("shutdown")
+def _close_pool_on_shutdown() -> None:
+    records.close_pool()
 
 # ── beta gate ────────────────────────────────────────────────────────────────
 # A single shared-password HTTP Basic Auth in front of the WHOLE site (beta
@@ -271,11 +280,8 @@ def account_page() -> FileResponse:
 
 
 def get_db() -> Generator:
-    conn = records.connect()
-    try:
+    with records.pooled() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 def principal(
