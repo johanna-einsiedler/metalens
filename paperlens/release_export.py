@@ -110,6 +110,13 @@ def build(conn, release: dict) -> dict[str, bytes]:
         meta["vocabularies"] = [{"unit": v["unit"], "column": v["column"], "version": v["version"], "committed_at": v.get("committed_at"),
                                  "domains": v.get("domains") or [], "concepts": v["concepts"], "left_out": v["left_out"], "assignments": v["assignments"],
                                  "columns": [f"{v['column']}_concept", f"{v['column']}_polarity"]} for v in vocabs]
+    pgs = (release.get("snapshot") or {}).get("pages")
+    if pgs:
+        meta["pages"] = {"n": len(pgs), "groups": sorted({p["group"] for p in pgs}), "file": "pages.json"}
+        files["pages.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION,
+                                      "note": "generated prose with its audit trail: each section lists the record ids it was written from; curated_md is human-written",
+                                      "pages": pgs})
+        meta["files"] = sorted(set(meta["files"]) | {"pages.json"})
     fz = (release.get("snapshot") or {}).get("crosscheck")
     if fz:
         from . import crosscheck

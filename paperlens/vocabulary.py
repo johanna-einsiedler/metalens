@@ -51,6 +51,8 @@ def norm(value) -> str:
 def values(conn, dataset_id: str, unit: str, column: str, *, release: dict | None = None, examples: bool = True) -> list[dict]:
     """The distinct values of ``column`` in ``unit``, indexed V001…, with how often and in how
     many papers each occurs and up to two verbatim quotes behind it."""
+    if unit == "paper":
+        return _paper_values(conn, dataset_id, column, release=release)
     from . import analysis_table
     t = analysis_table.build(conn, dataset_id, unit, owner=False, release=release, crosscheck=False, vocabulary=False)
     if t is None:
@@ -94,6 +96,46 @@ def values(conn, dataset_id: str, unit: str, column: str, *, release: dict | Non
                         e["quotes"].append(it["snippet"][:300])
     for e in out:
         e.pop("_cells", None)
+    return out
+
+
+def _paper_values(conn, dataset_id: str, column: str, *, release: dict | None = None) -> list[dict]:
+    """Distinct values of a PAPER-level field (``paper_metadata.<column>``), one per document —
+    the theory-model column lives here, not on any entry. Quotes come from the documents'
+    paper-level evidence spans for that field."""
+    if release is not None:
+        rows = [((r.get("field_values") or {}), r.get("doc"), r.get("title"))
+                for r in (release.get("snapshot") or {}).get("records") or []]
+        pm_by_doc: dict = {}
+        for _fv, doc, title in rows:
+            pm_by_doc.setdefault(doc, title)
+        # paper_metadata itself is not in the snapshot records; the export carries it per paper —
+        # a release-based paper vocabulary reads the snapshot's spec'd papers block instead.
+        papers = (release.get("snapshot") or {}).get("papers") or []
+        src = [(p.get(column), p.get("title")) for p in papers]
+    else:
+        src = [(pm.get(column) if isinstance(pm, dict) else None, (pm or {}).get("title") or fn)
+               for pm, fn in conn.execute(
+                   """SELECT DISTINCT d.paper_metadata_raw, d.filename
+                      FROM extraction_document d JOIN record r ON r.document_id = d.id
+                      WHERE r.dataset_id = %s::uuid""", (dataset_id,)).fetchall()]
+    seen: dict[str, dict] = {}
+    for v, title in src:
+        if v in (None, ""):
+            continue
+        key = norm(v)
+        if not key:
+            continue
+        e = seen.setdefault(key, {"value": str(v).strip(), "spellings": [], "n": 0, "papers": set()})
+        e["n"] += 1
+        if str(v).strip() not in e["spellings"]:
+            e["spellings"].append(str(v).strip())
+        e["papers"].add(title)
+    out = []
+    for i, key in enumerate(sorted(seen, key=lambda s: (-seen[s]["n"], s))):
+        e = seen[key]
+        out.append({"idx": f"V{i + 1:03d}", "value": e["value"], "spellings": e["spellings"][:5],
+                    "n": e["n"], "n_papers": len(e["papers"]), "quotes": []})
     return out
 
 

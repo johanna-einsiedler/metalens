@@ -147,6 +147,9 @@ function render() {
     <!-- 5 · the other side of the same papers (only for presets with a registered check) -->
     <div class="ds-card" id="ds-crosscheck" hidden></div>
 
+    <!-- 5b · the declared update process: what runs when this dataset grows (presets with meta.update) -->
+    <div class="ds-card" id="ds-update" hidden></div>
+
     <!-- 6a · a dataset imported from the datasets repository has no owner: only a moderator can remove it -->
     ${ADMIN && OV.ownerless ? `<div class="ds-card" style="margin-top:10px"><div class="ds-card-h">Moderator</div>
       <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset was imported from the datasets repository, so it has no owner and nobody can withdraw it the usual way. Deleting removes it and its records from Metalens. The copy in the repository on GitHub is untouched — if the folder is still on the default branch, the hourly sync will import it again.</p>
@@ -182,6 +185,7 @@ function render() {
   loadReleases();
   loadDashboards();
   loadExternal();
+  loadUpdateCard();
   loadCrosscheck();
   loadVocabularies();
   const sf = $("#ds-saveform");
@@ -402,6 +406,40 @@ async function loadCrosscheck() {
       try { await api.setCompanion(id, sel.value); msg.textContent = ""; loadCrosscheck(); loadReleases(); } catch (e) { msg.textContent = e.message; }
     };
   }
+}
+
+// ── the declared update process (meta.update): each step with its state ────────────────────────
+async function loadUpdateCard() {
+  const host = $("#ds-update"); if (!host) return;
+  let r; try { r = await api.pagesList(id); } catch { return; }
+  const steps = r.steps || [];
+  if (!steps.length) return;
+  host.hidden = false;
+  const line = (st) => {
+    if (st.type === "crosscheck") return `<div class="ds-dashrow">↔ Cross-check <span class="muted">· runs against the companion; see the card above</span></div>`;
+    if (st.type === "vocabulary") {
+      const state = st.state === "committed"
+        ? `<span class="badge tier-human_verified">v${st.version}</span>${st.unresolved ? ` <span class="badge tier-sample_verified">${st.unresolved} new value${st.unresolved === 1 ? "" : "s"} unresolved</span>` : ""}`
+        : `<span class="badge">not built yet</span>`;
+      return `<div class="ds-dashrow">🏷 Vocabulary <b>${esc(st.column)}</b> ${state}
+        ${OWNER && !ANON ? `<a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}</div>`;
+    }
+    if (st.type === "pages") {
+      const pages = st.pages || [];
+      const chips = pages.map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a>
+        <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified" title="records were added or removed since this page was written">stale</span>` : ""}`).join(" · ");
+      return `<div class="ds-dashrow">📖 ${esc(st.label || st.group + " pages")} <span class="muted">· keyed by ${esc(st.keyed_by)}</span>
+        ${chips || `<span class="muted">none yet</span>`}
+        ${OWNER && !ANON ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}</div>`;
+    }
+    return "";
+  };
+  host.innerHTML = `<div class="ds-card-h">Update process
+      ${OWNER && !ANON ? `<a class="btn btn-ghost btn-sm" href="/pages?dataset=${esc(id)}" style="margin-left:auto">Open pages</a>` : ""}</div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset's preset declares what happens when the data grows.
+    Every step produces a draft you review — vocabulary assignments as map / new / skip, pages as a change-by-change diff
+    naming the evidence that triggered each edit. Nothing updates silently.</p>
+    ${steps.map(line).join("")}`;
 }
 
 // ── dashboards built elsewhere: URL, the release they show, last check ─────────────────────────

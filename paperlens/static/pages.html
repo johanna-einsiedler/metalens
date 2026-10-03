@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Pages</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/dash.css"/>
+  <style>
+    .pg-sec { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; margin: 10px 0; background: var(--surface); }
+    .pg-sec.removed { opacity: .62; background: none; border-style: dashed; }
+    .pg-verdict { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-right: 6px; }
+    .pg-verdict.kept     { background: var(--surface-2, #f0efeb); color: var(--text-muted); }
+    .pg-verdict.revised  { background: var(--conf-med-bg); color: var(--conf-med); border: 1px solid var(--conf-med-bd); }
+    .pg-verdict.new      { background: var(--conf-high-bg, #e7f2e7); color: var(--conf-high, #2c6e2c); }
+    .pg-verdict.removed  { background: var(--error-bg, #fbe5e3); color: var(--error, #b3261e); }
+    .pg-verdict.unexplained { background: var(--error-bg, #fbe5e3); color: var(--error, #b3261e); }
+    .pg-text { font-size: 14px; line-height: 1.6; margin: 8px 0 6px; }
+    .pg-text del { background: var(--error-bg, #fbe5e3); text-decoration: line-through; text-decoration-thickness: 1px; padding: 0 1px; }
+    .pg-text ins { background: var(--conf-high-bg, #e7f2e7); text-decoration: none; padding: 0 1px; }
+    .pg-src { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .pg-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
+    .pg-chip.trigger { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-bg, #eef4f6); font-weight: 600; }
+    .pg-lede { border-left: 3px solid var(--accent-3); padding: 2px 12px; color: var(--text-muted); margin: 10px 0; }
+    .pg-sec textarea { width: 100%; min-height: 90px; font: inherit; font-size: 13.5px; }
+  </style>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+  <main class="wrap">
+    <div class="ds-head" style="align-items:flex-start">
+      <div><h2 style="margin:.2em 0 4px">Pages <span class="muted" id="pg-title"></span></h2>
+        <p class="muted" style="margin:0;max-width:760px">A dataset's living pages — one per design, theory or
+          variation — written by one model call from the dataset's own rows and reviewed as <b>changes</b>:
+          every paragraph names the records it was written from, and every revision names the new evidence
+          that triggered it. Nothing publishes without your commit.</p></div>
+      <span><a class="btn btn-ghost btn-sm" id="pg-back" href="#">← Dataset</a></span>
+    </div>
+    <div id="pg-app"><p class="muted">Loading…</p></div>
+  </main>
+  <script type="module" src="/static/pages.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

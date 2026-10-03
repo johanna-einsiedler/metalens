@@ -63,11 +63,13 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
-    from . import crosscheck, vocabulary
+    from . import crosscheck, pages, vocabulary
     fz = crosscheck.frozen(conn, dataset_id)
     vocabs = vocabulary.snapshot(conn, dataset_id)
+    pgs = pages.snapshot(conn, dataset_id)
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
-            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}), **({"vocabularies": vocabs} if vocabs else {})}
+            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}),
+            **({"vocabularies": vocabs} if vocabs else {}), **({"pages": pgs} if pgs else {})}
 
 
 def content_sha(snap: dict) -> str:

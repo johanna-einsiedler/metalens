@@ -63,7 +63,7 @@ IDENTITY_FIELDS = (
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
-    "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url"},
+    "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url", "update"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
     "paper": {"fields"},
@@ -293,6 +293,27 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         su = meta.get("source_url")
         if su is not None and not (isinstance(su, str) and su.startswith(("http://", "https://"))):
             E("$.meta.source_url must be an http(s) URL (where the pipeline that produces this data lives)")
+        # The declared UPDATE PROCESS: what happens when the dataset grows. Steps are run
+        # owner-triggered, each yielding a reviewable draft; the preset only declares the
+        # SHAPES (which column feeds which step), the dataset holds the state.
+        up = meta.get("update", [])
+        if not isinstance(up, list):
+            E("$.meta.update must be a list of steps")
+        else:
+            for i, st in enumerate(up):
+                at = f"$.meta.update[{i}]"
+                if not isinstance(st, dict) or st.get("type") not in ("crosscheck", "vocabulary", "pages"):
+                    E(f"{at}.type must be 'crosscheck', 'vocabulary' or 'pages'"); continue
+                extra = set(st) - {"type", "unit", "column", "group", "keyed_by", "label"}
+                if extra:
+                    E(f"{at} has unknown keys {sorted(extra)}")
+                if st["type"] == "vocabulary" and not (isinstance(st.get("column"), str) and st["column"]):
+                    E(f"{at}: a vocabulary step names its column")
+                if st["type"] == "pages":
+                    if not (isinstance(st.get("group"), str) and st["group"]):
+                        E(f"{at}: a pages step names its group (design, theory, ...)")
+                    if not (isinstance(st.get("keyed_by"), str) and st["keyed_by"]):
+                        E(f"{at}: a pages step names keyed_by (the entries column whose values key the pages)")
 
     prompt = spec.get("prompt")
     params: dict = {}

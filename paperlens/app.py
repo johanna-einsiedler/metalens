@@ -174,6 +174,12 @@ def brand_info(b: brands.Brand = Depends(brand)) -> dict:
     return b.as_json()
 
 
+@app.get("/pages")
+def pages_page() -> FileResponse:
+    """Owner: a dataset's living pages — proposed by one model call, reviewed as changes."""
+    return _page("pages.html")
+
+
 @app.get("/vocabulary")
 def vocabulary_page() -> FileResponse:
     """Owner: harmonise a column of a dataset into concepts (an optional, separate feature)."""
@@ -844,7 +850,14 @@ def _vocab_model(db, who: Principal, body: VocabularyProposeBody) -> tuple[str, 
 
 def _vocab_column(db, dataset_id: str, unit: str, column: str) -> tuple[str, str]:
     """(label, help) of the column, 422 when the unit or the column does not exist."""
-    from . import analysis_table
+    from . import analysis_table, presets
+    if unit == "paper":                     # a paper-level field (theory_model lives here)
+        ds = records.get_dataset(db, dataset_id) or {}
+        spec = presets.load_all().get((ds.get("schema_id") or "").partition("@")[0]) or {}
+        f = next((f for f in (spec.get("paper") or {}).get("fields") or [] if f.get("name") == column), None)
+        if f is None or f.get("type") not in ("string", "text", "enum"):
+            raise HTTPException(status_code=422, detail="Choose a text paper-level field of this dataset.")
+        return f.get("label") or column, f.get("help") or ""
     t = analysis_table.build(db, dataset_id, unit, owner=True, crosscheck=False, vocabulary=False)
     if t is None:
         raise HTTPException(status_code=404, detail="Dataset not found.")
@@ -1007,6 +1020,171 @@ def vocabulary_delete(vid: str, db=Depends(get_db), who: Principal = Depends(pri
     if v is None or not _dataset_gate(db, v["dataset_id"], who):
         raise HTTPException(status_code=404, detail="Vocabulary not found.")
     return {"deleted": vocabulary.delete(db, vid)}
+
+
+class PageProposeBody(BaseModel):
+    group: str
+    key: str
+    keyed_by: str                        # the entries column whose value keys this page
+    model: str = ""
+    api_key: str = ""
+    base_url: str | None = None
+    use_credits: bool = False
+
+
+class PageDraftBody(BaseModel):
+    title: str | None = None
+    sections: list
+    curated_md: str | None = None
+
+
+@app.get("/api/datasets/{dataset_id}/pages")
+def dataset_pages(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Every page of the dataset (all versions), plus the declared update steps with their
+    state — what the dataset page's Update card paints."""
+    from . import pages, presets, vocabulary
+    owner = _dataset_gate(db, dataset_id, who)
+    rows = pages.list_for_dataset(db, dataset_id)
+    if not owner:                                     # drafts are the owner's working state
+        rows = [r for r in rows if r["status"] == "committed"]
+    ds = records.get_dataset(db, dataset_id) or {}
+    spec = presets.load_all().get((ds.get("schema_id") or "").partition("@")[0]) or {}
+    steps = []
+    for st in ((spec.get("meta") or {}).get("update") or []):
+        item = dict(st)
+        if st.get("type") == "vocabulary":
+            vs = [v for v in vocabulary.list_for_dataset(db, dataset_id)
+                  if v["column"] == st.get("column") and v["status"] == "committed"]
+            item["state"] = "missing" if not vs else "committed"
+            if vs:
+                v = vocabulary.get(db, max(vs, key=lambda x: x["version"])["id"])
+                item["version"] = v["version"]
+                item["unresolved"] = len(vocabulary.unresolved(
+                    vocabulary.values(db, dataset_id, v["unit"], v["column"], examples=False), v["assignments"]))
+        if st.get("type") == "pages":
+            mine = [r for r in rows if r["group"] == st.get("group")]
+            now = set(pages.current_record_ids(db, dataset_id))
+            item["pages"] = [{"key": r["key"], "version": r["version"], "status": r["status"], "id": r["id"],
+                              "stale": bool(set((r.get("built_from") or {}).get("record_ids") or []) ^ now)}
+                             for r in mine]
+        steps.append(item)
+    return {"pages": rows, "steps": steps, "owner": owner}
+
+
+@app.post("/api/datasets/{dataset_id}/pages/propose")
+def page_propose(dataset_id: str, body: PageProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner, signed in: ONE model call writes or updates one page from the dataset's own
+    rows. The draft is reviewed as a CHANGE against the committed version — never silently
+    applied. Own key or local model: never stored. Credits: one per pass, refunded on failure."""
+    from . import contract, pages, vocabulary
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner can build pages.")
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to build a page.")
+    ds = records.get_dataset(db, dataset_id) or {}
+    rows = pages.rows_for(db, dataset_id, body.keyed_by, body.key)
+    if not rows:
+        raise HTTPException(status_code=422, detail=f"No rows have {body.keyed_by} = {body.key!r}.")
+    model, key, base_url, charged = _vocab_model(db, who, body)
+    old = pages.committed(db, dataset_id, body.group, body.key)
+    allowed = {r["record_id"] for r in rows if r.get("record_id")}
+    new_ids = pages.new_since(db, dataset_id, (old or {}).get("built_from")) & allowed
+    concept = None
+    for v in vocabulary.committed(db, dataset_id):
+        for c in v.get("concepts") or []:
+            if c.get("id") == body.key:
+                concept = c
+    prompt = pages.build_prompt(ds.get("title") or "", body.group, body.key, concept=concept,
+                                old_page=old, curated_md=(old or {}).get("curated_md"),
+                                rows=rows, reads=pages.paper_reads(db, dataset_id), new_ids=new_ids)
+    raw, parsed = "", None
+    try:
+        for nudge in ("", "\n\nReturn ONLY the JSON object described above."):
+            raw = providers.generate_text(model, key, prompt + nudge, base_url=base_url, max_tokens=16384, json_mode=True)
+            parsed = contract.parse_result_json(raw)
+            if isinstance(parsed, dict) and parsed.get("sections"):
+                break
+    except Exception as exc:  # noqa: BLE001 — provider errors
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="page refund")
+        return {"ok": False, "error": providers.extract_provider_message(exc)}
+    if not isinstance(parsed, dict) or not parsed.get("sections"):
+        if charged:
+            credits.refund(db, who.user_id, model=model, reason="page refund")
+        return {"ok": False, "error": "The model answered, but no usable section came back.", "raw": (raw or "")[:_RAW_CAP]}
+    draft, repairs = pages.validate_draft(parsed, allowed, new_ids, (old or {}).get("sections"))
+    pg = pages.create(db, dataset_id, group=body.group, key=body.key, draft=draft,
+                      curated_md=(old or {}).get("curated_md"), model=model,
+                      prompt_sha256=pages.prompt_sha(prompt), basis=pages.built_from(db, dataset_id),
+                      proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "keyed_by": body.keyed_by, "charged": charged},
+                      owner_user_id=who.user_id)
+    return {"ok": True, "page": pg, "repairs": repairs}
+
+
+@app.get("/api/pages/{pid}/review")
+def page_review(pid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The draft as a CHANGE: per-section verdicts against the committed version (computed,
+    never the model's own account), the inline word diff, and each section's sources split
+    into new-since-the-old-page (the triggers) and carried."""
+    from . import pages
+    pg = pages.get(db, pid)
+    if pg is None or not _dataset_gate(db, pg["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Page not found.")
+    old = None
+    if pg["status"] == "draft":
+        old = pages.committed(db, pg["dataset_id"], pg["group"], pg["key"])
+    new_ids = pages.new_since(db, pg["dataset_id"], (old or {}).get("built_from"))
+    labels = {r[0]: f"{r[1] or r[2] or ''} · {r[3]}".strip(" ·")
+              for r in db.execute(
+                  """SELECT r.id::text, p.title, d.filename, r.entry_index
+                     FROM record r JOIN extraction_document d ON d.id = r.document_id
+                     LEFT JOIN paper p ON p.id = r.paper_id
+                     WHERE r.dataset_id = %s::uuid""", (pg["dataset_id"],)).fetchall()}
+    return {"page": pg, "committed": old,
+            "diff": pages.section_diff((old or {}).get("sections") or [], pg["sections"], new_ids),
+            "labels": labels,
+            "repairs": (pg.get("proposal") or {}).get("repairs") or []}
+
+
+@app.patch("/api/pages/{pid}")
+def page_patch(pid: str, body: PageDraftBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the reviewed draft — edited section text, the curated lede — validated again."""
+    from . import pages
+    pg = pages.get(db, pid)
+    if pg is None or not _dataset_gate(db, pg["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Page not found.")
+    allowed = {s2 for s in pg["sections"] for s2 in s.get("sources") or []}
+    for s in body.sections if isinstance(body.sections, list) else []:
+        for s2 in (s.get("sources") or []) if isinstance(s, dict) else []:
+            allowed.add(s2)
+    draft, repairs = pages.validate_draft({"title": body.title or pg["title"], "sections": body.sections,
+                                           "change_log": pg["change_log"]}, allowed, set(), None)
+    out = pages.update_draft(db, pid, title=draft["title"], sections=draft["sections"], curated_md=body.curated_md)
+    if out is None:
+        raise HTTPException(status_code=409, detail="Only drafts can be edited.")
+    return {"page": out, "repairs": repairs}
+
+
+@app.post("/api/pages/{pid}/commit")
+def page_commit(pid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import pages
+    pg = pages.get(db, pid)
+    if pg is None or not _dataset_gate(db, pg["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Page not found.")
+    out = pages.commit(db, pid)
+    if out is None:
+        raise HTTPException(status_code=409, detail="Already committed.")
+    return {"page": out}
+
+
+@app.delete("/api/pages/{pid}")
+def page_delete(pid: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: drop a draft (committed versions stay: releases were cut with them)."""
+    from . import pages
+    pg = pages.get(db, pid)
+    if pg is None or not _dataset_gate(db, pg["dataset_id"], who):
+        raise HTTPException(status_code=404, detail="Page not found.")
+    return {"deleted": pages.delete(db, pid)}
 
 
 @app.get("/api/datasets/{dataset_id}/crosscheck")

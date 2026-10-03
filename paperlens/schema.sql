@@ -533,3 +533,29 @@ CREATE TABLE IF NOT EXISTS dataset_vocabulary (
 -- a companion dataset read from the other side of the same papers (crosscheck.py): claims ↔ tables
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS companion_dataset_id uuid REFERENCES dataset(id) ON DELETE SET NULL;
 
+
+-- One living page of a dataset: a design's or a theory's "wiki" entry (or the corpus
+-- overview), generated from the dataset's own rows and REVIEWED like everything else.
+-- `sections` carry their sources (the records/evidence each paragraph was written from) —
+-- the audit trail of prose. `curated_md` is the human-written lede and is never touched by
+-- a model. Versions accumulate; releases freeze whichever version was committed at cut time.
+CREATE TABLE IF NOT EXISTS dataset_page (
+    id            uuid PRIMARY KEY,
+    dataset_id    uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    "group"       text NOT NULL,                      -- e.g. design | theory | overview
+    key           text NOT NULL,                      -- concept id, or '_index'
+    version       integer NOT NULL,
+    status        text NOT NULL DEFAULT 'draft',      -- draft | committed
+    title         text NOT NULL DEFAULT '',
+    curated_md    text,                               -- the human lede; model never writes it
+    sections      jsonb NOT NULL DEFAULT '[]'::jsonb, -- [{text, sources:[{record_id, field_path}]}]
+    change_log    jsonb NOT NULL DEFAULT '[]'::jsonb, -- the model's own account of its edits, validated
+    model         text,
+    prompt_sha256 text,
+    built_from    jsonb NOT NULL DEFAULT '{}'::jsonb, -- {fingerprint, release, n_records, record_ids_sha}
+    proposal      jsonb NOT NULL DEFAULT '{}'::jsonb, -- raw answer + repairs
+    owner_user_id uuid,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    committed_at  timestamptz,
+    UNIQUE (dataset_id, "group", key, version)
+);
