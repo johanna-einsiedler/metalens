@@ -152,6 +152,10 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: none;
 .rv-covered:hover { background: var(--highlight); }
 .rv-uncited { box-shadow: inset 0 -2px 0 var(--conf-low-bg); }
 .rv-uncited::after { content: "no evidence"; font-size: 10px; color: var(--conf-low); margin-left: 6px; font-style: italic; }
+/* a value whose table / row is cited as a whole: checked inside it, not "no evidence" */
+.rv-tablecited::after, .rv-rowcited::after { font-size: 10px; color: var(--text-muted); margin-left: 6px; font-style: italic; }
+.rv-tablecited::after { content: "table cited"; }
+.rv-rowcited::after { content: "row cited"; }
 /* one citation chip per sub-entry row / table row / table */
 .rv-rowcite { width: 20px; text-align: center; padding: 3px 4px !important; }
 .ev-cite { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; padding: 1px 6px;

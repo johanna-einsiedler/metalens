@@ -1587,7 +1587,11 @@ function linkCells(card, rec) {
       const anyRect = hit.ids.some((i) => EV.hasRect[i]);
       if (isKey) cell.classList.add("rv-linked");
       else if (exact) cell.classList.add(anyRect ? "rv-cited" : "rv-cited-nofix");
-      else if (wantsOwn && hasValue) cell.classList.add("rv-uncited", "rv-covered");
+      // A value whose table (or row) is cited as a whole is checked INSIDE that table — a
+      // click pinpoints it there — so it is "table cited", not "no evidence". An entry's
+      // identifying sentence says nothing about a number: that one stays "no evidence".
+      else if (wantsOwn && hasValue) cell.classList.add("rv-covered",
+        hit.kind === "table" ? "rv-tablecited" : hit.kind === "row" ? "rv-rowcited" : "rv-uncited");
       else cell.classList.add("rv-covered");
       cell.addEventListener("mouseenter", () => showEvidence(hit.ids));
       cell.addEventListener("mouseleave", () => hideEvidence(hit.ids));
@@ -1732,6 +1736,23 @@ function tableLocate(rec, path) {
   return { anchor };
 }
 
+// The printed regions a set of citations covers, one per page: the vertical band their
+// highlight rects span (a cited caption is already widened to its table body), or null when
+// nothing of them was located on that page. The page the coder landed on comes first.
+function citedRegions(ids, firstPage) {
+  const byPage = new Map();
+  ids.forEach((i) => {
+    const ev = DATA.evidence[i];
+    if (!ev || !ev.page) return;
+    const cur = byPage.get(ev.page) || { page: ev.page, y0: Infinity, y1: -Infinity };
+    (ev.rect || []).forEach((r) => { if (Array.isArray(r) && r.length === 4) { cur.y0 = Math.min(cur.y0, r[1]); cur.y1 = Math.max(cur.y1, r[1] + r[3]); } });
+    byPage.set(ev.page, cur);
+  });
+  return [...byPage.values()]
+    .sort((a, b) => (a.page === firstPage ? -1 : b.page === firstPage ? 1 : a.page - b.page))
+    .map((r) => ({ page: r.page, bands: r.y1 > r.y0 ? `${Math.round(r.y0)}:${Math.round(r.y1)}` : null }));
+}
+
 async function verifyAndJump(cell, hit) {
   if (cell.nextElementSibling && cell.nextElementSibling.classList.contains("val-check"))
     cell.nextElementSibling.remove();
@@ -1748,16 +1769,38 @@ async function verifyAndJump(cell, hit) {
   if (!hit.exact) {
     // A row citation: pinpoint the number INSIDE the cited row band(s) only — never the
     // whole page, which in a dense table would light up every matching digit. The row
-    // stays lit; the number is marked on top of it. A table/entry-level citation just
-    // lands on its snippet.
+    // stays lit; the number is marked on top of it.
+    if (hit.kind === "table") {
+      // A table cited as a whole — by its caption on one page and its continuation on the
+      // next, say. Search the number inside EVERY cited region (the located citation rects:
+      // a caption is widened to its table body) and light every match; two matching cells
+      // of one table are both shown, and the cited table stays lit. A declared locate rule
+      // still pins the number to the row of its anchor text where that text is found.
+      const anchor = hit.locate ? hit.locate.anchor : null;
+      let landed = false;
+      for (const reg of citedRegions(hit.ids, hit.page)) {
+        if (!reg.bands && !hit.locate) continue;        // no known region: only a locate rule searches the page
+        try {
+          const r = await api.locateValue(DATA.document_id, num, reg.page, reg.bands, { anchor, pageOnly: true });
+          if (r && r.found && r.rects.length) { flashRects(reg.page, r.rects, { keep: true, append: landed, scroll: !landed }); landed = true; }
+        } catch { /* the table highlight stands */ }
+      }
+      if (!landed && hit.locate) {                        // as before this: candidates anywhere on the cited page
+        try {
+          const r = await api.locateValue(DATA.document_id, num, hit.page, null, { anchor, pageOnly: true });
+          if (r && r.found) flashRects(hit.page, r.rects, { keep: true });
+        } catch { /* the table highlight stands */ }
+      }
+      return;
+    }
     if (hit.kind !== "row") {
+      // an entry-level citation: declared table numbers are searched on the cited page, on
+      // the row of the item's wording when known; anything else just lands on its snippet
       if (!hit.locate) return;
-      // declared table numbers: on the row of the item's wording when known, else every
-      // whole-number match on the cited page (candidates; the table citation stays lit)
       try {
         const r = await api.locateValue(DATA.document_id, num, hit.page, null, { anchor: hit.locate.anchor, pageOnly: true });
         if (r && r.found) flashRects(hit.page, r.rects, { keep: true });
-      } catch { /* the table highlight stands */ }
+      } catch { /* the highlight stands */ }
       return;
     }
     const bands = hit.ids.flatMap((i) => (DATA.evidence[i].page === hit.page ? (DATA.evidence[i].rect || []) : []))

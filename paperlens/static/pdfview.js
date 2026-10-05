@@ -96,9 +96,12 @@ export function setContextEvidence(ids) {
 
 // pinpoint-highlight arbitrary rects on a page (e.g. a located numeric value). Like
 // jumpToEvidence it keeps ONLY this selection: ad-hoc rects marked `.located` so the next
-// pick clears them, and they persist (not a 2s fade) until then.
-export function flashRects(page, rects, { keep = false } = {}) {
-  if (keep) document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());   // keep the cited row lit
+// pick clears them, and they persist (not a 2s fade) until then. `append` adds to the
+// located rects already shown (a value found in several cited regions, across pages);
+// `scroll:false` marks without moving the view.
+export function flashRects(page, rects, { keep = false, append = false, scroll = true } = {}) {
+  if (append) { /* earlier located rects stay */ }
+  else if (keep) document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());   // keep the cited row lit
   else clearSelection();
   const wrap = document.getElementById(`page-${page}`);
   const svg = wrap && wrap.querySelector("svg.overlay");
@@ -112,7 +115,7 @@ export function flashRects(page, rects, { keep = false } = {}) {
     setTimeout(() => r.classList.remove("flash"), 1500);
     return r;
   });
-  scrollToRect(drawn[0], page);
+  if (scroll) scrollToRect(drawn[0], page);
 }
 
 // Scroll so a specific highlight rect sits in the CENTER of the scroll viewport — so

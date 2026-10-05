@@ -45,6 +45,46 @@ def test_a_repeated_loading_is_found_on_the_row_of_its_item() -> None:
     assert pdf_utils.anchor_bands(pdf, 1, "An item that is not printed anywhere here") == []
 
 
+def _table_and_prose_pdf() -> bytes:
+    """A page where the same number is printed in the prose ABOVE a table and twice inside it."""
+    import fitz
+    d = fitz.open(); page = d.new_page()
+    page.insert_text((72, 60), "Reliability was .714 for the whole scale.", fontsize=8)
+    page.insert_text((72, 90), "TABLE 2 Correlations", fontsize=8)
+    for k, (fl, text) in enumerate([(".714", "Extraversion (self)"), (".699", "Agreeableness (self)"),
+                                    (".714", "Neuroticism (peer)")]):
+        y = 110 + 14 * k
+        page.insert_text((72, y), fl, fontsize=8); page.insert_text((120, y), text, fontsize=8)
+    out = d.tobytes(); d.close()
+    return out
+
+
+def test_a_table_cited_as_a_whole_is_searched_inside_that_table_only() -> None:
+    """The workspace's click on a value covered by a table citation: with the table's band the
+    search never reaches the prose, every matching cell inside the table lights up, and an
+    anchor row still wins when its text is found. Without bands nothing changes."""
+    pdf = _table_and_prose_pdf()
+    scale = pdf_utils.DISPLAY_DPI / 72.0
+    table = f"{int(85 * scale)}:{int(150 * scale)}"                     # the caption + rows band
+    prose_and_table = pdf_utils.locate_in_pdf(pdf, 1, "0.714", page_only=True)
+    assert len(prose_and_table["rects"]) == 3 and prose_and_table["anchored"] is False
+    in_table = pdf_utils.locate_in_pdf(pdf, 1, "0.714", page_only=True, bands=table)
+    assert len(in_table["rects"]) == 2                                   # two matching cells: both shown
+    assert min(r[1] for r in in_table["rects"]) > 85 * scale
+    anchored = pdf_utils.locate_in_pdf(pdf, 1, "0.714", page_only=True, bands=table, anchor=["Neuroticism (peer)"])
+    assert anchored["anchored"] is True and len(anchored["rects"]) == 1
+    assert anchored["rects"][0][1] == max(r[1] for r in in_table["rects"])
+    # an anchor printed outside the band cannot pull the search out of the table
+    prose_only = f"{int(50 * scale)}:{int(70 * scale)}"
+    assert pdf_utils.locate_in_pdf(pdf, 1, "0.714", page_only=True, bands=prose_only, anchor=["Neuroticism (peer)"])["rects"][0][1] < 85 * scale
+    # the three older call shapes are untouched
+    assert pdf_utils.locate_in_pdf(pdf, 1, "0.714", bands=table) == {"rects": in_table["rects"], "found": True, "page": 1}
+    assert len(pdf_utils.locate_in_pdf(pdf, 1, "0.714", anchor=["Neuroticism (peer)"])["rects"]) == 1
+    anywhere = pdf_utils.locate_in_pdf(pdf, 1, "0.714")
+    assert anywhere["page"] == 1 and len(anywhere["rects"]) == 3
+    assert pdf_utils.locate_in_pdf(pdf, 1, "0.123")["found"] is False
+
+
 def test_display_locate_is_validated_and_not_hashed() -> None:
     spec = presets.load_all()["masem-indirect"]
     assert spec["display"]["locate"]["factor_loadings"] == {"anchor_column": "item", "anchor_param": "item_texts"}

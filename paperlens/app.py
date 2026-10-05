@@ -491,8 +491,8 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     verbatim (may be transformed/rounded/paraphrased) — a soft signal, not an error.
 
     ``bands`` (``y0:y1,…`` in image pixels of ``page``) restricts the search to the cited
-    table row(s): a value covered only by a row citation is pinpointed INSIDE that row,
-    never anywhere else on the page."""
+    region — a table row's band, or a table's body when the table is cited as a whole — and
+    combines with ``anchor`` / ``page_only`` (see ``pdf_utils.locate_in_pdf``)."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
@@ -500,31 +500,7 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     key = storage.pdf_key(document_id)
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
-    pdf_bytes = store.get(key)
-    if anchor:                          # a table number: on the printed row of its anchor text (item wording, variable label)
-        rows = [b for a in anchor[:4] for b in pdf_utils.anchor_bands(pdf_bytes, page, a[:400])]
-        if rows:
-            hits = pdf_utils.locate_value_rects(pdf_bytes, page, value)
-            per_row = [(b, pdf_utils.rects_in_bands(hits, [b])) for b in rows]
-            per_row = [(b, r) for b, r in per_row if r]
-            if len(per_row) > 1:        # two variable rows both show the value: a triangular matrix
-                counts = [pdf_utils.numbers_in_band(pdf_bytes, page, b) for b, _ in per_row]   # prints the pair on the fuller row
-                if sorted(counts)[-1] > sorted(counts)[-2]:
-                    per_row = [per_row[counts.index(max(counts))]]
-            rects = [r for _, rs in per_row for r in rs]
-            if rects:
-                return {"rects": rects, "found": True, "page": page, "anchored": True}
-    if page_only:                       # a table cited as a whole: every whole-number match on ITS page
-        rects = pdf_utils.locate_value_rects(pdf_bytes, page, value)
-        return {"rects": rects, "found": bool(rects), "page": page, "anchored": False}
-    if bands:
-        rows = pdf_utils.parse_bands(bands)
-        rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
-        return {"rects": rects, "found": bool(rects), "page": page}
-    found_page, rects = pdf_utils.locate_value_rects_any(pdf_bytes, value, prefer_page=page)
-    if not rects:                       # not a number (or not found) → try literal text
-        found_page, rects = pdf_utils.locate_text_rects_any(pdf_bytes, value, prefer_page=page)
-    return {"rects": rects, "found": bool(rects), "page": found_page}
+    return pdf_utils.locate_in_pdf(store.get(key), page, value, bands=bands, anchor=anchor, page_only=page_only)
 
 
 @app.get("/api/documents/{document_id}/raw")
