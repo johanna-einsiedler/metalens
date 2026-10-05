@@ -481,6 +481,17 @@ def document_view(document_id: str, db=Depends(get_db),
     return v
 
 
+@app.post("/api/documents/{document_id}/row-ids")
+def document_row_ids(document_id: str, db=Depends(get_db),
+                     who: Principal = Depends(principal)) -> dict:
+    """Owner: give permanent ids to rows that have none, before the first row is removed or
+    added — so the quotes and ratings of the remaining rows stay on their rows. The review
+    UI calls this only when it meets an id-less list (a document older than row ids)."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"records_changed": records.ensure_row_ids(db, document_id)}
+
+
 @app.get("/api/documents/{document_id}/locate")
 def locate_value(document_id: str, value: str, page: int, bands: str | None = None,
                  anchor: list[str] | None = Query(None), page_only: bool = False,

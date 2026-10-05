@@ -937,45 +937,117 @@ function rerenderCard(card, rec) {
   return fresh;
 }
 
-// ＋ row / ✕ on a typed table (factor loadings, correlations, …): the paper may report a
-// row the model missed — a whole factor, say — and a coder must be able to put it in.
-// Both go through the verify layer as corrections, like every other edit.
+// The rows a path names: a plain list, or the list inside a `{_table: […]}` wrapper.
+function rowsAt(fv, path) {
+  const cur = getByPath(fv, path);
+  return Array.isArray(cur) ? cur : (cur && Array.isArray(cur._table) ? cur._table : null);
+}
+
+// Pull the server's view of the open document into the live objects (records keep their
+// identity, so open cards stay wired) without touching the PDF pane or the coder's place
+// in the list. False when the evidence list itself changed and everything had to reload.
+async function resyncDoc(rec) {
+  const fresh = await api.documentView(DOCID);
+  if ((fresh.evidence || []).length !== (DATA.evidence || []).length) { await load(DOCID); return false; }
+  const byId = new Map((fresh.records || []).map((r) => [r.id, r]));
+  for (const r of new Set([...DATA.records, rec])) {
+    const f = byId.get(r.id);
+    if (f) for (const k of ["field_values", "confidence", "child_confidence", "corrections", "verification_status", "note"]) r[k] = f[k];
+  }
+  DATA.evidence = fresh.evidence; DATA.issues = fresh.issues;
+  EV = indexEvidence(DATA, VM);
+  return true;
+}
+
+// After rows were added or removed, where every quote and every per-row rating now sits is
+// re-derived by the server (rows carry permanent ids). Null when the document reloaded.
+async function resyncRows(card, rec) {
+  try { if (!(await resyncDoc(rec))) return null; }
+  catch { /* the edit itself is saved; the card below still shows it */ }
+  return rerenderCard(card, rec);
+}
+
+// Quotes and ratings follow rows by id. A document older than row ids has none, so before
+// its first row is removed or added the server assigns them (positions do not change).
+async function ensureRowIds(rec, path) {
+  const rows = rowsAt(rec.field_values || {}, path);
+  if (!rows || !rows.length || rows.some((r) => !r || typeof r !== "object") || rows.every((r) => r._rid)) return true;
+  await api.ensureRowIds(DOCID);
+  return resyncDoc(rec);
+}
+
+// Remove one row or many in ONE logged correction (a paper can carry a hundred rows that
+// are not in the codebook; nobody should confirm a hundred dialogs).
+async function removeRows(card, rec, path, indices) {
+  try { if (!(await ensureRowIds(rec, path))) return; }
+  catch (e) { alert("remove failed: " + e.message); return; }
+  const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+  const rows = rowsAt(fv, path);
+  const idx = [...new Set(indices)].filter((i) => rows && i in rows).sort((a, b) => a - b);
+  if (!idx.length) return;
+  const labelOf = (row) => (row && typeof row === "object"
+    ? Object.entries(row).filter(([k, x]) => !k.startsWith("_") && x !== null && x !== undefined && x !== "" && typeof x !== "object")
+        .slice(0, 3).map(([, x]) => String(x)).join(" · ") || "this row"
+    : String(row));
+  const diff = idx.map((i) => ({ field_path: `${path}[${i}]`, original_value: labelOf(rows[i]), final_value: "(row removed)" }));
+  if (!confirm(idx.length === 1
+      ? `Remove ${diff[0].original_value}? The change is logged in the record's history.`
+      : `Remove ${idx.length} rows? The change is logged in the record's history.`)) return;
+  [...idx].reverse().forEach((i) => rows.splice(i, 1));
+  try {
+    await api.verify(rec.id, { status: "corrected", field_values: fv, diff });
+    rec.field_values = fv; maybeOfferRepublish();
+    await resyncRows(card, rec);
+  } catch (e) { alert("remove failed: " + e.message); }
+}
+
+// ＋ row / ✕ / tick-and-remove on a typed table (factor loadings, …) and on sub-entry rows
+// (one correlation per row, …): the paper may report a row the model missed, and the model
+// may return rows the codebook never asked for. All go through the verify layer as
+// corrections, like every other edit.
 function wireTableRows(card, rec) {
   card.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path;
+    try { if (!(await ensureRowIds(rec, path))) return; }
+    catch (e) { alert("add failed: " + e.message); return; }
     const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-    const cur = getByPath(fv, path);
-    const rows = Array.isArray(cur) ? cur : [];
-    rows.push(JSON.parse(b.dataset.blank || "{}"));
-    if (!Array.isArray(cur)) setByPath(fv, path, rows);
+    let rows = rowsAt(fv, path);
+    if (!rows) { rows = []; setByPath(fv, path, rows); }
+    // evidence and ratings refer to rows by id, never by position: a new row needs its own
+    rows.push({ ...JSON.parse(b.dataset.blank || "{}"), _rid: "u" + Math.random().toString(36).slice(2, 10) });
     try {
       await api.verify(rec.id, { status: "corrected", field_values: fv,
         diff: [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }] });
       rec.field_values = fv; maybeOfferRepublish();
-      const fresh = rerenderCard(card, rec);
+      const fresh = await resyncRows(card, rec);
       // inside a quoted attribute selector the brackets are literal — no escaping
-      const first = fresh.querySelector(`[data-path^="${path}[${rows.length - 1}]."]`);
+      const first = fresh && fresh.querySelector(`[data-path^="${path}[${rows.length - 1}]."]`);
       if (first && first.focus) first.focus();
     } catch (e) { alert("add failed: " + e.message); }
   }));
-  card.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = async () => {
-    const path = b.dataset.path, i = Number(b.dataset.row);
-    const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-    const rows = getByPath(fv, path);
-    if (!Array.isArray(rows) || !(i in rows)) return;
-    const row = rows[i];
-    const label = row && typeof row === "object"
-      ? Object.entries(row).filter(([k, x]) => !k.startsWith("_") && x !== null && x !== undefined && x !== "")
-          .slice(0, 3).map(([, x]) => String(x)).join(" · ") || "this row"
-      : String(row);
-    if (!confirm(`Remove ${label}? The change is logged in the record's history.`)) return;
-    rows.splice(i, 1);
-    try {
-      await api.verify(rec.id, { status: "corrected", field_values: fv,
-        diff: [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }] });
-      rec.field_values = fv; maybeOfferRepublish(); rerenderCard(card, rec);
-    } catch (e) { alert("remove failed: " + e.message); }
+  card.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = () =>
+    removeRows(card, rec, b.dataset.path, [Number(b.dataset.row)])));
+  // ticking rows: shift-click extends from the last tick, and the table's own button
+  // removes everything ticked at once
+  const boxes = (path) => [...card.querySelectorAll(".rv-rowsel")].filter((c) => c.dataset.path === path);
+  const last = {};
+  const refresh = (path) => {
+    const n = boxes(path).filter((c) => c.checked).length;
+    card.querySelectorAll(".rv-rowdel-sel").forEach((btn) => {
+      if (btn.dataset.path !== path) return;
+      btn.hidden = n === 0; btn.textContent = `✕ remove ${n} selected`;
+    });
+  };
+  card.querySelectorAll(".rv-rowsel").forEach((c) => (c.onclick = (e) => {
+    const path = c.dataset.path, i = Number(c.dataset.row);
+    if (e.shiftKey && last[path] != null) {
+      const [lo, hi] = [Math.min(last[path], i), Math.max(last[path], i)];
+      boxes(path).forEach((x) => { const k = Number(x.dataset.row); if (k >= lo && k <= hi) x.checked = c.checked; });
+    }
+    last[path] = i; refresh(path);
   }));
+  card.querySelectorAll(".rv-rowdel-sel").forEach((b) => (b.onclick = () =>
+    removeRows(card, rec, b.dataset.path, boxes(b.dataset.path).filter((c) => c.checked).map((c) => Number(c.dataset.row)))));
 }
 
 // A badge's notes open on click — the notes are what tell the coder what to check.
