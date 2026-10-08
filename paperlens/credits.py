@@ -59,33 +59,39 @@ def ledger(conn, user_id: str, limit: int = 50) -> list[dict]:
 
 # ── mutations (atomic; no oversell) ─────────────────────────────────────────────
 def try_consume(conn, user_id: str, *, model: str | None = None,
-                document_id: str | None = None, reason: str = "extraction") -> bool:
-    """Spend one credit iff the user has a positive balance. Returns True on success.
-    The guarded UPDATE makes concurrent runs safe — no balance can go negative."""
+                document_id: str | None = None, reason: str = "extraction", n: int = 1) -> bool:
+    """Spend ``n`` credits (one model call each — a chained paper costs k runs + its
+    follow-ups) iff the user has that many. Returns True on success. The guarded UPDATE
+    makes concurrent runs safe — no balance can go negative."""
+    n = max(1, int(n))
     with conn.transaction():
         cur = conn.execute(
-            "UPDATE users SET credits_used = credits_used + 1 "
-            "WHERE id = %s::uuid AND credits_granted - credits_used > 0", (user_id,))
+            "UPDATE users SET credits_used = credits_used + %s "
+            "WHERE id = %s::uuid AND credits_granted - credits_used >= %s", (n, user_id, n))
         if cur.rowcount == 0:
             return False
         conn.execute(
             "INSERT INTO credit_ledger (id, user_id, delta, reason, document_id, model) "
-            "VALUES (%s, %s::uuid, -1, %s, %s, %s)",
-            (str(uuid.uuid4()), user_id, reason, document_id, model))
+            "VALUES (%s, %s::uuid, %s, %s, %s, %s)",
+            (str(uuid.uuid4()), user_id, -n, reason, document_id, model))
     return True
 
 
 def refund(conn, user_id: str, *, document_id: str | None = None, model: str | None = None,
-           reason: str = "refund") -> None:
-    """Give back one credit (only after a consumed run fails). Never goes below 0."""
+           reason: str = "refund", n: int = 1) -> None:
+    """Give back ``n`` credits (only after a consumed run fails, or for the calls a chain
+    never made). Never goes below 0."""
+    n = max(0, int(n))
+    if n == 0:
+        return
     with conn.transaction():
         conn.execute(
-            "UPDATE users SET credits_used = GREATEST(credits_used - 1, 0) WHERE id = %s::uuid",
-            (user_id,))
+            "UPDATE users SET credits_used = GREATEST(credits_used - %s, 0) WHERE id = %s::uuid",
+            (n, user_id))
         conn.execute(
             "INSERT INTO credit_ledger (id, user_id, delta, reason, document_id, model) "
-            "VALUES (%s, %s::uuid, 1, %s, %s, %s)",
-            (str(uuid.uuid4()), user_id, reason, document_id, model))
+            "VALUES (%s, %s::uuid, %s, %s, %s, %s)",
+            (str(uuid.uuid4()), user_id, n, reason, document_id, model))
 
 
 def grant(conn, user_id: str, n: int, *, reason: str = "grant") -> None:

@@ -1,0 +1,274 @@
+{
+ "schema_version": "claim-graph-adjudication@1",
+ "paper_metadata": {
+  "title": "Family Labor Supply Responses to Severe Health Shocks: Evidence from Danish Administrative Records",
+  "doi": "10.1257/app.20170604",
+  "artid": "dk_W3174613487",
+  "k": 3,
+  "run_names": [
+   "stated_claims",
+   "stated_claims_v3",
+   "stated_claims_run2"
+  ]
+ },
+ "records": [
+  {
+   "edge_id": "V1->V4",
+   "cause": "severe nonfatal health shocks",
+   "effect": "spousal labor supply",
+   "sign": "0",
+   "direction": "agreed",
+   "support": "3/3",
+   "tier": "unanimous",
+   "kind": "causal",
+   "design_basis": "identified",
+   "design": "difference_in_differences",
+   "flags": null,
+   "runs": [
+    {
+     "run": "stated_claims",
+     "cause_wording": "nonfatal shocks",
+     "effect_wording": "spousal labor supply",
+     "claims": "S9",
+     "run_sign": "0",
+     "run_direction": "V1->V4"
+    },
+    {
+     "run": "stated_claims_v3",
+     "cause_wording": "severe nonfatal health shocks (heart attack or stroke)",
+     "effect_wording": "spousal labor supply",
+     "claims": "S4",
+     "run_sign": "0",
+     "run_direction": "V1->V4"
+    },
+    {
+     "run": "stated_claims_run2",
+     "cause_wording": "severe nonfatal health shocks",
+     "effect_wording": "spousal labor supply",
+     "claims": "S4",
+     "run_sign": "0",
+     "run_direction": "V1->V4"
+    }
+   ],
+   "headline_cells": [
+    "dk_W3174613487_c17",
+    "dk_W3174613487_c18",
+    "dk_W3174613487_c19",
+    "dk_W3174613487_c20",
+    "dk_W3174613487::T2::B::C2 row 0",
+    "dk_W3174613487::T2::B::C4 row 0"
+   ],
+   "neighbours": [
+    "earnings of sick individuals",
+    "fatal health events",
+    "household post-transfer income",
+    "income replacement rates",
+    "severe nonfatal health shocks",
+    "spousal labor supply"
+   ]
+  },
+  {
+   "edge_id": "V2->V4",
+   "cause": "fatal health events",
+   "effect": "spousal labor supply",
+   "sign": "+",
+   "direction": "agreed",
+   "support": "3/3",
+   "tier": "contested",
+   "kind": "causal",
+   "design_basis": "identified",
+   "design": "difference_in_differences",
+   "flags": "sign",
+   "runs": [
+    {
+     "run": "stated_claims",
+     "cause_wording": "fatal events",
+     "effect_wording": "surviving spouses' labor supply",
+     "claims": "S3, S4, S5, S6",
+     "run_sign": "?",
+     "run_direction": "V2->V4"
+    },
+    {
+     "run": "stated_claims_v3",
+     "cause_wording": "fatal health events (death of a spouse)",
+     "effect_wording": "surviving spouses’ labor supply",
+     "claims": "S2",
+     "run_sign": "+",
+     "run_direction": "V2->V4"
+    },
+    {
+     "run": "stated_claims_run2",
+     "cause_wording": "fatal health events",
+     "effect_wording": "surviving spouses' labor supply",
+     "claims": "S2",
+     "run_sign": "+",
+     "run_direction": "V2->V4"
+    }
+   ],
+   "headline_cells": [
+    "dk_W3174613487_c1",
+    "dk_W3174613487_c2",
+    "dk_W3174613487_c3",
+    "dk_W3174613487_c4",
+    "dk_W3174613487_c5",
+    "dk_W3174613487_c6",
+    "dk_W3174613487::F2::A row 4",
+    "dk_W3174613487::F2::B row 5",
+    "dk_W3174613487::F3::A-Widowers row 4",
+    "dk_W3174613487::F3::A-Widows row 1",
+    "dk_W3174613487::F3::B-Widowers row 1",
+    "dk_W3174613487::F3::B-Widows row 1",
+    "dk_W3174613487::T1::A::C1 row 0",
+    "dk_W3174613487::T1::A::C3 row 0",
+    "dk_W3174613487::T1::A::C5 row 0",
+    "dk_W3174613487::T1::A::C7 row 0"
+   ],
+   "neighbours": [
+    "fatal health events",
+    "income replacement rates",
+    "severe nonfatal health shocks",
+    "spousal labor supply"
+   ]
+  }
+ ],
+ "evidence": [
+  {
+   "snippet": "Nonfatal shocks have no meaningful effects on spousal labor supply, consistent with their adequate insurance coverage.",
+   "page": 1,
+   "source": "abstract · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[0].cause"
+  },
+  {
+   "snippet": "Consistent with this lack of a significant average income drop, which suggests there is no substantial need for self-insurance on average, there are no notable changes in spouses’ labor supply.",
+   "page": 4,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[0].sign"
+  },
+  {
+   "snippet": "Nonfatal shocks have no meaningful effects on spousal labor supply, consistent with their adequate insurance coverage.",
+   "page": 1,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[0].sign"
+  },
+  {
+   "snippet": "In line with this lack of a considerable income drop, which suggests there is no substantial need for self-insurance, there are no economically significant labor supply responses among spouses (see panel B of Table 2).",
+   "page": 23,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[0].sign"
+  },
+  {
+   "snippet": "Studying households in which one member has experienced a nonfatal heart attack or stroke, we first show that the earnings of the sick individuals drop by 18 percent after the shock, comparable to the findings of Dobkin et al. (2018) and Meyer and Mok (2019) in the US case.",
+   "page": 4,
+   "source": "introduction · majority (stated_claims_v3, stated_claims_run2)",
+   "field": "records[0].sign"
+  },
+  {
+   "snippet": "Fatal events lead to considerable increases in surviving spouses’ labor supply, which the evidence suggests is driven by families who experience significant income losses.",
+   "page": 1,
+   "source": "abstract · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[1].cause"
+  },
+  {
+   "snippet": "Fatal events lead to considerable increases in surviving spouses’ labor supply, which the evidence suggests is driven by families who experience significant income losses.",
+   "page": 1,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "To identify the causal effects of experiencing these adverse events, we employ a quasi-experimental research design that constructs counterfactuals to affected households by using households that experience the same event but a few years in the future.",
+   "page": 3,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "Figure 2 plots the labor supply responses of surviving spouses in our sample of fatal health events.",
+   "page": 14,
+   "source": "introduction · all (stated_claims, stated_claims_v3, stated_claims_run2)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "By the fourth year after the event, these responses amount to average increases of 7.6 percent in survivors’ labor force participation and 6.8 percent in annual labor income.",
+   "page": 3,
+   "source": "introduction · majority (stated_claims, stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "Indeed, panels A–B of Figure 3 and panel A of Table 1 reveal clear differences in the responses of widowers (whose wife dies) and widows (whose husband dies).",
+   "page": 16,
+   "source": "introduction · majority (stated_claims, stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "Notably, widowers, who tend to be primary earners and need to financially support one fewer person when losing their wives, if anything decrease their labor supply; while widows, who tend to experience larger income losses when losing their husbands, meaningfully increase their labor supply.",
+   "page": 4,
+   "source": "introduction · majority (stated_claims, stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "We find increases in survivors’ labor supply following spouse’s death, which persist through the duration of our time frame.",
+   "page": 3,
+   "source": "introduction · single (stated_claims)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "The evidence suggests that the average effects that we find are driven by households that experience substantial income shocks due to the death of a spouse, and may therefore have greater need for self-insurance through labor supply.",
+   "page": 3,
+   "source": "introduction · single (stated_claims)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "Overall, we find significant and persistent increases in spousal labor supply when income losses are large and households lack adequate formal insurance.",
+   "page": 3,
+   "source": "introduction · single (stated_claims)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "In particular, we show that the mean increase in labor supply is attributable to survivors whose deceased spouses had provided a large share of the household’s income and who are less formally insured by government transfers.",
+   "page": 3,
+   "source": "introduction · single (stated_claims)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "By the fourth year after their husbands die, widows increase their participation by 11.3 percent, which translates to a 10.1 percent increase in their annual earnings.",
+   "page": 4,
+   "source": "introduction · single (stated_claims)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "We find increases in survivors’ labor supply following their spouse’s death, which persist through the duration of our time frame.",
+   "page": 3,
+   "source": "introduction · single (stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "The data—which encompass the entire Danish population from the years 1980 to 2011—provide register-based information on health-care utilization, income, and labor market behavior.",
+   "page": 2,
+   "source": "introduction · single (stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "To identify causal effects, we leverage administrative data on Danish families and construct counterfactuals using households that experience the same event a few years apart.",
+   "page": 1,
+   "source": "introduction · single (stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "We find increases in survivors’ labor supply following their spouse’s death, which persist through the duration of our time frame. By the fourth year after the event, these responses amount to average increases of 7.6 percent in survivors’ labor force participation and 6.8 percent in annual labor income.",
+   "page": 3,
+   "source": "introduction · single (stated_claims_v3)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "We find increases in survivors’ labor supply following a spouse’s death, which persist through the duration of our time frame.",
+   "page": 3,
+   "source": "introduction · single (stated_claims_run2)",
+   "field": "records[1].sign"
+  },
+  {
+   "snippet": "We find increases in survivors’ labor supply following a spouse’s death, which persist through the duration of our time frame. By the fourth year after the event, these responses amount to average increases of 7.6 percent in survivors’ labor force participation and 6.8 percent in annual labor income.",
+   "page": 3,
+   "source": "introduction · single (stated_claims_run2)",
+   "field": "records[1].sign"
+  }
+ ]
+}

@@ -1,0 +1,272 @@
+{
+  "format": 2,
+  "id": "claim-graph-adjudication",
+  "version": 1,
+  "meta": {
+    "title": "Claim graph, adjudicated",
+    "tagline": "One paper's causal graph from K independent claim extractions, merged and flagged",
+    "description": "Edges of a per-paper causal graph built outside Metalens from K runs of a stated-claims extraction: one adjudication call maps the runs' variable wordings onto one variable set, a deterministic merge keeps every edge stated at least once and flags the ones the runs disagree on. Each edge carries its support (runs out of K), the runs' own wordings and signs, the exhibit cells it rests on, and evidence labelled by how many runs produced it. Review the flagged edges against the per-run evidence.",
+    "mode": "import",
+    "hidden": true,
+    "brands": [
+      "metalens"
+    ],
+    "source_url": "https://github.com/johanna-einsiedler/danish-causal-atlas"
+  },
+  "prompt": {},
+  "chain": {
+    "k": null,
+    "identity": [
+      "cause",
+      "effect"
+    ],
+    "aggregate": {
+      "kind": "external",
+      "external": {
+        "child": "runs",
+        "run": "run",
+        "support": "support",
+        "flags": "flags",
+        "fields": {
+          "sign": "run_sign",
+          "cause": "cause_wording",
+          "effect": "effect_wording",
+          "direction": "run_direction"
+        }
+      }
+    }
+  },
+  "paper": {
+    "fields": [
+      {
+        "name": "artid",
+        "type": "string",
+        "label": "Corpus id",
+        "evidence": "none"
+      },
+      {
+        "name": "k",
+        "type": "integer",
+        "label": "Runs",
+        "help": "how many independent extraction runs were merged",
+        "evidence": "none"
+      },
+      {
+        "name": "run_names",
+        "type": "list",
+        "label": "Run names",
+        "evidence": "none"
+      }
+    ]
+  },
+  "entries": {
+    "key": "records",
+    "label": "Edge",
+    "title": "{cause} → {effect}",
+    "evidence": "row",
+    "fields": [
+      {
+        "name": "edge_id",
+        "type": "string",
+        "label": "Edge id",
+        "evidence": "none"
+      },
+      {
+        "name": "cause",
+        "type": "string",
+        "label": "Cause",
+        "required": true,
+        "evidence": "row"
+      },
+      {
+        "name": "effect",
+        "type": "string",
+        "label": "Effect",
+        "required": true,
+        "evidence": "row"
+      },
+      {
+        "name": "sign",
+        "type": "enum",
+        "label": "Sign",
+        "options": [
+          "+",
+          "-",
+          "0",
+          "?"
+        ],
+        "evidence": "value",
+        "confidence": "edge"
+      },
+      {
+        "name": "direction",
+        "type": "enum",
+        "label": "Direction",
+        "options": [
+          "agreed",
+          "conflict"
+        ],
+        "evidence": "none",
+        "confidence": "edge"
+      },
+      {
+        "name": "support",
+        "type": "string",
+        "label": "Support",
+        "help": "runs that state the edge, out of K",
+        "evidence": "none"
+      },
+      {
+        "name": "tier",
+        "type": "enum",
+        "label": "Tier",
+        "options": [
+          "unanimous",
+          "majority",
+          "backed",
+          "contested"
+        ],
+        "allow_other": true,
+        "evidence": "none"
+      },
+      {
+        "name": "kind",
+        "type": "string",
+        "label": "Kind",
+        "evidence": "none"
+      },
+      {
+        "name": "design_basis",
+        "type": "string",
+        "label": "Design basis",
+        "evidence": "none"
+      },
+      {
+        "name": "design",
+        "type": "string",
+        "label": "Design",
+        "evidence": "none"
+      },
+      {
+        "name": "flags",
+        "type": "string",
+        "label": "Flags",
+        "evidence": "none"
+      },
+      {
+        "name": "headline_cells",
+        "type": "list",
+        "label": "Headline cells",
+        "help": "exhibit cells of the companion tables dataset this edge rests on",
+        "evidence": "none"
+      },
+      {
+        "name": "neighbours",
+        "type": "list",
+        "label": "Neighbours",
+        "evidence": "none"
+      }
+    ],
+    "children": [
+      {
+        "key": "runs",
+        "label": "Run",
+        "title": "{run}",
+        "evidence": "none",
+        "layout": "table",
+        "fields": [
+          {
+            "name": "run",
+            "type": "string",
+            "label": "Run",
+            "evidence": "none"
+          },
+          {
+            "name": "cause_wording",
+            "type": "string",
+            "label": "Cause (as worded)",
+            "evidence": "none"
+          },
+          {
+            "name": "effect_wording",
+            "type": "string",
+            "label": "Effect (as worded)",
+            "evidence": "none"
+          },
+          {
+            "name": "run_sign",
+            "type": "string",
+            "label": "Sign",
+            "evidence": "none"
+          },
+          {
+            "name": "run_direction",
+            "type": "string",
+            "label": "Direction",
+            "evidence": "none"
+          },
+          {
+            "name": "claims",
+            "type": "string",
+            "label": "Claims",
+            "evidence": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "confidence": {
+    "levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "groups": [
+      {
+        "id": "edge",
+        "label": "Edge",
+        "scope": "entry",
+        "help": "sign and direction of the merged edge"
+      }
+    ]
+  },
+  "display": {
+    "tabs": [
+      {
+        "id": "edge",
+        "label": "Edge",
+        "fields": [
+          "cause",
+          "effect",
+          "sign",
+          "direction",
+          "support",
+          "tier",
+          "flags",
+          "kind",
+          "design_basis",
+          "design"
+        ]
+      },
+      {
+        "id": "runs",
+        "label": "Runs",
+        "fields": [
+          "runs"
+        ]
+      },
+      {
+        "id": "cells",
+        "label": "Headline cells",
+        "fields": [
+          "headline_cells",
+          "neighbours",
+          "edge_id"
+        ]
+      }
+    ],
+    "entries": "cards",
+    "triage": "contested_first",
+    "paper_panel": "open"
+  }
+}

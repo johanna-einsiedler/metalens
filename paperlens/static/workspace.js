@@ -25,7 +25,9 @@ let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
 let ACCOUNT = false;  // logged in? (exports need no account; kept for owner-only actions)
 let VM = null, EV = null;   // the preset's view model + the evidence index for the loaded document
-let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
+let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged | contested
+let RO = false;             // a run of a call chain: read, never edited (its final carries the review)
+let CHAIN_RUNS = null;      // the drill-down payload of the open document's chain, fetched once
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
@@ -115,6 +117,16 @@ async function init() {
   // with ?since, so we reload the round's documents as jobs complete.
   if (jobsParam) startJobTracking(jobsParam.split(",").filter(Boolean), sinceParam);
   else if (sinceParam) startRoundPoll(sinceParam);
+  // a document asked for by id but absent from the list — a RUN of a call chain, opened from
+  // its final's trace or runs tab — gets a tab of its own (read-only, see load())
+  if (wantDoc && !DOCS.some((d) => d.document_id === wantDoc)) {
+    try {
+      const v = await api.documentView(wantDoc);
+      DOCS.unshift({ document_id: wantDoc, n_records: (v.records || []).filter((r) => !r.screened_empty).length,
+                     filename: `${v.filename || v.paper && v.paper.title || "document"}${v.read_only ? ` · run ${(v.pass_index ?? 0) + 1}` : ""}`,
+                     title: v.paper && v.paper.title, screened: false });
+    } catch { /* not ours or gone: the list's first document opens */ }
+  }
   if (!DOCS.length) {
     renderDocTabs();
     $("#pages").innerHTML = `<div class="empty-state">
@@ -183,6 +195,7 @@ function startJobTracking(jobIds, since) {
       if (!j || j.status === "complete" || j.status === "failed") return "settled";
       try {
         const st = await api.job(id);
+        if (st.progress && st.progress.stage) j.stage = st.progress.stage;
         if (st.success === true) { j.status = "complete"; j.document_id = st.result && st.result.document_id; return "new"; }
         if (st.success === false) { j.status = "failed"; j.error = st.error || "extraction failed"; return "settled"; }
       } catch { /* transient — treat as still pending */ }
@@ -221,7 +234,8 @@ function syncJobWait() {
   const jobs = Object.values(JOBS);
   const pending = jobs.filter((j) => j.status === "pending").length;
   wait.hidden = !pending; save.hidden = !!pending;
-  if (pending) $("#jobwait-txt").textContent = `Extracting… ${jobs.length - pending} of ${jobs.length} paper${jobs.length === 1 ? "" : "s"} done`;
+  const stage = (jobs.find((j) => j.status === "pending" && j.stage) || {}).stage;
+  if (pending) $("#jobwait-txt").textContent = `Extracting… ${jobs.length - pending} of ${jobs.length} paper${jobs.length === 1 ? "" : "s"} done${stage ? ` · ${stage}` : ""}`;
 }
 
 // paper switcher — a tab per document, above the records
@@ -252,7 +266,7 @@ function renderDocTabs() {
     && (j.status === "pending" || j.status === "failed" || (j.status === "complete" && j.document_id))
   ).map(([id, j]) => j.status === "failed"
     ? `<button class="doctab jobfail" data-jobid="${esc(id)}" title="click to see why">✗ failed</button>`
-    : `<span class="doctab jobpend">⏳ extracting…`
+    : `<span class="doctab jobpend">⏳ ${esc(j.stage ? `${j.stage}…` : "extracting…")}`
       + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
   syncJobWait();
@@ -335,7 +349,10 @@ async function load(docId) {
   DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
+  RO = !!DATA.read_only; CHAIN_RUNS = null;
+  document.body.classList.toggle("ro", RO);
   if (!localStorage.getItem("metalens_triage") && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
+  if (!localStorage.getItem("metalens_triage") && VM.triage === "contested_first" && DATA.chain) TRIAGE = "contested";
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   renderPanel();
   if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
@@ -584,7 +601,8 @@ function renderPanel() {
   const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
   const triage = (DATA.records || []).length > 1
     ? `<select class="triage" id="triage" title="order of the entries">`
-      + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"]]
+      + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"],
+         ...(DATA.chain ? [["contested", "contested first"]] : [])]
         .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
   panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
@@ -600,7 +618,10 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
     + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
-    + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
+    + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`
+    + (RO ? `<div class="ro-banner">Run ${(DATA.pass_index ?? 0) + 1} of a call chain — read-only. `
+        + (DATA.pages_document_id && DATA.pages_document_id !== DATA.document_id
+            ? `<a href="/workspace?doc=${encodeURIComponent(DATA.pages_document_id)}">the reviewed document ↗</a>` : "") + `</div>` : "");
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
       paper_metadata: DATA.paper_metadata || DATA.paper || null,
@@ -711,17 +732,25 @@ function renderRecordCard(panel, rec) {
   card.className = "record"; card.dataset.rid = rec.id;
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
   const myIssues = (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
+  const ch = rec.chain || null;
+  const nCont = ch ? Object.values(ch.candidates || {}).filter((c) => Array.isArray(c) && c.length > 1).length : 0;
+  const chainSum = ch && ch.support && ch.support.k
+    ? `<span class="chain-sum" title="how many of the chain's runs produced this ${esc(VM.entries.label.toLowerCase())}">${ch.support.n} of ${ch.support.k} runs${nCont ? ` · ${nCont} field${nCont === 1 ? "" : "s"} contested` : ""}</span>`
+      + (ch.flags || []).filter((f) => !/^contested:/.test(f)).map((f) => `<span class="chain-flag" title="flagged by the chain">${esc(f)}</span>`).join("")
+    : "";
   card.innerHTML =
     `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
     + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+    + chainSum
     + `<button class="histbtn" title="change history">↻ history</button>`
+    + (ch && (ch.trace || ch.runs) ? `<button class="histbtn tracebtn" title="where every value comes from: the run and the quote">⛓ trace</button>` : "")
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
     + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
-    + `<div class="histbody" hidden></div>`;
+    + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
 }
@@ -738,7 +767,7 @@ function renderLegacyConf(rec) {
 // one visibly so.
 function renderEntryBody(rec) {
   const fv = rec.field_values || {};
-  const eopts = { editable: true };
+  const eopts = { editable: !RO, candidates: (rec.chain || {}).candidates || null };
   const tabs = VM.tabs.map((t) => {
     const defs = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
     const children = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "child_key").map((x) => x.child);
@@ -760,6 +789,13 @@ function renderEntryBody(rec) {
   if (other.length) {
     const extra = {}; other.forEach((k) => (extra[k] = fv[k]));
     tabs.push({ t: { id: "_extra", label: "Other" }, html: `<p class="muted" style="font-size:12px;margin:0 0 6px">Returned by the model but not declared by the preset.</p>${renderValue(extra, eopts)}` });
+  }
+  // an internal chain: each run's version of this entry, loaded when the tab is opened (an
+  // external one already renders its runs child under its own tab)
+  const runs = (rec.chain || {}).runs || [];
+  if (runs.length && runs[0].document_id) {
+    tabs.push({ t: { id: "_runs", label: `Runs (${runs.length}${rec.chain.support && rec.chain.support.k ? `/${rec.chain.support.k}` : ""})` },
+                html: `<div class="runsbody" data-rid="${esc(rec.id)}"><span class="muted">open the tab to load the runs…</span></div>` });
   }
   if (tabs.length === 1) return `<div class="subpanels"><div class="subpanel" data-vi="0">${tabs[0].html}</div></div>`;
   const strip = tabs.map(({ t }, i) => {
@@ -911,11 +947,22 @@ function wireCard(card, rec) {
     const vi = b.dataset.vi;
     card.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === b));
     card.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("hidden", p.dataset.vi !== vi));
+    const rb = card.querySelector(`.subpanel[data-vi="${vi}"] .runsbody`);
+    if (rb && !rb.dataset.loaded) loadRuns(rb, rec);
+  }));
+  const tb = card.querySelector(".tracebtn");
+  if (tb) tb.onclick = () => toggleTrace(card, rec);
+  // a candidate chip: the value one or more runs produced instead — adopting it is a
+  // correction like any edit (original = the merged value, final = the chip)
+  card.querySelectorAll(".rv-cand:not([disabled])").forEach((b) => (b.onclick = async () => {
+    let val; try { val = JSON.parse(b.dataset.value); } catch { val = b.dataset.value; }
+    await saveFieldEdit(rec, card, b.dataset.path, val, curVal(rec, b.dataset.path));
+    rerenderCard(card, rec);
   }));
   wireConfBadges(card);
   if (VM.legacy) linkValueCells(card, recordEvidence(rec));
   else linkCells(card, rec);
-  card.querySelectorAll(".vbtn").forEach((b) =>
+  if (!RO) card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   wireControls(card, (path, val) => saveFieldEdit(rec, card, path, val, curVal(rec, path)), true);
@@ -1435,6 +1482,60 @@ async function toggleHistory(card, rec) {
       : '<span class="muted">no changes recorded yet</span>';
   } catch (e) { body.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
 }
+// Where every value of a chained entry comes from: the follow-up's reference, the run it
+// names, the quote behind it. Hop chips open the run (read-only, at that entry).
+function toggleTrace(card, rec) {
+  const body = card.querySelector(".tracebody");
+  if (!body) return;
+  if (!body.hidden) { body.hidden = true; return; }
+  body.hidden = false;
+  const ch = rec.chain || {};
+  const rows = [];
+  const runLink = (r, label) => r && r.document_id
+    ? `<a class="trace-hop" href="/workspace?doc=${encodeURIComponent(r.document_id)}&ro=1${r.entry_index != null ? `&entry=${r.entry_index}` : ""}" title="open this run (read-only)">${esc(label)}</a>`
+    : `<span class="trace-hop">${esc(label)}</span>`;
+  const byLabel = Object.fromEntries((ch.runs || []).map((r) => [r.label, r]));
+  for (const t of ch.trace || []) {
+    const src = t.source || {};
+    const field = String(t.field || "").replace(/^[^.]*\[\d+\]\.?/, "") || VM.entries.label.toLowerCase();
+    rows.push(`<div class="trace-row"><b>${esc(field)}</b> ← ${t.ref ? `<code>${esc(t.ref)}</code>` : "<i>same identity</i>"}`
+      + ` ← ${runLink(byLabel[src.label] || src, src.label || "?")}`
+      + (t.kind ? ` <span class="muted">(${esc(t.kind)}${t.n_quotes != null ? `, ${t.n_quotes} quote${t.n_quotes === 1 ? "" : "s"}` : ""}${(t.pages || []).length ? `, p.${t.pages.join(", ")}` : ""})</span>` : "") + `</div>`);
+  }
+  if (!rows.length) {
+    for (const r of ch.runs || []) rows.push(`<div class="trace-row">${runLink(r, r.label)} <span class="muted">has this ${esc(VM.entries.label.toLowerCase())}${r.entry_index != null ? ` as #${r.entry_index + 1}` : ""}</span></div>`);
+  }
+  body.innerHTML = rows.length ? rows.join("") : '<span class="muted">no trace recorded</span>';
+}
+
+// Each run's version of this entry, side by side: identity fields, then the fields the runs
+// disagreed on (highlighted), with links to the run itself and its verbatim model response.
+async function loadRuns(host, rec) {
+  host.dataset.loaded = "1";
+  host.innerHTML = '<span class="muted">loading…</span>';
+  try {
+    if (!CHAIN_RUNS) CHAIN_RUNS = await api.documentChain(DATA.document_id);
+  } catch (e) { host.innerHTML = `<span class="muted">${esc(e.message)}</span>`; return; }
+  const ch = rec.chain || {};
+  const contested = Object.keys(ch.candidates || {});
+  const identity = ((DATA.chain || {}).identity) || [];
+  const cols = [...new Set([...identity, ...contested])].filter((n) => VM.fieldIndex.has(n));
+  const rows = (ch.runs || []).map((r) => {
+    const run = (CHAIN_RUNS.runs || []).find((x) => x.document_id === r.document_id) || {};
+    const entry = (run.records || []).find((x) => x.entry_index === r.entry_index) || null;
+    const cells = cols.map((n) => {
+      const v = entry ? entry.field_values[n] : undefined;
+      const differs = contested.includes(n) && v !== undefined && JSON.stringify(v) !== JSON.stringify((rec.field_values || {})[n]);
+      return `<td class="${differs ? "differs" : ""}">${v === undefined || v === null ? "—" : esc(typeof v === "object" ? JSON.stringify(v) : String(v))}</td>`;
+    }).join("");
+    return `<tr><td><b>${esc(r.label)}</b>${run.model ? `<br><span class="muted">${esc(run.model)}</span>` : ""}</td>${cells}`
+      + `<td><a href="/workspace?doc=${encodeURIComponent(r.document_id)}&ro=1${entry ? `&rec=${encodeURIComponent(entry.id)}` : ""}" title="open the run (read-only)">open ↗</a>`
+      + ` · <a href="/api/documents/${encodeURIComponent(r.document_id)}/raw" target="_blank" rel="noopener" title="the run's verbatim model response">response</a></td></tr>`;
+  });
+  host.innerHTML = `<table><tr><th>run</th>${cols.map((n) => `<th>${esc((VM.fieldIndex.get(n).field || {}).label || formatKey(n))}</th>`).join("")}<th></th></tr>${rows.join("")}</table>`
+    + (ch.support && ch.support.k && ch.support.n < ch.support.k ? `<p class="muted" style="font-size:12px">${ch.support.k - ch.support.n} run${ch.support.k - ch.support.n === 1 ? "" : "s"} did not produce this ${esc(VM.entries.label.toLowerCase())}.</p>` : "");
+}
+
 function fmtEvent(e) {
   const who = e.verifier_email || e.verifier_kind || "someone";
   const when = (e.created_at || "").replace("T", " ").slice(0, 16);

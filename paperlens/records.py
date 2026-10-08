@@ -137,9 +137,14 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             session_id: str | None = None, owner_user_id: str | None = None,
             extraction: dict | None = None, filename: str | None = None,
             pdf_sha256: str | None = None, prompt_sha256: str | None = None,
-            params: dict | None = None, issues: list | None = None) -> str:
+            params: dict | None = None, issues: list | None = None,
+            role: str = "final", group_id: str | None = None, pass_index: int | None = None,
+            chain: dict | None = None, record_chain: dict | None = None) -> str:
     """Persist a full ingest result in one transaction. Returns document id.
-    ``prompt_sha256`` / ``params`` record exactly what the extraction ran with."""
+    ``prompt_sha256`` / ``params`` record exactly what the extraction ran with. A call
+    chain's documents carry ``role`` (``run`` | ``final``), their shared ``group_id`` and
+    the run's ``pass_index``; ``chain`` is the final's provenance of every call and
+    ``record_chain`` maps entry_index → what the engine knows about that entry."""
     with conn.transaction():
         if schema_id:
             upsert_schema(conn, schema_id)
@@ -150,14 +155,18 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             """INSERT INTO extraction_document
                  (id, paper_id, schema_id, source_job_id, core_key, core_shape,
                   had_top_evidence, top_extras, paper_metadata_raw, owner_user_id,
-                  session_id, filename, pdf_sha256, prompt_sha256, params, issues)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s)""",
+                  session_id, filename, pdf_sha256, prompt_sha256, params, issues,
+                  role, group_id, pass_index, chain)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s,
+                       %s, %s::uuid, %s, %s)""",
             (doc_id, paper_id, schema_id, source_job_id, res.core_key, res.core_shape,
              res.had_top_evidence, Json(res.top_extras),
              Json(res.paper_metadata_raw) if res.paper_metadata_raw is not None else None,
              owner_user_id, session_id, filename, pdf_sha256, prompt_sha256,
              Json(params) if params is not None else None,
-             Json(issues) if issues is not None else None),
+             Json(issues) if issues is not None else None,
+             role or "final", group_id, pass_index,
+             Json(chain) if chain is not None else None),
         )
 
         # records, keeping entry_index -> record_id
@@ -165,13 +174,15 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
         for r in res.records:
             rid = _new_id()
             rec_ids[r.entry_index] = rid
+            rc = (record_chain or {}).get(r.entry_index)
             conn.execute(
                 """INSERT INTO record
                      (id, document_id, paper_id, schema_id, entry_index, field_values,
-                      extraction, session_id, owner_user_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::uuid)""",
+                      extraction, session_id, owner_user_id, chain)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s)""",
                 (rid, doc_id, paper_id, schema_id, r.entry_index, Json(r.field_values),
-                 Json(extraction) if extraction is not None else None, session_id, owner_user_id),
+                 Json(extraction) if extraction is not None else None, session_id, owner_user_id,
+                 Json(rc) if rc is not None else None),
             )
 
         for s in res.evidence:
@@ -392,11 +403,12 @@ def paper_coverage(conn: psycopg.Connection, doi: str) -> dict | None:
         return None
     pid, pdoi, title, year, journal, authors = paper
     coverage = conn.execute(
-        """SELECT schema_id, dataset_id, count(*) AS n_records,
-                  count(*) FILTER (WHERE verification_status = 'verified') AS n_verified
-           FROM record WHERE paper_id = %s
-           GROUP BY schema_id, dataset_id
-           ORDER BY schema_id""",
+        """SELECT r.schema_id, r.dataset_id, count(*) AS n_records,
+                  count(*) FILTER (WHERE r.verification_status = 'verified') AS n_verified
+           FROM record r JOIN extraction_document d ON d.id = r.document_id
+           WHERE r.paper_id = %s AND d.role <> 'run'
+           GROUP BY r.schema_id, r.dataset_id
+           ORDER BY r.schema_id""",
         (pid,),
     ).fetchall()
     return {
@@ -416,7 +428,8 @@ def count_documents_for_session(conn: psycopg.Connection, session_id: str | None
     if not session_id:
         return 0
     row = conn.execute(
-        "SELECT count(*) FROM extraction_document WHERE session_id = %s AND owner_user_id IS NULL",
+        "SELECT count(*) FROM extraction_document WHERE session_id = %s AND owner_user_id IS NULL "
+        "AND role <> 'run'",
         (session_id,)).fetchone()
     return int(row[0]) if row else 0
 
@@ -443,6 +456,7 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
            FROM extraction_document d
            LEFT JOIN paper p ON p.id = d.paper_id
            LEFT JOIN record r ON r.document_id = d.id
+           WHERE d.role <> 'run'
            GROUP BY d.id, p.title, p.doi
            HAVING ((%s::text IS NULL AND %s::text IS NULL)
                    OR (%s::text IS NOT NULL
@@ -495,7 +509,7 @@ def list_papers(conn: psycopg.Connection, *, owner_user_id: str | None = None,
            LEFT JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256
            LEFT JOIN record          r  ON r.document_id = d.id
            LEFT JOIN dataset         ds ON ds.id = r.dataset_id
-           WHERE d.pdf_sha256 IS NOT NULL
+           WHERE d.pdf_sha256 IS NOT NULL AND d.role <> 'run'
            GROUP BY d.pdf_sha256
            HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
                OR (%s::text IS NOT NULL AND bool_or((d.session_id = %s AND d.owner_user_id IS NULL) OR (r.session_id = %s AND r.owner_user_id IS NULL)))
@@ -524,7 +538,7 @@ def delete_paper(conn: psycopg.Connection, pdf_sha256: str, *,
     rows = conn.execute(
         """SELECT DISTINCT d.id::text FROM extraction_document d
            LEFT JOIN record r ON r.document_id = d.id
-           WHERE d.pdf_sha256 = %s
+           WHERE d.pdf_sha256 = %s AND d.role <> 'run'
            GROUP BY d.id
            HAVING (%s::text IS NOT NULL AND bool_or(d.owner_user_id::text = %s OR r.owner_user_id::text = %s))
                OR (%s::text IS NOT NULL AND bool_or((d.session_id = %s AND d.owner_user_id IS NULL) OR (r.session_id = %s AND r.owner_user_id IS NULL)))""",
@@ -543,12 +557,16 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     from . import storage
     doc = conn.execute(
         "SELECT paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, "
-        "params, issues FROM extraction_document WHERE id = %s",
+        "params, issues, role, group_id::text, pass_index, chain FROM extraction_document WHERE id = %s",
         (document_id,),
     ).fetchone()
     if doc is None:
         return None
-    paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, params, issues = doc
+    (paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, params, issues,
+     role, group_id, pass_index, chain_doc) = doc
+    role = role or "final"
+    # a run of a call chain owns no PDF or page images: it reads the group's final's
+    pages_doc = pdf_document_id(conn, document_id) if role == "run" else document_id
 
     paper = None
     if paper_id:
@@ -566,7 +584,8 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
         field_defs = srow[0] if srow else None
 
     rec_rows = conn.execute(
-        """SELECT id, entry_index, field_values, verification_status, extraction, screened_empty
+        """SELECT id, entry_index, field_values, verification_status, extraction, screened_empty,
+                  chain, dataset_id::text
            FROM record WHERE document_id = %s ORDER BY entry_index""",
         (document_id,),
     ).fetchall()
@@ -611,8 +630,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
          # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
          # sub-entries — the badges the review UI shows next to each group's fields
          "confidence": conf["by_record"].get(str(rid), {}),
-         "child_confidence": conf["by_child"].get(str(rid), {})}
-        for (rid, ei, fv, vs, _ex, _se) in rec_rows
+         "child_confidence": conf["by_child"].get(str(rid), {}),
+         # what a call chain knows about this entry: support, candidates, flags, trace
+         "chain": _ch, "dataset_id": _ds}
+        for (rid, ei, fv, vs, _ex, _se, _ch, _ds) in rec_rows
     ]
     n_pages = 0
     for row in rec_rows:
@@ -654,10 +675,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     # a paper imported as JSON alone has page NUMBERS (from its citations) but no page images:
     # say so instead of handing the viewer thirteen broken pictures
     try:
-        has_images = n_pages > 0 and store.exists(storage.page_image_key(document_id, 1))
+        has_images = n_pages > 0 and bool(pages_doc) and store.exists(storage.page_image_key(pages_doc, 1))
     except Exception:  # noqa: BLE001 - a storage hiccup must not take the review screen down
         has_images = True
-    pages = [{"page": i, "url": store.url(storage.page_image_key(document_id, i))}
+    pages = [{"page": i, "url": store.url(storage.page_image_key(pages_doc, i))}
              for i in range(1, n_pages + 1)] if has_images else []
 
     # The declaration the review UI renders from. A format-2 row carries it; a legacy row
@@ -673,7 +694,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             "pages": pages, "records": records_out,
             "evidence": evidence_out,
             "paper_confidence": conf["paper"],          # paper-scope groups
-            "document_confidence": conf["top"]}         # legacy root-level blocks
+            "document_confidence": conf["top"],         # legacy root-level blocks
+            # call chains: a run is reviewed read-only through its final's PDF and pages
+            "role": role, "group_id": group_id, "pass_index": pass_index, "chain": chain_doc,
+            "read_only": role == "run", "pages_document_id": pages_doc}
 
 
 def _upgraded_field_defs(field_defs: dict | None, core_key: str | None, core_shape: str | None,
@@ -1965,8 +1989,10 @@ def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
         # document with this hash is already in the dataset — non-destructive: the newcomer
         # simply stays private in "All my papers" rather than duplicating the paper.
         sha_row = conn.execute(
-            "SELECT pdf_sha256 FROM extraction_document WHERE id = %s::uuid", (document_id,)
+            "SELECT pdf_sha256, role FROM extraction_document WHERE id = %s::uuid", (document_id,)
         ).fetchone()
+        if sha_row and sha_row[1] == "run":
+            raise ValueError("a run of a call chain cannot join a dataset; its final document can")
         sha = sha_row[0] if sha_row else None
         if sha:
             conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
@@ -2039,7 +2065,7 @@ def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
            FROM extraction_document d
            JOIN record  r  ON r.document_id = d.id AND NOT COALESCE(r.screened_empty, false)
            JOIN dataset ds ON ds.id = r.dataset_id
-           WHERE d.pdf_sha256 = ANY(%s)
+           WHERE d.role <> 'run' AND d.pdf_sha256 = ANY(%s)
              AND (%s::text IS NULL OR d.schema_id = %s)
              AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[]))
              AND ((%s::text IS NOT NULL AND d.owner_user_id::text = %s)
@@ -2143,9 +2169,11 @@ def set_paper_metadata_fields(conn: psycopg.Connection, document_id: str, fields
     return {"paper_metadata": raw, "changed": [d["field_path"].split(".", 1)[1] for d in diff]}
 
 
-def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
+def delete_document(conn: psycopg.Connection, document_id: str, *, _group: bool = False) -> dict:
     """Delete a document — cascades its records/evidence/confidence (FK ON DELETE
-    CASCADE) — then its stored PDF + page images. Returns {"deleted": n}.
+    CASCADE) — then its stored PDF + page images. Returns {"deleted": n}. A chain's final
+    document also deletes its runs; a run alone is refused (``{"refused": "run"}``) unless
+    the group is being taken down (``_group``).
 
     The blob cleanup is BEST-EFFORT. It runs after the row is already gone, so raising
     here would report a failure for a delete that actually happened (and the local
@@ -2155,6 +2183,20 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     if not _is_uuid(document_id):
         return {"deleted": 0}
     from . import pdf_utils, storage
+    meta = conn.execute("SELECT role, group_id::text, chain FROM extraction_document WHERE id = %s::uuid",
+                        (document_id,)).fetchone()
+    if meta is None:
+        return {"deleted": 0}
+    role, group_id, chain_doc = meta
+    n_calls = len((chain_doc or {}).get("calls") or []) if isinstance(chain_doc, dict) else 0
+    if role == "run" and not _group:
+        return {"deleted": 0, "refused": "run"}
+    if role != "run" and group_id:
+        # the runs go with the reviewed document (their quotes are what its evidence traces to)
+        for (run_id,) in conn.execute(
+                "SELECT id::text FROM extraction_document WHERE group_id = %s::uuid AND role = 'run' AND id <> %s::uuid",
+                (group_id, document_id)).fetchall():
+            delete_document(conn, run_id, _group=True)
     # The page count has to be read BEFORE the row goes away: it turns the page images
     # into an explicit key list, so the cleanup never has to enumerate the bucket.
     # ListObjectsV2 is the first thing to break on an S3-compatible backend, and a
@@ -2175,12 +2217,15 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
         pages = [storage.page_image_key(document_id, i) for i in range(1, n_pages + 1)]
         # Two independent calls: losing the PDF must not skip the page images. Fall back
         # to prefix deletion only when the page count is unknown (no cached parse).
-        for label, op in (
-            ("pdf", lambda: store.delete(storage.pdf_key(document_id))),
-            ("raw", lambda: store.delete(storage.raw_key(document_id))),
-            ("pages", (lambda: store.delete_keys(pages)) if pages
-                      else (lambda: store.delete_prefix(f"pages/{document_id}/"))),
-        ):
+        # a run owns no PDF or page images (they are the final's); a chain's final also holds
+        # its per-call texts and trace — as explicit keys, never a prefix sweep
+        ops = ([("pdf", lambda: store.delete(storage.pdf_key(document_id)))] if role != "run" else []) \
+            + [("raw", lambda: store.delete(storage.raw_key(document_id)))] \
+            + ([("pages", (lambda: store.delete_keys(pages)) if pages
+                         else (lambda: store.delete_prefix(f"pages/{document_id}/")))] if role != "run" else []) \
+            + ([("chain", lambda: store.delete_keys([storage.call_raw_key(document_id, i) for i in range(n_calls)]
+                                                    + [storage.chain_key(document_id)]))] if n_calls else [])
+        for label, op in ops:
             try:
                 op()
             except Exception as exc:      # noqa: BLE001 - any backend error; the row is gone
@@ -2188,6 +2233,64 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
                 _log.warning("delete_document %s: %s blobs left orphaned: %s",
                              document_id, label, exc)
     return {"deleted": deleted, "blobs_orphaned": orphaned}
+
+
+def document_role(conn: psycopg.Connection, document_id: str) -> str | None:
+    """``final`` | ``run`` | None (no such document)."""
+    if not _is_uuid(document_id):
+        return None
+    r = conn.execute("SELECT role FROM extraction_document WHERE id = %s::uuid", (document_id,)).fetchone()
+    return (r[0] or "final") if r else None
+
+
+def chain_group(conn: psycopg.Connection, document_id: str) -> dict | None:
+    """The call-chain group a document belongs to: its final and its runs in pass order.
+    None for a document outside any chain."""
+    if not _is_uuid(document_id):
+        return None
+    g = conn.execute("SELECT group_id::text FROM extraction_document WHERE id = %s::uuid", (document_id,)).fetchone()
+    if not g or not g[0]:
+        return None
+    rows = conn.execute(
+        """SELECT d.id::text, d.role, d.pass_index, d.chain, d.created_at, d.issues,
+                  (SELECT count(*) FROM record r WHERE r.document_id = d.id AND NOT COALESCE(r.screened_empty, false))
+           FROM extraction_document d WHERE d.group_id = %s::uuid
+           ORDER BY (d.role = 'final'), d.pass_index""",
+        (g[0],)).fetchall()
+    final = next((r for r in rows if r[1] != "run"), None)
+    return {"group_id": g[0],
+            "final_id": final[0] if final else None,
+            "chain": final[3] if final else None,
+            "runs": [{"document_id": r[0], "pass_index": r[2], "label": f"r{(r[2] or 0) + 1}",
+                      "created_at": r[4].isoformat() if r[4] else None,
+                      "n_records": int(r[6] or 0), "issues": r[5] or []}
+                     for r in rows if r[1] == "run"]}
+
+
+def pdf_document_id(conn: psycopg.Connection, document_id: str) -> str | None:
+    """The document whose stored PDF and page images serve ``document_id``: itself for a
+    final (or any document outside a chain), the group's final for a run."""
+    if not _is_uuid(document_id):
+        return None
+    r = conn.execute(
+        """SELECT CASE WHEN d.role = 'run' THEN
+                    (SELECT f.id::text FROM extraction_document f
+                     WHERE f.group_id = d.group_id AND f.role <> 'run' LIMIT 1)
+                  ELSE d.id::text END
+           FROM extraction_document d WHERE d.id = %s::uuid""", (document_id,)).fetchone()
+    return (r[0] or document_id) if r else None
+
+
+def delete_group(conn: psycopg.Connection, group_id: str) -> int:
+    """Remove every document of a call-chain group (a chain that failed before its final
+    existed must leave no orphan runs behind). Returns the number of rows deleted."""
+    if not _is_uuid(group_id):
+        return 0
+    n = 0
+    for (did,) in conn.execute("SELECT id::text FROM extraction_document WHERE group_id = %s::uuid",
+                               (group_id,)).fetchall():
+        n += delete_document(conn, did, _group=True).get("deleted", 0)
+    return n
 
 
 def delete_record(conn: psycopg.Connection, record_id: str) -> dict:
@@ -2473,8 +2576,9 @@ def promote_dataset_preset(conn: psycopg.Connection, dataset_id: str, principal=
 
 def records_for_paper(conn: psycopg.Connection, paper_id: str) -> list[dict]:
     rows = conn.execute(
-        """SELECT id, entry_index, schema_id, field_values, verification_status
-           FROM record WHERE paper_id = %s ORDER BY entry_index""",
+        """SELECT r.id, r.entry_index, r.schema_id, r.field_values, r.verification_status
+           FROM record r JOIN extraction_document d ON d.id = r.document_id
+           WHERE r.paper_id = %s AND d.role <> 'run' ORDER BY r.entry_index""",
         (paper_id,),
     ).fetchall()
     return [

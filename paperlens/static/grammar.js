@@ -273,9 +273,27 @@ export function renderFields(defs, obj, basePath, opts) {
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
       + `<div class="rv-key" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}</div>`
-      + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
+      + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}${basePath ? "" : renderCandidates(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;
+}
+
+// A field the runs of a call chain disagreed on: one chip per candidate value with the
+// number of runs behind it (hover for which). The shown value is the merged one; clicking
+// another chip adopts it — the workspace logs that as a correction. Nothing is drawn when
+// the runs agreed.
+export function renderCandidates(f, v, path, opts) {
+  const cands = opts && opts.candidates ? opts.candidates[f.name] : null;
+  if (!Array.isArray(cands) || cands.length < 2) return "";
+  const cur = JSON.stringify(v === undefined ? null : v);
+  return `<div class="rv-cands">` + cands.map((c) => {
+    const val = JSON.stringify(c.value === undefined ? null : c.value);
+    const same = val === cur;
+    const shown = c.value !== null && typeof c.value === "object" ? JSON.stringify(c.value) : String(c.value);
+    return `<button type="button" class="rv-cand${same ? " rv-cand-cur" : ""}" data-path="${esc(path)}" data-value="${esc(val)}"`
+      + ` title="${esc((c.runs || []).join(", "))}${same ? " — the merged value" : " — click to adopt (logged as a correction)"}"${same ? " disabled" : ""}>`
+      + `${esc(shown.length > 60 ? shown.slice(0, 57) + "…" : shown)}<span class="rv-cand-n">${(c.runs || []).length}</span></button>`;
+  }).join("") + `</div>`;
 }
 
 // A sub-entry array: a typed table (one row per element, row-citation cell first) or one

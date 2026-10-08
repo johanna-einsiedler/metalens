@@ -39,6 +39,13 @@ SCALAR_TYPES = ("string", "text", "integer", "number", "boolean", "enum", "multi
 PARAM_TYPES = ("string", "text", "integer", "number", "boolean", "list", "table")
 CONF_SCOPES = ("paper", "entry", "child")
 GENERATED_SECTIONS = ("paper_metadata", "output_schema", "evidence", "confidence", "return_format")
+# A call chain's follow-up calls read earlier outputs instead of the paper: their generated
+# sections are these (``evidence`` = the by-reference rules, ``previous`` = the earlier outputs).
+FOLLOWUP_SECTIONS = ("output_schema", "evidence", "return_format", "previous")
+AGGREGATE_RULES = ("majority", "first", "union", "all")   # how k runs' values become one
+AGGREGATE_KINDS = ("vote", "prompt", "external")           # "prompt" is sugar for one follow-up call
+CHAIN_MAX_K = 5
+CALL_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 EVIDENCE_BY_KIND = {          # what each kind of thing may declare
     "scalar": ("value", "row", "none"),
     "table": ("table", "row", "none"),
@@ -62,7 +69,12 @@ IDENTITY_FIELDS = (
 )
 
 _ALLOWED_KEYS = {
-    "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
+    "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display", "chain"},
+    "chain": {"k", "identity", "calls", "aggregate"},
+    "call": {"id", "prompt", "entries", "model"},
+    "call_prompt": {"file", "text", "generate"},
+    "aggregate": {"kind", "fields", "prompt", "external"},
+    "external": {"child", "run", "support", "flags", "fields"},
     "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
@@ -102,12 +114,13 @@ def canonical_json(obj: Any) -> str:
 
 
 def _read_sibling(name: str, base_dir: Path) -> str:
-    """Read a file next to the preset JSON, refusing anything outside the presets dir."""
+    """Read a file next to the preset JSON, refusing anything outside the preset's own
+    directory (the built-in presets dir, or an extra PAPERLENS_PRESET_DIRS directory)."""
     candidate = (base_dir / name).resolve()
     try:
-        candidate.relative_to(PRESETS_DIR.resolve())
+        candidate.relative_to(Path(base_dir).resolve())
     except ValueError:
-        raise SpecError([f"prompt.file {name!r} is outside the presets directory"])
+        raise SpecError([f"prompt.file {name!r} is outside the preset's directory"])
     try:
         return candidate.read_text(encoding="utf-8")
     except OSError as e:
@@ -180,6 +193,33 @@ def _norm_field(f: dict, *, column: bool = False) -> dict:
     return out
 
 
+def _inline_prompt(block: dict, base_dir: Path | None, at: str, pid) -> None:
+    """``prompt.file`` → ``prompt.text`` (the sibling file read once, at load), in place."""
+    if block.get("file") and not block.get("text"):
+        if base_dir is None:
+            raise SpecError([f"{at}.file {block['file']!r} given but no base directory to read it from"], pid)
+        block["text"] = _read_sibling(block["file"], Path(base_dir))
+    block.pop("file", None)
+
+
+def _norm_entries(entries: dict) -> dict:
+    """Defaults of an entries declaration — the root one, or a follow-up call's own."""
+    entries.setdefault("label", format_key(entries.get("key", "entry")).rstrip("s") or "Entry")
+    entries.setdefault("cardinality", "many")
+    entries.setdefault("evidence", "row")
+    entries["fields"] = [_norm_field(f) for f in (entries.get("fields") or [])]
+    children = []
+    for ch in entries.get("children") or []:
+        ch = dict(ch)
+        ch.setdefault("label", format_key(ch.get("key", "item")).rstrip("s") or "Item")
+        ch.setdefault("evidence", "row")
+        ch.setdefault("layout", "table")
+        ch["fields"] = [_norm_field(f) for f in (ch.get("fields") or [])]
+        children.append(ch)
+    entries["children"] = children
+    return entries
+
+
 def normalize(doc: dict, base_dir: Path | None = None) -> dict:
     """Deep-copy, inline ``prompt.file``, fill every default, validate. Raises SpecError.
     The result is the ONE shape every other function in this module reads."""
@@ -189,12 +229,7 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
     spec["meta"].setdefault("mode", "extraction")
     spec["meta"].setdefault("hidden", False)
     prompt = spec.setdefault("prompt", {})
-    if prompt.get("file") and not prompt.get("text"):
-        if base_dir is None:
-            raise SpecError([f"prompt.file {prompt['file']!r} given but no base directory to read it from"],
-                            spec.get("id"))
-        prompt["text"] = _read_sibling(prompt["file"], Path(base_dir))
-    prompt.pop("file", None)
+    _inline_prompt(prompt, base_dir, "prompt", spec.get("id"))
     prompt.setdefault("params", {})
     for pname, pdecl in list(prompt["params"].items()):
         if not isinstance(pdecl, dict):             # shorthand: a bare default value
@@ -208,19 +243,32 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
     paper["fields"] = [_norm_field(f) for f in (paper.get("fields") or [])]
     entries = spec.setdefault("entries", {})
     if entries:
-        entries.setdefault("label", format_key(entries.get("key", "entry")).rstrip("s") or "Entry")
-        entries.setdefault("cardinality", "many")
-        entries.setdefault("evidence", "row")
-        entries["fields"] = [_norm_field(f) for f in (entries.get("fields") or [])]
-        children = []
-        for ch in entries.get("children") or []:
-            ch = dict(ch)
-            ch.setdefault("label", format_key(ch.get("key", "item")).rstrip("s") or "Item")
-            ch.setdefault("evidence", "row")
-            ch.setdefault("layout", "table")
-            ch["fields"] = [_norm_field(f) for f in (ch.get("fields") or [])]
-            children.append(ch)
-        entries["children"] = children
+        _norm_entries(entries)
+    # a call chain: k runs of this prompt, then text-only follow-ups; the memo's
+    # ``aggregate.kind: "prompt"`` is one follow-up call named "aggregate"
+    chain = spec.get("chain")
+    if isinstance(chain, dict):
+        agg = chain.setdefault("aggregate", {})
+        if not isinstance(agg, dict):
+            agg = chain["aggregate"] = {}
+        calls = chain.setdefault("calls", [])
+        if agg.get("kind") == "prompt" and isinstance(agg.get("prompt"), dict):
+            calls.append({"id": "aggregate", "prompt": agg.pop("prompt")})
+            agg["kind"] = "vote"              # what the chain falls back to when the call fails
+        agg.setdefault("kind", "vote")
+        agg.setdefault("fields", {})
+        chain.setdefault("k", None if agg["kind"] == "external" else 1)
+        chain.setdefault("identity", [])
+        for n, call in enumerate(calls):
+            if not isinstance(call, dict):
+                continue
+            call.setdefault("model", None)
+            cp = call.setdefault("prompt", {})
+            if isinstance(cp, dict):
+                _inline_prompt(cp, base_dir, f"chain.calls[{n}].prompt", spec.get("id"))
+                cp.setdefault("generate", list(FOLLOWUP_SECTIONS))
+            if isinstance(call.get("entries"), dict):
+                _norm_entries(call["entries"])
     conf = spec.setdefault("confidence", {})
     conf.setdefault("levels", ["high", "medium", "low"])
     conf.setdefault("notes", True)
@@ -660,8 +708,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E(f"{at}.anchor_param must name a list parameter")
         if display.get("entries", "cards") not in ("cards", "table"):
             E("$.display.entries must be 'cards' or 'table'")
-        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first"):
-            E("$.display.triage must be 'declaration' or 'low_confidence_first'")
+        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first", "contested_first"):
+            E("$.display.triage must be 'declaration', 'low_confidence_first' or 'contested_first'")
         if display.get("paper_panel", "open") not in ("open", "collapsed"):
             E("$.display.paper_panel must be 'open' or 'collapsed'")
         gr = display.get("grid_rows", "entries")
@@ -695,7 +743,158 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         if display.get("tabs"):
             for fname in placeable - set(placed):
                 W(f"$.display.tabs: {fname!r} is in no tab (it will show under 'Other')")
+    # call chain ---------------------------------------------------------------
+    chain = spec.get("chain")
+    if chain is not None:
+        if not isinstance(chain, dict):
+            E("$.chain must be an object")
+        else:
+            _validate_chain(chain, spec, entries if isinstance(entries, dict) else {}, params, E, W,
+                            mode=meta.get("mode"))
     return errs, warns
+
+
+def _validate_chain(chain: dict, spec: dict, entries: dict, params: dict, E, W, *, mode) -> None:
+    """The ``chain`` block: k runs of the extraction, follow-up calls that read earlier
+    outputs by reference, and how the runs are aggregated when no call does it."""
+    at = "$.chain"
+    for k_ in chain:
+        if k_ not in _ALLOWED_KEYS["chain"]:
+            E(f"{at}: unknown key {k_!r}")
+    fields = {f["name"]: f for f in (entries.get("fields") or []) if isinstance(f, dict) and isinstance(f.get("name"), str)}
+    children = {ch["key"]: ch for ch in (entries.get("children") or []) if isinstance(ch, dict) and isinstance(ch.get("key"), str)}
+    agg = chain.get("aggregate") if isinstance(chain.get("aggregate"), dict) else {}
+    kind = agg.get("kind", "vote")
+    calls = chain.get("calls") if isinstance(chain.get("calls"), list) else []
+    if not isinstance(chain.get("calls", []), list):
+        E(f"{at}.calls must be a list of calls")
+    k = chain.get("k")
+    if kind == "external":
+        if k is not None:
+            E(f"{at}.k must be null for an external aggregate (the runs happened outside)")
+        if mode != "import":
+            E(f"{at}.aggregate.kind 'external' needs meta.mode 'import'")
+        if calls:
+            E(f"{at}.calls must be empty for an external aggregate")
+    elif not (isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= CHAIN_MAX_K):
+        E(f"{at}.k must be an integer from 1 to {CHAIN_MAX_K} (runs of the extraction)")
+    ident = chain.get("identity", [])
+    if not (isinstance(ident, list) and all(isinstance(x, str) for x in ident)):
+        E(f"{at}.identity must be a list of entry field names")
+        ident = []
+    for x in ident:
+        if x not in fields:
+            E(f"{at}.identity: {x!r} is not an entry field")
+        elif fields[x].get("type") == "table":
+            E(f"{at}.identity: {x!r} is a table — identity needs scalar fields")
+    if not ident and ((isinstance(k, int) and k > 1) or kind == "vote" and isinstance(k, int) and k > 1):
+        E(f"{at}.identity is required when k > 1 (which fields make two entries the same across runs)")
+    # aggregate
+    if agg is not None and not isinstance(chain.get("aggregate", {}), dict):
+        E(f"{at}.aggregate must be an object")
+    for k_ in agg:
+        if k_ not in _ALLOWED_KEYS["aggregate"]:
+            E(f"{at}.aggregate: unknown key {k_!r}")
+    if kind not in AGGREGATE_KINDS:
+        E(f"{at}.aggregate.kind must be one of {', '.join(AGGREGATE_KINDS)}")
+    if kind == "prompt" and not (isinstance(agg.get("prompt"), dict) or calls):
+        E(f"{at}.aggregate.kind 'prompt' needs aggregate.prompt (or calls)")
+    rules = agg.get("fields", {})
+    if not isinstance(rules, dict):
+        E(f"{at}.aggregate.fields must map field names to rules")
+        rules = {}
+    for name, rule in rules.items():
+        if name not in fields and name not in children:
+            E(f"{at}.aggregate.fields: {name!r} is not an entry field or child")
+            continue
+        if rule not in AGGREGATE_RULES:
+            E(f"{at}.aggregate.fields.{name} must be one of {', '.join(AGGREGATE_RULES)}")
+            continue
+        ftype = fields[name].get("type", "string") if name in fields else "child"
+        if rule in ("union", "all") and ftype not in ("list", "multi", "table", "child"):
+            E(f"{at}.aggregate.fields.{name}: '{rule}' only applies to list / multi / table fields and children")
+        if rule == "majority" and ftype in ("table", "child"):
+            E(f"{at}.aggregate.fields.{name}: 'majority' needs a scalar field")
+    ext = agg.get("external")
+    if ext is not None:
+        if kind != "external":
+            E(f"{at}.aggregate.external only applies to kind 'external'")
+        elif not isinstance(ext, dict):
+            E(f"{at}.aggregate.external must be an object")
+        else:
+            for k_ in ext:
+                if k_ not in _ALLOWED_KEYS["external"]:
+                    E(f"{at}.aggregate.external: unknown key {k_!r}")
+            ch = ext.get("child")
+            if ch not in children:
+                E(f"{at}.aggregate.external.child must name a child (the per-run rows)")
+            cfields = {f.get("name") for f in (children.get(ch) or {}).get("fields") or [] if isinstance(f, dict)} if ch in children else set()
+            if ext.get("run") is not None and ext["run"] not in cfields:
+                E(f"{at}.aggregate.external.run must be a field of child {ch!r}")
+            for key_ in ("support", "flags"):
+                if ext.get(key_) is not None and ext[key_] not in fields:
+                    E(f"{at}.aggregate.external.{key_} must name an entry field")
+            fm = ext.get("fields", {})
+            if not isinstance(fm, dict):
+                E(f"{at}.aggregate.external.fields must map entry fields to child fields")
+            else:
+                for a, b in fm.items():
+                    if a not in fields:
+                        E(f"{at}.aggregate.external.fields: {a!r} is not an entry field")
+                    if b not in cfields:
+                        E(f"{at}.aggregate.external.fields: {b!r} is not a field of child {ch!r}")
+    # calls
+    seen_ids: set[str] = set()
+    for n, call in enumerate(calls):
+        cat = f"{at}.calls[{n}]"
+        if not isinstance(call, dict):
+            E(f"{cat}: must be an object"); continue
+        for k_ in call:
+            if k_ not in _ALLOWED_KEYS["call"]:
+                E(f"{cat}: unknown key {k_!r}")
+        cid = call.get("id")
+        if not (isinstance(cid, str) and CALL_ID_RE.match(cid)) or re.fullmatch(r"r\d+", cid or ""):
+            E(f"{cat}.id must match ^[a-z][a-z0-9_]*$ and not look like a run (r1, r2, …)")
+        elif cid in seen_ids:
+            E(f"{cat}.id {cid!r} is used twice")
+        else:
+            seen_ids.add(cid)
+        cp = call.get("prompt")
+        if not isinstance(cp, dict):
+            E(f"{cat}.prompt must be an object with text (or file)")
+        else:
+            for k_ in cp:
+                if k_ not in _ALLOWED_KEYS["call_prompt"]:
+                    E(f"{cat}.prompt: unknown key {k_!r}")
+            text = cp.get("text")
+            if not (isinstance(text, str) and text.strip()):
+                E(f"{cat}.prompt.text (or prompt.file) is required and must not be empty")
+            else:
+                phs = _placeholders(text)
+                if "previous" not in phs:
+                    E(f"{cat}.prompt.text must reference ${{previous}} — a follow-up call sees the paper only through the earlier outputs")
+                for ident_ in phs:
+                    if ident_ not in params and ident_ not in FOLLOWUP_SECTIONS:
+                        E(f"{cat}.prompt.text references ${{{ident_}}}, which is neither a declared parameter nor a follow-up section")
+            gen = cp.get("generate", list(FOLLOWUP_SECTIONS))
+            if not isinstance(gen, list) or any(g not in FOLLOWUP_SECTIONS for g in gen):
+                E(f"{cat}.prompt.generate may only contain {', '.join(FOLLOWUP_SECTIONS)}")
+        if call.get("model") is not None and not isinstance(call["model"], str):
+            E(f"{cat}.model must be a model name or null")
+        if call.get("entries") is not None:
+            if n == len(calls) - 1:
+                E(f"{cat}.entries: the final call keeps the preset's own entries (the reviewed document has the declared shape)")
+            elif not isinstance(call["entries"], dict):
+                E(f"{cat}.entries must be an entries declaration")
+            else:
+                # the same grammar as the root entries, validated as a stand-alone spec
+                mini = {"format": FORMAT, "id": spec.get("id") or "call", "version": 1,
+                        "meta": {"title": "call", "mode": "extraction"}, "prompt": {"text": "x"},
+                        "paper": {"fields": []}, "entries": call["entries"], "confidence": {"groups": []}}
+                sub_errs, _ = validate(mini)
+                for e in sub_errs:
+                    if e.startswith("$.entries"):
+                        E(f"{cat}{e[1:]}")
 
 
 def _placeholders(text: str) -> list[str]:
@@ -1638,3 +1837,130 @@ def field_defs_for(spec: dict) -> dict:
         "core_keys": placeable,
         "spec": spec,
     }
+
+
+# ── call chains ───────────────────────────────────────────────────────────────
+
+def chain_plan(spec: dict) -> dict | None:
+    """What the engine runs for one paper: ``{k, identity, calls, aggregate}``, or None when
+    the preset is a plain single extraction (no ``chain``, or k = 1 with no follow-up) or
+    an external aggregate (the runs happened outside Metalens — see ``chain_external``)."""
+    ch = (spec or {}).get("chain")
+    if not isinstance(ch, dict):
+        return None
+    agg = ch.get("aggregate") if isinstance(ch.get("aggregate"), dict) else {"kind": "vote"}
+    if agg.get("kind") == "external":
+        return None
+    calls = [c for c in (ch.get("calls") or []) if isinstance(c, dict)]
+    k = ch.get("k") or 1
+    if k <= 1 and not calls:
+        return None
+    return {"k": int(k), "identity": list(ch.get("identity") or []), "calls": calls,
+            "aggregate": {"kind": agg.get("kind", "vote"), "fields": dict(agg.get("fields") or {})}}
+
+
+def chain_external(spec: dict) -> dict | None:
+    """The mapping of an externally aggregated document's per-run facts (its ``runs`` child
+    and support / flags fields) onto the engine's record facts; None otherwise."""
+    ch = (spec or {}).get("chain")
+    agg = ch.get("aggregate") if isinstance(ch, dict) and isinstance(ch.get("aggregate"), dict) else None
+    if not agg or agg.get("kind") != "external":
+        return None
+    return dict(agg.get("external") or {})
+
+
+def spec_for_call(spec: dict, call: dict) -> dict:
+    """The spec a follow-up call's output is read with: the preset with the call's own
+    ``entries`` when it declares one (an intermediate shape), else the preset's."""
+    ent = call.get("entries") if isinstance(call, dict) else None
+    return {**spec, "entries": ent} if isinstance(ent, dict) else spec
+
+
+def followup_sections(spec: dict, call: dict, params: dict | None = None) -> dict[str, str]:
+    """The generated sections of a follow-up call: its output schema (no paper metadata, no
+    confidence — those come from the runs), the by-reference evidence rules and the return
+    format. ``previous`` is filled by the caller with the earlier outputs."""
+    cspec = spec_for_call(spec, call)
+    params = params if params is not None else resolve_params(spec)
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    ent = cspec.get("entries") or {}
+    key = ent.get("key", "records")
+    elabel = ent.get("label", "entry")
+    skel = derive_output_schema(cspec, params)
+    skel.pop("paper_metadata", None)
+    for el in skel.get(key) or []:
+        if isinstance(el, dict):
+            el.pop("confidence", None)
+            for ch in ent.get("children") or []:
+                for row in el.get(ch["key"]) or []:
+                    if isinstance(row, dict):
+                        row.pop("confidence", None)
+    example = _example_path(cspec)
+    skel["evidence"] = [{"ref": f"r1.{example}", "field": example}]
+    lines = ["# OUTPUT SCHEMA (generated — follow exactly)", "",
+             f"Return exactly ONE JSON object with these top-level keys and no others: "
+             f"{', '.join(_q(k_) for k_ in skel)}.",
+             "Types are shown as placeholders; \"a|b\" means one of those values.", "",
+             json.dumps(skel, indent=2, ensure_ascii=False), "",
+             f'One element of "{key}" per {elabel}' + (f" — {ent['help']}" if ent.get("help") else "") + ".",
+             "", "FIELDS"]
+    if ent.get("fields"):
+        lines.append(f"{key}[]:")
+        lines += [_field_line(f, params, decl) for f in ent["fields"]]
+    for ch in ent.get("children") or []:
+        lines.append(f"{key}[].{ch['key']}[]:")
+        lines += [_field_line(f, params, decl) for f in ch.get("fields") or []]
+    lines += ["", "Use JSON numbers for integer/number fields (never strings); use null when a value "
+              "is not reported. Allowed values are exact and case-sensitive."]
+    out = {"output_schema": "\n".join(lines)}
+    out["evidence"] = "\n".join([
+        "# EVIDENCE (generated — by reference)", "",
+        "You have not read the paper; the earlier calls did. Provide a top-level \"evidence\" array "
+        "whose items have EXACTLY these two keys:",
+        '  "ref"   — where the supporting value sits in an earlier output: "<source>.<key>[i]" for a',
+        '            whole entry, "<source>.<key>[i].<field>" for one value, "<source>.<key>[i].<child>[j].<field>"',
+        "            for a value of a sub-entry. <source> is r1, r2, … for the runs, or an earlier call's id.",
+        "            A LIST of refs when several earlier entries support one value.",
+        f'  "field" — the path in YOUR output the ref supports ("{key}[i]" or "{key}[i].<field>", same grammar, no source).',
+        "",
+        "Never write \"snippet\" or \"page\": quotes are inherited from the referenced entries, and an item",
+        "that quotes directly is dropped. Cite every entry of your output at least once — an entry-level ref",
+        "inherits every quote of that earlier entry — and cite per value where the runs disagree. Never cite",
+        "a ref that does not exist above; never invent an entry no earlier output supports."])
+    out["return_format"] = "\n".join([
+        "# RETURN FORMAT (generated)", "",
+        "Return EXACTLY ONE top-level JSON object — JSON only: no markdown fences, no prose before or "
+        "after, no comments, no trailing commas. It must parse with json.loads.",
+        "Before returning, check: every evidence \"field\" path exists in your output and every \"ref\" exists "
+        "in the earlier outputs; required fields are non-null; allowed values come from the listed set; "
+        "numbers are JSON numbers."])
+    out["previous"] = ""
+    return out
+
+
+def render_call_prompt(spec: dict, call: dict, params: dict | None, previous_text: str) -> str:
+    """A follow-up call's prompt: the author's text with ``${params}`` and the enabled
+    follow-up sections substituted (``${previous}`` = the earlier outputs), unreferenced
+    enabled sections appended in the fixed order."""
+    params = resolve_params(spec, params) if params is not None else resolve_params(spec)
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    cp = call.get("prompt") or {}
+    enabled = [s for s in FOLLOWUP_SECTIONS if s in (cp.get("generate") or list(FOLLOWUP_SECTIONS))]
+    sections = followup_sections(spec, call, params)
+    sections["previous"] = previous_text
+    text = cp.get("text") or ""
+    used = set(_placeholders(text))
+    sub = {name: render_param(decl[name], params.get(name)) for name in decl}
+    for s in FOLLOWUP_SECTIONS:
+        sub[s] = sections[s] if s in enabled else ""
+    body = string.Template(text).safe_substitute(sub)
+    tail = [sections[s] for s in enabled if s not in used and s != "previous"]
+    if tail:
+        body = body.rstrip() + "\n\n---\n\n" + "\n\n---\n\n".join(tail)
+    return _collapse_blank_lines(body)
+
+
+def call_recipe_sha(spec: dict, call: dict, params: dict | None) -> str:
+    """The provenance hash of a follow-up call: its rendered prompt with ``${previous}``
+    left literal (what the preset asked, independent of the paper)."""
+    return hashlib.sha256(render_call_prompt(spec, call, params, "${previous}").encode("utf-8")).hexdigest()

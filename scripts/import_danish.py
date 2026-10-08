@@ -324,6 +324,76 @@ def processed_artids(corpus: Path) -> list[str]:
 
 
 # ── the server ───────────────────────────────────────────────────────────────────────────────
+PRESET_GRAPH = "claim-graph-adjudication"
+
+
+def convert_graph(doc: dict) -> dict:
+    """The pipeline's paper_graph document with the field names the preset settles on: the
+    runs child's `sign` / `direction` become `run_sign` / `run_direction` (an entry field and a
+    child field may not share a name), the paper's `runs` becomes `run_names`, pages are ints."""
+    out = json.loads(json.dumps(doc))
+    pm = out.get("paper_metadata") or {}
+    if "runs" in pm:
+        pm["run_names"] = pm.pop("runs")
+    for rec in out.get("records") or []:
+        for run in rec.get("runs") or []:
+            if "sign" in run:
+                run["run_sign"] = run.pop("sign")
+            if "direction" in run:
+                run["run_direction"] = run.pop("direction")
+    for e in out.get("evidence") or []:
+        try:
+            e["page"] = int(e["page"]) if e.get("page") not in (None, "") else 1
+        except (TypeError, ValueError):
+            e["page"] = 1
+    return out
+
+
+def import_graphs(a) -> int:
+    graph_dir = a.corpus / "extractions" / "paper_graph"
+    files = sorted(graph_dir.glob("*.paperlens.json"))
+    if a.artids:
+        files = [f for f in files if f.name.split(".")[0] in set(a.artids)]
+    if a.out:
+        a.out.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            (a.out / f.name).write_text(json.dumps(convert_graph(json.loads(f.read_text())), ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"{f.name}: converted")
+        return 0
+    import httpx
+    c = httpx.Client(base_url=a.base_url, timeout=600.0)
+    if a.email:
+        r = c.post("/api/auth/login", json={"email": a.email, "password": a.password or ""})
+        if r.status_code != 200:
+            print("login failed:", r.text[:200]); return 2
+    ds = a.graph_dataset
+    if not ds:
+        r = c.post("/api/datasets", json={"title": "Claim graphs, adjudicated (Danish)", "schema_id": f"{PRESET_GRAPH}@v1", "visibility": "private",
+                                          "description": "Per-paper causal graphs from K independent claim extractions of Danish register-data papers, adjudicated and merged by the danish-register-econ pipeline."})
+        r.raise_for_status(); ds = r.json()["id"]; print(f"created dataset {ds}")
+    for f in files:
+        artid = f.name.split(".")[0]
+        pdf_path = a.corpus / "pdfs" / f"{artid}.pdf"
+        obj = convert_graph(json.loads(f.read_text()))
+        if not pdf_path.exists():
+            print(f"  ✗ {artid}: no PDF"); continue
+        pdf = pdf_path.read_bytes()
+        if a.replace:
+            sha = hashlib.sha256(pdf).hexdigest()
+            dup = c.post("/api/documents/check-duplicates", json={"hashes": [sha], "preset_id": PRESET_GRAPH}).json().get("duplicates") or {}
+            for d in dup.get(sha) or []:
+                c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
+        r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
+                   data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{PRESET_GRAPH}@v1",
+                         "dataset_id": ds, "produced_by": PRODUCED_BY})
+        if r.status_code != 200:
+            print(f"  ✗ {artid}: HTTP {r.status_code} {r.text[:300]}"); continue
+        j = r.json()
+        print(f"  ✓ {artid}: {len(obj['records'])} edges → document {j.get('document_id')} · issues {j.get('n_issues', 0)}")
+    print("dataset:", ds)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--corpus", type=Path, default=CORPUS)
@@ -334,8 +404,14 @@ def main() -> int:
     ap.add_argument("--artids", nargs="*")
     ap.add_argument("--replace", action="store_true", help="delete the paper's earlier import first")
     ap.add_argument("--out", type=Path, help="write the converted JSON here and stop (no server)")
+    ap.add_argument("--graph", action="store_true",
+                    help="import the adjudicated per-paper claim graphs (extractions/paper_graph/<artid>.paperlens.json) "
+                         "under the claim-graph-adjudication preset instead of claims + tables")
+    ap.add_argument("--graph-dataset", help="dataset id for the graphs (created when omitted)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
+    if a.graph:
+        return import_graphs(a)
     artids = a.artids or processed_artids(a.corpus)
     if a.out:
         a.out.mkdir(parents=True, exist_ok=True)

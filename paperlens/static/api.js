@@ -143,6 +143,7 @@ export const api = {
   updatePaper: (docId, fields) => req(`/api/documents/${docId}/paper`, { method: "PATCH",
     headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
   documentView: (id) => req(`/api/documents/${id}/view`),
+  documentChain: (id) => req(`/api/documents/${id}/chain`),
   recordEvents: (id) => req(`/api/records/${id}/events`),
   // `bands` ("y0:y1,…", image pixels of `page`) restricts the search to the cited table row(s)
   locateValue: (id, value, page, bands, opts) =>

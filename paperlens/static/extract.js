@@ -1201,6 +1201,18 @@ function duplicateModal(dupIdx, dupMap) {
   });
 }
 
+// {k, calls} of the preset's call chain behind a schema id, or null for a plain extraction.
+async function chainPlanFor(schemaId) {
+  if (!schemaId) return null;
+  try {
+    const s = await api.schema(schemaId);
+    const ch = s && s.spec && s.spec.chain;
+    if (!ch || (ch.aggregate && ch.aggregate.kind === "external")) return null;
+    const k = ch.k || 1, calls = (ch.calls || []).length;
+    return k > 1 || calls ? { k, calls } : null;
+  } catch { return null; }
+}
+
 async function runBatch(indices, reset) {
   if (!FILES.length) return setStatus("add at least one PDF");
   if (!STATUS.length) STATUS = FILES.map(() => ({ state: "pending" }));
@@ -1212,6 +1224,25 @@ async function runBatch(indices, reset) {
   const runStart = new Date().toISOString();
   let anyQueued = false;
   const jobIds = [];                        // queued jobs of this round → tracked in review
+
+  // A preset with a call chain makes k runs + its follow-up calls per paper: say so (that is
+  // what the credits cost), and the logged-out trial — one call — asks before degrading.
+  let K1 = false;
+  const chainOf = await chainPlanFor(schemaId);
+  if (chainOf) {
+    const n = chainOf.k + chainOf.calls;
+    if (USE_TRIAL) {
+      if (!confirm(`This preset makes ${n} model calls per paper (${chainOf.k} run${chainOf.k === 1 ? "" : "s"}`
+          + (chainOf.calls ? ` + ${chainOf.calls} follow-up call${chainOf.calls === 1 ? "" : "s"}` : "") + `); the free trial runs one.\n\n`
+          + `OK: run this paper as a single call (k = 1).\nCancel: stop — sign in to run it on credits, or add your own API key.`)) {
+        setStatus("cancelled — sign in or add an API key to run the full chain"); $("#run").disabled = false; return;
+      }
+      K1 = true;
+    } else {
+      setStatus(`extracting ${indices.length} paper(s) · ${n} model calls each (${chainOf.k} run${chainOf.k === 1 ? "" : "s"}`
+        + (chainOf.calls ? ` + ${chainOf.calls} follow-up` : "") + `)…`);
+    }
+  }
 
   // We forward to the review panel only AFTER every paper is submitted (see end of fn).
   // ?since picks up each paper's document as it lands; ?jobs lets the panel show each
@@ -1240,6 +1271,7 @@ async function runBatch(indices, reset) {
     if (!pid || promptEdited() || ADD_DATASET) fd.append("prompt", $("#prompt").value);
     if (task === "workflow" && isMasemPreset(presetId) && !ADD_DATASET) fd.append("params", JSON.stringify(readMasemParams()));
     fd.append("schema_id", schemaId);
+    if (K1) fd.append("k_override", "1");                        // the trial's choice: one call
     if (ADD_DATASET) fd.append("dataset_id", ADD_DATASET.id);   // server attaches the result
     if (USE_CREDITS) {
       fd.append("use_credits", "true");          // server runs on its own key

@@ -136,3 +136,22 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
+
+
+def test_consume_and_refund_several_at_once() -> None:
+    """A chained paper costs k runs + its follow-ups: one atomic spend, one refund of the
+    calls it never made."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from paperlens import records
+    conn = records.connect(); records.init_db(conn)
+    u = auth.create_user(conn, f"credit-{uuid.uuid4().hex[:8]}", "pw")["id"]
+    credits.grant(conn, u, 3)
+    assert credits.try_consume(conn, u, model="m", n=4) is False and credits.balance(conn, u) == 3
+    assert credits.try_consume(conn, u, model="m", n=3) is True and credits.balance(conn, u) == 0
+    credits.refund(conn, u, n=2)
+    assert credits.balance(conn, u) == 2
+    assert credits.ledger(conn, u)[0]["delta"] == 2 and credits.ledger(conn, u)[1]["delta"] == -3
+    credits.refund(conn, u, n=0)
+    assert credits.balance(conn, u) == 2
+    conn.close()

@@ -210,6 +210,9 @@ export function isLow(vm, level) { return level != null && levelRank(vm, level) 
 // + server-side issues under this entry's path.
 export function entryNeeds(vm, EV, rec, issues) {
   let n = 0;
+  // a call chain's facts: every flag and every field the runs disagreed on wants a look
+  const ch = rec.chain || {};
+  n += ((ch.flags || []).length) + Object.values(ch.candidates || {}).filter((c) => Array.isArray(c) && c.length > 1).length;
   for (const v of Object.values(rec.confidence || {})) if (v && isLow(vm, v.level)) n += 1;
   for (const ch of Object.values(rec.child_confidence || {}))
     for (const v of Object.values(ch || {})) if (v && isLow(vm, v.level)) n += 1;
@@ -257,6 +260,12 @@ export function orderedEntries(vm, EV, recs, mode, issues) {
     withIdx.sort((a, b) => (rank(a.rec) - rank(b.rec)) || (a.i - b.i));
   } else if (mode === "flagged") {
     withIdx.sort((a, b) => ((b.rec.verification_status === "flagged") - (a.rec.verification_status === "flagged")) || (a.i - b.i));
+  } else if (mode === "contested") {
+    // a call chain: flagged entries first, then the ones fewer runs support
+    const flags = (r) => ((r.chain || {}).flags || []).length;
+    const share = (r) => { const s = (r.chain || {}).support; return s && s.k ? s.n / s.k : 1; };
+    withIdx.sort((a, b) => ((flags(b.rec) > 0) - (flags(a.rec) > 0)) || (share(a.rec) - share(b.rec))
+      || (entryNeeds(vm, EV, b.rec, issues) - entryNeeds(vm, EV, a.rec, issues)) || (a.i - b.i));
   }
   return withIdx;
 }

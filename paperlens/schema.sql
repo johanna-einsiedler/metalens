@@ -533,3 +533,18 @@ CREATE TABLE IF NOT EXISTS dataset_vocabulary (
 -- a companion dataset read from the other side of the same papers (crosscheck.py): claims ↔ tables
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS companion_dataset_id uuid REFERENCES dataset(id) ON DELETE SET NULL;
 
+
+-- ── call chains ───────────────────────────────────────────────────────────────
+-- A preset may run its extraction k times and/or follow it with text-only calls; every
+-- call's output is a document. The k runs are `role = 'run'` (hidden from listings, never
+-- in a dataset, no PDF or page images of their own — they read the group's final's), the
+-- reviewed document is `role = 'final'`; a group shares `group_id`. `chain` on the final
+-- holds the provenance of every call; on a record it holds what the engine knows about
+-- THAT entry (support, candidates, flags, trace) — a sibling of `extraction`, so release
+-- fingerprints and exports keep seeing only the model.
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS group_id   uuid;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS pass_index integer;             -- 0..k-1 for runs, NULL for the final
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS role       text NOT NULL DEFAULT 'final';   -- final | run
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS chain      jsonb;
+CREATE INDEX IF NOT EXISTS extraction_document_group_idx ON extraction_document(group_id) WHERE group_id IS NOT NULL;
+ALTER TABLE record ADD COLUMN IF NOT EXISTS chain jsonb;

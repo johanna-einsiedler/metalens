@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Generator
 
 import base64
+import json
 import hashlib
 import hmac
 import os
@@ -25,7 +26,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import admins, auth, brands, chain, contract, credits, enrich, extract, localmode, preset_spec, presets, providers, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -373,6 +374,13 @@ def artifact(key: str, t: str | None = None, db=Depends(get_db),
     return Response(content=store.get(key), media_type=media)
 
 
+def _refuse_run(db, document_id: str | None) -> None:
+    """A run of a call chain is evidence, not a reviewed document: it is read, never edited
+    or deleted on its own (its final carries the review and takes the runs with it)."""
+    if document_id and records.document_role(db, document_id) == "run":
+        raise HTTPException(status_code=409, detail="This is a run of a call chain: review and edit its final document instead.")
+
+
 class IngestBody(BaseModel):
     result: Any                       # canonical JSON (object or stringified)
     schema_id: str | None = None
@@ -401,16 +409,30 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
                                     body.dataset_id, filename=fn[0] if fn else None)
         # no stored PDF on the old copy either → plain JSON import below
     run = presets.resolve_run(db, schema_id=body.schema_id)
+    if run.schema_id:
+        with db.transaction():
+            records.upsert_schema(db, run.schema_id, run.field_defs)
+    payload = contract.parse_result_json(body.result)
+    if chain.is_chain_payload(payload):      # the k passes and their merged document, imported together
+        try:
+            out = chain.import_chain(db, payload, spec=run.spec or {}, schema_id=run.schema_id, pdf_bytes=None,
+                                     session_id=who.session_id, owner_user_id=who.user_id, filename=None)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if body.dataset_id:
+            records.assign_document_to_dataset(db, body.dataset_id, out["document_id"])
+        return {**out, "n_evidence": None, "doi": None}
     try:
         res = ingest(body.result, entries_key=run.entries_key)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    if run.schema_id:
-        with db.transaction():
-            records.upsert_schema(db, run.schema_id, run.field_defs)
+    # an externally aggregated document (chain.aggregate.kind = external) carries its own
+    # per-run facts; they become the engine's record facts at import
+    ext = chain.external_meta(payload, run.spec) if isinstance(payload, dict) and run.spec else None
     doc_id = records.persist(
         db, res, schema_id=run.schema_id, source_job_id=body.source_job_id,
         session_id=who.session_id, owner_user_id=who.user_id,
+        chain={"kind": "external", "imported": True} if ext is not None else None, record_chain=ext,
     )
     try:      # keep what was imported verbatim — the counterpart of a live run's model response
         import json as _json
@@ -473,12 +495,40 @@ def document_view(document_id: str, db=Depends(get_db),
     v = records.document_view(db, document_id)
     if v is None:
         raise HTTPException(status_code=404, detail="Document not found.")
-    # Local backend: sign page urls so the owner's <img> tags fetch through the gate.
+    # Local backend: sign page urls so the owner's <img> tags fetch through the gate (a run of
+    # a call chain shows its final's pages, so the token is the final's).
     if isinstance(storage.get_store(), storage.LocalObjectStore):
-        tok = _sign_artifact(document_id)
+        tok = _sign_artifact(v.get("pages_document_id") or document_id)
         for pg in v.get("pages", []):
             pg["url"] = f"{pg['url']}?t={tok}"
     return v
+
+
+@app.get("/api/documents/{document_id}/chain")
+def document_chain(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the call chain behind a document — its provenance, each run with its records
+    and quotes (the drill-down), and the trace from every final value back to a run's quote."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    group = records.chain_group(db, document_id)
+    if group is None:
+        return {"group_id": None, "chain": None, "runs": [], "trace": {}}
+    runs = []
+    for r in group["runs"]:
+        v = records.document_view(db, r["document_id"]) or {}
+        runs.append({**r, "model": next((x.get("extraction", {}).get("resolved_model") for x in v.get("records") or [] if isinstance(x.get("extraction"), dict)), None),
+                     "records": [{"id": x["id"], "entry_index": x["entry_index"], "field_values": x["field_values"]} for x in v.get("records") or []],
+                     "evidence": [{"record_id": e["record_id"], "entry_index": e["entry_index"], "page": e["page"],
+                                   "field_path": e["field_path"], "snippet": e["snippet"], "source": e["source"]} for e in v.get("evidence") or []]})
+    trace = {}
+    try:
+        key = storage.chain_key(group["final_id"] or document_id)
+        store = storage.get_store()
+        if store.exists(key):
+            trace = (json.loads(store.get(key).decode("utf-8")) or {}).get("trace") or {}
+    except Exception:  # noqa: BLE001 - the trace is a convenience; the facts live on the records
+        trace = {}
+    return {"group_id": group["group_id"], "final_id": group["final_id"], "chain": group["chain"], "runs": runs, "trace": trace}
 
 
 @app.get("/api/documents/{document_id}/locate")
@@ -497,7 +547,7 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
     store = storage.get_store()
-    key = storage.pdf_key(document_id)
+    key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
     pdf_bytes = store.get(key)
@@ -1706,9 +1756,11 @@ def add_to_dataset(dataset_id: str, body: DatasetAdd, db=Depends(get_db),
 @app.delete("/api/documents/{document_id}")
 def delete_document(document_id: str, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
-    """Owner-only: delete the document, its records/evidence, and its stored PDF + pages."""
+    """Owner-only: delete the document, its records/evidence, and its stored PDF + pages
+    (a call chain's final takes its runs with it; a run alone cannot be deleted)."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
+    _refuse_run(db, document_id)
     return records.delete_document(db, document_id)
 
 
@@ -1724,6 +1776,7 @@ def set_document_field(document_id: str, body: SetField, db=Depends(get_db),
     constant field once and have it apply to all entries. Logs a correction per record."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
+    _refuse_run(db, document_id)
     n = records.set_field_across_records(
         db, document_id, body.key, body.value, verifier_user_id=who.user_id,
         verifier_kind=("maintainer" if who.user_id else "community"))
@@ -1746,6 +1799,7 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
     that shares the paper."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
+    _refuse_run(db, document_id)
     row = db.execute("SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
                      (document_id,)).fetchone()
     if not row:
@@ -2094,10 +2148,12 @@ def records_provenance(body: ProvenanceBody, db=Depends(get_db),
 def delete_record(record_id: str, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Delete a single finding/record — owner only."""
-    if records.get_record(db, record_id) is None:
+    rec = records.get_record(db, record_id)
+    if rec is None:
         raise HTTPException(status_code=404, detail="Record not found.")
     if not records.records_all_owned(db, [record_id], who):
         raise HTTPException(status_code=403, detail="Not your record.")
+    _refuse_run(db, rec.get("document_id"))
     return records.delete_record(db, record_id)
 
 
@@ -2111,6 +2167,7 @@ def add_record(document_id: str, body: AddRecordBody, db=Depends(get_db),
     """Add a manual finding/record to a document — owner only."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=403, detail="Not your document.")
+    _refuse_run(db, document_id)
     try:
         return records.add_record(db, document_id, field_values=body.field_values,
                                   session_id=who.session_id, owner_user_id=who.user_id)
@@ -2155,6 +2212,7 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     mine = records.records_all_owned(db, [record_id], who)
     if not mine and (body.field_values is not None or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    _refuse_run(db, (records.get_record(db, record_id) or {}).get("document_id"))
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
@@ -2347,7 +2405,7 @@ def retry_job(job_id: str, db=Depends(get_db), who: Principal = Depends(principa
     """Re-run a failed extraction from its original stored args (PDF bytes + recipe) — no
     re-upload. Owner-gated; re-consumes a credit for credit runs like the first attempt."""
     ja = worker.job_args(job_id)
-    if not ja or ja["function"] != "extract_job":
+    if not ja or ja["function"] not in ("extract_job", "extract_chain_job"):
         raise HTTPException(status_code=410,
                             detail="This job's data has expired — re-upload the paper to retry.")
     kw = ja["kwargs"]
@@ -2358,7 +2416,7 @@ def retry_job(job_id: str, db=Depends(get_db), who: Principal = Depends(principa
     if kw.get("use_credits"):                     # mirror the extract endpoint's consume-at-enqueue
         cuid = kw.get("credit_user_id") or who.user_id
         cmodel = kw.get("model") or credits.credit_model()
-        if not (cuid and cmodel and credits.try_consume(db, cuid, model=cmodel)):
+        if not (cuid and cmodel and credits.try_consume(db, cuid, model=cmodel, n=int(kw.get("credit_cost") or 1))):
             raise HTTPException(status_code=402,
                                 detail="You have no Metalens credits left. Use your own API key instead.")
     new_id = worker.enqueue(ja["function"], *ja["args"], **kw)
@@ -2381,6 +2439,7 @@ def extract_endpoint(
     use_credits: bool = Form(False),
     dataset_id: str | None = Form(None),
     params: str | None = Form(None),
+    k_override: int | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2417,6 +2476,21 @@ def extract_endpoint(
 
     own_key = bool(api_key.strip()) or bool((base_url or "").strip())   # a self-hosted model needs no key
 
+    # A call chain costs k runs + its follow-up calls per paper and runs under the longer
+    # job; ``k_override = 1`` (the trial's choice) makes it a single call. A follow-up may
+    # name a model, but one key per paper means one provider.
+    plan = preset_spec.chain_plan(run.spec) if run.spec else None
+    if plan and k_override == 1 and not plan["calls"]:
+        plan = None
+    n_calls = (plan["k"] + len(plan["calls"])) if plan else 1
+    job_fn = "extract_chain_job" if plan else "extract_job"
+    if plan and own_key:
+        for c in plan["calls"]:
+            if c.get("model") and providers.get_provider(c["model"], base_url) != providers.get_provider(model or c["model"], base_url):
+                raise HTTPException(status_code=422, detail=(
+                    f"Follow-up call {c['id']!r} names a model of another provider than the runs; "
+                    "one API key per paper means one provider (v1)."))
+
     # Is this a keyless request this deployment can actually serve? ``credits.offered()``
     # gates the whole story: with no server key configured there is nothing to run on, so
     # such a request falls through to the legacy path (enqueue what the caller supplied)
@@ -2434,6 +2508,12 @@ def extract_endpoint(
     if keyless_available and not who.user_id:
         server_model = credits.credit_model()
         server_key = credits.server_key_for(providers.get_provider(server_model, None))
+        if plan:
+            raise HTTPException(status_code=402, detail=(
+                f"This preset makes {n_calls} model calls per paper ({plan['k']} runs"
+                + (f" + {len(plan['calls'])} follow-up call{'s' if len(plan['calls']) != 1 else ''}" if plan["calls"] else "")
+                + "), more than the free trial covers. Sign in to run it on credits, add your own API key, "
+                "or run this paper as a single call (k = 1)."))
         if retention.trial_used(db, who.session_id) >= ANON_FREE_EXTRACTIONS:
             raise HTTPException(status_code=402, detail=(
                 f"You’ve used your free trial ({ANON_FREE_EXTRACTIONS} paper). Create a free "
@@ -2453,16 +2533,16 @@ def extract_endpoint(
             model=server_model, api_key="", base_url=None, use_text=use_text,
             schema_id=schema_id, session_id=who.session_id, owner_user_id=None,
             filename=fname, params=run.params, prompt_edited=run.prompt_edited,
-            use_credits=True, credit_user_id=None,
+            use_credits=True, credit_user_id=None, k_override=1,
             dataset_id=dataset_id, _expires=1800)
         if job_id:
             return {"queued": True, "job_id": job_id, "schema_id": schema_id}
         try:                                   # Redis down → run it inline
-            result = extract.run_extraction(
+            result = extract.run(
                 db, data, prompt, model=server_model, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
                 owner_user_id=None, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited)
+                prompt_edited=run.prompt_edited, k_override=1)
             if dataset_id:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         except ValueError as exc:
@@ -2492,54 +2572,64 @@ def extract_endpoint(
         if not cmodel or not server_key:
             raise HTTPException(status_code=400,
                                 detail="Metalens credits aren’t available right now — use your own API key.")
-        if not credits.try_consume(db, who.user_id, model=cmodel):
-            raise HTTPException(status_code=402,
-                                detail="You have no Metalens credits left. Use your own API key instead.")
+        if plan:
+            for c in plan["calls"]:
+                if c.get("model") and not credits.is_allowed_model(c["model"]):
+                    raise HTTPException(status_code=400, detail=(
+                        f"Follow-up call {c['id']!r} names model {c['model']!r}, which Metalens credits do not run — use your own API key."))
+        if not credits.try_consume(db, who.user_id, model=cmodel, n=n_calls):
+            raise HTTPException(status_code=402, detail=(
+                f"This paper needs {n_calls} credits ({plan['k']} runs + {len(plan['calls'])} follow-up calls) and you have "
+                f"{credits.balance(db, who.user_id)} left. Use your own API key instead." if plan else
+                "You have no Metalens credits left. Use your own API key instead."))
         job_id = worker.enqueue(
-            "extract_job", base64.b64encode(data).decode(), prompt,
+            job_fn, base64.b64encode(data).decode(), prompt,
             model=cmodel, api_key="", base_url=None, use_text=use_text, schema_id=schema_id,
             session_id=who.session_id, owner_user_id=who.user_id, filename=fname,
-            params=run.params, prompt_edited=run.prompt_edited,
+            params=run.params, prompt_edited=run.prompt_edited, credit_cost=n_calls, k_override=k_override,
             use_credits=True, credit_user_id=who.user_id, dataset_id=dataset_id, _expires=1800)
         if job_id:
-            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id, "n_calls": n_calls}
         # Redis down → run synchronously (no Redis payload to protect anyway)
         try:
-            result = extract.run_extraction(
+            result = extract.run(
                 db, data, prompt, model=cmodel, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
                 owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited)
+                prompt_edited=run.prompt_edited, k_override=k_override)
+            made = result.get("n_calls") if isinstance(result, dict) else None
+            if isinstance(made, int) and made < n_calls:
+                credits.refund(db, who.user_id, model=cmodel, n=n_calls - made)
             if dataset_id:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         except ValueError as exc:
-            credits.refund(db, who.user_id, model=cmodel)
+            credits.refund(db, who.user_id, model=cmodel, n=n_calls)
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception as exc:
-            credits.refund(db, who.user_id, model=cmodel)
+            credits.refund(db, who.user_id, model=cmodel, n=n_calls)
             raise HTTPException(status_code=502,
                                 detail=f"Extraction failed: {providers.extract_provider_message(exc)}")
         return {"queued": False, "credits": credits.summary(db, who.user_id), **result}
 
     job_id = worker.enqueue(
-        "extract_job", base64.b64encode(data).decode(), prompt,
+        job_fn, base64.b64encode(data).decode(), prompt,
         model=model, api_key=api_key, base_url=base_url, use_text=use_text,
         schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
-        filename=fname, dataset_id=dataset_id,
+        filename=fname, dataset_id=dataset_id, k_override=k_override,
         params=run.params, prompt_edited=run.prompt_edited,
         # discard the job if no worker consumes it within 30 min (avoid running a
         # long-stale extraction the user has already abandoned — see delayed=… logs)
         _expires=1800)
     if job_id:
-        return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+        return {"queued": True, "job_id": job_id, "schema_id": schema_id, "n_calls": n_calls}
 
     # Synchronous fallback (Redis down): translate failures into clean responses.
     try:
-        result = extract.run_extraction(
+        result = extract.run(
             db, data, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited)
+            prompt_edited=run.prompt_edited, k_override=k_override)
         if dataset_id:
             records.assign_document_to_dataset(db, dataset_id, result["document_id"])
     except ValueError as exc:                 # bad/empty PDF, unparseable model output
@@ -2576,6 +2666,20 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
 
     made_by = (produced_by or "").strip()[:200] or "imported"
 
+    if chain.is_chain_payload(canonical):    # the k passes and their merged document, with the PDF
+        try:
+            out = chain.import_chain(db, canonical, spec=run.spec or {}, schema_id=schema_id, pdf_bytes=data,
+                                     session_id=who.session_id, owner_user_id=who.user_id, filename=filename,
+                                     produced_by=made_by)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Import failed: {exc}")
+        if dataset_id:
+            records.assign_document_to_dataset(db, dataset_id, out["document_id"])
+        return {"queued": False, **out}
+    ext = chain.external_meta(canonical, run.spec) if isinstance(canonical, dict) and run.spec else None
+
     def _supplied(pdf_bytes, prompt, **kw):
         return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model=made_by)
 
@@ -2583,7 +2687,8 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
         res = extract.run_extraction(
             db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=filename, complete=_supplied,
-            spec=run.spec)
+            spec=run.spec, chain={"kind": "external", "imported": True} if ext is not None else None,
+            record_chain=ext)
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:

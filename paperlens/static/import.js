@@ -127,6 +127,7 @@ function currentSchemaId() {
 
 // ── file shapes → one canonical result per paper ────────────────────────────────────────
 function classify(obj) {
+  if (obj && Array.isArray(obj.passes) && obj.passes.length && obj.aggregate && typeof obj.aggregate === "object" && !Array.isArray(obj.aggregate)) return "chain";
   if (obj && obj.results && Array.isArray(obj.results.papers)) return "dataset";
   if (obj && Array.isArray(obj.papers) && obj.papers.some((p) => p && (Array.isArray(p.records) || Array.isArray(p.entries)))) return "datasetfile";
   if (obj && Array.isArray(obj.entries) && (obj.filename || RAW_REPLY.some((k) => obj[k]))) return "pipeline";

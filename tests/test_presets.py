@@ -15,7 +15,8 @@ from paperlens import preset_spec as ps, presets  # noqa: E402
 
 
 def test_all_presets_discovered() -> None:
-    assert set(presets.load_all()) == {"masem-direct", "masem-indirect", "summarize", "human-ai-collab", "register-claims", "register-tables"}
+    assert set(presets.load_all()) == {"masem-direct", "masem-indirect", "summarize", "human-ai-collab", "register-claims", "register-tables",
+                                       "claim-graph-adjudication"}
 
 
 def test_schema_row_carries_spec_and_legacy_grammar() -> None:

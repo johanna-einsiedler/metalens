@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
+import json
 import os
 from typing import Any
 
-from arq import create_pool, cron
+from arq import Retry, create_pool, cron
 from arq.connections import RedisSettings
+from arq.worker import func
 
 from . import enrich, records
 
@@ -69,65 +72,103 @@ async def ingest_task(ctx: dict, result: Any, *, schema_id: str | None = None,
             "n_records": len(res.records), "doi": res.doi}
 
 
-_EXTRACT_MAX_TRIES = 3   # retry extraction with arq's backoff (spreads out rate-limited calls)
+_EXTRACT_MAX_TRIES = 3   # transient provider failures are re-queued with backoff (Retry); others end the job
+_CHAIN_TIMEOUT = 1800    # a chained paper makes k + c model calls; the plain job keeps the 5-minute cap
 
 
-async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
-                      api_key: str = "", base_url: str | None = None,
-                      use_text: bool = False, schema_id: str | None = None,
-                      session_id: str | None = None, owner_user_id: str | None = None,
-                      filename: str | None = None, use_credits: bool = False,
-                      credit_user_id: str | None = None,
-                      dataset_id: str | None = None, params: dict | None = None,
-                      prompt_edited: bool = False) -> dict:
-    """Full PDF extraction as a durable job (render -> LLM -> highlight -> records).
+def _progress_key(job_id: str) -> str:
+    return f"arq:progress:{job_id}"
+
+
+async def _set_progress(ctx: dict, stage: str) -> None:
+    redis, job_id = ctx.get("redis"), ctx.get("job_id")
+    if redis is None or not job_id:
+        return
+    try:
+        await redis.set(_progress_key(job_id), json.dumps({"stage": stage}), ex=3600)
+    except Exception:  # noqa: BLE001 - progress is advisory
+        pass
+
+
+async def _extract_body(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
+                        api_key: str = "", base_url: str | None = None,
+                        use_text: bool = False, schema_id: str | None = None,
+                        session_id: str | None = None, owner_user_id: str | None = None,
+                        filename: str | None = None, use_credits: bool = False,
+                        credit_user_id: str | None = None,
+                        dataset_id: str | None = None, params: dict | None = None,
+                        prompt_edited: bool = False, credit_cost: int = 1,
+                        k_override: int | None = None) -> dict:
+    """Full PDF extraction as a durable job (render -> model call(s) -> highlight -> records);
+    a preset with a call chain runs k runs and its follow-ups here (``extract.run`` decides).
 
     For ``use_credits`` runs the api_key is EMPTY in the payload — resolved here from the
-    worker's own env — so the server key never rests in Redis. A consumed credit is
-    refunded only on the FINAL give-up (arq retries earlier attempts with backoff).
+    worker's own env — so the server key never rests in Redis. ``credit_cost`` credits were
+    consumed at enqueue (one per model call the chain will make); a transient provider
+    failure re-queues the job (``Retry``), any other failure refunds them all, and a chain
+    that made fewer calls than planned refunds the difference.
+
+    The model calls are synchronous, so they run in a worker thread: the event loop stays
+    free for arq's heartbeat, the per-function timeout and ``Job.abort``.
 
     NOTE: for own-key runs the browser api_key still transits the job payload; productionizing
     should tokenize/encrypt it (see plan §privacy).
     """
     import base64
-    from . import extract
+    from . import extract, providers
     pdf_bytes = base64.b64decode(pdf_b64)
     if use_credits and not api_key:
-        from . import credits, providers
+        from . import credits
         provider = providers.get_provider(model, None)
         api_key = credits.server_key_for(provider) or ""
         if not api_key:
             # Misconfiguration (the worker's env has no server key for this model's
-            # provider), not a transient error. Without this guard we'd send the
-            # providers.py "dummy-key" placeholder and get a misleading 401 against
-            # the wrong endpoint, three times over. Fail fast with a clear message;
-            # refund the consumed credit on the final attempt (mirrors the except
-            # block below so retries don't over-refund).
-            if credit_user_id and ctx.get("job_try", 1) >= _EXTRACT_MAX_TRIES:
+            # provider), not a transient error: fail fast with a clear message and give the
+            # credits back — a retry cannot fix an env.
+            if credit_user_id:
                 rconn = records.connect()
                 try:
-                    credits.refund(rconn, credit_user_id, model=model)
+                    credits.refund(rconn, credit_user_id, model=model, n=credit_cost)
                 finally:
                     rconn.close()
             raise RuntimeError(
                 f"Metalens credit run: no server API key configured for provider "
-                f"{provider!r} in the worker env (credit refunded on final attempt).")
+                f"{provider!r} in the worker env (credits refunded).")
     conn = records.connect()
-    try:
-        result = extract.run_extraction(
-            conn, pdf_bytes, prompt, model=model, api_key=api_key, base_url=base_url,
-            use_text=use_text, schema_id=schema_id, session_id=session_id,
-            owner_user_id=owner_user_id, source_job_id=ctx.get("job_id"),
-            filename=filename, params=params, prompt_edited=prompt_edited)
-    except Exception:
-        if use_credits and credit_user_id and ctx.get("job_try", 1) >= _EXTRACT_MAX_TRIES:
+    loop = asyncio.get_running_loop()
+
+    def progress(stage: str) -> None:            # called from the worker thread
+        loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_set_progress(ctx, stage)))
+
+    def _refund(n: int) -> None:
+        if use_credits and credit_user_id and n > 0:
             from . import credits
             try:
-                credits.refund(conn, credit_user_id, model=model)
-            except Exception:
+                credits.refund(conn, credit_user_id, model=model, n=n)
+            except Exception:  # noqa: BLE001
                 pass
+
+    try:
+        result = await loop.run_in_executor(None, functools.partial(
+            extract.run, conn, pdf_bytes, prompt, model=model, api_key=api_key, base_url=base_url,
+            use_text=use_text, schema_id=schema_id, session_id=session_id,
+            owner_user_id=owner_user_id, source_job_id=ctx.get("job_id"),
+            filename=filename, params=params, prompt_edited=prompt_edited,
+            k_override=k_override, progress=progress))
+    except asyncio.CancelledError:               # aborted from the UI: nothing was delivered
+        _refund(credit_cost)
+        raise
+    except Exception as exc:
+        if providers.is_transient(exc) and ctx.get("job_try", 1) < _EXTRACT_MAX_TRIES:
+            raise Retry(defer=30 * int(ctx.get("job_try", 1)))
+        _refund(credit_cost)
         raise
     else:
+        # a chain that made fewer calls than planned (a follow-up skipped, a run failed) gives
+        # the unused credits back; a plain extraction made exactly the one it was charged for
+        made = result.get("n_calls") if isinstance(result, dict) else None
+        if isinstance(made, int) and made < credit_cost:
+            _refund(credit_cost - made)
         # Add-papers: attach the finished document to its target dataset here, so it lands
         # in the dataset whether the run was queued or synchronous (the browser can't do it
         # for queued jobs — it has no document_id until the worker finishes). Best-effort:
@@ -140,6 +181,16 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
         return result
     finally:
         conn.close()
+
+
+async def extract_job(ctx: dict, pdf_b64: str, prompt: str, **kw) -> dict:
+    """A single-call extraction (the 5-minute job)."""
+    return await _extract_body(ctx, pdf_b64, prompt, **kw)
+
+
+async def extract_chain_job(ctx: dict, pdf_b64: str, prompt: str, **kw) -> dict:
+    """A chained extraction (k runs + follow-ups): the same body under a longer timeout."""
+    return await _extract_body(ctx, pdf_b64, prompt, **kw)
 
 
 async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
@@ -185,7 +236,8 @@ async def github_sync_task(ctx: dict) -> dict:
 
 
 class WorkerSettings:
-    functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
+    functions = [enrich_paper_task, ingest_task, extract_job,
+                 func(extract_chain_job, timeout=_CHAIN_TIMEOUT), publish_dataset_task]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]
     redis_settings = redis_settings()
@@ -232,6 +284,12 @@ async def _job_status(job_id: str) -> dict:
         status = await job.status()
         info = await job.result_info()
         out: dict[str, Any] = {"job_id": job_id, "status": str(status)}
+        try:                                   # a chain reports which call it is on
+            p = await pool.get(_progress_key(job_id))
+            if p:
+                out["progress"] = json.loads(p)
+        except Exception:  # noqa: BLE001
+            pass
         if info is not None:
             out["success"] = info.success
             out["result"] = info.result if info.success else None
