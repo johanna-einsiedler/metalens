@@ -104,6 +104,7 @@ function render() {
       </div></div>
     <div class="wf-actions" style="justify-content:flex-start;flex-wrap:wrap">
       <button class="btn btn-primary" id="pe-save">${owned ? "Save changes" : "Create preset"}</button>
+      ${LOADED && LOADED.id ? `<a class="btn btn-ghost" href="/api/presets/${encodeURIComponent(LOADED.id)}/kit" title="the prompt, output schema and import template — to run this preset with your own agent and import the results">⬇ Agent kit</a>` : ""}
       ${owned ? '<button class="btn btn-ghost" id="pe-del">Delete</button>' : ""}
       <a class="btn btn-ghost" href="/projects">Cancel</a>
       <span id="pe-msg" class="muted" style="align-self:center"></span>

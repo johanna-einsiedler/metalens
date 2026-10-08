@@ -106,3 +106,92 @@ def test_passes_and_aggregate_import_resolves_refs(monkeypatch) -> None:
             records.delete_document(conn, did)
         assert conn.execute("SELECT count(*) FROM extraction_document WHERE session_id = %s", (sess,)).fetchone()[0] == 0
     conn.close()
+
+
+def test_passes_of_one_shape_behind_an_aggregate_of_another(monkeypatch) -> None:
+    """The memo's picture: claim runs (register-claims) as passes, the merged graph of edges
+    (claim-graph-adjudication) as the aggregate citing them by ref. Edges inherit the runs'
+    quotes, support and candidates come from the runs, and the runs are filed under their
+    own preset."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    import tempfile
+    conn = records.connect(); records.init_db(conn)
+    cspec = presets.load_all()["register-claims"]; csid = preset_spec.schema_id(cspec)
+    gspec = presets.load_all()["claim-graph-adjudication"]; gsid = preset_spec.schema_id(gspec)
+    for sp, si in ((cspec, csid), (gspec, gsid)):
+        with conn.transaction():
+            records.upsert_schema(conn, si, preset_spec.field_defs_for(sp))
+    sess = f"gi-{uuid.uuid4().hex[:6]}"
+    pm = {"title": "Edges from claims", "doi": None, "year": 2021, "authors": ["A"], "journal": None}
+
+    def claim(cid, cause, effect, sign):
+        return {"claim_id": cid, "anchor_id": "A1", "type": "edge", "statement": f"{cause} affects {effect}", "cause": cause,
+                "effect": effect, "sign": sign, "anchor_quote": "Nonfatal shocks have no meaningful effects on spousal labor supply",
+                "support": "explicit", "scope_setting": "Denmark", "scope_period": "1990-2010", "scope_population": "spouses",
+                "scope_identification": "event study", "notes": None, "results": []}
+    runs = [{"paper_metadata": pm, "claims": [claim("S1", "nonfatal shocks", "spousal labor supply", "0"), claim("S2", "fatal shocks", "spousal labor supply", "+")],
+             "evidence": [{"snippet": "Nonfatal shocks have no meaningful effects on spousal labor supply", "page": 1, "source": None, "field": "claims[0]"},
+                          {"snippet": "spouses increase their labor supply after a fatal event", "page": 1, "source": None, "field": "claims[1]"}]},
+            {"paper_metadata": pm, "claims": [claim("S1", "severe nonfatal health shocks", "spousal labor supply", "0")],
+             "evidence": [{"snippet": "Nonfatal shocks have no meaningful effects on spousal labor supply", "page": 1, "source": None, "field": "claims[0]"}]}]
+    agg = {"paper_metadata": {**pm, "k": 2, "run_names": ["a", "b"]},
+           "records": [{"edge_id": "V1->V2", "cause": "severe nonfatal health shocks", "effect": "spousal labor supply", "sign": "0",
+                        "direction": "agreed", "support": "2/2", "tier": "unanimous", "kind": "causal", "design_basis": "identified",
+                        "design": "event_study", "flags": None, "headline_cells": [], "neighbours": [],
+                        "runs": [{"run": "a", "cause_wording": "nonfatal shocks", "effect_wording": "spousal labor supply", "run_sign": "0", "run_direction": "V1->V2", "claims": "S1"},
+                                 {"run": "b", "cause_wording": "severe nonfatal health shocks", "effect_wording": "spousal labor supply", "run_sign": "0", "run_direction": "V1->V2", "claims": "S1"}]},
+                       {"edge_id": "V3->V2", "cause": "fatal shocks", "effect": "spousal labor supply", "sign": "+", "direction": "agreed",
+                        "support": "1/2", "tier": "backed", "kind": "causal", "design_basis": "identified", "design": "event_study",
+                        "flags": "existence", "headline_cells": [], "neighbours": [],
+                        "runs": [{"run": "a", "cause_wording": "fatal shocks", "effect_wording": "spousal labor supply", "run_sign": "+", "run_direction": "V3->V2", "claims": "S2"}]}],
+           "evidence": [{"ref": ["r1.claims[0]", "r2.claims[0]"], "field": "records[0]"}, {"ref": "r1.claims[1]", "field": "records[1]"}]}
+    import fitz
+    d = fitz.open(); pg = d.new_page()
+    pg.insert_text((40, 80), "Nonfatal shocks have no meaningful effects on spousal labor supply.", fontsize=9)
+    pg.insert_text((40, 110), "In contrast, spouses increase their labor supply after a fatal event.", fontsize=9)
+    pdf = d.tobytes(); d.close()
+    with tempfile.TemporaryDirectory() as tmp:
+        store = storage.LocalObjectStore(root=tmp)
+        out = chain.import_chain(conn, {"passes": runs, "aggregate": agg}, spec=gspec, schema_id=gsid, pdf_bytes=pdf, session_id=sess,
+                                 owner_user_id=None, filename="edges.pdf", produced_by="pipeline", store=store,
+                                 passes_spec=cspec, passes_schema_id=csid)
+        v = records.document_view(conn, out["document_id"], store=store)
+        assert v["schema_id"] == gsid and v["chain"]["passes_schema_id"] == csid
+        e0, e1 = v["records"]
+        assert e0["chain"]["support"] == {"n": 2, "k": 2} and e1["chain"]["support"] == {"n": 1, "k": 2}
+        assert "minority" in e1["chain"]["flags"]
+        assert [x["value"] for x in e0["chain"]["candidates"]["cause"]] == ["nonfatal shocks", "severe nonfatal health shocks"]   # the runs' wordings
+        quotes = {(e["field_path"], e["snippet"]) for e in v["evidence"]}
+        assert ("records[0]", "Nonfatal shocks have no meaningful effects on spousal labor supply") in quotes
+        assert ("records[1]", "spouses increase their labor supply after a fatal event") in quotes
+        assert any(e["rect"] for e in v["evidence"])
+        assert any(e["source"].endswith("(r1, r2)") for e in v["evidence"])
+        for rid in out["run_document_ids"]:
+            rv = records.document_view(conn, rid, store=store)
+            assert rv["schema_id"] == csid and rv["read_only"] is True and rv["records"][0]["field_values"]["claim_id"] == "S1"
+        assert e0["chain"]["trace"][0]["ref"] == "r1.claims[0]" and e0["chain"]["runs"][0]["entry_index"] == 0
+        records.delete_document(conn, out["document_id"])
+    conn.close()
+
+
+def test_agent_kit_download() -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    import io
+    import zipfile
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod
+    c = TestClient(appmod.app)
+    r = c.get("/api/presets/masem-direct/kit")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/zip")
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = {n.split("/", 1)[1] for n in z.namelist()}
+    assert {"README.md", "preset.json", "output_schema.json", "prompt.md"} <= names and "chain_template.json" not in names
+    readme = z.read("masem-direct-kit/README.md").decode()
+    assert preset_spec.schema_id(presets.load_all()["masem-direct"]) in readme and "/api/ingest-pdf" in readme
+    assert "# EVIDENCE RULES" in z.read("masem-direct-kit/prompt.md").decode()
+    r = c.get("/api/presets/claim-graph-adjudication/kit")
+    names = {n.split("/", 1)[1] for n in zipfile.ZipFile(io.BytesIO(r.content)).namelist()}
+    assert "chain_template.json" in names and "prompt.md" not in names
+    assert c.get("/api/presets/no-such-preset/kit").status_code == 404

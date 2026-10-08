@@ -390,6 +390,9 @@ class IngestBody(BaseModel):
     # (owned) document so page images and highlights carry over — a replace must never
     # lose the PDF just because the JSON came alone.
     pdf_from_document_id: str | None = None
+    # a {passes, aggregate} chain whose passes have another shape than the aggregate: the
+    # preset (schema id) the passes are read with
+    passes_schema_id: str | None = None
 
 
 @app.post("/api/ingest")
@@ -406,7 +409,8 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
             fn = db.execute("SELECT filename FROM extraction_document WHERE id = %s::uuid",
                             (body.pdf_from_document_id,)).fetchone()
             return _ingest_with_pdf(db, who, store.get(key), body.result, body.schema_id,
-                                    body.dataset_id, filename=fn[0] if fn else None)
+                                    body.dataset_id, filename=fn[0] if fn else None,
+                                    passes_schema_id=body.passes_schema_id)
         # no stored PDF on the old copy either → plain JSON import below
     run = presets.resolve_run(db, schema_id=body.schema_id)
     if run.schema_id:
@@ -414,9 +418,14 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
             records.upsert_schema(db, run.schema_id, run.field_defs)
     payload = contract.parse_result_json(body.result)
     if chain.is_chain_payload(payload):      # the k passes and their merged document, imported together
+        prun = presets.resolve_run(db, schema_id=body.passes_schema_id) if body.passes_schema_id else None
+        if prun and prun.schema_id:
+            with db.transaction():
+                records.upsert_schema(db, prun.schema_id, prun.field_defs)
         try:
             out = chain.import_chain(db, payload, spec=run.spec or {}, schema_id=run.schema_id, pdf_bytes=None,
-                                     session_id=who.session_id, owner_user_id=who.user_id, filename=None)
+                                     session_id=who.session_id, owner_user_id=who.user_id, filename=None,
+                                     passes_spec=prun.spec if prun else None, passes_schema_id=prun.schema_id if prun else None)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         if body.dataset_id:
@@ -2642,7 +2651,7 @@ def extract_endpoint(
 
 def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
                      dataset_id: str | None, *, filename: str | None,
-                     produced_by: str | None = None) -> dict:
+                     produced_by: str | None = None, passes_schema_id: str | None = None) -> dict:
     """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
     persist a full viewable document — /api/extract minus the model call."""
     import json as _json
@@ -2667,10 +2676,15 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
     made_by = (produced_by or "").strip()[:200] or "imported"
 
     if chain.is_chain_payload(canonical):    # the k passes and their merged document, with the PDF
+        prun = presets.resolve_run(db, schema_id=passes_schema_id) if passes_schema_id else None
+        if prun and prun.schema_id:
+            with db.transaction():
+                records.upsert_schema(db, prun.schema_id, prun.field_defs)
         try:
             out = chain.import_chain(db, canonical, spec=run.spec or {}, schema_id=schema_id, pdf_bytes=data,
                                      session_id=who.session_id, owner_user_id=who.user_id, filename=filename,
-                                     produced_by=made_by)
+                                     produced_by=made_by, passes_spec=prun.spec if prun else None,
+                                     passes_schema_id=prun.schema_id if prun else None)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception as exc:
@@ -2705,6 +2719,7 @@ def ingest_pdf_endpoint(
     schema_id: str | None = Form(None),
     dataset_id: str | None = Form(None),
     produced_by: str | None = Form(None),
+    passes_schema_id: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2718,7 +2733,7 @@ def ingest_pdf_endpoint(
     run stores its model, so an imported record can say where it came from; without it the
     record only says "imported"."""
     return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
-                            filename=pdf.filename, produced_by=produced_by)
+                            filename=pdf.filename, produced_by=produced_by, passes_schema_id=passes_schema_id)
 
 
 @app.get("/api/papers/provenance")
@@ -2977,6 +2992,95 @@ def preset_prompt(preset_id: str, db=Depends(get_db),
     if p is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
     return {"preset_id": preset_id, "prompt": p}
+
+
+@app.get("/api/presets/{preset_id}/kit")
+def preset_kit(preset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> Response:
+    """Everything an agent run OUTSIDE Metalens needs to produce importable results for this
+    preset, as one zip: the declaration, the rendered prompt (every follow-up call's too, with
+    ``${previous}`` left to fill), the output schema, a template document and a README that
+    says how to import — a single document, or a {passes, aggregate} chain by reference."""
+    if not presets.is_visible(db, preset_id, who):
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    meta = presets.get(preset_id, conn=db)
+    if meta is None or not meta.get("spec"):
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    import io
+    import zipfile
+    spec = meta["spec"]
+    sid = preset_spec.schema_id(spec)
+    mode = (spec.get("meta") or {}).get("mode", "extraction")
+    plan = preset_spec.chain_plan(spec)
+    ext = preset_spec.chain_external(spec)
+    key = (spec.get("entries") or {}).get("key", "records")
+    files: dict[str, str] = {}
+    files["preset.json"] = json.dumps(spec, indent=2, ensure_ascii=False) + "\n"
+    files["output_schema.json"] = json.dumps(preset_spec.derive_output_schema(spec), indent=2, ensure_ascii=False) + "\n"
+    if mode != "import":
+        files["prompt.md"] = presets.prompt_for(preset_id, conn=db) or ""
+    if plan:
+        for call in plan["calls"]:
+            files[f"calls/{call['id']}.prompt.md"] = (
+                "<!-- A follow-up call: it reads the earlier outputs, not the paper. Replace ${previous} with the\n"
+                "     earlier outputs rendered as `r1.<key>[i]: {...}` lines (one per entry, quotes beneath) and\n"
+                "     earlier calls as `<call id>.<key>[i]: {...}`. Its evidence cites those ids by ref. -->\n\n"
+                + preset_spec.render_call_prompt(spec, call, None, "${previous}"))
+    if plan or ext:
+        skel = preset_spec.derive_output_schema(spec)
+        skel["evidence"] = [{"ref": [f"r1.{key}[0]", f"r2.{key}[0]"], "field": f"{key}[0]"},
+                            {"ref": f"r1.{key}[0].<field>", "field": f"{key}[0].<field>"}]
+        files["chain_template.json"] = json.dumps({"passes": ["<one canonical document per run, in run order (r1, r2, …)>"],
+                                                   "aggregate": skel}, indent=2, ensure_ascii=False) + "\n"
+    title = (spec.get("meta") or {}).get("title") or preset_id
+    lines = [f"# {title} — agent kit", "",
+             f"Preset `{preset_id}`, schema id `{sid}` (what you pass as `schema_id` when importing).", "",
+             "## Files", "",
+             "- `preset.json` — the full declaration (fields, evidence and confidence policy, review layout).",
+             "- `output_schema.json` — the JSON skeleton a run must return: type tokens stand for values; `a|b` means one of those."]
+    if "prompt.md" in files:
+        lines.append("- `prompt.md` — the complete prompt a Metalens run would send, generated sections included. Give it to your "
+                     "model or agent with the PDF (as page images or page-labelled text); cite PDF page numbers, never printed ones.")
+    else:
+        lines.append("- (no prompt: this preset imports data produced by a pipeline of your own; the schema is the contract)")
+    if plan:
+        lines.append(f"- `calls/<id>.prompt.md` — the follow-up call(s) of this preset's chain (k = {plan['k']} runs of `prompt.md` first). "
+                     "They read the earlier outputs (`${previous}`) and cite them by reference instead of quoting the paper.")
+    if plan or ext:
+        lines.append("- `chain_template.json` — the shape to import a chain: the k run documents under `passes` and the merged "
+                     "document under `aggregate`, whose evidence items are refs.")
+    lines += ["", "## Rules every document must keep", "",
+              f"- One JSON object: `paper_metadata`, `{key}` (one element per {(spec.get('entries') or {}).get('label', 'entry')}) and a flat `evidence` array.",
+              "- Every evidence item: `{\"snippet\": <verbatim text>, \"page\": <1-based PDF page as an integer>, \"source\": <table/figure or null>, "
+              f"\"field\": \"{key}[i]\" | \"{key}[i].<field>\" | \"{key}[i].<child>[j].<field>\"}}` — `field` may be a list when one quote supports several values.",
+              "- Fields declared `evidence: value` need their own quote; `row` fields are covered by the entry's quote; coded values (enums) "
+              "quote the passage that justifies the code.",
+              "- Use JSON numbers for numbers, `null` for what the paper does not report, the exact allowed values for enums.", "",
+              "## Importing", "",
+              "- In the app: **Import** → drop the JSON (or JSON + PDF) → pick this preset. With the PDF the quotes are located and "
+              "highlighted; without it the records import with page numbers only.",
+              f"- By API: `POST /api/ingest-pdf` (multipart: `pdf`, `result` = the JSON, `schema_id` = `{sid}`, optional `dataset_id`, "
+              "`produced_by` = your model/pipeline name) or `POST /api/ingest` (JSON body `{result, schema_id, dataset_id}`) when there is no PDF.",
+              "- A re-import of a corrected JSON for a paper already uploaded: `pdf_from_document_id` = that document, so the PDF carries over."]
+    if plan or ext:
+        lines += ["", "## Importing a chain (several runs + their merged document)", "",
+                  "- Post `{\"passes\": [run1, run2, …], \"aggregate\": merged}` as the `result`. Each pass is a complete document with real "
+                  "quotes. The aggregate cites them BY REFERENCE: `{\"ref\": \"r2.<key>[3].sign\", \"field\": \"<key>[1].sign\"}` — `r<n>` is "
+                  "pass n (1-based), the path is where the supporting entry or value sits in that pass; an entry-level ref inherits every "
+                  "quote of that entry; `ref` may be a list. Never put `snippet` or `page` on an aggregate item: quotes are inherited.",
+                  "- Metalens resolves every ref to the passes' quotes, computes per entry how many runs stand behind it, which values the runs "
+                  "disagreed on, and a trace from each merged value back to a run's quote. The passes are kept as read-only run documents.",
+                  "- When the passes have another shape than the aggregate (claims behind a graph of edges), add `passes_schema_id` = the "
+                  "passes' preset schema id; the aggregate keeps `schema_id`.",
+                  "- An aggregate WITHOUT refs (quotes of its own, as this preset's `chain.aggregate.external` describes) still imports; "
+                  "its per-run facts come from the fields the preset maps." if ext else
+                  "- An aggregate without refs is matched to the passes by the identity fields (`chain.identity`)."]
+    files["README.md"] = "\n".join(lines) + "\n"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, text in files.items():
+            z.writestr(f"{preset_id}-kit/{name}", text)
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{preset_id}-agent-kit.zip"'})
 
 
 @app.get("/api/presets/{preset_id}/detail")

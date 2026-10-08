@@ -87,6 +87,14 @@ async function loadPresets() {
   }
   const first = PRESETS.find((p) => p.preset_id === "masem-direct") || PRESETS.find((p) => p.schema_id && !p.setup);
   if (first && !sel.dataset.auto) sel.value = first.schema_id;
+  // the agent kit of the chosen preset: what an agent run outside needs to produce importable results
+  const prev = sel.onchange;
+  sel.onchange = (e) => {
+    if (prev) prev(e);
+    const kit = $("#kitlink");
+    const p = PRESETS.find((x) => x.schema_id === sel.value);
+    if (kit) { kit.hidden = !(p && p.preset_id); if (p && p.preset_id) kit.href = `/api/presets/${encodeURIComponent(p.preset_id)}/kit`; }
+  };
   sel.onchange();
 }
 

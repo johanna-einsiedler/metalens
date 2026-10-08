@@ -848,33 +848,38 @@ def is_chain_payload(obj: Any) -> bool:
 
 def import_chain(conn, payload: dict, *, spec: dict, schema_id: str | None, pdf_bytes: bytes | None,
                  session_id: str | None, owner_user_id: str | None, filename: str | None,
-                 produced_by: str | None = None, store=None) -> dict:
+                 produced_by: str | None = None, store=None,
+                 passes_spec: dict | None = None, passes_schema_id: str | None = None) -> dict:
     """``{passes: [doc, …], aggregate: doc}``: the passes become runs, the aggregate the final.
     An aggregate citing by ref is resolved against the passes; one carrying quotes is kept
-    and matched to the passes by identity. Without a PDF nothing is located, but the group,
-    the facts and the trace are the same."""
+    and matched to the passes by identity. The passes may have another shape than the
+    aggregate (claims behind a graph of edges, say): ``passes_spec`` / ``passes_schema_id``
+    read and file them, the aggregate keeps ``spec``. Without a PDF nothing is located, but
+    the group, the facts and the trace are the same."""
     from . import extract as _extract
     from .ingest import ingest
     store = store or storage.get_store()
     group_id = str(uuid.uuid4())
-    key = (spec.get("entries") or {}).get("key")
+    pspec = passes_spec or spec
+    psid = passes_schema_id or schema_id
     made_by = (produced_by or "").strip()[:200] or "imported"
 
     def persist_doc(obj: dict, *, role: str, pass_index: int | None, chain: dict | None = None,
                     record_chain: dict | None = None) -> str:
+        dspec, dsid = (pspec, psid) if role == "run" else (spec, schema_id)
         text = json.dumps(obj, ensure_ascii=False)
         if pdf_bytes:
             def supplied(pdf_b, prompt_, **kw):
                 return _extract.LLMResult(text=text, finish_reason="stop", usage={}, resolved_model=made_by)
-            res = _extract.run_extraction(conn, pdf_bytes, "", schema_id=schema_id, session_id=session_id,
+            res = _extract.run_extraction(conn, pdf_bytes, "", schema_id=dsid, session_id=session_id,
                                           owner_user_id=owner_user_id, filename=filename, complete=supplied,
-                                          spec=spec, role=role, group_id=group_id, pass_index=pass_index,
+                                          spec=dspec, role=role, group_id=group_id, pass_index=pass_index,
                                           chain=chain, record_chain=record_chain, store_artifacts=role != "run",
                                           store=store)
             return res["document_id"]
-        doc_id = records.persist(conn, ingest(text, entries_key=key), schema_id=schema_id, session_id=session_id,
-                                 owner_user_id=owner_user_id, filename=filename, role=role, group_id=group_id,
-                                 pass_index=pass_index, chain=chain, record_chain=record_chain)
+        doc_id = records.persist(conn, ingest(text, entries_key=(dspec.get("entries") or {}).get("key")), schema_id=dsid,
+                                 session_id=session_id, owner_user_id=owner_user_id, filename=filename, role=role,
+                                 group_id=group_id, pass_index=pass_index, chain=chain, record_chain=record_chain)
         try:
             store.put(storage.raw_key(doc_id), text.encode("utf-8"), "text/plain; charset=utf-8")
         except Exception:  # noqa: BLE001
@@ -889,7 +894,7 @@ def import_chain(conn, payload: dict, *, spec: dict, schema_id: str | None, pdf_
             if not isinstance(obj, dict):
                 raise ValueError(f"passes[{i}] is not a JSON object")
             did = persist_doc(obj, role="run", pass_index=i)
-            runs.append(Source(label=f"r{i + 1}", obj=obj, spec=spec, spans=spans_of(conn, did), document_id=did, pass_index=i))
+            runs.append(Source(label=f"r{i + 1}", obj=obj, spec=pspec, spans=spans_of(conn, did), document_id=did, pass_index=i))
             prov.append({"id": f"r{i + 1}", "kind": "extract", "pass_index": i, "document_id": did, "model": made_by})
         agg = parse_result_json(payload["aggregate"])
         if not isinstance(agg, dict):
@@ -899,12 +904,21 @@ def import_chain(conn, payload: dict, *, spec: dict, schema_id: str | None, pdf_
         by_ref = any(isinstance(it, dict) and (it.get("ref") or it.get("refs")) for it in agg.get("evidence") or [])
         if by_ref:
             issues, clean = validate_refs(agg, spec, sources)
-            final_doc, record_chain, _ = resolve(agg, spec, clean, sources, k=len(runs), identity=ident, runs=runs)
+            # which of the aggregate's fields the runs can disagree about: when the passes have
+            # their own shape, only the fields the preset maps onto the runs (a field that merely
+            # shares a name — the edge's "3/3" support vs a claim's support grade — is no vote)
+            afields = (spec.get("entries") or {}).get("fields") or []
+            if pspec is not spec:
+                mapped = set(((preset_spec.chain_external(spec) or {}).get("fields") or {}).keys()) | set(ident)
+                afields = [f for f in afields if f["name"] in mapped]
+            final_doc, record_chain, _ = resolve(agg, spec, clean, sources, k=len(runs), identity=ident, runs=runs,
+                                                 fields_for_candidates=afields)
         else:
             final_doc, record_chain, issues = agg, (external_meta(agg, spec) or match_runs(agg, runs, spec, ident)), []
         provenance = {"k": len(runs), "n_runs": len(runs), "identity": ident, "aggregate": {"kind": "external"},
                       "calls": prov + [{"id": "aggregate", "kind": "external", "model": made_by}], "n_calls": 0,
-                      "failed_runs": [], "fallback": None, "imported": True}
+                      "failed_runs": [], "fallback": None, "imported": True,
+                      **({"passes_schema_id": psid} if psid != schema_id else {})}
         final_id = persist_doc(final_doc, role="final", pass_index=None, chain=provenance, record_chain=record_chain)
         if issues:
             from psycopg.types.json import Json

@@ -306,10 +306,29 @@ def load_results(corpus: Path, artid: str) -> dict:
     return out
 
 
-def convert_paper(corpus: Path, artid: str, papers: dict) -> tuple[dict, dict, list[str]]:
+def claim_map_for(ex: Path, artid: str, stated_path: Path) -> dict:
+    """The claim map made from THIS stated-claims file: the map dirs name the stated file they
+    were computed from (``stated_sha256``), so a run finds its own map whatever the folders
+    are called; the plain ``claim_map`` dir is the fallback for the main run."""
+    want = hashlib.sha256(stated_path.read_bytes()).hexdigest()
+    for d in sorted(ex.glob("claim_map*")):
+        f = d / f"{artid}.json"
+        if f.exists():
+            try:
+                m = json.loads(f.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if m.get("stated_sha256") == want:
+                return m
+    f = ex / "claim_map" / f"{artid}.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() and stated_path.parent.name == "stated_claims" else {}
+
+
+def convert_paper(corpus: Path, artid: str, papers: dict, run_dir: str = "stated_claims") -> tuple[dict, dict, list[str]]:
     ex = corpus / "extractions"
-    stated = json.loads((ex / "stated_claims" / f"{artid}.json").read_text(encoding="utf-8"))
-    cmap = json.loads((ex / "claim_map" / f"{artid}.json").read_text(encoding="utf-8")) if (ex / "claim_map" / f"{artid}.json").exists() else {}
+    stated_path = ex / run_dir / f"{artid}.json"
+    stated = json.loads(stated_path.read_text(encoding="utf-8"))
+    cmap = claim_map_for(ex, artid, stated_path)
     tables = json.loads((ex / "tables" / f"{artid}.json").read_text(encoding="utf-8")) if (ex / "tables" / f"{artid}.json").exists() else {}
     offset = page_offset(stated)
     meta = paper_metadata(artid, papers, stated)
@@ -325,6 +344,45 @@ def processed_artids(corpus: Path) -> list[str]:
 
 # ── the server ───────────────────────────────────────────────────────────────────────────────
 PRESET_GRAPH = "claim-graph-adjudication"
+
+
+def graph_payload(corpus: Path, artid: str, papers: dict, graph: dict) -> tuple[dict, list[str]]:
+    """``{passes, aggregate}``: the K claim runs the graph was merged from, each converted to
+    register-claims, and the graph whose edges cite them BY REFERENCE — ``runs[].claims``
+    names the run and the claim ids behind an edge, which become ``r<k>.claims[<index>]``.
+    Metalens then inherits the runs' quotes onto the edges and traces every edge back."""
+    warnings: list[str] = []
+    run_names = list((graph.get("paper_metadata") or {}).get("run_names") or (graph.get("paper_metadata") or {}).get("runs") or [])
+    passes, index = [], []
+    for name in run_names:
+        if not (corpus / "extractions" / name / f"{artid}.json").exists():
+            warnings.append(f"run {name!r} has no stated-claims file; its refs are dropped")
+            passes.append(None); index.append({}); continue
+        claims, _tabs, w = convert_paper(corpus, artid, papers, run_dir=name)
+        warnings += [f"{name}: {x}" for x in w]
+        passes.append(claims)
+        index.append({c.get("claim_id"): i for i, c in enumerate(claims.get("claims") or [])})
+    kept = [i for i, p in enumerate(passes) if p is not None]
+    agg = json.loads(json.dumps(graph))
+    evidence = []
+    for e_i, rec in enumerate(agg.get("records") or []):
+        refs = []
+        for row in rec.get("runs") or []:
+            try:
+                k = run_names.index(row.get("run"))
+            except ValueError:
+                continue
+            if passes[k] is None:
+                continue
+            for cid in re.split(r"[,\s]+", str(row.get("claims") or "")):
+                if cid and cid in index[k]:
+                    refs.append(f"r{kept.index(k) + 1}.claims[{index[k][cid]}]")
+        if refs:
+            evidence.append({"ref": refs, "field": f"records[{e_i}]"})
+        else:
+            warnings.append(f"edge {rec.get('edge_id')}: no run claim found behind it")
+    agg["evidence"] = evidence
+    return {"passes": [p for p in passes if p is not None], "aggregate": agg}, warnings
 
 
 def convert_graph(doc: dict) -> dict:
@@ -354,11 +412,21 @@ def import_graphs(a) -> int:
     files = sorted(graph_dir.glob("*.paperlens.json"))
     if a.artids:
         files = [f for f in files if f.name.split(".")[0] in set(a.artids)]
+    papers = load_papers(a.corpus)
+
+    def payload_for(f: Path):
+        graph = convert_graph(json.loads(f.read_text()))
+        if not a.with_runs:
+            return graph, []
+        return graph_payload(a.corpus, f.name.split(".")[0], papers, graph)
+
     if a.out:
         a.out.mkdir(parents=True, exist_ok=True)
         for f in files:
-            (a.out / f.name).write_text(json.dumps(convert_graph(json.loads(f.read_text())), ensure_ascii=False, indent=1), encoding="utf-8")
-            print(f"{f.name}: converted")
+            obj, warns = payload_for(f)
+            (a.out / f.name).write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"{f.name}: converted" + (f" ({len(obj.get('passes') or [])} passes)" if a.with_runs else "")
+                  + (f"; {len(warns)} warnings: " + " | ".join(warns[:3]) if warns else ""))
         return 0
     import httpx
     c = httpx.Client(base_url=a.base_url, timeout=600.0)
@@ -374,7 +442,9 @@ def import_graphs(a) -> int:
     for f in files:
         artid = f.name.split(".")[0]
         pdf_path = a.corpus / "pdfs" / f"{artid}.pdf"
-        obj = convert_graph(json.loads(f.read_text()))
+        obj, warns = payload_for(f)
+        for w in warns:
+            print(f"  ! {artid}: {w}")
         if not pdf_path.exists():
             print(f"  ✗ {artid}: no PDF"); continue
         pdf = pdf_path.read_bytes()
@@ -383,13 +453,17 @@ def import_graphs(a) -> int:
             dup = c.post("/api/documents/check-duplicates", json={"hashes": [sha], "preset_id": PRESET_GRAPH}).json().get("duplicates") or {}
             for d in dup.get(sha) or []:
                 c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
-        r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
-                   data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{PRESET_GRAPH}@v1",
-                         "dataset_id": ds, "produced_by": PRODUCED_BY})
+        data = {"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{PRESET_GRAPH}@v1",
+                "dataset_id": ds, "produced_by": PRODUCED_BY}
+        if a.with_runs:
+            data["passes_schema_id"] = f"{PRESET_CLAIMS}@v1"
+        r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")}, data=data)
         if r.status_code != 200:
             print(f"  ✗ {artid}: HTTP {r.status_code} {r.text[:300]}"); continue
         j = r.json()
-        print(f"  ✓ {artid}: {len(obj['records'])} edges → document {j.get('document_id')} · issues {j.get('n_issues', 0)}")
+        n_edges = len((obj.get("aggregate") or obj).get("records") or [])
+        print(f"  ✓ {artid}: {n_edges} edges → document {j.get('document_id')}"
+              + (f" · {len(j.get('run_document_ids') or [])} runs" if a.with_runs else f" · issues {j.get('n_issues', 0)}"))
     print("dataset:", ds)
     return 0
 
@@ -408,6 +482,9 @@ def main() -> int:
                     help="import the adjudicated per-paper claim graphs (extractions/paper_graph/<artid>.paperlens.json) "
                          "under the claim-graph-adjudication preset instead of claims + tables")
     ap.add_argument("--graph-dataset", help="dataset id for the graphs (created when omitted)")
+    ap.add_argument("--with-runs", action="store_true",
+                    help="with --graph: import each graph TOGETHER with the K claim runs it was merged from "
+                         "(a {passes, aggregate} chain; edges cite the runs' claims by reference)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
     if a.graph:
