@@ -316,3 +316,19 @@ tr:hover .rv-rowdel { opacity: .75; }
              border: 1px solid #ecdfc8; border-radius: var(--radius-sm); }
 body.ro .verify, body.ro .recdel, body.ro .rv-addrow, body.ro .rv-rowdel, body.ro .rv-rowsel, body.ro .rv-rowdel-sel,
 body.ro #addfinding, body.ro #deldoc, body.ro .rv-cand:not([disabled]) { display: none !important; }
+
+/* support colours (how many runs stand behind an entry), the definition hover card, issue list */
+.chain-sum.s-all { color: var(--conf-high, #2c6e2c); }
+.chain-sum.s-majority { color: var(--conf-med); }
+.chain-sum.s-minority { color: var(--conf-low, #b3261e); font-weight: 600; }
+.rv-val.rv-support { border-radius: var(--radius-sm); padding: 0 6px; }
+.rv-val.rv-support.s-all { background: var(--conf-high-bg, #e7f2e7); color: var(--conf-high, #2c6e2c); }
+.rv-val.rv-support.s-majority { background: var(--conf-med-bg); color: var(--conf-med); }
+.rv-val.rv-support.s-minority { background: var(--conf-low-bg, #fbe5e3); color: var(--conf-low, #b3261e); }
+.deftip { position: fixed; z-index: 60; max-width: 340px; font-size: 12px; line-height: 1.45; padding: 6px 9px;
+          background: var(--text, #222); color: #fff; border-radius: var(--radius-sm); box-shadow: 0 4px 14px rgba(0,0,0,.18);
+          pointer-events: none; white-space: pre-wrap; }
+[data-def] { cursor: help; }
+.issue-note { cursor: pointer; }
+.issue-list { margin: 4px 0 0 16px; padding: 0; font-size: 11.5px; color: var(--text-muted); }
+.issue-list li { margin: 1px 0; }

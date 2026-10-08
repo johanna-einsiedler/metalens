@@ -82,6 +82,7 @@ async function init() {
   mountSplitter();
   mountPdfZoom();
   mountKeys();
+  mountDefTips();
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
   PROJECT = q.get("project") || null;
@@ -735,7 +736,7 @@ function renderRecordCard(panel, rec) {
   const ch = rec.chain || null;
   const nCont = ch ? Object.values(ch.candidates || {}).filter((c) => Array.isArray(c) && c.length > 1).length : 0;
   const chainSum = ch && ch.support && ch.support.k
-    ? `<span class="chain-sum" title="how many of the chain's runs produced this ${esc(VM.entries.label.toLowerCase())}">${ch.support.n} of ${ch.support.k} runs${nCont ? ` · ${nCont} field${nCont === 1 ? "" : "s"} contested` : ""}</span>`
+    ? `<span class="chain-sum ${supportClass(ch.support)}" title="how many of the chain's runs produced this ${esc(VM.entries.label.toLowerCase())}">${ch.support.n} of ${ch.support.k} runs${nCont ? ` · ${nCont} field${nCont === 1 ? "" : "s"} contested` : ""}</span>`
       + (ch.flags || []).filter((f) => !/^contested:/.test(f)).map((f) => `<span class="chain-flag" title="flagged by the chain">${esc(f)}</span>`).join("")
     : "";
   card.innerHTML =
@@ -748,7 +749,8 @@ function renderRecordCard(panel, rec) {
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
     + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
-    + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
+    + (myIssues.length ? `<div class="issue-note" title="click to list them">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — click for details`
+        + `<ul class="issue-list" hidden>${myIssues.map((i) => `<li><code>${esc(i.path)}</code> ${esc(i.message)}${i.call ? ` <span class="muted">(call ${esc(i.call)})</span>` : ""}</li>`).join("")}</ul></div>` : "")
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
     + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
@@ -938,9 +940,42 @@ async function doSave() {
   } catch (e) { alert("save failed: " + e.message); b.disabled = false; }
 }
 
+// green / yellow / red for how many runs stand behind an entry
+function supportClass(sup) {
+  if (!sup || !sup.k) return "";
+  return sup.n >= sup.k ? "s-all" : 2 * sup.n > sup.k ? "s-majority" : "s-minority";
+}
+
+// What the extractor was told about a field — its type, allowed values and help — shown on
+// hover over the field's name (and a table's column header). A real hover card, not the
+// browser's slow title tooltip.
+let DEFTIP = null;
+function mountDefTips() {
+  if (DEFTIP) return;
+  DEFTIP = document.createElement("div"); DEFTIP.className = "deftip"; DEFTIP.hidden = true;
+  document.body.appendChild(DEFTIP);
+  document.addEventListener("mouseover", (e) => {
+    const t = e.target.closest ? e.target.closest("[data-def]") : null;
+    if (!t) { DEFTIP.hidden = true; return; }
+    DEFTIP.textContent = t.dataset.def; DEFTIP.hidden = false;
+    const r = t.getBoundingClientRect();
+    DEFTIP.style.left = `${Math.min(r.left, window.innerWidth - 360)}px`;
+    DEFTIP.style.top = `${r.bottom + 6}px`;
+  });
+  document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest("[data-def]")) DEFTIP.hidden = true; });
+}
+
 function wireCard(card, rec) {
-  const hb = card.querySelector(".histbtn");
+  const hb = card.querySelector(".histbtn:not(.tracebtn)");
   if (hb) hb.onclick = () => toggleHistory(card, rec);
+  const note = card.querySelector(".issue-note");
+  if (note) note.onclick = () => { const l = note.querySelector(".issue-list"); if (l) l.hidden = !l.hidden; };
+  // an externally aggregated document names its support field: colour its value the same way
+  const sf = VM.spec && VM.spec.chain && VM.spec.chain.aggregate && VM.spec.chain.aggregate.external && VM.spec.chain.aggregate.external.support;
+  if (sf && rec.chain && rec.chain.support) {
+    const v = card.querySelector(`.rv-row[data-field="${sf}"] .rv-val`);
+    if (v) v.classList.add("rv-support", supportClass(rec.chain.support));
+  }
   const rd = card.querySelector(".recdel");
   if (rd) rd.onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".subtab").forEach((b) => (b.onclick = () => {

@@ -773,7 +773,8 @@ def run_chain(conn, pdf_bytes: bytes, prompt: str, *, plan: dict, spec: dict, pa
                 texts.append(raw or "")
                 break
             issues = [x for x in preset_spec.validate_result(obj, cspec, params)
-                      if x["code"] not in ("bad_page", "uncited_value", "uncited_row")]
+                      if x["code"] not in ("bad_page", "uncited_value", "uncited_row")
+                      and not (x["path"] == "paper_metadata" and x["code"] == "missing")]
             ref_issues, clean = validate_refs(obj, cspec, sources)
             is_last = n == len(calls) - 1
             doc, rc, resolved = resolve(obj, cspec, clean, sources, k=len(runs),

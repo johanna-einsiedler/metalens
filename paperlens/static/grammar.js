@@ -7,6 +7,19 @@
 // `_rid` is the permanent id of a sub-entry / table row (evidence refers to rows by it):
 // internal, kept on every edit, never rendered.
 const SKIP = new Set(["evidence", "extraction_confidence", "_rid"]);
+// The definition the extractor was given for a field: type, allowed values, help — the
+// same facts the prompt's FIELDS line carries, for the hover card on the field's name.
+export function fieldDef(f) {
+  if (!f) return "";
+  const t = f.type || "string";
+  let opts = "";
+  if (Array.isArray(f.options)) opts = ": " + f.options.map((o) => (o && typeof o === "object" ? o.value : o)).join(" | ");
+  else if (typeof f.options === "string") opts = ": one of the preset's " + f.options.replace(/^\$\{|\}$/g, "") + " values";
+  if (t === "table" && Array.isArray(f.columns)) opts = ": columns " + f.columns.map((c) => c.name).join(", ");
+  return `${f.name} — ${t}${opts}${f.required ? ", required" : ""}${f.help ? `. ${f.help}` : ""}`
+    + (f.evidence && f.evidence !== "none" ? ` (evidence: ${f.evidence})` : "");
+}
+
 export function stripRowIds(node) {
   if (Array.isArray(node)) return node.map(stripRowIds);
   if (node && typeof node === "object") return Object.fromEntries(Object.entries(node).filter(([k]) => k !== "_rid").map(([k, v]) => [k, stripRowIds(v)]));
@@ -249,7 +262,7 @@ function renderTypedTable(f, v, path, opts) {
   if (!rows.length) return `<span class="rv-null">empty</span> ${addBtn}`;
   const names = cols.map((c) => c.name);
   const extra = [...new Set(rows.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-  const head = cols.map((c) => `<th title="${esc(c.help || "")}">${esc(c.label || formatKey(c.name))}</th>`).join("")
+  const head = cols.map((c) => `<th data-def="${esc(fieldDef(c))}">${esc(c.label || formatKey(c.name))}</th>`).join("")
     + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("")
     + (opts.editable ? `<th class="rv-rowdel-h"></th>` : "");
   const body = rows.map((r, i) => {
@@ -272,7 +285,7 @@ export function renderFields(defs, obj, basePath, opts) {
     const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
-      + `<div class="rv-key" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}</div>`
+      + `<div class="rv-key" data-path="${esc(path)}" data-def="${esc(fieldDef(f))}">${esc(f.label || formatKey(f.name))}</div>`
       + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}${basePath ? "" : renderCandidates(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;
@@ -307,7 +320,7 @@ export function renderChild(child, rows, opts) {
   if ((child.layout || "table") === "table") {
     const names = defs.map((f) => f.name);
     const extra = [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
+    const head = defs.map((f) => `<th data-def="${esc(fieldDef(f))}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
       + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
     const body = list.map((r, k) => {
       const base = `${key}[${k}]`;

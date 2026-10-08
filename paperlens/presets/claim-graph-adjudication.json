@@ -69,21 +69,24 @@
         "name": "edge_id",
         "type": "string",
         "label": "Edge id",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "the pipeline's id of this edge (V<cause>-><effect> over the paper's variable set)"
       },
       {
         "name": "cause",
         "type": "string",
         "label": "Cause",
         "required": true,
-        "evidence": "row"
+        "evidence": "row",
+        "help": "the variable the paper says moves the effect — the adjudicated canonical wording across the runs"
       },
       {
         "name": "effect",
         "type": "string",
         "label": "Effect",
         "required": true,
-        "evidence": "row"
+        "evidence": "row",
+        "help": "the variable the paper says is moved — the adjudicated canonical wording across the runs"
       },
       {
         "name": "sign",
@@ -96,7 +99,7 @@
           "?"
         ],
         "evidence": "value",
-        "confidence": "edge"
+        "help": "the direction of the stated effect: + increases, - decreases, 0 no effect, ? the runs disagree or the paper is mixed"
       },
       {
         "name": "direction",
@@ -107,13 +110,13 @@
           "conflict"
         ],
         "evidence": "none",
-        "confidence": "edge"
+        "help": "agreed when every run that states this edge points it the same way; conflict when a run reverses cause and effect"
       },
       {
         "name": "support",
         "type": "string",
         "label": "Support",
-        "help": "runs that state the edge, out of K",
+        "help": "how many of the K runs state this edge, e.g. 3/3",
         "evidence": "none"
       },
       {
@@ -127,44 +130,50 @@
           "contested"
         ],
         "allow_other": true,
-        "evidence": "none"
+        "evidence": "none",
+        "help": "unanimous: every run with one sign · majority: more than half · backed: fewer, but an exhibit backs it · contested: the runs disagree"
       },
       {
         "name": "kind",
         "type": "string",
         "label": "Kind",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "causal (an identified effect) or descriptive/comparison as the stated claim was typed"
       },
       {
         "name": "design_basis",
         "type": "string",
         "label": "Design basis",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "identified when the paper's design identifies this effect; else how the claim is backed"
       },
       {
         "name": "design",
         "type": "string",
         "label": "Design",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "the identification design behind this edge (difference_in_differences, event_study, iv, …)"
       },
       {
         "name": "flags",
         "type": "string",
         "label": "Flags",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "what the runs disagree on: existence (only some runs state the edge), sign, direction; empty when none"
       },
       {
         "name": "headline_cells",
         "type": "list",
         "label": "Headline cells",
-        "help": "exhibit cells of the companion tables dataset this edge rests on",
+        "help": "ids of the exhibit cells (companion tables dataset) that carry this edge's estimates",
         "evidence": "none"
       },
       {
         "name": "neighbours",
         "type": "list",
         "label": "Neighbours",
-        "evidence": "none"
+        "evidence": "none",
+        "help": "the other variables this edge's cause or effect is linked to in the paper's graph"
       }
     ],
     "children": [
@@ -179,37 +188,43 @@
             "name": "run",
             "type": "string",
             "label": "Run",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "which extraction run this row comes from"
           },
           {
             "name": "cause_wording",
             "type": "string",
             "label": "Cause (as worded)",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "how this run worded the cause"
           },
           {
             "name": "effect_wording",
             "type": "string",
             "label": "Effect (as worded)",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "how this run worded the effect"
           },
           {
             "name": "run_sign",
             "type": "string",
             "label": "Sign",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "the sign this run gave the edge"
           },
           {
             "name": "run_direction",
             "type": "string",
             "label": "Direction",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "this run's direction of the edge"
           },
           {
             "name": "claims",
             "type": "string",
             "label": "Claims",
-            "evidence": "none"
+            "evidence": "none",
+            "help": "the run's claim ids behind the edge"
           }
         ]
       }
@@ -221,14 +236,7 @@
       "medium",
       "low"
     ],
-    "groups": [
-      {
-        "id": "edge",
-        "label": "Edge",
-        "scope": "entry",
-        "help": "sign and direction of the merged edge"
-      }
-    ]
+    "groups": []
   },
   "display": {
     "tabs": [
