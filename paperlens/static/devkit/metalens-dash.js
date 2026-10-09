@@ -44,7 +44,17 @@ export async function loadRelease(base) {
     const cell = ((evidence.cells[unit] || {})[String(row)] || {})[column];
     return cell ? { kind: cell.k, items: cell.i.map((k) => evidence.items[k]), was: cell.was } : { kind: "none", items: [] };
   }
-  return { base, meta, table, evidenceOf, unitDefault: (meta.units.find((u) => u.default) || meta.units[0]).id };
+  const unitDefault = (meta.units.find((u) => u.default) || meta.units[0]).id;
+  // where a reader checks a row against the paper: the record's page on the Metalens that made the
+  // release (<site>/record?id=…) — the quotes behind the row, and their own copy of the PDF to see
+  // them in. Null for a row the release does not identify.
+  function recordLink(unit, row) {
+    const t = tables.get(unit || unitDefault), r = t && t.rows[row];
+    if (!r || !r.rec || !r.rec.id) return null;
+    const site = String(meta.site || "https://metalens.tech").replace(/\/$/, "");
+    return { url: `${site}/record?id=${encodeURIComponent(r.rec.id)}`, study: (r.paper && (r.paper.study || r.paper.title)) || "" };
+  }
+  return { base, meta, table, evidenceOf, recordLink, unitDefault };
 }
 
 // ── where a quote sits, in plain words: "Table 2, row “Few shot”, column “Accuracy”, p. 20" ───────
@@ -116,7 +126,19 @@ export function createTips({ release, panel }) {
       + (desc.formula ? `<div class="ml-where">Computed: ${esc(desc.formula)}</div>` : "")
       + (q || (desc.rows && desc.rows.length ? `<div class="ml-where">No evidence recorded for these values.</div>` : ""))
       + (desc.note ? `<div class="ml-note">${esc(desc.note)}</div>` : "")
+      + (full ? links(desc) : "")
       + (!full && desc.rows && desc.rows.length ? `<div class="ml-hint">click to pin the evidence</div>` : "");
+  }
+  // pinned: a way for the reader to check each row against the paper themselves
+  function links(desc) {
+    if (!release.recordLink) return "";
+    const seen = new Set(), out = [];
+    for (const r of desc.rows || []) {
+      const l = release.recordLink(r.unit || release.unitDefault, r.row);
+      if (l && !seen.has(l.url)) { seen.add(l.url); out.push(l); }
+    }
+    if (!out.length) return "";
+    return `<div class="ml-links">${out.slice(0, 12).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">Check ${out.length > 1 && l.study ? esc(l.study) : "this row"} against the paper ↗</a>`).join(" · ")}</div>`;
   }
   const show = (desc, x, y) => { tip.innerHTML = html(desc, false); place(x, y); };
   const hide = () => { tip.hidden = true; };

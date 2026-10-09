@@ -559,3 +559,22 @@ CREATE TABLE IF NOT EXISTS dataset_page (
     committed_at  timestamptz,
     UNIQUE (dataset_id, "group", key, version)
 );
+-- ── reader review copies (paperlens/review.py) ─────────────────────────────────────────────
+-- A record in a public dataset can be checked against the paper by anyone, but the owner's PDF
+-- is never served: the reader drops their OWN copy, which is hashed against the owner's,
+-- rendered and searched for the document's quotes, and kept under review/<token>/ in object
+-- storage until it has been unused for the retention period (or the reader deletes it).
+CREATE TABLE IF NOT EXISTS review_copy (
+    token         text PRIMARY KEY,
+    document_id   uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
+    session_id    text,                          -- the reader: an anonymous browser session …
+    owner_user_id uuid,                          -- … or an account
+    pdf_sha256    text NOT NULL,
+    match         text NOT NULL,                 -- same | different | unknown (the document has no hash)
+    n_pages       integer NOT NULL DEFAULT 0,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_used     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS review_copy_doc_idx ON review_copy(document_id);
+-- what a verification was checked against: {"review": {"own_pdf": true, "match": "same"}}
+ALTER TABLE verification_event ADD COLUMN IF NOT EXISTS context jsonb;

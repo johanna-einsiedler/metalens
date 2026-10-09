@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, retention, review, storage, worker
 from .ingest import ingest
 from .principal import Principal
 
@@ -237,6 +237,13 @@ def dataset_page() -> FileResponse:
     return _page("dataset.html")
 
 
+@app.get("/record")
+def record_page() -> FileResponse:
+    """One record of a public dataset, checked against the paper (?id=…): the reader drops
+    their own copy of the PDF and sees the quotes in it (paperlens/review.py)."""
+    return _page("record.html")
+
+
 @app.get("/preset")
 def preset_page() -> FileResponse:
     """Personal preset editor: create (no ?id) or edit (?id=…) an owned preset."""
@@ -368,9 +375,13 @@ def artifact(key: str, t: str | None = None, db=Depends(get_db),
     """Owner-gated serving of locally-stored PDFs / page images. Authorized by a
     signed token (minted in document_view) OR by the principal owning the doc."""
     doc_id = _doc_id_from_key(key)
-    if doc_id is None:
+    token = review.token_from_key(key)
+    if doc_id is None and token is None:
         raise HTTPException(status_code=404, detail="Not found.")
-    if not (_verify_artifact(doc_id, t) or records.is_document_owner(db, doc_id, who)):
+    if token is not None:                  # a reader's own copy: by its signed token, or as its reader
+        if not (_verify_artifact(token, t) or review.copy_by_token(db, token, who)):
+            raise HTTPException(status_code=403, detail="Not authorized.")
+    elif not (_verify_artifact(doc_id, t) or records.is_document_owner(db, doc_id, who)):
         raise HTTPException(status_code=403, detail="Not authorized.")
     store = storage.get_store()
     if not store.exists(key):
@@ -497,8 +508,8 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     verbatim (may be transformed/rounded/paraphrased) — a soft signal, not an error.
 
     ``bands`` (``y0:y1,…`` in image pixels of ``page``) restricts the search to the cited
-    table row(s): a value covered only by a row citation is pinpointed INSIDE that row,
-    never anywhere else on the page."""
+    region — a table row's band, or a table's body when the table is cited as a whole — and
+    combines with ``anchor`` / ``page_only`` (see ``pdf_utils.locate_in_pdf``)."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
@@ -506,31 +517,7 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     key = storage.pdf_key(document_id)
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
-    pdf_bytes = store.get(key)
-    if anchor:                          # a table number: on the printed row of its anchor text (item wording, variable label)
-        rows = [b for a in anchor[:4] for b in pdf_utils.anchor_bands(pdf_bytes, page, a[:400])]
-        if rows:
-            hits = pdf_utils.locate_value_rects(pdf_bytes, page, value)
-            per_row = [(b, pdf_utils.rects_in_bands(hits, [b])) for b in rows]
-            per_row = [(b, r) for b, r in per_row if r]
-            if len(per_row) > 1:        # two variable rows both show the value: a triangular matrix
-                counts = [pdf_utils.numbers_in_band(pdf_bytes, page, b) for b, _ in per_row]   # prints the pair on the fuller row
-                if sorted(counts)[-1] > sorted(counts)[-2]:
-                    per_row = [per_row[counts.index(max(counts))]]
-            rects = [r for _, rs in per_row for r in rs]
-            if rects:
-                return {"rects": rects, "found": True, "page": page, "anchored": True}
-    if page_only:                       # a table cited as a whole: every whole-number match on ITS page
-        rects = pdf_utils.locate_value_rects(pdf_bytes, page, value)
-        return {"rects": rects, "found": bool(rects), "page": page, "anchored": False}
-    if bands:
-        rows = pdf_utils.parse_bands(bands)
-        rects = pdf_utils.rects_in_bands(pdf_utils.locate_value_rects(pdf_bytes, page, value), rows)
-        return {"rects": rects, "found": bool(rects), "page": page}
-    found_page, rects = pdf_utils.locate_value_rects_any(pdf_bytes, value, prefer_page=page)
-    if not rects:                       # not a number (or not found) → try literal text
-        found_page, rects = pdf_utils.locate_text_rects_any(pdf_bytes, value, prefer_page=page)
-    return {"rects": rects, "found": bool(rects), "page": found_page}
+    return pdf_utils.locate_in_pdf(store.get(key), page, value, bands=bands, anchor=anchor, page_only=page_only)
 
 
 @app.get("/api/documents/{document_id}/raw")
@@ -2319,6 +2306,7 @@ class VerifyBody(BaseModel):
     verifier_kind: str | None = None       # maintainer | community | paperlens
     field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
     patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
+    review_token: str | None = None        # the reader checked against their own copy of the PDF (review.py)
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -2327,28 +2315,110 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     """Record a verification/flag event (+ optional value correction) on a record.
 
     Who may: the record's owner, anything; anyone else only on a record they can READ (it sits
-    in a public dataset) and only an opinion (verified / flagged, with notes) — never a change of
-    the values. A record id alone opens nothing: ids travel with published dashboards."""
+    in a public dataset) and only an opinion — verified / flagged, with notes, and with a flag a
+    PROPOSED correction (a diff that changes nothing) — never a change of the values, and never
+    the record's status: a reader's check is counted, not adopted. A record id alone opens
+    nothing: ids travel with published dashboards. ``review_token`` names the reader's own copy
+    of the PDF (review.py); the event then records whether it was the same file."""
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
     mine = records.records_all_owned(db, [record_id], who)
-    if not mine and (body.field_values is not None or body.patch or body.diff):
+    if not mine and (body.field_values is not None or body.patch):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
-    kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
+    if not mine and body.diff and body.status != "flagged":
+        raise HTTPException(status_code=403, detail="A reader proposes a correction by flagging the entry.")
+    kind = (body.verifier_kind or ("maintainer" if who.user_id else "community")) if mine else "community"
+    context = None
+    if body.review_token:
+        copy = review.copy_by_token(db, body.review_token, who)
+        rec = records.get_record(db, record_id)
+        if copy is None or rec is None or copy["document_id"] != rec["document_id"]:
+            raise HTTPException(status_code=404, detail="No such review copy.")
+        context = {"review": {"own_pdf": True, "match": copy["match"]}}
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
             verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values,
-            patch=body.patch)
+            patch=body.patch, context=context, project=bool(mine))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.get("/api/records/{record_id}/events")
 def record_events(record_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A record's history. The owner sees who; a reader of a public record sees roles."""
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
-    return {"record_id": record_id, "events": records.record_events(db, record_id)}
+    owner = records.records_all_owned(db, [record_id], who)
+    return {"record_id": record_id, "events": review.mask_events(records.record_events(db, record_id), owner=owner)}
+
+
+# ── a public record, checked against the reader's own copy of the paper (review.py) ──────────
+
+def _review_view_or_404(db, record_id: str, who: Principal) -> dict:
+    v = review.public_view(db, record_id, who)
+    if v is None:
+        raise HTTPException(status_code=404, detail="Record not found.")
+    if isinstance(storage.get_store(), storage.LocalObjectStore):
+        # local backend: sign the page urls so <img> tags (no X-Session-Id) pass the gate — the
+        # reader's own copy by its token, the owner's document by its id
+        tok = (_sign_artifact(v["review"]["token"]) if v.get("review")
+               else _sign_artifact(v["document_id"]) if v["viewer"]["owner"] else None)
+        if tok:
+            for pg in v.get("pages", []):
+                pg["url"] = f"{pg['url']}?t={tok}"
+    return v
+
+
+@app.get("/api/records/{record_id}/review")
+def record_review(record_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The review payload of a record anyone may read (it sits in a public dataset, or the
+    caller owns it): the paper, the grammar, the document's visible records with their quotes
+    and page numbers, the record's history and reader tally — and, when the reader has dropped
+    their own copy of the PDF, that copy's page images with the quotes located in them. The
+    owner's PDF and page images are never part of it."""
+    return _review_view_or_404(db, record_id, who)
+
+
+@app.post("/api/records/{record_id}/review/pdf")
+def record_review_pdf(record_id: str, pdf: UploadFile = File(...), db=Depends(get_db),
+                      who: Principal = Depends(principal)) -> dict:
+    """The reader's own copy of the paper: hashed against the owner's PDF, rendered, the
+    document's quotes located in it. One copy per reader and paper, deleted when unused for the
+    retention period or on DELETE /api/review/{token}. Returns the refreshed review payload."""
+    if not records.record_is_visible(db, record_id, who):
+        raise HTTPException(status_code=404, detail="Record not found.")
+    rec = records.get_record(db, record_id)
+    if rec is None or records.is_document_owner(db, rec["document_id"], who):
+        raise HTTPException(status_code=409, detail="You own this paper — review it in the workspace, where its own PDF is.")
+    if not review.copies_for(db, rec["document_id"], who) and review.live_count(db, who) >= review.MAX_COPIES_PER_READER:
+        raise HTTPException(status_code=429, detail=f"You hold {review.MAX_COPIES_PER_READER} copies already — remove one first (they also go on their own after a while).")
+    try:
+        review.create_copy(db, rec["document_id"], who, pdf.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return _review_view_or_404(db, record_id, who)
+
+
+@app.get("/api/review/{token}/locate")
+def review_locate(token: str, value: str, page: int, bands: str | None = None,
+                  anchor: list[str] | None = Query(None), page_only: bool = False,
+                  db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Pinpoint a clicked value in the reader's own copy (``locate_value``, on their file)."""
+    copy = review.copy_by_token(db, token, who)
+    if copy is None:
+        raise HTTPException(status_code=404, detail="No such review copy.")
+    return review.locate(copy, value, page, bands=bands, anchor=anchor, page_only=page_only)
+
+
+@app.delete("/api/review/{token}")
+def review_forget(token: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Delete the reader's copy now (the sweep would, once unused for the retention period)."""
+    copy = review.copy_by_token(db, token, who)
+    if copy is None:
+        raise HTTPException(status_code=404, detail="No such review copy.")
+    review.delete_copy(db, token)
+    return {"deleted": True}
 
 
 # ── accounts (Phase 2b) ───────────────────────────────────────────────────────

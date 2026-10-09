@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Metalens — check a record against the paper</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/grammar.css"/>
+  <link rel="stylesheet" href="/static/record.css"/>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+  <main class="split">
+    <aside id="panel" class="panel rec-panel"><div id="panelbody"><p class="muted">Loading…</p></div></aside>
+    <section id="pagespane" class="pagespane">
+      <div id="copybar" class="rec-copybar" hidden></div>
+      <div id="pdfzoom" class="pdfzoom" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)" hidden>
+        <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
+        <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+      </div>
+      <div id="pages" class="pages"></div>
+    </section>
+  </main>
+  <script type="module" src="/static/record.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

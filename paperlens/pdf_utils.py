@@ -1734,6 +1734,47 @@ def rects_in_bands(rects: list[list[float]], bands: list[tuple[float, float]], t
     return [r for r in rects if any(y0 - tol <= r[1] + r[3] / 2 <= y1 + tol for y0, y1 in bands)]
 
 
+def locate_in_pdf(pdf_bytes: bytes, page: int, value: str, *, bands: str | None = None,
+                  anchor: list[str] | None = None, page_only: bool = False) -> dict:
+    """Where a value the coder clicked is printed — the search behind the workspace's
+    pinpoint highlight. ``{"rects", "found", "page", "anchored"?}``, rects in image pixels.
+
+    - ``anchor`` (a table number): on the printed row of its anchor text — an item's wording,
+      the labels of the two variables of a correlation — settling a triangular matrix by the
+      fuller row. Falls through when no anchor row is found.
+    - ``page_only``: every whole-number match on the cited page (a table cited as a whole).
+    - ``bands`` (``y0:y1,…`` image-pixel rows of ``page``): the search never leaves them — a
+      row's band for a row citation, a table's body for a table citation. Combines with the
+      two modes above, so a table cited by its caption is searched inside THAT table only.
+    - otherwise: the exact number on the cited page, then anywhere in the PDF, then the
+      literal text (a non-numeric value the model did not cite still highlights)."""
+    band_rows = parse_bands(bands) if bands else []
+    within = (lambda rects: rects_in_bands(rects, band_rows)) if band_rows else (lambda rects: rects)
+    if anchor:
+        rows = [b for a in anchor[:4] for b in anchor_bands(pdf_bytes, page, a[:400])]
+        if rows:
+            hits = within(locate_value_rects(pdf_bytes, page, value))
+            per_row = [(b, rects_in_bands(hits, [b])) for b in rows]
+            per_row = [(b, r) for b, r in per_row if r]
+            if len(per_row) > 1:        # two variable rows both show the value: a triangular matrix
+                counts = [numbers_in_band(pdf_bytes, page, b) for b, _ in per_row]   # prints the pair on the fuller row
+                if sorted(counts)[-1] > sorted(counts)[-2]:
+                    per_row = [per_row[counts.index(max(counts))]]
+            rects = [r for _, rs in per_row for r in rs]
+            if rects:
+                return {"rects": rects, "found": True, "page": page, "anchored": True}
+    if page_only:
+        rects = within(locate_value_rects(pdf_bytes, page, value))
+        return {"rects": rects, "found": bool(rects), "page": page, "anchored": False}
+    if band_rows:
+        rects = within(locate_value_rects(pdf_bytes, page, value))
+        return {"rects": rects, "found": bool(rects), "page": page}
+    found_page, rects = locate_value_rects_any(pdf_bytes, value, prefer_page=page)
+    if not rects:                       # not a number (or not found) → try literal text
+        found_page, rects = locate_text_rects_any(pdf_bytes, value, prefer_page=page)
+    return {"rects": rects, "found": bool(rects), "page": found_page}
+
+
 def evidence_items_from_result(result_text: str) -> list[dict]:
     """Walk the parsed JSON and return every evidence-like entry that has a
     snippet AND a usable page number, preserving ``field`` and ``source``.
