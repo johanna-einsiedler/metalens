@@ -167,7 +167,7 @@ export function createEvidence(table, panelHost) {
     panelHost.scrollIntoView({ behavior: "smooth", block: "nearest" });
     const evs = await fetchCells(rows.flatMap((r) => cols.map((v) => [r, v.col])));
     const showEv = cols.length > 0;                        // a count of rows has no cell to cite
-    const head = `<tr><th>Study</th>${cols.map((v) => `<th>${esc(v.label)}</th>`).join("")}<th>Status</th><th>Extracted</th>${showEv ? "<th>Evidence</th>" : ""}${table.viewer.owner ? "<th></th>" : ""}</tr>`;
+    const head = `<tr><th>Study</th>${cols.map((v) => `<th>${esc(v.label)}</th>`).join("")}<th>Status</th><th>Extracted</th>${showEv ? "<th>Evidence</th>" : ""}<th></th></tr>`;
     const body = rows.map((r, i) => {
       const mine = cols.map((_, k) => evs[i * cols.length + k]);
       const first = mine.find((e) => e && (e.items || []).length) || mine[0] || {};
@@ -179,7 +179,10 @@ export function createEvidence(table, panelHost) {
         + `<td class="muted">${esc(r.rec.model || "")}<div>${esc(r.rec.extracted_at || "")}</div></td>`
         + (!showEv ? "" : `<td class="tp-ev">${it ? `<span class="tt-where">${esc(whereText(flat.kind, it))}</span>${quoteHtml(it, cols).html}`
           : `<span class="tt-where">${esc((first && first.kind_label) || "no evidence recorded")}</span>`}</td>`)
-        + (table.viewer.owner && r.rec.document_id ? `<td><a href="/workspace?doc=${encodeURIComponent(r.rec.document_id)}&rec=${encodeURIComponent(r.rec.id)}">Open in review</a></td>` : table.viewer.owner ? "<td></td>" : "")
+        // the owner reviews in the workspace; everyone else lands on the public record page, where
+        // they can drop their own copy of the paper and check the quotes in it
+        + `<td>${table.viewer.owner && r.rec.document_id ? `<a href="/workspace?doc=${encodeURIComponent(r.rec.document_id)}&rec=${encodeURIComponent(r.rec.id)}">Open in review</a>`
+          : r.rec.id ? `<a href="/record?id=${encodeURIComponent(r.rec.id)}" title="the quotes behind this row, and a check against your own copy of the paper">Check against the paper</a>` : ""}</td>`
         + `</tr>`;
     }).join("");
     panelHost.querySelector(".tp-body").innerHTML = `<table class="tp-table"><thead>${head}</thead><tbody>${body}</tbody></table>`

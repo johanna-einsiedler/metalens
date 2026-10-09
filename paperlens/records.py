@@ -788,11 +788,16 @@ def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
 def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
                   diff: list | None = None, notes: str | None = None,
                   verifier_user_id: str | None = None, verifier_kind: str = "maintainer",
-                  field_values: dict | None = None) -> dict:
+                  field_values: dict | None = None, context: dict | None = None,
+                  project: bool = True) -> dict:
     """Record a verification event + project it onto record.verification_status.
 
     Optionally apply a correction (full ``field_values`` replacement) — the
     "editing values routes through the verification layer" rule. One transaction.
+
+    ``context`` is what the check was made against (a reader's own copy of the PDF, see
+    ``review.py``). ``project=False`` records the event without touching the record's
+    status — a reader's opinion is counted and shown, never adopted as the maintainer's.
     """
     if status not in _VALID_STATUS:
         raise ValueError(f"status must be one of {_VALID_STATUS}")
@@ -800,12 +805,13 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
     with conn.transaction():
         conn.execute(
             """INSERT INTO verification_event
-                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)
-               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s)""",
+                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes, context)
+               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
             (eid, record_id, verifier_user_id, verifier_kind, status,
-             Json(diff) if diff is not None else None, notes),
+             Json(diff) if diff is not None else None, notes,
+             Json(context) if context is not None else None),
         )
-        if status not in ("corrected", "noted"):   # an edit or a note records provenance but is
+        if project and status not in ("corrected", "noted"):   # an edit or a note records provenance but is
             # NOT a verification — the record's status stays whatever the reviewer last judged
             conn.execute("UPDATE record SET verification_status = %s WHERE id = %s::uuid",
                          (status, record_id))
@@ -821,7 +827,7 @@ def record_events(conn: psycopg.Connection, record_id: str) -> list[dict]:
     with the editor's email when it was a logged-in user."""
     rows = conn.execute(
         """SELECT e.id, e.verifier_user_id, u.email, e.verifier_kind, e.status,
-                  e.diff, e.notes, e.created_at
+                  e.diff, e.notes, e.created_at, e.context
            FROM verification_event e
            LEFT JOIN users u ON u.id = e.verifier_user_id
            WHERE e.record_id = %s::uuid ORDER BY e.created_at DESC""",
@@ -830,8 +836,8 @@ def record_events(conn: psycopg.Connection, record_id: str) -> list[dict]:
     return [
         {"id": str(i), "verifier_user_id": str(u) if u else None, "verifier_email": em,
          "verifier_kind": k, "status": s, "diff": d, "notes": n,
-         "created_at": c.isoformat() if c else None}
-        for (i, u, em, k, s, d, n, c) in rows
+         "created_at": c.isoformat() if c else None, "context": ctx}
+        for (i, u, em, k, s, d, n, c, ctx) in rows
     ]
 
 

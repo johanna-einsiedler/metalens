@@ -23,7 +23,7 @@ import time
 
 import psycopg
 
-from . import localmode, records
+from . import localmode, records, review
 
 ANON_RETENTION_MINUTES = int(os.environ.get("PAPERLENS_ANON_RETENTION_MINUTES", "120"))
 ANON_TRIAL_PER_IP_DAY = int(os.environ.get("PAPERLENS_ANON_TRIAL_PER_IP_DAY", "5"))
@@ -145,7 +145,8 @@ def expired_sessions(conn: psycopg.Connection, *, max_age_minutes: int | None = 
 def forget_session(conn: psycopg.Connection, session_id: str) -> dict:
     """Delete everything an anonymous session owns, now. Used by the sweep and by the
     'delete my data' button. Owned (claimed) rows are never touched."""
-    out = {"documents": 0, "datasets": 0, "saved_views": 0, "presets": 0}
+    out = {"documents": 0, "datasets": 0, "saved_views": 0, "presets": 0, "review_copies": 0}
+    out["review_copies"] = review.forget_session(conn, session_id)     # copies of others' papers the reader dropped
     docs = [r[0] for r in conn.execute(
         "SELECT id FROM extraction_document WHERE session_id = %s AND owner_user_id IS NULL", (session_id,)).fetchall()]
     for d in docs:
@@ -197,14 +198,16 @@ def remove_orphans(conn: psycopg.Connection, store=None) -> dict:
 def sweep(conn: psycopg.Connection, store=None, *, max_age_minutes: int | None = None,
           now: dt.datetime | None = None) -> dict:
     """One pass: every expired anonymous session is forgotten, then orphans go."""
-    totals = {"sessions": 0, "documents": 0, "datasets": 0, "saved_views": 0, "presets": 0}
+    totals = {"sessions": 0, "documents": 0, "datasets": 0, "saved_views": 0, "presets": 0, "review_copies": 0}
     if localmode.enabled():
         return {**totals, "papers": 0, "parsed": 0}
     register_untracked_sessions(conn)
     for sid in expired_sessions(conn, max_age_minutes=max_age_minutes, now=now):
         r = forget_session(conn, sid)
         totals["sessions"] += 1
-        for k in ("documents", "datasets", "saved_views", "presets"):
+        for k in ("documents", "datasets", "saved_views", "presets", "review_copies"):
             totals[k] += r[k]
+    # a reader's copy of someone else's paper goes once unused for the period, whoever holds it
+    totals["review_copies"] += review.sweep(conn, store, max_age_minutes=max_age_minutes, now=now)
     totals.update(remove_orphans(conn, store))
     return totals

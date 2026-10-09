@@ -25,7 +25,7 @@ import json
 import re
 import zipfile
 
-from . import analysis_table, records, tile_prompt
+from . import analysis_table, brands, records, tile_prompt
 
 FORMAT = "metalens-release"
 FORMAT_VERSION = 1
@@ -96,6 +96,9 @@ def build(conn, release: dict) -> dict[str, bytes]:
                                                "table": "the whole table is cited", "entry": "quoted for the entry as a whole"},
                                      "items": items, "cells": cells})
     meta = {"format": FORMAT, "format_version": FORMAT_VERSION,
+            # where a dashboard built on this release sends a reader to check a row against the
+            # paper: <site>/record?id=<record id> (the ids in tables/<layout>.json records)
+            "site": brands.public_url(),
             "dataset": {"title": d.get("title"), "slug": ds.get("slug"), "author": d.get("author"), "citation": d.get("citation"),
                         "published_url": d.get("published_url"), "description": ds.get("description"),
                         "keywords": [k for k in (ds.get("keywords") or []) if isinstance(k, str)]},

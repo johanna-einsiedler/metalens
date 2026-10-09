@@ -108,6 +108,13 @@ plotted are enough. Omit `unit` and the release's default row layout is used. A 
 `derived` (Hedges' g and the like) resolves to the evidence of its inputs, so a computed mark
 still shows the passages it rests on.
 
+A pinned evidence panel also links each row to its **record page** on the Metalens that made
+the release (`release.meta.site` + `/record?id=…`, or `release.recordLink(unit, row)` for your
+own links): there a reader sees the passages the extractor cited, drops their own copy of the
+paper to see them highlighted in it, and records that the row checks out or flags it. Those
+reader checks are shown on the record and reach the dataset owner; they never change the
+owner's verdict. The owner's PDF is never served to anyone.
+
 `release.meta` carries the citation, DOI, credibility badge and paper count, so the page can
 state which release it is showing. Marks from other sources work too — leave out `rows` and pass
 a `note` instead, so a mark Metalens did not produce says so rather than implying evidence it

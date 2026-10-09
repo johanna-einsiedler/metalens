@@ -48,6 +48,12 @@
       <h3>If you are logged in</h3>
       <p>Your data stays until you delete a paper or a dataset. Deleting removes the PDF, the page images, the raw model response and the records.</p>
     </details>
+    <details id="reader-check">
+      <summary>Can readers check a published record against the paper?</summary>
+      <p>Yes. Every record of a public dataset has a page (<code>/record?id=…</code>, linked from dashboards and from the evidence behind a chart) that shows what the extractor read and the passages it cited, with page numbers. The owner's PDF is never shown to anyone else.</p>
+      <p>A reader who has the paper can drop their own copy on that page. Metalens compares it with the owner's file by hash, renders its pages for that reader alone, and highlights the cited passages in it; a clicked number is pinpointed in it. The reader can then record that the record checks out, or flag it with a note and a proposed correction. These <strong>reader checks</strong> are counted and shown on the record and in its history, and the dataset owner sees them; they never change the owner's own verdict on a record.</p>
+      <p>The reader's copy is kept for that reader only and deleted two hours after they last used it, or at once with "Remove my copy". Signing in attributes a reader's checks to them; without it they are recorded as a reader's.</p>
+    </details>
     <details>
       <summary>Where are the servers?</summary>
       <p>The hosted service runs in the United States (Fly.io, Virginia) with files in Cloudflare R2 object storage. If you are bound by an institutional data agreement that rules this out, you can run a local version of this yourself. You can find the Metalens code at <a href="https://github.com/johanna-einsiedler/metalens" target="_blank" rel="noopener">github.com/johanna-einsiedler/metalens</a> and a Python package for running MASEMiner locally at <a href="https://github.com/johanna-einsiedler/maseminer" target="_blank" rel="noopener">github.com/johanna-einsiedler/maseminer</a>.</p>

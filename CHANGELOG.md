@@ -23,6 +23,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   content-addressed schema ids, saved setups, the human–AI collaboration preset.
 - Exports carry the engine version and commit and, per paper, the prompt hash, resolved
   model, parameters and extraction time.
+- Reader checks: a record of a public dataset has a page (`/record?id=…`) showing what the
+  extractor read and the passages it cited; a reader drops their OWN copy of the PDF, which is
+  hashed against the owner's, rendered for that reader alone and searched for the quotes, so they
+  see them highlighted and can confirm or flag the record (with a proposed correction). Reader
+  checks are counted and shown, never adopted as the maintainer's verdict; the copy is deleted
+  when unused for the retention period or on request (`paperlens/review.py`). Dashboards and
+  the devkit link every row to its record page; `release.json` carries the `site` to link to.
 
 ## 1.1.0 and earlier
 

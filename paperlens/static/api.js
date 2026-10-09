@@ -144,6 +144,14 @@ export const api = {
     headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
   documentView: (id) => req(`/api/documents/${id}/view`),
   recordEvents: (id) => req(`/api/records/${id}/events`),
+  // a public record against the reader's own copy of the paper (review.py): the payload, the
+  // reader's PDF, a pinpoint search in it, and its removal
+  recordReview: (id) => req(`/api/records/${id}/review`),
+  reviewUpload: (id, file) => { const fd = new FormData(); fd.append("pdf", file, file.name || "paper.pdf"); return req(`/api/records/${id}/review/pdf`, { method: "POST", body: fd }); },
+  reviewLocate: (token, value, page, bands, opts) =>
+    req(`/api/review/${token}/locate?value=${encodeURIComponent(value)}&page=${page}${bands ? `&bands=${encodeURIComponent(bands)}` : ""}`
+      + `${(opts && opts.anchor ? [].concat(opts.anchor) : []).map((a) => `&anchor=${encodeURIComponent(a)}`).join("")}${opts && opts.pageOnly ? "&page_only=true" : ""}`),
+  reviewForget: (token) => req(`/api/review/${token}`, { method: "DELETE" }),
   // `bands` ("y0:y1,…", image pixels of `page`) restricts the search to the cited table row(s)
   locateValue: (id, value, page, bands, opts) =>
     req(`/api/documents/${id}/locate?value=${encodeURIComponent(value)}&page=${page}${bands ? `&bands=${encodeURIComponent(bands)}` : ""}`

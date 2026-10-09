@@ -1,0 +1,42 @@
+/* /record — one record of a public dataset, checked against the reader's own copy of the paper.
+   The card, the highlights and the PDF overlay are the workspace's (grammar.css); this file is the
+   page's own chrome: the paper head, the reader's check box, the drop zone and the copy bar. */
+.rec-panel { width: 520px; }
+.rec-head { margin-bottom: 10px; }
+.rec-crumb { font-size: 12.5px; }
+.rec-paper h2 { font-size: 16px; margin: 6px 0 2px; line-height: 1.3; }
+.rec-paper .meta { font-size: 12.5px; color: var(--text-muted); }
+.rec-banner { font-size: 12.5px; line-height: 1.45; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); margin: 10px 0; }
+.rec-tally { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+.rec-check { border: 1px dashed var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 12px 0; }
+.rec-check h4, .rec-hist h4, .rec-siblings h4 { margin: 0 0 6px; font-size: 13px; }
+.rec-check textarea { width: 100%; box-sizing: border-box; min-height: 54px; font: inherit; font-size: 12.5px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; background: var(--surface); color: var(--text); margin-top: 6px; }
+.rec-check .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.rec-check select, .rec-check input[type=text] { font: inherit; font-size: 12.5px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px; background: var(--surface); color: var(--text); }
+.rec-check input[type=text] { flex: 1; min-width: 120px; }
+.rec-check .vbtn.active { outline: 2px solid var(--accent-3); outline-offset: 1px; }
+.rec-check .btn { padding: 5px 12px; font-size: 12px; }
+.rec-hist { margin-top: 12px; }
+.rec-siblings { margin-top: 14px; }
+.rec-siblings a { display: flex; gap: 8px; align-items: center; font-size: 12.5px; padding: 3px 0; }
+.ev-list .ev-block { cursor: default; }
+.ev-list.live .ev-block { cursor: pointer; }
+.ev-list.live .ev-block:hover { background: var(--highlight); }
+.ev-list .ev-block.unfound { opacity: .6; }
+.rec-copybar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center; font-size: 12.5px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.rec-copybar .spacer { flex: 1; }
+.rec-copybar .pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.rec-copybar .pill.same { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+.rec-copybar .pill.different { background: var(--error-bg); color: var(--error); border-color: var(--error); }
+.rec-copybar button { font: inherit; font-size: 12px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm); padding: 2px 8px; cursor: pointer; color: var(--text); }
+.rec-copybar button:hover { background: var(--bg); }
+.drop { margin: 32px auto; max-width: 520px; border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px 24px; text-align: center; background: var(--surface); }
+.drop.over { border-color: var(--accent-3); background: var(--highlight); }
+.drop h3 { margin: 0 0 8px; font-size: 16px; }
+.drop p { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 6px 0; }
+.drop .btn { padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.drop input[type=file] { display: none; }
+.drop .busy { color: var(--text); }
+/* the zoom box sits below the copy bar, not on top of its "Remove my copy" button */
+.rec-copybar:not([hidden]) ~ .pdfzoom { top: 42px; }
+.rec-check .row[hidden] { display: none; }   /* display:flex would otherwise defeat [hidden] */
