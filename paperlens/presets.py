@@ -28,20 +28,52 @@ ADAPTER_ONLY_IDS = legacy.ADAPTER_ONLY_IDS
 resolve_id = legacy.resolve_id
 
 
+_loaded: tuple[tuple, dict[str, dict]] | None = None   # (files signature, presets)
+
+
+def _files_signature(dirs: list) -> tuple:
+    """Every file in the preset directories with its mtime and size — what ``load_all``'s
+    result depends on (a preset's .json and the prompt file beside it)."""
+    import os
+    sig: list[tuple] = []
+    for d in dirs:
+        try:
+            with os.scandir(d) as entries:
+                for e in entries:
+                    if e.is_file():
+                        st = e.stat()
+                        sig.append((e.path, st.st_mtime_ns, st.st_size))
+        except OSError:
+            sig.append((str(d), None, None))
+    return tuple(sorted(sig, key=lambda t: t[0]))
+
+
 def load_all() -> dict[str, dict]:
     """Every built-in preset, keyed by id → normalised spec — plus any preset files in the
     directories named by PAPERLENS_PRESET_DIRS (os.pathsep-separated; the local launcher
     points it at ``<data>/presets`` so a preset can be exchanged as files). Built-ins win
-    on an id clash."""
+    on an id clash.
+
+    Read once and kept until a file in those directories changes: one /api/presets call
+    asks for this once per preset, and reading and normalising every file each time was
+    most of the route's own work. The result is shared, so copy a spec before changing
+    it (as a saved setup does)."""
     import os
     from pathlib import Path
+    global _loaded
+    extra_dirs = [Path(d).expanduser()
+                  for d in filter(None, (os.environ.get("PAPERLENS_PRESET_DIRS") or "").split(os.pathsep))]
+    sig = _files_signature([*extra_dirs, PRESETS_DIR])
+    if _loaded is not None and _loaded[0] == sig:
+        return _loaded[1]
     out: dict[str, dict] = {}
-    for extra in filter(None, (os.environ.get("PAPERLENS_PRESET_DIRS") or "").split(os.pathsep)):
+    for extra in extra_dirs:
         try:
-            out.update(ps.load_dir(Path(extra).expanduser()))
+            out.update(ps.load_dir(extra))
         except Exception as exc:  # noqa: BLE001 - a broken user preset must not take the app down
             print(f"[presets] skipping {extra}: {exc}", file=sys.stderr, flush=True)
     out.update(ps.load_dir(PRESETS_DIR))
+    _loaded = (sig, out)
     return out
 
 
