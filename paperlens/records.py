@@ -91,8 +91,13 @@ def open_pool():
             return None
         # check= pings a connection as it is lent, so one the server dropped while idle
         # (a managed Postgres does that) is replaced instead of failing the request.
-        _pool = ConnectionPool(target, kwargs={"autocommit": True}, min_size=min_size,
-                               max_size=max_size, check=ConnectionPool.check_connection,
+        # prepare_threshold=None: a pooled connection lives across many requests, so psycopg
+        # would start preparing the busiest queries on the server — and a transaction-mode
+        # pooler in front of the database (PgBouncer, Supavisor, a Neon "-pooler" host) does
+        # not keep those, which fails requests with "prepared statement does not exist".
+        _pool = ConnectionPool(target, kwargs={"autocommit": True, "prepare_threshold": None},
+                               min_size=min_size, max_size=max_size,
+                               check=ConnectionPool.check_connection,
                                open=True, name="paperlens-web")
         _pool_dsn = target
         return _pool
