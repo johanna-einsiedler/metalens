@@ -2674,7 +2674,7 @@ def list_presets(usage: str = "extract", db=Depends(get_db), who: Principal = De
         base = allp.get(presets.resolve_id(p["base_preset_id"])) if p.get("base_preset_id") else None
         if base is not None and not b.shows_preset(base.get("meta")):
             continue                   # a setup of a preset this brand does not offer
-        row = presets.emit_schema_row(p["id"], conn=db)
+        row = presets.emit_schema_row(p["id"], conn=db, row=p)   # p is the listed row: no lookup
         if row:
             row.update(personal=True, visibility=p["visibility"],
                        owned=records._owns(who, p["owner_user_id"], p["session_id"]))
