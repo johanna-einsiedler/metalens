@@ -111,3 +111,36 @@ def test_accounts() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(run())
+
+
+def test_auth_me_needs_no_database_for_a_visitor_without_a_cookie(monkeypatch) -> None:
+    """Every page's header asks who is signed in, mostly for visitors who are not. Without a
+    session cookie the 401 needs no database — except the once-a-minute activity write a
+    session still owes; a signed-in visitor is looked up as before."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres available")
+    from fastapi.testclient import TestClient
+    from paperlens import records
+    from paperlens.app import app
+
+    conn = records.connect(); records.init_db(conn)
+    c = TestClient(app)
+    sess = f"me-{uuid.uuid4().hex[:8]}"
+    assert c.get("/api/auth/me", headers={"X-Session-Id": sess}).status_code == 401
+    seen = conn.execute("SELECT 1 FROM anon_session WHERE session_id = %s", (sess,)).fetchone()
+    assert seen is not None                    # the session's first request still touched it
+    conn.close()
+
+    def no_database(*a, **k):
+        raise AssertionError("/api/auth/me opened a database connection")
+    monkeypatch.setattr(records, "connect", no_database)
+    if hasattr(records, "pooled"):             # with a request pool, connections come from here
+        monkeypatch.setattr(records, "pooled", no_database)
+    assert c.get("/api/auth/me", headers={"X-Session-Id": sess}).status_code == 401
+    assert c.get("/api/auth/me").status_code == 401
+    monkeypatch.undo()
+
+    email = f"u{uuid.uuid4().hex[:10]}@example.org"
+    assert c.post("/api/auth/register", json={"email": email, "password": "s3cret-pass-123"},
+                  headers={"X-Session-Id": sess}).status_code == 200
+    assert c.get("/api/auth/me", headers={"X-Session-Id": sess}).json().get("email") == email

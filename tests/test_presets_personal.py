@@ -296,3 +296,28 @@ def test_saved_setup_api_create_list_update_private() -> None:
     assert rendered["schema_id"] == presets.schema_id_for("masem-indirect")
     assert c.get(f"/api/presets/{pid}/detail", headers={"X-Session-Id": "other-" + sid}).status_code == 404
     assert c.delete(f"/api/presets/{pid}", headers=h).status_code == 200
+
+
+def test_picker_builds_personal_rows_from_the_listing(monkeypatch) -> None:
+    """/api/presets lists the visible personal presets in one query and builds each row
+    from that listing — not with one more query per preset."""
+    if not _db_ok():
+        import pytest
+        pytest.skip("no Postgres available")
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    conn = records.connect(); records.init_db(conn)
+    sess = f"s-{uuid.uuid4().hex[:6]}"
+    made = [_mk_preset(conn, None, session_id=sess)["id"] for _ in range(3)]
+
+    def no_lookup(*a, **k):
+        raise AssertionError("a listed personal preset was fetched again by id")
+    monkeypatch.setattr(records, "get_personal_preset", no_lookup)
+    picker = TestClient(app).get("/api/presets", headers={"X-Session-Id": sess}).json()["presets"]
+    mine = {r["preset_id"]: r for r in picker if r.get("personal")}
+    assert set(made) <= set(mine) and all(mine[pid]["owned"] for pid in made)
+    assert all(mine[pid]["core_keys"] == ["X"] for pid in made)
+    monkeypatch.undo()
+    for pid in made:
+        records.delete_personal_preset(conn, pid)
+    conn.close()

@@ -103,6 +103,10 @@ def test_import_picker_keeps_the_presets_the_extract_picker_hides(monkeypatch) -
     """The extract picker answers "what can I run?"; the import picker answers "what shape is
     the data I already have?". A landing-hidden variant and an import-only schema are invalid
     answers to the first and the only sensible answers to the second."""
+    try:
+        records.connect().close()
+    except Exception:
+        import pytest; pytest.skip("no Postgres")
     monkeypatch.delenv("PAPERLENS_BRAND", raising=False)
     monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD", raising=False)
     c = _client()

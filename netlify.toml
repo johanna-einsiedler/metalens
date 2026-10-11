@@ -1,0 +1,8 @@
+# Metalens is a Python service deployed on Fly.io (see fly.toml); Netlify builds nothing here.
+# A Netlify site is still linked to this repository from when the Observable prototype lived
+# in it, and its build command (`npm run build`, set in the Netlify UI) fails on every push
+# and every pull request's deploy preview now that there is no package.json. Skip the build
+# instead: the site keeps serving what it last published. Once the site is unlinked from the
+# repository in Netlify, this file can go.
+[build]
+  ignore = "exit 0"

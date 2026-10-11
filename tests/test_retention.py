@@ -163,3 +163,27 @@ def test_sessions_without_an_activity_entry_still_expire() -> None:
     assert not _exists(conn, "extraction_document", d_old) and not _exists(conn, "dataset", ds_old["id"])
     assert _exists(conn, "extraction_document", d_new)                  # registered as just seen, kept
     retention.forget_session(conn, new); conn.commit(); conn.close()
+
+
+def test_a_signed_in_session_is_claimed_at_once_then_touched_once_a_minute() -> None:
+    """The principal touches the session on every request; for a signed-in user that used to
+    be a write each time. The first signed-in request still claims the session immediately —
+    the minute is kept per session AND user — and the next ones within the minute write nothing."""
+    _skip()
+    conn = records.connect(); records.init_db(conn)
+    sess, uid = f"ret-signed-{uuid.uuid4().hex[:6]}", str(uuid.uuid4())
+    retention.touch(conn, sess, None)                    # browsing logged out
+    retention.touch(conn, sess, uid)                     # the first signed-in request
+    row = conn.execute("SELECT claimed_by::text FROM anon_session WHERE session_id = %s", (sess,)).fetchone()
+    assert row == (uid,)
+    conn.execute("UPDATE anon_session SET last_seen = now() - interval '1 hour' WHERE session_id = %s", (sess,))
+    for _ in range(3):
+        retention.touch(conn, sess, uid)                 # more requests within the minute
+    stale = conn.execute("SELECT last_seen < now() - interval '30 minutes' FROM anon_session "
+                         "WHERE session_id = %s", (sess,)).fetchone()
+    assert stale == (True,)                              # none of them wrote
+    retention.touch(conn, sess, uid, force=True)
+    fresh = conn.execute("SELECT last_seen > now() - interval '1 minute' FROM anon_session "
+                         "WHERE session_id = %s", (sess,)).fetchone()
+    assert fresh == (True,)
+    conn.close()

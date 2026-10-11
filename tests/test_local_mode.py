@@ -79,3 +79,21 @@ def test_extra_preset_directories_are_loaded(tmp_path, monkeypatch) -> None:
     assert "summarize" in allp                                    # built-ins still there
     monkeypatch.setenv("PAPERLENS_PRESET_DIRS", str(tmp_path / "missing"))
     assert "my-summary" not in presets.load_all()                 # a missing dir is not fatal
+
+
+def test_presets_are_read_once_and_again_when_a_file_changes(tmp_path, monkeypatch) -> None:
+    """load_all keeps what it read until a file in the preset directories changes, so the
+    picker doesn't re-read every file per preset, and a preset dropped into (or edited in)
+    the folder still shows up without a restart."""
+    monkeypatch.setenv("PAPERLENS_PRESET_DIRS", str(tmp_path))
+    first = presets.load_all()
+    assert presets.load_all() is first                            # nothing changed: not re-read
+    spec = json.loads(json.dumps(presets.load_all()["summarize"]))
+    spec["id"] = "cache-probe"; spec["meta"]["title"] = "Cache probe"
+    spec["prompt"] = {"text": spec["prompt"]["text"], "generate": spec["prompt"].get("generate", [])}
+    (tmp_path / "cache-probe.json").write_text(json.dumps(spec), encoding="utf-8")
+    second = presets.load_all()
+    assert second is not first and second["cache-probe"]["meta"]["title"] == "Cache probe"
+    spec["meta"]["title"] = "Cache probe, edited"
+    (tmp_path / "cache-probe.json").write_text(json.dumps(spec), encoding="utf-8")
+    assert presets.load_all()["cache-probe"]["meta"]["title"] == "Cache probe, edited"
