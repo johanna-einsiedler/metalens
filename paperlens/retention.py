@@ -55,6 +55,14 @@ def touch(conn: psycopg.Connection, session_id: str | None, user_id: str | None 
             (session_id, user_id))
 
 
+def touch_due(session_id: str | None, user_id: str | None = None) -> bool:
+    """Whether ``touch`` would write for this session now — so a request that otherwise
+    needs no database knows it still owes the activity clock its once-a-minute write."""
+    if not session_id or localmode.enabled():
+        return False
+    return time.monotonic() - _last_touch.get((session_id, user_id), -1e9) >= _TOUCH_EVERY
+
+
 # ── free trial accounting (survives the sweep) ────────────────────────────────
 
 def trial_used(conn: psycopg.Connection, session_id: str | None) -> int:

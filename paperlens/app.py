@@ -2220,9 +2220,23 @@ def logout(response: Response, pl_session: str | None = Cookie(default=None),
     return {"ok": True}
 
 
+def _db_if_someone(x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+                   pl_session: str | None = Cookie(default=None)) -> Generator:
+    """/api/auth/me's connection, opened only when there can be someone to look up — a
+    session cookie, or the local owner — or when this session owes the activity clock its
+    once-a-minute write. Every page's header asks who is signed in, mostly for visitors
+    who are not, and their 401 needs no database."""
+    if pl_session or localmode.enabled() or retention.touch_due(x_session_id):
+        yield from get_db()
+    else:
+        yield None
+
+
 @app.get("/api/auth/me")
-def me(who: Principal = Depends(principal), db=Depends(get_db)) -> dict:
-    if not who.user_id:
+def me(x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+       pl_session: str | None = Cookie(default=None), db=Depends(_db_if_someone)) -> dict:
+    who = principal(x_session_id, pl_session, db) if db is not None else None
+    if who is None or not who.user_id:
         raise HTTPException(status_code=401, detail="Not logged in.")
     if localmode.enabled():                # the fixed local owner; the UI hides the account widget
         return {"id": who.user_id, "email": localmode.LOCAL_EMAIL, "local_mode": True, "is_admin": True}
