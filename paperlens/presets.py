@@ -144,19 +144,21 @@ def _meta_from_row(row: dict) -> dict:
             "landing_hidden": False}
 
 
-def get(preset_id: str, conn=None) -> dict | None:
+def get(preset_id: str, conn=None, *, row: dict | None = None) -> dict | None:
     """Resolve a preset by id: built-in first (legacy ids alias to their new names), then a
-    personal preset when ``conn`` is given."""
+    personal preset — the ``personal_preset`` row a caller already fetched (the picker lists
+    them in one query), or looked up when ``conn`` is given."""
     if not preset_id:
         return None
     pid = resolve_id(preset_id)
     spec = load_all().get(pid)
     if spec is not None:
         return _meta_from_spec(spec)
-    if conn is None:
-        return None
-    from . import records   # lazy: avoid the records <-> presets import cycle
-    row = records.get_personal_preset(conn, pid)
+    if row is None:
+        if conn is None:
+            return None
+        from . import records   # lazy: avoid the records <-> presets import cycle
+        row = records.get_personal_preset(conn, pid)
     return _meta_from_row(row) if row else None
 
 
@@ -174,11 +176,12 @@ def prompt_for(preset_id: str | None, conn=None, params: dict | None = None) -> 
     return p if isinstance(p, str) and p.strip() else None
 
 
-def emit_schema_row(preset_id: str, conn=None) -> dict[str, Any] | None:
+def emit_schema_row(preset_id: str, conn=None, *, row: dict | None = None) -> dict[str, Any] | None:
     """What ``schema.field_defs`` holds for this preset: the spec plus the synthesised
     legacy grammar keys (or, for a pre-format-2 personal preset, its stored grammar
-    verbatim plus a best-effort spec). None if the preset is unknown."""
-    meta = get(preset_id, conn)
+    verbatim plus a best-effort spec). None if the preset is unknown. ``row``: the
+    personal preset's row when the caller already has it (see ``get``)."""
+    meta = get(preset_id, conn, row=row)
     if meta is None:
         return None
     if meta.get("legacy"):
