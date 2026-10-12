@@ -917,6 +917,14 @@
       "in": 0.15,
       "out": 0.6
     },
+    "mistral-large-4": {
+      "in": 0.68,
+      "out": 2.09
+    },
+    "mistral-large-4-0": {
+      "in": 0.68,
+      "out": 2.09
+    },
     "mistral-large-latest": {
       "in": 0.5,
       "out": 1.5
@@ -1257,6 +1265,18 @@
       "in": 2.0,
       "out": 10.0
     },
+    "gemini-nano-banana-2.1": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "claude-haiku-5-5": {
+      "in": 0.1,
+      "out": 0.5
+    },
+    "gpt-rosalind-discovery": {
+      "in": 5.0,
+      "out": 25.0
+    },
     "chatgpt-4o-latest": {
       "in": 5.0,
       "out": 15.0
@@ -1530,5 +1550,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-10-05T07:05:07Z"
+  "generated_at": "2026-10-12T07:06:58Z"
 }
