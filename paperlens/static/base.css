@@ -360,6 +360,11 @@ a.acct:hover { color: var(--accent); }
 .ploop { text-align: center; color: var(--text-muted); font-size: 13px; margin: 14px 0 0; }
 @media (max-width: 760px) { .parrow { transform: rotate(90deg); } .pstep { max-width: none; } }
 
+/* the explainer video under the pipeline */
+.explainer { max-width: 760px; margin: 44px auto 0; }
+.explainer-video { display: block; width: 100%; border-radius: var(--radius); box-shadow: var(--shadow-md); background: #000; }
+.explainer-cap { text-align: center; font-size: 13px; color: var(--text-muted); margin: 10px 0 0; }
+
 .statband { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--surface); overflow: hidden; max-width: 840px; margin: 48px auto; }
 .statband .stat { flex: 1; padding: 20px 22px; border-right: 1px solid var(--border); text-align: center; }

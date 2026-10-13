@@ -49,6 +49,16 @@
         <div class="pdesc">As new papers are added, your dashboards keep pace with the latest scientific knowledge.</div>
       </div>
     </div>
+
+    <!-- The explainer video from the previous site: how a paper becomes verified data. Muted
+         autoplay is what browsers allow without a click; the controls let a visitor unmute. -->
+    <section class="explainer" aria-labelledby="explainer-cap">
+      <video class="explainer-video" autoplay muted loop playsinline controls preload="metadata"
+             aria-label="Metalens explainer video">
+        <source src="/static/info_video_metalens.mp4" type="video/mp4"/>
+      </video>
+      <p class="explainer-cap" id="explainer-cap">How it works: a paper goes in, every value comes out tied to its source, you verify, the dashboard follows.</p>
+    </section>
   </div>
 
   <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
