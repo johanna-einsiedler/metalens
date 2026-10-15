@@ -106,6 +106,7 @@ def main() -> int:
     ap.add_argument("--since", help="only corrections made on or after this date (YYYY-MM-DD)")
     ap.add_argument("--csv", help="write the still-lost cells here")
     ap.add_argument("--examples", type=int, default=8, help="how many cells to show per group")
+    ap.add_argument("--papers", action="store_true", help="also list every paper per dataset: editors, corrections, redone, lost")
     a = ap.parse_args()
 
     conn = records.connect()
@@ -118,7 +119,7 @@ def main() -> int:
     rows = conn.execute(
         f"""SELECT e.record_id::text, e.created_at, e.diff, coalesce(u.email, e.verifier_kind, 'unknown'),
                    coalesce(d.title, '(no dataset)'), r.entry_index, r.field_values,
-                   coalesce(p.title, x.filename, r.document_id::text)
+                   coalesce(x.filename, p.title, r.document_id::text), coalesce(x.schema_id, '')
             FROM verification_event e
             JOIN record r ON r.id = e.record_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
@@ -134,14 +135,18 @@ def main() -> int:
     meta: dict[str, tuple] = {}
     per_editor: dict[tuple, Counter] = defaultdict(Counter)
     n_events = 0
-    for rid, at, diff, who, ds, entry, fv, paper in rows:
+    per_paper: dict[tuple, Counter] = defaultdict(Counter)
+    paper_editors: dict[tuple, set] = defaultdict(set)
+    for rid, at, diff, who, ds, entry, fv, paper, schema in rows:
         meta[rid] = (ds, paper, entry, fv)
+        paper_editors[(ds, paper, schema)].add(who)
         for d in (diff if isinstance(diff, list) else []):
             if not isinstance(d, dict) or not d.get("field_path"):
                 continue
             n_events += 1
             path = d["field_path"]
             per_editor[(ds, who)]["corrections"] += 1
+            per_paper[(ds, paper)]["corrections"] += 1
             if isinstance(d.get("final_value"), str) and d["final_value"] in STRUCTURAL:   # a multi-select holds a list
                 shifted[(rid, path.rsplit("[", 1)[0])].append(at)
                 continue
@@ -157,14 +162,14 @@ def main() -> int:
                 if any(at < s < at2 for s in shifts):
                     unclear.append((ds, paper, entry, path, who2, at, at2)); per_editor[(ds, who2)]["unclear"] += 1
                 else:
-                    redone.append((ds, paper, entry, path, who, at, final, who2, at2, orig2)); per_editor[(ds, who2)]["redone"] += 1
+                    redone.append((ds, paper, entry, path, who, at, final, who2, at2, orig2)); per_editor[(ds, who2)]["redone"] += 1; per_paper[(ds, paper)]["redone"] += 1
         at, who, orig, final = evs[-1]
         now = stored(fv, path)
         if norm(now) != norm(final):
             if any(s > at for s in shifts):
                 unclear.append((ds, paper, entry, path, who, at, None)); per_editor[(ds, who)]["unclear"] += 1
             else:
-                lost.append((ds, paper, entry, path, who, at, orig, final, now, rid)); per_editor[(ds, who)]["lost"] += 1
+                lost.append((ds, paper, entry, path, who, at, orig, final, now, rid)); per_editor[(ds, who)]["lost"] += 1; per_paper[(ds, paper)]["lost"] += 1
 
     print(f"{n_events} corrections on {len(meta)} records ({len(by_cell)} cells)"
           + (f" since {a.since}" if a.since else "") + (f", datasets matching {a.dataset!r}" if a.dataset else ""))
@@ -176,6 +181,11 @@ def main() -> int:
     print("\nper dataset and editor (corrections · redone after a revert · still lost · unclear):")
     for (ds, who), c in sorted(per_editor.items()):
         print(f"  {ds[:40]:40} {who[:32]:32} {c['corrections']:5} · {c['redone']:4} · {c['lost']:4} · {c['unclear']:4}")
+    if a.papers:
+        print("\nper paper (preset · editors · corrections · redone · lost):")
+        for (ds, paper, schema), eds in sorted(paper_editors.items()):
+            c = per_paper[(ds, paper)]
+            print(f"  {ds[:28]:28} {paper[:44]:44} {schema.split('@')[0][:14]:14} {', '.join(sorted(e.split('@')[0] for e in eds))[:30]:30} {c['corrections']:5} · {c['redone']:4} · {c['lost']:4}")
     if redone:
         days = Counter(at2.date() for *_, at2, _o in redone)
         print("\nwhen the reverts were noticed and redone (edits per day):")
