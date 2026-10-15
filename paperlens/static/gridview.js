@@ -172,6 +172,7 @@ function wireCellEdit(td, unit, col, onCellEdit) {
     else if ((typeof was === "number" || was == null) && !isNaN(Number(t)) && /^-?\d/.test(t)) val = Number(t);
     else val = now;
     td.classList.add("rv-edited");
-    Promise.resolve(onCellEdit(unit.rec, path, val)).then(() => { td.dataset.orig = now; unit.values[col.key] = val; });
+    unit.values[col.key] = val;                        // the row's copy at once, like the record's
+    Promise.resolve(onCellEdit(unit.rec, path, val)).then(() => { td.dataset.orig = now; });
   });
 }

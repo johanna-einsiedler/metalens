@@ -326,6 +326,8 @@ async function load(docId) {
   DOCID = docId;
   PANEL_SEL = null;                 // reset the entry nav when switching papers
   $("#pages").innerHTML = '<p class="muted">Loading…</p>';
+  await pendingSaves();             // an edit made a moment ago is on the server before we re-read
+  if (DOCID !== docId) return;      // the coder moved on again meanwhile
   DATA = await api.documentView(docId);
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
   // screened empty-state (not an empty card), but keep the sentinel so the reviewer can
@@ -543,11 +545,9 @@ function savePaperField(path, value) {
 
 // A study-constant edit writes to EVERY record (one call) + syncs in-memory records/CONSTANT.
 function saveStudyField(key, value) {
+  (DATA.records || []).forEach((r) => { if (r.field_values) r.field_values[key] = value; });
+  CONSTANT[key] = value;
   return api.setDocumentField(DATA.document_id, key, value)
-    .then(() => {
-      (DATA.records || []).forEach((r) => { if (r.field_values) r.field_values[key] = value; });
-      CONSTANT[key] = value;
-    })
     .catch((e) => alert("save failed: " + e.message));
 }
 
@@ -943,15 +943,14 @@ function rerenderCard(card, rec) {
 function wireTableRows(card, rec) {
   card.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path;
-    const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-    const cur = getByPath(fv, path);
+    if (!rec.field_values) rec.field_values = {};
+    const cur = getByPath(rec.field_values, path);
     const rows = Array.isArray(cur) ? cur : [];
     rows.push(JSON.parse(b.dataset.blank || "{}"));
-    if (!Array.isArray(cur)) setByPath(fv, path, rows);
+    if (!Array.isArray(cur)) setByPath(rec.field_values, path, rows);
     try {
-      await api.verify(rec.id, { status: "corrected", field_values: fv,
-        diff: [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }] });
-      rec.field_values = fv; maybeOfferRepublish();
+      await saveWholeRecord(rec, [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }]);
+      maybeOfferRepublish();
       const fresh = rerenderCard(card, rec);
       // inside a quoted attribute selector the brackets are literal — no escaping
       const first = fresh.querySelector(`[data-path^="${path}[${rows.length - 1}]."]`);
@@ -960,8 +959,7 @@ function wireTableRows(card, rec) {
   }));
   card.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path, i = Number(b.dataset.row);
-    const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-    const rows = getByPath(fv, path);
+    const rows = getByPath(rec.field_values || {}, path);
     if (!Array.isArray(rows) || !(i in rows)) return;
     const row = rows[i];
     const label = row && typeof row === "object"
@@ -969,13 +967,21 @@ function wireTableRows(card, rec) {
           .slice(0, 3).map(([, x]) => String(x)).join(" · ") || "this row"
       : String(row);
     if (!confirm(`Remove ${label}? The change is logged in the record's history.`)) return;
-    rows.splice(i, 1);
+    const live = getByPath(rec.field_values, path);
+    live.splice(i, 1);
     try {
-      await api.verify(rec.id, { status: "corrected", field_values: fv,
-        diff: [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }] });
-      rec.field_values = fv; maybeOfferRepublish(); rerenderCard(card, rec);
-    } catch (e) { alert("remove failed: " + e.message); }
+      await saveWholeRecord(rec, [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }]);
+      maybeOfferRepublish(); rerenderCard(card, rec);
+    } catch (e) { live.splice(i, 0, row); alert("remove failed: " + e.message); }
   }));
+}
+
+// A structural edit (a row added or removed) replaces the whole record — taken from the
+// page's copy when its turn in the queue comes, so it carries every cell edit before it.
+function saveWholeRecord(rec, diff) {
+  const after = [...(PENDING.get(rec.id) || [])];
+  return track(rec.id, `${rec.id}|*`, Promise.allSettled(after).then(() => api.verify(rec.id, {
+    status: "corrected", diff, field_values: JSON.parse(JSON.stringify(rec.field_values || {})) })));
 }
 
 // A badge's notes open on click — the notes are what tell the coder what to check.
@@ -1323,31 +1329,28 @@ function renderChainCard(panel, rec, rv) {
   wireControls(card, (p, v) => saveFieldEdit(rec, card, p, v, curVal(rec, p)), true);
   card.querySelectorAll(".chain-resdel").forEach((b) => (b.onclick = async () => {
     const j = Number(b.dataset.j);
-    const fv2 = JSON.parse(JSON.stringify(rec.field_values || {}));
-    const rows2 = fv2[R.child] || [];
+    const rows2 = (rec.field_values || {})[R.child] || [];
     const row = rows2[j] || {};
     const label = [(R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" "), row[R.value]].filter((x) => x !== null && x !== undefined && x !== "").join(" · ") || "this row";
     if (!confirm(`Remove ${label} from this claim? The change is logged and the claim stays.`)) return;
     rows2.splice(j, 1);
     try {
-      await api.verify(rec.id, { status: "corrected", field_values: fv2,
-        diff: [{ field_path: `${R.child}[${j}]`, original_value: label, final_value: "(row removed)" }] });
-      rec.field_values = fv2; maybeOfferRepublish(); renderPanel();
-    } catch (e) { alert("remove failed: " + e.message); }
+      await saveWholeRecord(rec, [{ field_path: `${R.child}[${j}]`, original_value: label, final_value: "(row removed)" }]);
+      maybeOfferRepublish(); renderPanel();
+    } catch (e) { rows2.splice(j, 0, row); alert("remove failed: " + e.message); }
   }));
   const addres = card.querySelector(".chain-addres");
   if (addres) addres.onclick = async () => {
     const ch = (VM.fieldIndex.get(R.child) || {}).child;
     const blank = Object.fromEntries(((ch && ch.fields) || []).map((f) => [f.name, null]));
-    const fv2 = JSON.parse(JSON.stringify(rec.field_values || {}));
-    fv2[R.child] = [...(fv2[R.child] || []), blank];
+    if (!rec.field_values) rec.field_values = {};
+    const rows = (rec.field_values[R.child] = [...(rec.field_values[R.child] || []), blank]);
     try {
-      await api.verify(rec.id, { status: "corrected", field_values: fv2,
-        diff: [{ field_path: `${R.child}[${fv2[R.child].length - 1}]`, original_value: null, final_value: "(row added)" }] });
-      rec.field_values = fv2; maybeOfferRepublish();
+      await saveWholeRecord(rec, [{ field_path: `${R.child}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }]);
+      maybeOfferRepublish();
       CHAIN_EDIT.add(rec.id);                    // straight into the field view to fill it in
       renderPanel();
-    } catch (e) { alert("add failed: " + e.message); }
+    } catch (e) { rows.pop(); alert("add failed: " + e.message); }
   };
   card.querySelector(".histbtn:not(.chain-editbtn)").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
@@ -1479,10 +1482,33 @@ function getByPath(obj, path) {
   return cur;
 }
 
-// Persist ONE field correction: apply newVal at `path` on a copy of the entry's
-// field_values and route it through the verify layer — so the change lands in the record
+// Persist ONE field correction through the verify layer — so the change lands in the record
 // (→ export + reload) and the audit trail, not just the UI. Shared by text cells + typed
-// controls. Returns the api.verify promise.
+// controls. Returns the save promise.
+//
+// The page's copy of the record changes AT ONCE, and only the edited cell travels: the
+// server sets it on the record as stored, so saves of different cells may cross on the wire
+// and all land. Two edits of the SAME cell go out in order; a structural edit (the whole
+// record) waits for everything before it and holds everything after it. (Before, each save
+// sent the whole record as the page knew it, updated only when the server had answered — so
+// two quick edits raced, the later one carrying the earlier cell's old value, and the server
+// kept that: edits "came back" on the next reload.)
+const PENDING = new Map();           // record id → the saves of it still in flight
+const LAST = new Map();              // "record|cell" or "record|*" → the save a next one of it waits for
+function track(recId, key, p) {
+  const set = PENDING.get(recId) || new Set(); PENDING.set(recId, set); set.add(p);
+  LAST.set(key, p);
+  p.catch(() => {}).then(() => { set.delete(p); if (!set.size) PENDING.delete(recId); if (LAST.get(key) === p) LAST.delete(key); });
+  return p;
+}
+function queueSave(recId, path, fn) {
+  const after = [LAST.get(`${recId}|${path}`), LAST.get(`${recId}|*`)].filter(Boolean);
+  return track(recId, `${recId}|${path}`, Promise.allSettled(after).then(fn));
+}
+// what is still on its way to the server — a paper switch waits for it before re-reading
+function pendingSaves() { return Promise.allSettled([...PENDING.values()].flatMap((set) => [...set])); }
+// leaving the page with a save still out would lose it: ask first
+window.addEventListener("beforeunload", (e) => { if (PENDING.size) { e.preventDefault(); e.returnValue = ""; } });
 // After the first review action in a published dataset, offer once to push the changes as a
 // new version — the GitHub copy is what people cite, so it should not silently drift.
 let REPUBLISH_OFFERED = false;
@@ -1500,16 +1526,16 @@ async function maybeOfferRepublish() {
 }
 
 function saveFieldEdit(rec, card, path, newVal, origVal) {
-  const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
-  setByPath(fv, path, newVal);
+  if (!rec.field_values) rec.field_values = {};
+  setByPath(rec.field_values, path, newVal);        // now — later saves and renders see it
   // A value edit is a CORRECTION (logged for provenance/audit), NOT a verification —
   // it must not mark the record "verified"; that stays the explicit ✓ button's job.
-  return api.verify(rec.id, {
+  return queueSave(rec.id, path, () => api.verify(rec.id, {
     status: "corrected",
     diff: [{ field_path: path, original_value: origVal, final_value: newVal }],
-    field_values: fv,
-  }).then(() => { rec.field_values = fv; maybeOfferRepublish(); })
-    .catch((e) => alert("save failed: " + e.message));
+    patch: [{ field_path: path, value: newVal }],
+  }, { keepalive: true })).then(() => maybeOfferRepublish())
+    .catch((e) => { setByPath(rec.field_values, path, origVal); alert("save failed: " + e.message); });
 }
 // current stored value at a record-relative path (nested paths included) — the diff's original_value
 function curVal(rec, path) { return getByPath(rec.field_values || {}, path); }

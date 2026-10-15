@@ -2317,7 +2317,8 @@ class VerifyBody(BaseModel):
     diff: list[dict] | None = None         # [{field_path, original_value, final_value}]
     notes: str | None = None
     verifier_kind: str | None = None       # maintainer | community | paperlens
-    field_values: dict | None = None       # optional correction (full entry replacement)
+    field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
+    patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -2331,13 +2332,14 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
     mine = records.records_all_owned(db, [record_id], who)
-    if not mine and (body.field_values is not None or body.diff):
+    if not mine and (body.field_values is not None or body.patch or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
-            verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values)
+            verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values,
+            patch=body.patch)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

@@ -319,3 +319,49 @@ def strip_to_publishable(result: str | dict, entries_key: str | None = None) -> 
     if isinstance(out.get("evidence"), list):
         out["evidence"] = _normalize_evidence(out["evidence"])
     return out
+
+# ── one cell by its record-relative path ─────────────────────────────────────────────────────
+# The review screen names a cell the way its grammar does — "n", "loadings._table[2].loading",
+# "records[14].es" — the same tokens workspace.js's pathTokens/setByPath use. A correction of
+# ONE cell is applied here, on the stored record, instead of the page sending the whole record
+# back (which lost edits: two quick edits raced, the later one carrying the earlier cell's old
+# value).
+_PATH_TOKEN = re.compile(r"[^.\[\]]+|\[(\d+)\]")
+
+
+def path_tokens(path: str | None) -> list:
+    """'loadings._table[2].loading' → ['loadings', '_table', 2, 'loading']."""
+    out: list = []
+    for m in _PATH_TOKEN.finditer(str(path or "")):
+        out.append(int(m.group(1)) if m.group(1) is not None else m.group(0))
+    return out
+
+
+def set_path(obj: dict, path: str, value) -> None:
+    """Set the cell at ``path`` in place, creating the objects on the way as the page does. A
+    row the record does not have (an index past the end of a list) is an error, not a hole:
+    a stale page must not invent rows."""
+    toks = path_tokens(path)
+    if not toks or not isinstance(obj, dict):
+        raise ValueError(f"not a cell path: {path!r}")
+    cur = obj
+    for k, tok in enumerate(toks):
+        last = k == len(toks) - 1
+        if isinstance(tok, int):
+            if not isinstance(cur, list) or tok >= len(cur) or tok < 0:
+                raise ValueError(f"{path}: no row {tok}")
+            if last:
+                cur[tok] = value
+                return
+            if not isinstance(cur[tok], (dict, list)):
+                cur[tok] = [] if isinstance(toks[k + 1], int) else {}
+            cur = cur[tok]
+        else:
+            if not isinstance(cur, dict):
+                raise ValueError(f"{path}: not an object at {tok!r}")
+            if last:
+                cur[tok] = value
+                return
+            if not isinstance(cur.get(tok), (dict, list)):
+                cur[tok] = [] if isinstance(toks[k + 1], int) else {}
+            cur = cur[tok]

@@ -162,7 +162,7 @@ export const api = {
   documentText: (id, page) =>
     req(`/api/documents/${id}/text${page != null ? `?page=${page}` : ""}`),
   aggregate: (body) => req(`/api/aggregate`, json(body)),
-  verify: (id, body) => req(`/api/records/${id}/verify`, json(body)),
+  verify: (id, body, extra) => req(`/api/records/${id}/verify`, { ...json(body), ...(extra || {}) }),   // extra: fetch options (keepalive)
   views: () => req(`/api/views`),
   viewData: (id) => req(`/api/views/${id}/data`),
   viewGet: (id) => req(`/api/views/${id}`),
