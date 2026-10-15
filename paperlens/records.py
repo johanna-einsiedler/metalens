@@ -788,11 +788,14 @@ def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
 def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
                   diff: list | None = None, notes: str | None = None,
                   verifier_user_id: str | None = None, verifier_kind: str = "maintainer",
-                  field_values: dict | None = None) -> dict:
+                  field_values: dict | None = None, patch: list | None = None) -> dict:
     """Record a verification event + project it onto record.verification_status.
 
-    Optionally apply a correction (full ``field_values`` replacement) — the
-    "editing values routes through the verification layer" rule. One transaction.
+    Optionally apply a correction — the "editing values routes through the verification
+    layer" rule. ``patch`` = [{field_path, value}] sets those cells on the record AS STORED
+    (the row is locked for the write, so two edits that cross on the wire both land);
+    ``field_values`` replaces the whole record, for structural edits (a row added or removed).
+    One transaction.
     """
     if status not in _VALID_STATUS:
         raise ValueError(f"status must be one of {_VALID_STATUS}")
@@ -812,6 +815,17 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
         if field_values is not None:
             conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid",
                          (Json(field_values), record_id))
+        elif patch:
+            row = conn.execute("SELECT field_values FROM record WHERE id = %s::uuid FOR UPDATE",
+                               (record_id,)).fetchone()
+            if row is None:
+                raise ValueError("Record not found.")
+            fv = row[0] if isinstance(row[0], dict) else {}
+            for p in patch:
+                if not isinstance(p, dict) or not p.get("field_path"):
+                    raise ValueError("a patch names a field_path and a value")
+                contract.set_path(fv, p["field_path"], p.get("value"))
+            conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid", (Json(fv), record_id))
     return {"id": eid, "record_id": record_id, "status": status,
             "verifier_kind": verifier_kind}
 
