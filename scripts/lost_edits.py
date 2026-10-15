@@ -55,6 +55,10 @@ def norm(v):
         return v
     if isinstance(v, (int, float)):
         return float(v)
+    if isinstance(v, (list, tuple)):
+        return tuple(norm(x) for x in v)
+    if isinstance(v, dict):
+        return tuple(sorted((k, norm(x)) for k, x in v.items()))
     if isinstance(v, str):
         s = v.strip()
         if s == "":
@@ -138,7 +142,7 @@ def main() -> int:
             n_events += 1
             path = d["field_path"]
             per_editor[(ds, who)]["corrections"] += 1
-            if d.get("final_value") in STRUCTURAL:
+            if isinstance(d.get("final_value"), str) and d["final_value"] in STRUCTURAL:   # a multi-select holds a list
                 shifted[(rid, path.rsplit("[", 1)[0])].append(at)
                 continue
             by_cell[(rid, path)].append((at, who, d.get("original_value"), d.get("final_value")))
