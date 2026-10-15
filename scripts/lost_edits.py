@@ -107,9 +107,27 @@ def main() -> int:
     ap.add_argument("--csv", help="write the still-lost cells here")
     ap.add_argument("--examples", type=int, default=8, help="how many cells to show per group")
     ap.add_argument("--papers", action="store_true", help="also list every paper per dataset: editors, corrections, redone, lost")
+    ap.add_argument("--accounts", action="store_true", help="every dataset per account, with every kind of review event and the last activity")
     a = ap.parse_args()
 
     conn = records.connect()
+    if a.accounts:
+        print("datasets per account (records · verified · flagged · corrected · noted · last activity):")
+        for owner, title, n_rec, ver, flg, cor, note, last, actors in conn.execute(
+                """SELECT coalesce(u.email, '(no account: session ' || left(coalesce(d.session_id, '?'), 8) || ')'), d.title,
+                          (SELECT count(*) FROM record r WHERE r.dataset_id = d.id),
+                          count(*) FILTER (WHERE e.status = 'verified'), count(*) FILTER (WHERE e.status = 'flagged'),
+                          count(*) FILTER (WHERE e.status = 'corrected'), count(*) FILTER (WHERE e.status = 'noted'),
+                          max(e.created_at),
+                          string_agg(DISTINCT coalesce(split_part(v.email, '@', 1), e.verifier_kind), ', ')
+                   FROM dataset d
+                   LEFT JOIN users u ON u.id = d.owner_user_id
+                   LEFT JOIN record r ON r.dataset_id = d.id
+                   LEFT JOIN verification_event e ON e.record_id = r.id
+                   LEFT JOIN users v ON v.id = e.verifier_user_id
+                   GROUP BY 1, 2, d.id ORDER BY 1, 2""").fetchall():
+            print(f"  {owner[:34]:34} {title[:34]:34} {n_rec:5} · {ver:4} · {flg:4} · {cor:5} · {note:4} · {last.strftime('%Y-%m-%d') if last else '—':10}  by {actors or '—'}")
+        print()
     where, params = ["e.status = 'corrected'", "e.diff IS NOT NULL"], []
     if a.since:
         where.append("e.created_at >= %s"); params.append(dt.date.fromisoformat(a.since))
