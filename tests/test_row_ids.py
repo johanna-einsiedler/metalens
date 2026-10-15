@@ -85,3 +85,65 @@ def test_document_view_serves_current_positions() -> None:
     assert paths["N = 100"] == "samples[0].n"
     records.delete_document(conn, doc) if hasattr(records, "delete_document") else None
     conn.commit(); conn.close()
+
+
+def test_child_confidence_follows_the_row() -> None:
+    """A sub-entry row's rating is stored by original position; after rows before it are
+    removed it must show on ITS row — and a removed row's rating must not land on a neighbour."""
+    stored = {"conditions[0]": {"measures": {"level": "high", "notes": None}},
+              "conditions[2]": {"measures": {"level": "low", "notes": "check"}}}
+    rows = [{"name": "c0", "_rid": "o0"}, {"name": "c1", "_rid": "o1"}, {"name": "c2", "_rid": "o2"}]
+    assert records.live_child_confidence(stored, {"conditions": rows}) == stored             # nothing moved
+    assert records.live_child_confidence(stored, {"conditions": rows[1:]}) == \
+        {"conditions[1]": stored["conditions[2]"]}                                           # c0 gone: its rating too; c2 is row 1 now
+    added = [{"name": "new", "_rid": "u1"}] + rows
+    assert set(records.live_child_confidence(stored, {"conditions": added})) == {"conditions[1]", "conditions[3]"}
+    assert records.live_child_confidence(stored, {"conditions": []}) == {}                   # every row removed
+    legacy = [{"name": "c0"}, {"name": "c1"}, {"name": "c2"}]                                # older than row ids
+    assert records.live_child_confidence(stored, {"conditions": legacy}) == stored
+
+
+def test_ensure_row_ids_migrates_a_document_older_than_row_ids() -> None:
+    """Rows ingested before row ids existed get them on the first structural edit, and the
+    quotes are tied to the rows they point at — so removing a row cannot shift a quote."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from psycopg.types.json import Json
+    from paperlens import app as appmod
+    conn = records.connect(); records.init_db(conn)
+    sess = f"rid-{uuid.uuid4().hex[:6]}"
+    doc = records.persist(conn, ingest(copy.deepcopy(RESULT), entries_key="samples"), schema_id=None,
+                          source_job_id="rowids-legacy", session_id=sess)
+    rec = records.document_view(conn, doc)["records"][0]
+    # make it a legacy document: no row ids anywhere, evidence held by position only
+    conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid",
+                 (Json(contract.strip_row_ids(rec["field_values"])), rec["id"]))
+    conn.execute("UPDATE evidence_span SET child_rid = NULL, row_rid = NULL WHERE document_id = %s::uuid", (doc,))
+    conn.commit()
+
+    c = TestClient(appmod.app)
+    assert c.post(f"/api/documents/{doc}/row-ids", headers={"X-Session-Id": "someone-else"}).status_code == 404
+    r = c.post(f"/api/documents/{doc}/row-ids", headers={"X-Session-Id": sess})
+    assert r.status_code == 200 and r.json()["records_changed"] == 1
+    assert c.post(f"/api/documents/{doc}/row-ids", headers={"X-Session-Id": sess}).json()["records_changed"] == 0   # idempotent
+
+    fv = records.document_view(conn, doc)["records"][0]["field_values"]
+    assert [x["_rid"] for x in fv["factor_loadings"]] == ["o0", "o1", "o2", "o3"]
+    assert fv["conditions"][1]["measures"][0]["_rid"] == "o0"
+    fv = copy.deepcopy(fv); del fv["factor_loadings"][0]                                    # now a row can go
+    records.verify_record(conn, rec["id"], status="corrected", field_values=fv)
+    paths = {e["snippet"]: e["field_path"] for e in records.document_view(conn, doc)["evidence"]}
+    assert paths["item 3 loads .50"] == "samples[0].factor_loadings[1]"                     # followed its row
+    assert paths["item 4 loads .40"] == "samples[0].factor_loadings[2]"
+    assert paths["c1 accuracy .90"] == "samples[0].conditions[1].measures[0]"
+
+    # a row added by hand without an id (the pre-fix add-row) gets one that cannot collide
+    fv = copy.deepcopy(records.document_view(conn, doc)["records"][0]["field_values"])
+    fv["factor_loadings"].append({"item": 9, "factor": "F2", "loading": 0.3})                # sits at index 3; "o3" is taken
+    records.verify_record(conn, rec["id"], status="corrected", field_values=fv)
+    assert records.ensure_row_ids(conn, doc) == 1
+    ids = [x["_rid"] for x in records.document_view(conn, doc)["records"][0]["field_values"]["factor_loadings"]]
+    assert ids[:3] == ["o1", "o2", "o3"] and ids[3].startswith("u") and len(set(ids)) == 4
+    records.delete_document(conn, doc) if hasattr(records, "delete_document") else None
+    conn.commit(); conn.close()

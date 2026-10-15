@@ -282,13 +282,21 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 .chain-noteby { font-size: 11.5px; white-space: nowrap; align-self: center; }
 .vbtn.notebtn { opacity: .85; }
 
-/* ＋ row / ✕ on a typed table — structural edits, logged as corrections */
-.rv-tableadd { margin: 3px 0 0; }
+/* ＋ row / ✕ / tick-and-remove on typed tables and sub-entry rows — structural edits,
+   logged as corrections */
+.rv-tableadd { margin: 3px 0 0; display: flex; gap: 8px; align-items: center; }
 .rv-addrow { border: 1px dashed var(--border); background: none; border-radius: var(--radius-sm);
              color: var(--text-muted); font-size: 11.5px; padding: 1px 8px; cursor: pointer; }
 .rv-addrow:hover { color: var(--accent-dark); border-color: var(--accent); }
-.rv-rowdel-h, .rv-rowdel-c { width: 18px; }
+.rv-rowdel-h, .rv-rowdel-c { width: 38px; white-space: nowrap; }
+/* faint but always there: a coder must be able to FIND how a row is removed */
 .rv-rowdel { border: none; background: none; color: var(--text-muted); cursor: pointer;
-             font-size: 11px; padding: 0 2px; opacity: 0; transition: opacity .12s; }
-tr:hover .rv-rowdel { opacity: .75; }
+             font-size: 11px; padding: 0 2px; opacity: .35; transition: opacity .12s; }
+.rv-rowsel { margin: 0 2px 0 0; vertical-align: middle; cursor: pointer; opacity: .45; transition: opacity .12s; }
+tr:hover .rv-rowdel, .rv-card.rv-childrow:hover > .rc-head .rv-rowdel { opacity: .8; }
+tr:hover .rv-rowsel, .rv-card.rv-childrow:hover > .rc-head .rv-rowsel, .rv-rowsel:checked { opacity: 1; }
 .rv-rowdel:hover { color: #b3261e; opacity: 1; }
+.rv-rowdel-sel { border: 1px solid #b3261e; background: none; border-radius: var(--radius-sm);
+                 color: #b3261e; font-size: 11.5px; padding: 1px 8px; cursor: pointer; }
+.rv-rowdel-sel:hover { background: #b3261e; color: #fff; }
+.rc-tools { white-space: nowrap; }

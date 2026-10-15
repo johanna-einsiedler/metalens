@@ -228,6 +228,19 @@ function renderTypedValue(f, v, path, opts) {
   return `<span class="rv-cell${num ? " rv-num" : ""}${t === "text" ? " rv-text" : ""}" data-path="${esc(path)}">${esc(String(v))}</span>`;
 }
 
+// Row tools shared by typed tables and sub-entry rows: a coder adds the row the model
+// missed, removes the row that is not in the codebook, or ticks many and removes them at
+// once (a paper can carry a hundred single-item rows nobody asked for).
+const _addBtn = (path, defs) =>
+  `<button type="button" class="rv-addrow" data-path="${esc(path)}" title="add a row — logged as a correction"`
+  + ` data-blank="${esc(JSON.stringify(Object.fromEntries(defs.map((c) => [c.name, null]))))}">＋ row</button>`;
+const _rowTools = (path, i) =>
+  `<input type="checkbox" class="rv-rowsel" data-path="${esc(path)}" data-row="${i}" title="select this row for removal">`
+  + `<button type="button" class="rv-rowdel" data-path="${esc(path)}" data-row="${i}" title="remove this row — logged as a correction">✕</button>`;
+const _rowFoot = (path, addBtn) =>
+  `<div class="rv-tableadd">${addBtn}<button type="button" class="rv-rowdel-sel" data-path="${esc(path)}" hidden`
+  + ` title="remove every ticked row — logged as one correction">✕ remove selected</button></div>`;
+
 // A table-typed field: typed columns in declared order, one row per element. A legacy
 // dotted-key object (factor_loadings: {"F1.2": …}) is shown read-only as key/value rows —
 // editing those keys is exactly what used to corrupt the record.
@@ -235,10 +248,7 @@ function renderTypedTable(f, v, path, opts) {
   const cols = f.columns || [];
   // a row the coder adds by hand: every declared column, blank — the paper may report a
   // factor (or any other row) the model missed, and it needs somewhere to go
-  const addBtn = opts.editable && cols.length
-    ? `<button type="button" class="rv-addrow" data-path="${esc(path)}" title="add a row — logged as a correction"`
-      + ` data-blank="${esc(JSON.stringify(Object.fromEntries(cols.map((c) => [c.name, null]))))}">＋ row</button>`
-    : "";
+  const addBtn = opts.editable && cols.length ? _addBtn(path, cols) : "";
   if (v && typeof v === "object" && !Array.isArray(v) && !Array.isArray(v._table)) {
     const rows = Object.entries(v).map(([k, x]) =>
       `<tr><td class="rv-cell">${esc(k)}</td><td>${renderNode(x, `${path}.${k}`, { ...opts, editable: false })}</td></tr>`).join("");
@@ -256,11 +266,11 @@ function renderTypedTable(f, v, path, opts) {
     const base = `${path}[${i}]`;
     const cells = cols.map((c) => `<td>${renderTypedValue(c, r ? r[c.name] : undefined, `${base}.${c.name}`, opts)}</td>`).join("")
       + extra.map((k) => `<td>${renderNode(r ? r[k] : null, `${base}.${k}`, opts)}</td>`).join("")
-      + (opts.editable ? `<td class="rv-rowdel-c"><button type="button" class="rv-rowdel" data-path="${esc(path)}" data-row="${i}" title="remove this row — logged as a correction">✕</button></td>` : "");
+      + (opts.editable ? `<td class="rv-rowdel-c">${_rowTools(path, i)}</td>` : "");
     return `<tr data-row="${i}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
   }).join("");
   return `<div class="rv-tablewrap"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
-    + `<tbody>${body}</tbody></table>${addBtn ? `<div class="rv-tableadd">${addBtn}</div>` : ""}</div>`;
+    + `<tbody>${body}</tbody></table>${opts.editable ? _rowFoot(path, addBtn) : ""}</div>`;
 }
 
 // Declared fields of one object level, in declaration order. `defs` is the field list,
@@ -283,30 +293,38 @@ export function renderFields(defs, obj, basePath, opts) {
 export function renderChild(child, rows, opts) {
   const key = child.key;
   const list = Array.isArray(rows) ? rows : (rows && Array.isArray(rows._table) ? rows._table : null);
-  if (list === null || list === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>`;
-  if (!list.length) return `<span class="rv-null">none</span>`;
   const defs = child.fields || [];
+  // the same row tools a typed table has: a sub-entry row the model should not have
+  // returned (a measure outside the codebook) must be removable, a missed one addable
+  const tools = !!opts.editable && defs.length > 0;
+  const addBtn = tools ? _addBtn(key, defs) : "";
+  if (list === null || list === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span> ${addBtn}`;
+  if (!list.length) return `<span class="rv-null">none</span> ${addBtn}`;
   if ((child.layout || "table") === "table") {
     const names = defs.map((f) => f.name);
     const extra = [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
     const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
-      + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
+      + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("")
+      + (tools ? `<th class="rv-rowdel-h"></th>` : "");
     const body = list.map((r, k) => {
       const base = `${key}[${k}]`;
       const cells = defs.map((f) => `<td${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${renderTypedValue(f, r ? r[f.name] : undefined, `${base}.${f.name}`, opts)}</td>`).join("")
-        + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("");
+        + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("")
+        + (tools ? `<td class="rv-rowdel-c">${_rowTools(key, k)}</td>` : "");
       return `<tr class="rv-childrow" data-rowpath="${esc(base)}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
     }).join("");
     return `<div class="rv-tablewrap rv-child" data-child="${esc(key)}"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
-      + `<tbody>${body}</tbody></table></div>`;
+      + `<tbody>${body}</tbody></table>${tools ? _rowFoot(key, addBtn) : ""}</div>`;
   }
   return `<div class="rv-child rv-childcards" data-child="${esc(key)}">` + list.map((r, k) => {
     const base = `${key}[${k}]`;
     const title = (child.title || "").replace(/\{(#|[A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) =>
       n === "#" ? String(k + 1) : (r && r[n] != null && typeof r[n] !== "object" ? String(r[n]) : "")).trim() || `${child.label || key} ${k + 1}`;
     return `<div class="rv-card rv-childrow" data-rowpath="${esc(base)}"><div class="rc-head"><span class="rv-rowcite" data-rowpath="${esc(base)}"></span>`
-      + `<span class="rc-h">${esc(title)}</span><span class="rc-conf" data-rowpath="${esc(base)}"></span></div>${renderFields(defs, r, base, opts)}</div>`;
-  }).join("") + `</div>`;
+      + `<span class="rc-h">${esc(title)}</span><span class="rc-conf" data-rowpath="${esc(base)}"></span>`
+      + (tools ? `<span class="rc-tools">${_rowTools(key, k)}</span>` : "")
+      + `</div>${renderFields(defs, r, base, opts)}</div>`;
+  }).join("") + (tools ? _rowFoot(key, addBtn) : "") + `</div>`;
 }
 
 // A confidence badge for one group: level + a click-to-open notes line. The notes are what

@@ -611,7 +611,7 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
          # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
          # sub-entries — the badges the review UI shows next to each group's fields
          "confidence": conf["by_record"].get(str(rid), {}),
-         "child_confidence": conf["by_child"].get(str(rid), {})}
+         "child_confidence": live_child_confidence(conf["by_child"].get(str(rid), {}), fv)}
         for (rid, ei, fv, vs, _ex, _se) in rec_rows
     ]
     n_pages = 0
@@ -759,6 +759,101 @@ def document_confidence(conn: psycopg.Connection, document_id: str) -> dict:
             rel = field_path.split("].", 1)[1] if "]." in field_path else field_path
             out["by_child"].setdefault(rid, {}).setdefault(rel, {})[block] = val
     return out
+
+
+_CHILD_ROW = re.compile(r"^(?P<a>[A-Za-z_]\w*)\[(?P<j>\d+)\]$")
+
+
+def live_child_confidence(by_child: dict, field_values: dict | None) -> dict:
+    """A sub-entry row's rating is stored under the row's ORIGINAL position; return it where
+    that row sits NOW. Rows carry permanent ids (the model's j-th row is ``o<j>``), so a
+    rating survives rows before it being removed or added, and a removed row's rating goes
+    with it instead of sliding onto its neighbour. A list whose rows carry no ids (a
+    document older than row ids) keeps the stored positions."""
+    if not by_child or not isinstance(field_values, dict):
+        return by_child
+    out: dict = {}
+    for rel, groups in by_child.items():
+        m = _CHILD_ROW.match(rel)
+        rows = field_values.get(m["a"]) if m else None
+        if m and isinstance(rows, list) and not rows:
+            continue                                  # every row of the list was removed
+        if not m or not contract.is_rows(rows) or not any(contract.ROW_ID_KEY in r for r in rows):
+            out[rel] = groups
+            continue
+        k = next((i for i, r in enumerate(rows) if r.get(contract.ROW_ID_KEY) == f"o{m['j']}"), None)
+        if k is not None:
+            out[f"{m['a']}[{k}]"] = groups
+    return out
+
+
+def ensure_row_ids(conn: psycopg.Connection, document_id: str) -> int:
+    """Give permanent ids to rows that have none, and tie the document's quotes to them.
+
+    A document ingested before row ids existed holds its sub-entry and table rows without
+    them, and its evidence by position only — removing a row there would slide every later
+    quote and rating onto the wrong row. Run before a document is opened for review: each
+    id-less row gets an id in its current order (``o<position>``, the id ingest would have
+    given it; a random one where that is taken), and the quotes pointing into a list that
+    had no ids at all are bound to the row they point at now. Idempotent: a document whose
+    rows all carry ids is left untouched. Returns the number of records changed."""
+    recs = conn.execute(
+        "SELECT id::text, entry_index, field_values FROM record WHERE document_id = %s::uuid",
+        (document_id,),
+    ).fetchall()
+
+    def fill(rows: list, legacy_out: list | None = None) -> bool:
+        ids = {r.get(contract.ROW_ID_KEY) for r in rows if r.get(contract.ROW_ID_KEY)}
+        if len(ids) == len(rows):
+            return False
+        if not ids and legacy_out is not None:
+            legacy_out.append(True)
+        for j, r in enumerate(rows):
+            if not r.get(contract.ROW_ID_KEY):
+                rid = f"o{j}" if f"o{j}" not in ids else "u" + uuid.uuid4().hex[:8]
+                r[contract.ROW_ID_KEY] = rid
+                ids.add(rid)
+        return True
+
+    changed = 0
+    with conn.transaction():
+        for rid, ei, fv in recs:
+            if not isinstance(fv, dict):
+                continue
+            legacy: set[str] = set()                 # lists that had no row ids at all
+            dirty = False
+            for key, v in fv.items():
+                if not contract.is_rows(v):
+                    continue
+                was_legacy: list = []
+                dirty |= fill(v, was_legacy)
+                if was_legacy:
+                    legacy.add(key)
+                for row in v:
+                    for vv in row.values():
+                        if contract.is_rows(vv):
+                            dirty |= fill(vv)
+            if not dirty:
+                continue
+            conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid", (Json(fv), rid))
+            changed += 1
+            if not legacy:
+                continue
+            spans = conn.execute(
+                """SELECT id, field_path FROM evidence_span
+                   WHERE document_id = %s::uuid AND child_rid IS NULL
+                     AND (record_id = %s::uuid OR (record_id IS NULL AND entry_index = %s))""",
+                (document_id, rid, ei),
+            ).fetchall()
+            for sid, fp in spans:
+                m = contract._ROW_PATH.match(fp or "")
+                if not m or m["a"] not in legacy:
+                    continue
+                first, second = contract.row_refs(fp, fv)
+                if first:
+                    conn.execute("UPDATE evidence_span SET child_rid = %s, row_rid = %s WHERE id = %s",
+                                 (first, second, sid))
+    return changed
 
 
 # ── verification / credibility (Phase 3) ──────────────────────────────────────
