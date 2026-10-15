@@ -26,6 +26,7 @@ import argparse
 import csv
 import datetime as dt
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 
@@ -33,9 +34,16 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from paperlens import contract, records  # noqa: E402
+from paperlens import records  # noqa: E402
 
 MISSING = object()
+_PATH_TOKEN = re.compile(r"[^.\[\]]+|\[(\d+)\]")
+
+
+def path_tokens(path):
+    """'loadings._table[2].loading' → ['loadings', '_table', 2, 'loading'] (the review screen's
+    grammar; kept here so the report runs on a deployment older than contract.path_tokens)."""
+    return [int(m.group(1)) if m.group(1) is not None else m.group(0) for m in _PATH_TOKEN.finditer(str(path or ""))]
 STRUCTURAL = {"(row added)", "(row removed)"}
 
 
@@ -60,7 +68,7 @@ def norm(v):
 
 def stored(fv, path):
     cur = fv
-    for tok in contract.path_tokens(path):
+    for tok in path_tokens(path):
         if isinstance(tok, int):
             if not isinstance(cur, list) or tok >= len(cur):
                 return MISSING
@@ -74,7 +82,7 @@ def stored(fv, path):
 
 def list_prefix(path):
     """'records[14].es' → 'records' — the list a row edit sits in (None for a top-level cell)."""
-    toks = contract.path_tokens(path)
+    toks = path_tokens(path)
     for i, t in enumerate(toks):
         if isinstance(t, int):
             return ".".join(str(x) for x in toks[:i])
