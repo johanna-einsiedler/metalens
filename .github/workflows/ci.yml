@@ -28,6 +28,14 @@ jobs:
     env:
       PAPERLENS_DATABASE_URL: postgresql://paperlens:paperlens@localhost:5432/paperlens
       PAPERLENS_STORAGE: local
+      # tests/conftest.py runs the suite against its own throwaway database (dbname=
+      # paperlens_test) and deliberately ignores PAPERLENS_DATABASE_URL; these point libpq at
+      # the service container so the suite can create and reach that database. Without them
+      # every database-backed test skipped.
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: paperlens
+      PGPASSWORD: paperlens
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

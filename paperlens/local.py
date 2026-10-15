@@ -80,6 +80,8 @@ def _stop_postgres() -> None:
     global _PG
     if _PG is not None:
         try:
+            from . import records
+            records.close_pool()       # idle pooled connections would hold the server open
             _PG.cleanup()
         except Exception:  # noqa: BLE001 - best effort on the way out
             pass
