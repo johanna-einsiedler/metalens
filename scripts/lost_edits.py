@@ -108,6 +108,7 @@ def main() -> int:
     ap.add_argument("--examples", type=int, default=8, help="how many cells to show per group")
     ap.add_argument("--papers", action="store_true", help="also list every paper per dataset: editors, corrections, redone, lost")
     ap.add_argument("--accounts", action="store_true", help="every dataset per account, with every kind of review event and the last activity")
+    ap.add_argument("--owner", help="list the papers in every dataset of the account whose email contains this, with their review events")
     a = ap.parse_args()
 
     conn = records.connect()
@@ -127,6 +128,22 @@ def main() -> int:
                    LEFT JOIN users v ON v.id = e.verifier_user_id
                    GROUP BY 1, 2, d.id ORDER BY 1, 2""").fetchall():
             print(f"  {owner[:34]:34} {title[:34]:34} {n_rec:5} · {ver:4} · {flg:4} · {cor:5} · {note:4} · {last.strftime('%Y-%m-%d') if last else '—':10}  by {actors or '—'}")
+        print()
+    if a.owner:
+        print(f"papers in the datasets of {a.owner!r} (records · verified · flagged · corrected · noted · last activity):")
+        for title, fn, ptitle, n_rec, ver, flg, cor, note, last, created in conn.execute(
+                """SELECT d.title, x.filename, p.title, count(DISTINCT r.id),
+                          count(*) FILTER (WHERE e.status = 'verified'), count(*) FILTER (WHERE e.status = 'flagged'),
+                          count(*) FILTER (WHERE e.status = 'corrected'), count(*) FILTER (WHERE e.status = 'noted'),
+                          max(e.created_at), min(x.created_at)
+                   FROM dataset d JOIN users u ON u.id = d.owner_user_id
+                   JOIN record r ON r.dataset_id = d.id
+                   JOIN extraction_document x ON x.id = r.document_id
+                   LEFT JOIN paper p ON p.id = x.paper_id
+                   LEFT JOIN verification_event e ON e.record_id = r.id
+                   WHERE u.email ILIKE %s
+                   GROUP BY d.title, x.id, x.filename, p.title ORDER BY d.title, x.created_at""", (f"%{a.owner}%",)).fetchall():
+            print(f"  {title[:30]:30} {(fn or ptitle or '?')[:40]:40} {n_rec:4} · {ver:4} · {flg:4} · {cor:5} · {note:4} · {last.strftime('%Y-%m-%d') if last else '—':10}  added {created:%Y-%m-%d}")
         print()
     where, params = ["e.status = 'corrected'", "e.diff IS NOT NULL"], []
     if a.since:
