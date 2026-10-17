@@ -258,7 +258,7 @@
                     <span>Use my own API key</span></label>
                 </div>
                 <div id="ownkey-fields">
-                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key, or point at a local / self-hosted model server. Your key is sent to our server only to run this extraction: it is held in memory for at most 30 minutes, then discarded. It is never saved to disk or to your account.</p>
+                  <p class="muted" style="font-size:13px;margin:2px 0 4px">Choose a provider, select a model, and enter your API key, or point at a local / self-hosted model server. Your API key is not stored: it passes through our server only to run the extraction (in memory and the job queue for at most 30 minutes) and is then discarded.</p>
                   <div class="wf-field"><label>Provider</label><div class="select-wrap"><select id="provider"></select></div></div>
                   <div id="local-fields" hidden>
                     <div class="wf-field"><label>Server URL</label>
