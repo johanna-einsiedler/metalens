@@ -121,6 +121,34 @@ def _counts(doi: str | None) -> bool:
     return zenodo.counts_here(doi)
 
 
+def models_for(conn: psycopg.Connection, bases: list[str], evaluated: list[dict]) -> list[dict]:
+    """The models that produced records with this preset on public datasets (model, mode, papers,
+    records), with the ones the card names as its verification models marked — listed even
+    before any public dataset exists."""
+    rows = conn.execute(
+        """SELECT coalesce(r.extraction->>'resolved_model', r.extraction->>'model', r.extraction->>'produced_by', 'unknown'),
+                  r.extraction->>'produced_by', count(DISTINCT r.paper_id), count(*)
+           FROM record r JOIN dataset d ON d.id = r.dataset_id
+           WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
+             AND split_part(r.schema_id, '@', 1) = ANY(%s::text[]) AND NOT COALESCE(r.screened_empty, false)
+           GROUP BY 1, 2 ORDER BY 4 DESC""", (bases,)).fetchall()
+    def matches(name: str, e: dict) -> bool:
+        a, b = (name or "").lower(), (e.get("model") or "").lower()
+        return bool(a and b) and (a == b or a.startswith(b) or b.startswith(a) or b in a)
+    out = []
+    for name, produced_by, n_papers, n_records in rows:
+        mode = "import" if produced_by else "extraction"
+        hit = next((e for e in evaluated if matches(name, e)), None)
+        out.append({"model": name, "mode": (hit or {}).get("mode") or mode, "produced_by": produced_by,
+                    "n_papers": int(n_papers), "n_records": int(n_records), "verification": bool(hit), "note": (hit or {}).get("note")})
+    seen = {o["model"].lower() for o in out}
+    for e in evaluated:                               # named on the card but not (yet) seen in public data
+        if not any(matches(s, e) for s in seen):
+            out.append({"model": e["model"], "mode": e.get("mode") or "extraction", "produced_by": None,
+                        "n_papers": None, "n_records": None, "verification": True, "note": e.get("note")})
+    return out
+
+
 def dashboards_for(conn: psycopg.Connection, dataset_ids: set[str]) -> dict:
     """Published dashboards over those datasets — Metalens-built and approved external ones."""
     if not dataset_ids:
@@ -235,6 +263,7 @@ def card(conn: psycopg.Connection, preset_id: str, *, viewer_is_admin: bool = Fa
            "papers": {"related": [r for r in cm["related"] if r.get("kind") in ("paper", "preregistration")],
                       "n_primary": sum(d["n_papers"] for d in datasets), "catalogue_url": f"/catalog?preset={pid}"},
            "verification": rollup(datasets),
+           "models": models_for(conn, bases_for(pid), cm["evaluated_with"]),
            "viewer": {"is_admin": bool(viewer_is_admin)}}
     if viewer_is_admin:
         from . import zenodo

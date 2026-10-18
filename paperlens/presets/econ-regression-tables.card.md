@@ -176,13 +176,13 @@ leave it null; do not reconstruct it from other columns, and do not compute it.
 
 ## Verification
 
-Three checks.
+Three verification exercises have been performed on this preset, using the [Robustness at Scale — regression tables](#to-be-published) dataset: 384 empirical articles from 17 economics journals published between 2005 and 2025, restricted to articles whose main results are OLS estimates and that come with a usable replication package and PDF. All extractions were run with Claude Opus 5 (`claude-opus-5`) in agent mode, one agentic session per article as described above.
 
-**1. Completeness against the PDF text layer.** For PDFs with a text layer, a regular expression finds every "Table N" caption and scans the text up to the next caption for a regression signature: parenthesised or bracketed decimals, and decimals followed by stars. The scan returned 2,517 captions; 1,106 with a regression signature matched an extracted table; 137 with a signature had no match. Of those, 62 carry a title identifying a descriptive table (summary statistics, balance, correlations), 7 were mentions of a table in running text, and the remaining 68 were reviewed by hand against the PDF: 2 were regression tables the extraction should have contained. One was a genuine miss and was re-extracted with the reviewer's judgement added to the instructions; the other had been extracted under a table number the scan normalised differently.
+**1. Completeness against the PDF text layer.** For the articles whose PDF carries a text layer (356 of them), a regular expression identified every "Table N" caption. The text between two consecutive captions was then scanned for three patterns that signal a regression table: parenthesised decimals such as (3.007), bracketed decimals such as [0.031], and decimals followed by one to three stars such as 0.567\*\*\*. A caption whose following stretch of text contains at least three such hits was marked as a potential regression table; when the same caption occurs several times, in cross-references and running heads, the occurrence with the most hits was kept as the table itself. The scan returned 2,517 captions; 1,106 with a regression signature matched an extracted table; 137 with a signature had no match. Of these, 62 had a title identifying a descriptive table (containing *summary statistics*, *balance* or *correlations*), 7 were mentions of a table in running text (identified because the words after "Table N" continue a sentence in lower case), and the remaining 68 were reviewed by one of the authors against the PDF. Two turned out to be regression tables the extraction should have contained. One was a genuine miss, though a borderline case [which table — to add]; the other had been extracted all along under a table number the scan had normalised differently. Both articles were re-extracted with the reviewer's judgement added to the instructions.
 
-**2. Agreement with re-estimated values.** Where the authors' replication code runs, the printed values can be compared with what the code produces. Of 44,005 cells compared, 39,453 (89.7 %) agree at printed precision — within half of the last printed digit. The disagreements are mostly blanks, not wrong numbers: a cell the code does not produce rather than a mistranscribed one. The comparison surfaced 28 transcription errors, which were corrected.
+**2. Agreement with re-estimated values.** Every article in the corpus comes with a replication package, by construction. The 308 articles with at least one regression table were handed to the re-estimation, which runs the deposited code; for 4 of them (219 regressions) the code could not be run at all. Where it runs, the printed values can be compared with what the code produces: of 9,023 regressions whose code could be attempted, 6,237 (69.1 %) were reproduced. Of 44,005 cells compared, 39,453 (89.7 %) agree at printed precision, within half of the last printed digit; 972 (2.2 %) could not be compared because the code produced no value for the cell; 3,580 (8.1 %) were contradicted by a code-produced value. A review of the contradicted cells found 28 transcription errors in 12 articles, which were corrected; the remaining differences are between the printed numbers and what the deposited code produces, which is the subject of the study itself.
 
-**3. A second, independent run.** All articles were extracted a second time with the same model, prompt and code. Agreement is measured first on *which tables* are found and then, for tables both runs found, on *which values* are transcribed — as sets of values, because the two runs sometimes split the same printed table into a different number of columns.
+**3. A second, independent run.** All articles were extracted a second time with the same model, prompt and code. Agreement is measured first on *which tables* are found and then, for tables both runs found, on *which values* are transcribed — as sets of values, because the two runs sometimes split the same printed table into a different number of columns. The results for the [Robustness at Scale — regression tables](#to-be-published) dataset are shown in the table below.
 
 | | |
 |:--|--:|
@@ -196,37 +196,4 @@ Three checks.
 | Agreement on runnable regressions | 97.9 % |
 | Agreement on headline regressions | 95.0 % |
 
-Transcription is close to deterministic; what varies is the inventory — the judgement whether a table of group means with standard errors, or a decomposition, is a regression table. That variation sits where a human coder would also hesitate, and it affects which tables enter the data rather than the values recorded from them.
-
-### What the corpus contains
-
-| | |
-|:--|--:|
-| Articles extracted | 384 |
-| with at least one regression table | 308 |
-| Estimated columns (regressions) | 9,231 |
-| Printed cells transcribed | 87,987 |
-| Coefficients | 28,978 |
-| Standard errors, t, p and confidence intervals | 29,594 |
-| Sample sizes | 7,224 |
-| R², F and other statistics | 12,315 |
-| String markers and panel headers | 9,876 |
-| Columns with an identified regressor of interest | 92.2 % |
-
-## Limitations
-
-The checks measure transcription and stability, not correctness of the specification fields: whether the enumerated controls are the right ones is only tested indirectly, when a re-estimation reproduces the printed number.
-
-The corpus is OLS-only by construction; the schema carries instruments, weights and clustering, but those fields have not been exercised at scale.
-
-The pipeline ran one model; a different model or a later version of the same one will produce a different inventory at the margin described above. The schema id of this preset identifies the data contract, not the pipeline version — the pipeline records its own prompt hash and model per article.
-
-A reviewer sees one column at a time against the PDF. The errors that survive are those a column-wise reading does not expose: a coefficient placed in a sibling column, or a control list copied from the wrong table.
-
-## Related work
-
-- *Robustness at Scale* (working paper; author list not final). The appendix on the extraction of published results is the source of the figures above. [reference to add]
-- Young, A. (2019). Channeling Fisher: Randomization tests and the statistical insignificance of seemingly significant experimental results. *Quarterly Journal of Economics.* [DOI to add]
-- Young, A. (2022). Consistency without inference: Instrumental variables in practical application. *European Economic Review.* [DOI to add]
-- Broderick, T., Giordano, R., & Meager, R. (2020). An automatic finite-sample robustness metric: When can dropping a little data make a big difference? [arXiv:2011.14999](https://arxiv.org/abs/2011.14999).
-- Sibling preset for Danish register-data articles, same cell grammar, flatter specification: [Register-data tables](/preset?id=register-tables).
+Thus, transcription is close to deterministic; what varies is the inventory, corresponding to the judgement whether a table of group means with standard errors, or a decomposition, is a regression table. Manual inspection of the diverging cases confirmed that almost all cases with a discrepancy were also cases where a human had a hard time making a clear judgment.

@@ -64,7 +64,7 @@ IDENTITY_FIELDS = (
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display", "card"},
     "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url", "update",
-             "authors", "keywords", "license", "related"},
+             "authors", "keywords", "license", "related", "evaluated_with"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
     "paper": {"fields"},
@@ -81,7 +81,9 @@ _ALLOWED_KEYS = {
     "card": {"file", "text"},
     "author": {"family", "given", "orcid", "affiliation"},
     "related": {"kind", "title", "doi", "url", "id", "role"},
+    "evaluated": {"model", "mode", "note"},
 }
+RUN_MODES = ("extraction", "agent", "import")
 
 # what a card may relate the preset to (papers describing or using it, its preregistration,
 # supplements, code, dashboards, a companion preset, its funding)
@@ -332,6 +334,24 @@ def _validate_card(spec: dict, meta: dict, E, W) -> None:
                     E(f"{at}.id only applies to kind 'preset'")
                 if r.get("role") is not None and not isinstance(r["role"], str):
                     E(f"{at}.role must be a string")
+    ev = meta.get("evaluated_with")
+    if ev is not None:
+        if not isinstance(ev, list):
+            E("$.meta.evaluated_with must be a list of {model, mode?, note?} objects")
+        else:
+            for i, m in enumerate(ev):
+                at = f"$.meta.evaluated_with[{i}]"
+                if not isinstance(m, dict):
+                    E(f"{at} must be an object"); continue
+                for k in m:
+                    if k not in _ALLOWED_KEYS["evaluated"]:
+                        E(f"{at}: unknown key {k!r}")
+                if not (isinstance(m.get("model"), str) and m["model"].strip()):
+                    E(f"{at}.model is required (the model id as the provider names it)")
+                if m.get("mode") is not None and m["mode"] not in RUN_MODES:
+                    E(f"{at}.mode must be one of {', '.join(RUN_MODES)}")
+                if m.get("note") is not None and not isinstance(m["note"], str):
+                    E(f"{at}.note must be a string")
     card = spec.get("card")
     if card is not None:
         if not isinstance(card, dict):
@@ -994,6 +1014,7 @@ def card_meta(spec: dict) -> dict:
     m = spec.get("meta") or {}
     return {"authors": list(m.get("authors") or []), "keywords": list(m.get("keywords") or []),
             "license": m.get("license"), "related": list(m.get("related") or []),
+            "evaluated_with": list(m.get("evaluated_with") or []),
             "text": (spec.get("card") or {}).get("text")}
 
 

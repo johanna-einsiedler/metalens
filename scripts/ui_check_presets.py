@@ -77,7 +77,8 @@ def main() -> int:
         page.goto(f"{a.base}/preset?id=masem-direct"); page.wait_for_selector(".pc h1", timeout=15000)
         check("card has a title", bool(page.inner_text(".pc h1").strip()))
         anchors = [x.get_attribute("href") for x in page.query_selector_all(".pc-toc a")]
-        check("seven section anchors", anchors == ["#introduction", "#how", "#fields", "#verification", "#versions", "#used-by", "#related"], str(anchors))
+        base = ["#introduction", "#how", "#fields", "#verification", "#versions", "#used-by", "#models"]
+        check("the section anchors (related work only when the card has some)", anchors in (base, base + ["#related"]), str(anchors))
         card = page.request.get(f"{a.base}/api/presets/masem-direct/card").json()
         rows = page.query_selector_all("#fields table.fd-table > tbody > tr:not(.fd-sub)")
         want = card["fields_doc"]["counts"]["fields"] + card["fields_doc"]["counts"]["columns"]

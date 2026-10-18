@@ -28,29 +28,11 @@
       "robustness"
     ],
     "license": "CC-BY-4.0",
-    "related": [
+    "evaluated_with": [
       {
-        "kind": "paper",
-        "title": "Robustness at Scale (working paper; author list not final)",
-        "role": "the extraction appendix is the source of the verification section"
-      },
-      {
-        "kind": "preset",
-        "title": "Register-data tables",
-        "id": "register-tables"
-      },
-      {
-        "kind": "paper",
-        "title": "Young (2019). Channeling Fisher: Randomization tests and the statistical insignificance of seemingly significant experimental results. QJE"
-      },
-      {
-        "kind": "paper",
-        "title": "Young (2022). Consistency without inference: Instrumental variables in practical application. European Economic Review"
-      },
-      {
-        "kind": "paper",
-        "title": "Broderick, Giordano & Meager (2020). An automatic finite-sample robustness metric",
-        "url": "https://arxiv.org/abs/2011.14999"
+        "model": "claude-opus-5",
+        "mode": "agent",
+        "note": "the three verification exercises of the Robustness at Scale study"
       }
     ]
   },

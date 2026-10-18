@@ -77,8 +77,10 @@ function render() {
     c.mode === "import" ? `<a class="btn btn-primary btn-sm" href="${useHref}">Import into this schema</a>` : `<a class="btn btn-primary btn-sm" href="${useHref}">Use this preset</a>`,
     ME && ME.email ? `<a class="btn btn-ghost btn-sm" href="/preset?id=${encodeURIComponent(c.id)}&edit=1">Duplicate as a personal preset</a>` : "",
   ].filter(Boolean).join("");
+  const relatedMd = (sections["related-work"] || {}).body || "";
+  const relatedHtml = md(relatedMd) + relatedRest(c, relatedMd);
   const toc = [["introduction", "Introduction"], ["how", "How it extracts"], ["fields", "Fields"], ["verification", "Verification"],
-               ["versions", "Versions and citation"], ["used-by", "Used by"], ["related", "Related work"]]
+               ["versions", "Versions and citation"], ["used-by", "Used by"], ["models", "Models"], ...(relatedHtml ? [["related", "Related work"]] : [])]
     .map(([a, t]) => `<a href="#${a}">${t}</a>`).join("");
 
   body.innerHTML = `
@@ -92,7 +94,8 @@ function render() {
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${usedBy(c)}</section>
-    <section id="related"><h2>Related work</h2>${md((sections["related-work"] || {}).body)}${relatedRest(c, (sections["related-work"] || {}).body || "")}</section>
+    <section id="models"><h2>Models</h2>${models(c)}</section>
+    ${relatedHtml ? `<section id="related"><h2>Related work</h2>${relatedHtml}</section>` : ""}
     ${extra.map((k) => `<section id="${esc(k)}"><h2>${esc(sections[k].title)}</h2>${md(sections[k].body)}</section>`).join("")}`;
   // long code blocks (a quoted pipeline prompt) fold
   body.querySelectorAll("pre.md-code").forEach((pre) => {
@@ -101,6 +104,11 @@ function render() {
     const d = document.createElement("details"); d.className = "pc-foldable md-fold";
     d.innerHTML = `<summary>Show all ${lines} lines</summary>`;
     pre.parentNode.insertBefore(d, pre); d.appendChild(pre);
+  });
+  body.querySelectorAll('a[href="#to-be-published"]').forEach((a) => {
+    a.classList.add("pc-soon"); a.title = "to be published soon";
+    a.onclick = (e) => { e.preventDefault(); let t = a.querySelector(".pc-tip"); if (t) { t.remove(); return; }
+      t = document.createElement("span"); t.className = "pc-tip"; t.textContent = "to be published soon"; a.appendChild(t); setTimeout(() => t.remove(), 2500); };
   });
   wireAdmin();
   const copy = $("#pc-cite-copy");
@@ -222,11 +230,22 @@ function usedBy(c) {
     : `<p class="muted" style="margin:0">No public dataset uses this preset yet.</p>`;
   const dashRows = [...dash.internal.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}"><b>${esc(x.title || "Untitled dashboard")}</b></a> <span class="muted">· Metalens · on <a href="/dataset?id=${encodeURIComponent(x.dataset_id)}">${esc(x.dataset_title || "dataset")}</a>${x.release ? ` · shows v${x.release}` : ""}${x.author ? ` · ${esc(x.author)}` : ""}</span></div>`),
                     ...dash.external.map((x) => `<div class="ds-dashrow"><a href="${esc(x.url)}" target="_blank" rel="noopener"><b>${esc(x.title)}</b></a> <span class="muted">· ${esc((() => { try { return new URL(x.url).host; } catch { return x.url; } })())} · on <a href="/dataset?id=${encodeURIComponent(x.dataset_id)}">${esc(x.dataset_title || "dataset")}</a>${x.release ? ` · shows v${x.release}` : ""}${x.author ? ` · ${esc(x.author)}` : ""}</span></div>`)];
-  const paperRows = papers.length ? papers.map((r) => `<div class="ds-dashrow">${esc(r.title)}${r.doi ? ` <a href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">doi:${esc(r.doi)}</a>` : (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener">↗</a>` : "")}${r.role ? ` <span class="muted">— ${esc(r.role)}</span>` : ""}</div>`).join("") : `<p class="muted" style="margin:0">No paper named yet.</p>`;
+  const paperRows = papers.map((r) => `<div class="ds-dashrow">${esc(r.title)}${r.doi ? ` <a href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">doi:${esc(r.doi)}</a>` : (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener">↗</a>` : "")}${r.role ? ` <span class="muted">— ${esc(r.role)}</span>` : ""}</div>`).join("");
   const primary = (c.papers || {}).n_primary ? `<p class="muted" style="font-size:12.5px;margin:6px 0 0">${n(c.papers.n_primary, "primary study")} coded with this preset sit in the <a href="${esc(c.papers.catalogue_url)}">data catalogue</a>.</p>` : "";
   return `<div class="ds-card"><div class="ds-card-h">Datasets</div>${dsRows}</div>
     <div class="ds-card"><div class="ds-card-h">Dashboards</div>${dashRows.length ? dashRows.join("") : `<p class="muted" style="margin:0">No dashboard over these datasets yet.</p>`}</div>
-    <div class="ds-card"><div class="ds-card-h">Papers</div>${paperRows}${primary}</div>`;
+    ${paperRows || primary ? `<div class="ds-card"><div class="ds-card-h">Papers</div>${paperRows}${primary}</div>` : ""}`;
+}
+
+// ── models: which models produced records with this preset, and which ones the verification used ──
+function models(c) {
+  const rows = c.models || [];
+  if (!rows.length) return `<p class="muted">No model has been recorded for this preset yet.</p>`;
+  return `<table class="ds-cc"><thead><tr><th>Model</th><th>Mode</th><th>Papers</th><th>Records</th><th></th></tr></thead><tbody>
+    ${rows.map((m) => `<tr><td><code>${esc(m.model)}</code>${m.produced_by && m.produced_by !== m.model ? ` <span class="muted">· ${esc(m.produced_by)}</span>` : ""}</td><td>${esc(m.mode)}</td>
+      <td>${m.n_papers == null ? "—" : m.n_papers}</td><td>${m.n_records == null ? "—" : m.n_records}</td>
+      <td>${m.verification ? `<span class="badge tier-human_verified" title="${esc(m.note || "the model the verification exercises were run with")}">verification study</span>` : ""}</td></tr>`).join("")}</tbody></table>
+    <p class="muted" style="font-size:12.5px;margin:6px 0 0">Counts are from the public datasets built with this preset on this server. The badge marks the model the verification exercises above were run with; figures for other models exist only once a dataset verified by people exists for them.</p>`;
 }
 function relatedRest(c, written) {
   // an entry the prose already names (by DOI, URL, companion id, title or a project number) is not repeated

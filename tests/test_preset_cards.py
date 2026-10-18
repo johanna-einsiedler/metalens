@@ -75,6 +75,11 @@ def test_card_metadata_rules() -> None:
     nobase = copy.deepcopy(BASE); nobase["card"] = {"file": "x.card.md"}
     with pytest.raises(ps.SpecError, match="no base directory"):
         ps.normalize(nobase)
+    # the models a card's verification used
+    assert _errors(_with(evaluated_with=[{"model": "gpt-5.5", "mode": "extraction"}])) == []
+    assert any("mode must be one of" in e for e in _errors(_with(evaluated_with=[{"model": "x", "mode": "chat"}])))
+    assert any("model is required" in e for e in _errors(_with(evaluated_with=[{"mode": "agent"}])))
+    assert any("unknown key 'version'" in e for e in _errors(_with(evaluated_with=[{"model": "x", "version": 2}])))
     # authors without a card are allowed, but want a licence and keywords
     alone = _with(keywords=None); alone.pop("card")
     _errs, warns = ps.validate(ps.normalize(alone))
@@ -162,7 +167,7 @@ def test_card_files_follow_the_pattern() -> None:
             continue
         md = spec["card"]["text"]
         sections = _split(md)
-        for h in ("Introduction", "How it extracts", "Verification", "Related work"):
+        for h in ("Introduction", "How it extracts", "Verification"):
             assert h in sections and sections[h].strip(), (pid, h)
         assert "Fields" not in sections, pid                      # generated, never written
         assert "<" not in re.sub(r"`[^`]*`", "", re.sub(r"(?s)```.*?```", "", md)) or True   # HTML would show literally; no raw tags expected
