@@ -1,10 +1,10 @@
 {
   "format": 2,
-  "id": "regression-tables",
+  "id": "econ-regression-tables",
   "version": 1,
   "meta": {
-    "title": "Regression tables",
-    "tagline": "Every regression table of an empirical article, one entry per estimated column: every printed cell with its row type, the link from each standard error to its coefficient, the regressor of interest, and the specification needed to re-run it.",
+    "title": "Economics regression tables",
+    "tagline": "Every regression table of an empirical economics article, one entry per estimated regression: every printed cell with its row type, the link from each standard error to its coefficient, the regressor of interest, and the specification needed to re-run it.",
     "description": "One entry per regression column (a (panel, column) pair when a table has panels): outcome, target regressor(s) with the reason they are focal, the full specification (controls itemised, fixed effects, instruments, weights, clustering, sample restrictions stated operationally) and every printed cell with its row type and its coefficient link. Written for the Robustness at Scale study (384 OLS articles from 17 economics journals, 2005–2025). The records are produced OUTSIDE Metalens by an agent pipeline that reads each article and writes one file per table; this preset is the schema they are imported into, not the recipe that made them.",
     "mode": "import",
     "hidden": false,
@@ -55,7 +55,7 @@
     ]
   },
   "card": {
-    "file": "regression-tables.card.md"
+    "file": "econ-regression-tables.card.md"
   },
   "prompt": {},
   "paper": {

@@ -13,7 +13,7 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - **A preset has a card.** A bundled preset may carry `meta.authors` (with ORCIDs), `keywords`, `license`,
   `related` work and a `<id>.card.md` sibling with its introduction, how it extracts, its verification
   study, limitations and related work. None of it enters the schema id. First cards: the two MASEMiner
-  presets and a new import-mode preset, `regression-tables`, for the Robustness-at-Scale transcription.
+  presets and a new import-mode preset, `econ-regression-tables`, for the Robustness-at-Scale transcription.
 - **`/presets` and `/preset?id=`.** The inventory lists every documented preset with its latest release,
   DOI and what was built with it; the card page shows the prose, every field documented from the
   declaration, a live verification roll-up over the public datasets built with the preset (under the

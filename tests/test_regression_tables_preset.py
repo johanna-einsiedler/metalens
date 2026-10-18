@@ -1,4 +1,4 @@
-"""The regression-tables preset: the import schema of the Robustness-at-Scale transcription
+"""The econ-regression-tables preset: the import schema of the Robustness-at-Scale transcription
 (one entry per estimated column, every printed cell, the coefficient link). Stdlib-only."""
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ RESULT = {
 
 
 def test_it_is_an_import_schema_produced_outside_metalens() -> None:
-    spec = presets.load_all()["regression-tables"]
+    spec = presets.load_all()["econ-regression-tables"]
     assert spec["meta"]["mode"] == "import" and spec["meta"]["brands"] == ["metalens"]
     assert not (spec.get("prompt") or {}).get("text") and "OUTSIDE Metalens" in spec["meta"]["description"]
     errs, warns = preset_spec.validate(spec)
@@ -50,11 +50,11 @@ def test_it_is_an_import_schema_produced_outside_metalens() -> None:
     tr = next(f for f in spec["entries"]["fields"] if f["name"] == "target_regressors")
     assert tr["type"] == "table" and [c["name"] for c in tr["columns"]] == ["name", "row_index", "why"]
     assert [f["name"] for f in spec["paper"]["fields"]] == ["table_inventory", "inventory_note"]
-    assert preset_spec.has_card(spec) and preset_spec.schema_id(spec) == "regression-tables@67780825"
+    assert preset_spec.has_card(spec) and preset_spec.schema_id(spec) == "econ-regression-tables@67780825"
 
 
 def test_a_transcribed_column_round_trips() -> None:
-    spec = presets.load_all()["regression-tables"]
+    spec = presets.load_all()["econ-regression-tables"]
     issues = [i for i in preset_spec.validate_result(copy.deepcopy(RESULT), spec) if i["code"] != "missing_confidence"]
     assert issues == [], issues
     res = ingest(copy.deepcopy(RESULT), entries_key="regressions")
