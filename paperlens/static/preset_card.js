@@ -135,18 +135,19 @@ function optionsHtml(d) {
   if ((o.items || []).length <= 8) return ` <span class="muted">· ${o.items.map(item).join("; ")}</span>`;
   return `<ul class="md-list fd-opts">${o.items.map((x) => `<li>${item(x)}</li>`).join("")}</ul>`;
 }
-function fieldRows(fields, { columns = false } = {}) {
-  const head = columns ? ["Column", "Type", "Required", "Meaning"] : ["Field", "Type", "Required", "Evidence", "Confidence", "Meaning"];
-  const rows = (fields || []).map((d) => {
+function fieldRows(fields) {
+  const head = ["Field", "Type", "Required", "Evidence", "Confidence", "Meaning"];
+  const row = (d, parent) => {
     const meaning = `${esc(d.label || "")}${d.help ? ` <span class="muted">— ${esc(d.help)}</span>` : ""}${optionsHtml(d)}${d.allow_other ? ` <span class="muted">· or the paper's own term</span>` : ""}`;
-    const cells = [`<code>${esc(d.name)}</code>`, esc(d.type_text || d.type || ""), d.required ? `<span class="badge">required</span>` : ""];
-    if (!columns) cells.push(d.evidence_text ? `<span title="${esc(d.evidence_text)}">${esc(d.evidence_text.split(" — ")[0])}</span>` : "",
-                             d.confidence_label ? `<a href="#conf-${esc(d.confidence)}">${esc(d.confidence_label)}</a>` : "");
-    cells.push(meaning);
-    const sub = d.columns ? `<tr class="fd-sub"><td colspan="${head.length}"><div class="fd-subh">Columns of ${esc(d.label || d.name)} (<code>${esc(d.name)}</code>)</div>${fieldRows(d.columns, { columns: true })}</td></tr>` : "";
-    return `<tr>${cells.map((x) => `<td>${x}</td>`).join("")}</tr>${sub}`;
-  }).join("");
-  return `<table class="ds-cc fd-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+    const name = parent ? `<span class="fd-indent" title="a column of ${esc(parent)}">└</span> <code>${esc(d.name)}</code>` : `<code>${esc(d.name)}</code>`;
+    const cells = [name, esc(d.type_text || d.type || ""), d.required ? `<span class="badge">required</span>` : "",
+                   d.evidence_text ? `<span title="${esc(d.evidence_text)}">${esc(d.evidence_text.split(" — ")[0])}</span>` : (parent ? `<span class="muted">with the table</span>` : ""),
+                   d.confidence_label ? `<a href="#conf-${esc(d.confidence)}">${esc(d.confidence_label)}</a>` : "", meaning];
+    return `<tr${parent ? ' class="fd-col"' : ""}>${cells.map((x) => `<td>${x}</td>`).join("")}</tr>`
+      + (d.columns || []).map((col) => row(col, d.name)).join("");      // a table field's columns: rows of the same grid, indented
+  };
+  return `<table class="ds-cc fd-table"><colgroup><col class="fd-c-name"/><col class="fd-c-type"/><col class="fd-c-req"/><col class="fd-c-ev"/><col class="fd-c-conf"/><col/></colgroup>
+    <thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${(fields || []).map((d) => row(d, null)).join("")}</tbody></table>`;
 }
 function renderFieldDocs(doc) {
   if (!doc) return "";

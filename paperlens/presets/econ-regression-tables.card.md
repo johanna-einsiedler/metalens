@@ -176,7 +176,7 @@ leave it null; do not reconstruct it from other columns, and do not compute it.
 
 ## Verification
 
-Four checks, three complete.
+Three checks.
 
 **1. Completeness against the PDF text layer.** For PDFs with a text layer, a regular expression finds every "Table N" caption and scans the text up to the next caption for a regression signature: parenthesised or bracketed decimals, and decimals followed by stars. The scan returned 2,517 captions; 1,106 with a regression signature matched an extracted table; 137 with a signature had no match. Of those, 62 carry a title identifying a descriptive table (summary statistics, balance, correlations), 7 were mentions of a table in running text, and the remaining 68 were reviewed by hand against the PDF: 2 were regression tables the extraction should have contained. One was a genuine miss and was re-extracted with the reviewer's judgement added to the instructions; the other had been extracted under a table number the scan normalised differently.
 
@@ -197,8 +197,6 @@ Four checks, three complete.
 | Agreement on headline regressions | 95.0 % |
 
 Transcription is close to deterministic; what varies is the inventory — the judgement whether a table of group means with standard errors, or a decomposition, is a regression table. That variation sits where a human coder would also hesitate, and it affects which tables enter the data rather than the values recorded from them.
-
-**4. Human coding, in progress.** 35 articles are being coded by people on this platform, once blind and once starting from the pipeline's output. The figures below are read live from those datasets as they are verified.
 
 ### What the corpus contains
 

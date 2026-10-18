@@ -857,8 +857,13 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc .md .md-code { font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .pc-section-h { font-weight: 600; margin: 16px 0 6px; font-size: 14px; }
 .pc .ds-cc { margin: 0 0 6px; }
-.fd-table td:first-child code { white-space: nowrap; } .fd-table td:last-child { white-space: normal; }
-.fd-sub > td { padding: 4px 0 10px 18px !important; } .fd-subh { font-size: 12px; color: var(--text-muted); margin: 4px 0 2px; }
+.fd-table { table-layout: fixed; width: 100%; }
+.fd-c-name { width: 19%; } .fd-c-type { width: 11%; } .fd-c-req { width: 8%; } .fd-c-ev { width: 11%; } .fd-c-conf { width: 11%; }
+.fd-table td:first-child code { white-space: nowrap; } .fd-table td { overflow-wrap: anywhere; }
+.fd-table td:nth-child(2), .fd-table td:nth-child(3) { white-space: nowrap; }
+.fd-table tr.fd-col td { color: var(--text-muted); }
+.fd-table tr.fd-col td:first-child { padding-left: 14px; } .fd-table tr.fd-col code { color: var(--text); }
+.fd-indent { color: var(--border); margin-right: 2px; }
 .fd-opts { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
 .pc-default { font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; margin: 0; max-height: 120px; overflow: auto; }
 .pc-foldable summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
