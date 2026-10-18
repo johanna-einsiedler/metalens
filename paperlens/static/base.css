@@ -833,3 +833,35 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .md-hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .md em, .md-preview em { font-style: italic; }
 .md a, .md-preview a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── preset inventory tiles ─────────────────────────────────────────────────────── */
+.tile-p.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tile-k code { font-size: 10px; text-transform: none; letter-spacing: 0; }
+
+/* ── preset card page ───────────────────────────────────────────────────────────── */
+.pc h1 { font: 600 32px/1.2 var(--font-serif); color: var(--accent-dark); margin: 0 0 6px; }
+.pc .lede { font-size: 16px; line-height: 1.5; margin: 0 0 10px; }
+.pc-authors { font-size: 13.5px; margin: 0 0 8px; }
+.pc-author { display: inline-block; margin: 0 14px 4px 0; }
+.pc-orcid { font-size: 10px; font-weight: 700; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); text-decoration: none; vertical-align: 1px; }
+.pc-badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 4px; font-size: 12.5px; }
+.pc-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.pc-toc { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; padding: 8px 0; margin: 10px 0 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.pc section { margin: 0 0 30px; }
+.pc section > h2 { font: 600 21px/1.3 var(--font-serif); margin: 0 0 10px; color: var(--accent-dark); }
+.pc .md { font-size: 14px; line-height: 1.55; }
+.pc .md p { margin: 0 0 10px; }
+.pc .md .md-h2 { font-size: 15px; margin: 14px 0 6px; } .pc .md .md-h3 { font-size: 14px; margin: 12px 0 5px; }
+.pc .md .md-list { margin: 0 0 10px; padding-left: 20px; } .pc .md .md-list li { margin: 3px 0; }
+.pc .md code, .pc .ds-cc code { font-family: var(--font-mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
+.pc .md .md-code { font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.pc-section-h { font-weight: 600; margin: 16px 0 6px; font-size: 14px; }
+.pc .ds-cc { margin: 0 0 6px; }
+.fd-table td:first-child code { white-space: nowrap; } .fd-table td:last-child { white-space: normal; }
+.fd-sub > td { padding: 4px 0 10px 18px !important; } .fd-subh { font-size: 12px; color: var(--text-muted); margin: 4px 0 2px; }
+.fd-opts { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+.pc-default { font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; margin: 0; max-height: 120px; overflow: auto; }
+.pc-foldable summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
+.pc .ds-card { margin: 0 0 12px; }
+.pc .ds-cite { margin-top: 12px; }
+.pc .ds-relform textarea { margin-top: 6px; }

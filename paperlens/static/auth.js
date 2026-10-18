@@ -21,12 +21,15 @@ export async function mountAccount(sel = "#account") {
   }
   // mark the active nav item by path (nav links carry no hardcoded active class)
   const path = location.pathname;
-  const mine = ["/projects", "/dataset", "/preset", "/extract", "/import", "/workspace", "/dashboard", "/compose"].some((p) => path.startsWith(p)) && !!(me && me.email);
+  const editing = path === "/preset" && new URLSearchParams(location.search).get("edit") === "1";
+  const mine = (["/projects", "/dataset", "/extract", "/import", "/workspace", "/dashboard", "/compose"].some((p) => path.startsWith(p)) || editing)
+    && !!(me && me.email);
   document.querySelectorAll(".topbar nav a").forEach((a) => {
     const href = a.getAttribute("href");
     if (!href) return;
     if (a.id === "nav-mydata") { if (mine) a.classList.add("active"); }
     else if (href === path) a.classList.add("active");
+    else if (href === "/presets" && path === "/preset" && !editing) a.classList.add("active");   // a card is part of the inventory
   });
   if (me && me.email) {
     // show the signed-in identity (links to account settings) + logout

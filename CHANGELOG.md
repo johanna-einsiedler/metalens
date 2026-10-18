@@ -8,6 +8,27 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Preset inventory: one citable card per curated preset
+
+- **A preset has a card.** A bundled preset may carry `meta.authors` (with ORCIDs), `keywords`, `license`,
+  `related` work and a `<id>.card.md` sibling with its introduction, how it extracts, its verification
+  study, limitations and related work. None of it enters the schema id. First cards: the two MASEMiner
+  presets and a new import-mode preset, `regression-tables`, for the Robustness-at-Scale transcription.
+- **`/presets` and `/preset?id=`.** The inventory lists every documented preset with its latest release,
+  DOI and what was built with it; the card page shows the prose, every field documented from the
+  declaration, a live verification roll-up over the public datasets built with the preset (under the
+  dataset badge rule), the public datasets (with the preset version that produced each), the dashboards
+  over them, versions and citations. The personal-preset editor moved behind `?edit=1`.
+- **Releases and DOIs for presets.** Moderators (`PAPERLENS_ADMINS`) cut numbered releases of a curated
+  preset (`preset_release`: the frozen spec, prompt and card next to the schema row they hash to) and
+  mint a DOI per release on Zenodo (`upload_type: software`, the authors as creators, relations to the
+  card's papers and to the dataset releases built with it). The deposit is a loadable preset folder
+  plus `fields.md`, `CITATION.cff` and a README; the same files download from the card.
+- `renderMarkdown` renders links (https, doi:, anchors, site paths), emphasis, pipe tables, blockquotes,
+  rules and nested fences; `GET /api/datasets/public?preset=` filters the catalogue by preset.
+
+### Everything else
+
 - One engine, two product surfaces: the brand (Metalens or MASEMiner) is chosen per request
   from the hostname (`paperlens/brands.py`, `GET /api/brand`), with its own landing page,
   page chrome and preset list (`meta.brands` on presets).
