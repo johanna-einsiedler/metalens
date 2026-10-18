@@ -32,7 +32,9 @@ no credits; you bring an API key for OpenAI, Google, Anthropic, Mistral or DeepS
 a custom base URL at a local model (Ollama, vLLM, LM Studio). Nothing leaves the machine
 except the model call. Back up by copying the data folder while the app is stopped. Presets
 placed in `<data>/presets/` (a `<id>.json` plus `<id>.prompt.md`) are loaded next to the
-built-in ones, so an extraction setup can be exchanged as files.
+built-in ones, so an extraction setup can be exchanged as files. The `maseminer` package,
+image and mirror repository ship the MASEMiner presets only (`scripts/masem_only.py` trims a
+checkout to that distribution); the general presets live here and load from a checkout.
 
 Docker alternative: `docker compose up` (see `docker-compose.yml`).
 

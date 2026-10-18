@@ -30,6 +30,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   record as the page knew it and the server replaced it, so two edits within one round trip
   raced and the later one restored the earlier cell — coders saw values "come back" after
   moving between columns or papers, sporadically, more on a slow connection.
+- The MASEMiner distribution ships the MASEMiner presets only: `scripts/masem_only.py` trims a
+  checkout to them (and to what is about them) before the wheel, the image and the mirror
+  repository are built from it; the engine repository keeps every preset.
 
 ## 1.1.0 and earlier
 
