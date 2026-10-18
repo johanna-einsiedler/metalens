@@ -858,9 +858,10 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc-section-h { font-weight: 600; margin: 16px 0 6px; font-size: 14px; }
 .pc .ds-cc { margin: 0 0 6px; }
 .fd-table { table-layout: fixed; width: 100%; }
-.fd-c-name { width: 19%; } .fd-c-type { width: 11%; } .fd-c-req { width: 8%; } .fd-c-ev { width: 11%; } .fd-c-conf { width: 11%; }
-.fd-table td:first-child code { white-space: nowrap; } .fd-table td { overflow-wrap: anywhere; }
-.fd-table td:nth-child(2), .fd-table td:nth-child(3) { white-space: nowrap; }
+.fd-c-name { width: 23%; } .fd-c-type { width: 11%; } .fd-c-req { width: 9%; } .fd-c-ev { width: 11%; } .fd-c-conf { width: 11%; }
+.fd-table td { overflow-wrap: anywhere; }
+.fd-table td:first-child code { white-space: normal; overflow-wrap: anywhere; line-break: anywhere; }
+.fd-table td:nth-child(3) .badge { white-space: nowrap; }
 .fd-table tr.fd-col td { color: var(--text-muted); }
 .fd-table tr.fd-col td:first-child { padding-left: 14px; } .fd-table tr.fd-col code { color: var(--text); }
 .fd-indent { color: var(--border); margin-right: 2px; }
