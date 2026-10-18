@@ -25,13 +25,13 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import __version__, admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
 _SESSION_COOKIE = "pl_session"
 
-app = FastAPI(title="PaperLens record spine", version="0.1.0")
+app = FastAPI(title="PaperLens record spine", version=__version__)
 
 
 @app.on_event("startup")
