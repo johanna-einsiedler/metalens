@@ -227,7 +227,7 @@ def card(conn: psycopg.Connection, preset_id: str, *, viewer_is_admin: bool = Fa
     out = {"id": pid, "title": meta.get("title"), "tagline": meta.get("tagline"), "description": meta.get("description"),
            "mode": meta.get("mode"), "hidden": bool(meta.get("hidden")), "brands": list(meta.get("brands") or []),
            "authors": cm["authors"], "keywords": cm["keywords"], "license": cm["license"], "related": cm["related"],
-           "card_md": cm["text"], "fields_doc": ps.field_docs(spec),
+           "card_md": cm["text"], "fields_doc": ps.field_docs(spec), "output_schema": ps.derive_output_schema(spec),
            "prompt": ps.render_prompt(spec) if meta.get("mode") != "import" else None,
            "schema_id": ps.schema_id(spec), "card_url": card_url(pid),
            **_release_summary(conn, pid, spec),

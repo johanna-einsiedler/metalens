@@ -1,24 +1,23 @@
 ## Introduction
 
-Empirical economics articles typically present their main findings in regression tables. This preset identifies for each table in a paper whether it is a regression table or not. For every regression table it extracts every printed cell with its row type — a coefficient, a standard error, a t-statistic, a p-value, a confidence-interval bound, R², the number of observations, an F-statistic, another summary statistic, a Yes/No marker, or a panel header — the regressor the column is about, where applicable the link from a standard error (or t-statistic, p-value or confidence bound) to the coefficient it belongs to, and a specification complete enough to re-run the regression given the data.
+Empirical economics articles typically present their main findings in regression tables. This preset identifies for each table in a paper whether it is a regression table or not. For every regression table it extracts every printed cell with its row type — a coefficient, a standard error, a t-statistic, a p-value, a confidence-interval bound, R², the number of observations, an F-statistic, another summary statistic, a Yes/No marker, or a panel header — the regressor the column is about, the link from each inferential statistic (a standard error, t-statistic, p-value or confidence bound) to its respective coefficient, and a specification complete enough to re-run the regression given the data.
 
 ## How it extracts
 
-The records are produced outside Metalens by the agent pipeline of the *Robustness at Scale* study, which re-estimates published OLS results from their replication packages across 17 economics journals (2005–2025; 384 articles with a usable package and PDF). One agent session per article (Claude Opus, with file-writing tools and the PDF). The session first inventories every numbered table in the article, main text and appendices, and decides for each whether it reports estimated coefficients; summary statistics, correlation matrices, cross-tabs and variable-definition tables are not regression tables, balance tables are when they report coefficients with standard errors. It then writes one JSON file per regression table, as soon as that table is done, so an interrupted run keeps what was finished.
+The records are produced with an agentic setup, one agent session per article. The session first inventories every numbered table in the article, main text and appendices, and decides for each whether it reports estimated coefficients; summary statistics, correlation matrices, cross-tabs and variable-definition tables are not regression tables, balance tables are when they report coefficients with standard errors. It then writes one JSON file per regression table.
 
-Five rules govern the transcription, and they are the rules a reviewer should hold the data to:
+The agent is instructed to adhere to four rules, and they are the rules a reviewer should hold the data to:
 
 - **Transcribe exactly.** Every printed cell of the column, top to bottom, verbatim (`0.94***`, `(0.31)`, `Yes`) and parsed (`0.94`, `0.31`, a string marker). Nothing skipped, reordered, rounded or added. The table notes decide whether parenthesised values are standard errors, t-statistics or p-values.
 - **Keep the link.** A standard-error row names the row index of the coefficient it belongs to. Nothing in a flat transcription preserves this; the re-estimation step depends on it.
 - **Enumerate every control; dereference every cross-reference; state the sample operationally.** `["age", "age squared", "years of schooling"]`, never `"demographic controls"`; "controls as in Table 3" is resolved to the list; "eligible households" becomes the rule and the N.
 - **Never infer from a sibling column or from convention.** A field the paper does not state is null or `unknown`. A wrong specification detail is worse than a missing one, because it will be acted on.
-- **No judgement about the result.** Whether a column is the headline, a main or a robustness result is decided in a separate pass with the whole paper in view; here the pipeline only transcribes. The regressor of interest is named from the paper's text, with a sentence on why, never guessed from position.
 
-Evidence: at least one verbatim snippet from the table or its notes per table, with the page; never a bare coefficient value, which recurs through a paper and locates nothing.
+For each table, the agent is instructed to provide at least one verbatim snippet from the table or its notes, with the page, as evidence; never a bare coefficient value, which recurs through a paper and locates nothing.
 
 ### The pipeline's instructions
 
-The prompt below is the session prompt (appendix E.2 of the study), reproduced verbatim. The placeholders are filled by the pipeline: `{PDF_PATH}` the article's PDF; `{TABLES_DIR}` the output folder for that article; `{ARTID}` the article id that prefixes every `regression_id`; `{TABLE_SCHEMA}` the JSON skeleton of one table file — the fields of this preset, with `cells`, `target_regressors` and the specification nested as documented under Fields; `{ALREADY_DONE}` the list of tables already written when a session is resumed; `{REVIEWER_HINT}` a reviewer's note when an article is re-extracted after the completeness check (empty otherwise). The `headline_criteria` field the prompt mentions belongs to the later classification pass and is not part of this preset.
+The prompt below is the session prompt. The placeholders are filled by the pipeline: `{PDF_PATH}` the article's PDF; `{TABLES_DIR}` the output folder for that article; `{ARTID}` the article id that prefixes every `regression_id`; `{TABLE_SCHEMA}` the JSON skeleton of one table file; `{ALREADY_DONE}` the list of tables already written when a session is resumed; `{REVIEWER_HINT}` a reviewer's note when an article is re-extracted after the completeness check (empty otherwise).
 
 ````text
 # Extract every regression in this paper

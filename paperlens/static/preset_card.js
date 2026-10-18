@@ -88,7 +88,7 @@ function render() {
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="how"><h2>How it extracts</h2>${md((sections["how-it-extracts"] || {}).body)}${howGenerated(c)}</section>
-    <section id="fields"><h2>Fields</h2><p class="muted" style="margin:0 0 8px">Generated from the declaration (<code>${esc(c.schema_id)}</code>): every value this preset extracts, with its type, whether it is required, the evidence policy and the confidence group.</p>${renderFieldDocs(c.fields_doc)}</section>
+    <section id="fields"><h2>Fields</h2><p class="muted" style="margin:0 0 8px">Generated from the declaration (<code>${esc(c.schema_id)}</code>): every value this preset extracts, with its type, whether it is required, the evidence policy and the confidence group.</p>${renderFieldDocs(c.fields_doc)}${schemaFold(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${usedBy(c)}</section>
@@ -112,10 +112,16 @@ function howGenerated(c) {
   const params = (doc.params || []).length ? `<h3 class="pc-section-h">Parameters</h3><p class="muted" style="margin:0 0 6px">Set per run; the defaults are what this card documents.</p>
     <table class="ds-cc fd-table"><thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Used by</th><th>Meaning</th></tr></thead><tbody>
     ${doc.params.map((p) => `<tr><td><code>${esc(p.name)}</code></td><td>${esc(p.type || "")}</td><td>${p.default_text ? `<pre class="pc-default">${esc(p.default_text)}</pre>` : `<span class="muted">none${p.empty_text ? ` (${esc(p.empty_text)})` : ""}</span>`}</td><td>${(p.used_by || []).map((u) => `<code>${esc(u)}</code>`).join(" ") || "—"}</td><td>${esc(p.label || "")}${p.help ? ` <span class="muted">— ${esc(p.help)}</span>` : ""}</td></tr>`).join("")}</tbody></table>` : "";
-  if (c.mode === "import") {
-    return `${params}<p class="muted ds-mixed">The records are <b>not extracted in Metalens</b>: a pipeline that runs elsewhere produces them, and Metalens imports them into this schema, anchors the evidence, and is where a person reviews and corrects them. There is no Metalens prompt behind them.</p>`;
-  }
+  if (c.mode === "import") return params;
   return `${params}${c.prompt ? `<details class="ds-prompt pc-foldable"><summary>The full prompt, as rendered with the default parameters</summary><div class="md-preview">${renderMarkdown(c.prompt)}</div></details>` : ""}`;
+}
+
+// The JSON shape of one record — the skeleton the prompt asks the model to return, and what an
+// imported file must look like (one object per paper; type tokens in place of values).
+function schemaFold(c) {
+  if (!c.output_schema) return "";
+  const what = c.mode === "import" ? "what an imported file must look like, one object per paper" : "what the prompt asks the model to return, one object per paper";
+  return `<details class="ds-prompt pc-foldable"><summary>The JSON shape of one record — ${what}</summary><div class="md-preview"><pre class="md-code">${esc(JSON.stringify(c.output_schema, null, 2))}</pre></div></details>`;
 }
 
 // ── fields: the structure the API documented, drawn as tables ─────────────────────────────
