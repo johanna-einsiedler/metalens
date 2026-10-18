@@ -358,37 +358,100 @@ export function esc(s) {
 // the CDN isn't reachable from a published page and the rest of this front-end is
 // build-free. Escapes FIRST, so nothing in a prompt can inject markup.
 export function renderMarkdown(src) {
-  const esc_ = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inline = (t) => esc_(t)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  const esc_ = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // A link target is kept only when it cannot run code or leave the reader somewhere odd:
+  // https, a DOI, a same-page anchor, or a path on this site. Anything else stays literal text.
+  const link = (text, href) => {
+    const h = href.replace(/&amp;/g, "&");
+    if (/^https?:\/\//i.test(h)) return `<a href="${esc_(h)}" target="_blank" rel="noopener">${text}</a>`;
+    if (/^doi:/i.test(h)) return `<a href="https://doi.org/${esc_(h.slice(4))}" target="_blank" rel="noopener">${text}</a>`;
+    if (/^#[A-Za-z0-9_-]+$/.test(h) || /^\/[A-Za-z0-9]/.test(h)) return `<a href="${esc_(h)}">${text}</a>`;
+    return `[${text}](${esc_(h)})`;
+  };
+  // One tokenising pass, so nothing runs inside a code span: code · [text](href) · **bold** ·
+  // *em* (no * adjacent) · _em_ (non-word on both sides, so snake_case stays) · a literal <br>.
+  const inline = (t) => esc_(t).replace(
+    /`([^`]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|(^|[^\w*])\*([^*\n]+?)\*(?![\w*])|(^|[^\w])_([^_\n]+?)_(?![\w])|&lt;br\s*\/?&gt;/g,
+    (m, code, ltxt, href, bold, pre1, em1, pre2, em2) => {
+      if (code !== undefined) return `<code>${code}</code>`;
+      if (ltxt !== undefined) return link(ltxt, href);
+      if (bold !== undefined) return `<strong>${bold}</strong>`;
+      if (em1 !== undefined) return `${pre1}<em>${em1}</em>`;
+      if (em2 !== undefined) return `${pre2}<em>${em2}</em>`;
+      return "<br/>";
+    });
+  const slug = (t) => t.replace(/<[^>]*>/g, "").replace(/&[a-z]+;/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
   const out = [];
   const lines = String(src || "").split("\n");
   let list = null;                 // "ul" | "ol" while a list is open
   let para = [];                   // buffered plain lines
   let fence = null;                // buffered fenced-code lines
+  let fenceLen = 0;                // backticks that opened the fence (a longer fence may hold shorter ones)
+  let quote = null;                // buffered blockquote lines
+  let table = null;                // {align, rows} while a pipe table is open
 
   const flushPara = () => {
     if (para.length) { out.push(`<p>${para.map(inline).join("<br/>")}</p>`); para = []; }
   };
   const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  const flush = () => { flushPara(); flushList(); };
+  const flushQuote = () => {
+    if (quote) { out.push(`<blockquote class="md-quote">${renderMarkdown(quote.join("\n"))}</blockquote>`); quote = null; }
+  };
+  const flushTable = () => {
+    if (!table) return;
+    const { align, rows } = table;
+    const cell = (tag, c, i) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}>${inline(c)}</${tag}>`;
+    const row = (tag, r) => `<tr>${align.map((_, i) => cell(tag, r[i] == null ? "" : r[i], i)).join("")}</tr>`;
+    out.push(`<div class="md-table-wrap"><table class="md-table"><thead>${row("th", rows[0])}</thead><tbody>${rows.slice(1).map((r) => row("td", r)).join("")}</tbody></table></div>`);
+    table = null;
+  };
+  const flush = () => { flushPara(); flushList(); flushQuote(); flushTable(); };
 
-  for (const raw of lines) {
+  const splitRow = (line) => {
+    const cells = line.trim().split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, "|").trim());
+    if (cells.length && cells[0] === "") cells.shift();
+    if (cells.length && cells[cells.length - 1] === "") cells.pop();
+    return cells;
+  };
+  // the delimiter row: cells of dashes with optional alignment colons, at least one pipe
+  const isSep = (line) => /\|/.test(line || "") && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line || "");
+
+  for (let k = 0; k < lines.length; k++) {
+    const raw = lines[k];
     const line = raw.replace(/\s+$/, "");
 
     if (fence !== null) {                                  // inside ```…```
-      if (/^\s*```/.test(line)) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
+      const close = line.match(/^\s*(`{3,})\s*$/);
+      if (close && close[1].length >= fenceLen) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
       else fence.push(raw);
       continue;
     }
-    if (/^\s*```/.test(line)) { flush(); fence = []; continue; }
+    const open = line.match(/^\s*(`{3,})/);
+    if (open) { flush(); fence = []; fenceLen = open[1].length; continue; }
+
+    if (table) {                                           // rows keep coming while they carry a pipe
+      if (line.includes("|") && line.trim()) { table.rows.push(splitRow(line)); continue; }
+      flushTable();
+    }
+
+    const bq = line.match(/^\s*>\s?(.*)$/);                 // > quote (a bare > keeps a blank line)
+    if (bq) { flushPara(); flushList(); flushTable(); if (!quote) quote = []; quote.push(bq[1]); continue; }
+    flushQuote();
 
     if (!line.trim()) { flush(); continue; }
 
+    if (line.includes("|") && isSep(lines[k + 1])) {       // | a | b |  +  |---|---|
+      flush();
+      const align = splitRow(lines[k + 1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : ""));
+      table = { align, rows: [splitRow(line)] };
+      k += 1;
+      continue;
+    }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); out.push('<hr class="md-hr"/>'); continue; }
+
     const h = line.match(/^(#{1,4})\s+(.*)$/);            // # heading
-    if (h) { flush(); const n = h[1].length; out.push(`<h${n + 2} class="md-h md-h${n}">${inline(h[2])}</h${n + 2}>`); continue; }
+    if (h) { flush(); const n = h[1].length; const body = inline(h[2]); out.push(`<h${n + 2} id="md-${slug(body)}" class="md-h md-h${n}">${body}</h${n + 2}>`); continue; }
 
     const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);          // 1. item
     if (ol) {
@@ -396,7 +459,7 @@ export function renderMarkdown(src) {
       if (list !== "ol") { flushList(); out.push('<ol class="md-list">'); list = "ol"; }
       out.push(`<li>${inline(ol[1])}</li>`); continue;
     }
-    const ul = line.match(/^\s*[-*\u2013\u2022]\s+(.*)$/);  // -, *, – or • item
+    const ul = line.match(/^\s*[-*–•]\s+(.*)$/);  // -, *, – or • item
     if (ul) {
       flushPara();
       if (list !== "ul") { flushList(); out.push('<ul class="md-list">'); list = "ul"; }
@@ -404,7 +467,7 @@ export function renderMarkdown(src) {
     }
 
     flushList();
-    para.push(line);
+    para.push(/( {2,}|\\)$/.test(raw) ? line + "<br/>" : line);   // two trailing spaces or \ = a hard break
   }
   if (fence !== null) out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`);
   flush();
