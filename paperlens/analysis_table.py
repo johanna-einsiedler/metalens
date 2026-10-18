@@ -541,9 +541,7 @@ def _public_preset(conn, schema_id: str | None) -> dict | None:
     if not pid:
         return None
     builtin = presets.load_all().get(presets.resolve_id(pid))
-    if builtin is not None:
-        if (builtin.get("meta") or {}).get("hidden"):
-            return None
+    if builtin is not None:            # hidden only means "not in the extract picker"; every built-in has a public card or page
         return {"id": pid, "title": (builtin.get("meta") or {}).get("title") or pid}
     own = records.get_personal_preset(conn, pid)
     if not own or own.get("visibility") != "public":

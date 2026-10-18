@@ -70,7 +70,7 @@ def test_card_metadata_rules() -> None:
     assert any("unknown key 'html'" in e for e in _errors(stray))
     # card.file: read next to the preset, never outside the presets directory, never without a base dir
     outside = copy.deepcopy(BASE); outside["card"] = {"file": "../../README.md"}
-    with pytest.raises(ps.SpecError, match="outside the presets directory"):
+    with pytest.raises(ps.SpecError, match="outside the preset"):
         ps.normalize(outside, base_dir=ps.PRESETS_DIR)
     nobase = copy.deepcopy(BASE); nobase["card"] = {"file": "x.card.md"}
     with pytest.raises(ps.SpecError, match="no base directory"):

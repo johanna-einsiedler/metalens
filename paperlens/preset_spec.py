@@ -113,12 +113,14 @@ def canonical_json(obj: Any) -> str:
 
 
 def _read_sibling(name: str, base_dir: Path, *, what: str = "prompt.file") -> str:
-    """Read a file next to the preset JSON, refusing anything outside the presets dir."""
-    candidate = (base_dir / name).resolve()
+    """Read a file next to the preset JSON, refusing anything outside the preset's own directory
+    (a bundled preset's siblings live in ``PRESETS_DIR``; a preset loaded from
+    ``PAPERLENS_PRESET_DIRS`` or a deposited bundle keeps its files beside it)."""
+    candidate = (Path(base_dir) / name).resolve()
     try:
-        candidate.relative_to(PRESETS_DIR.resolve())
+        candidate.relative_to(Path(base_dir).resolve())
     except ValueError:
-        raise SpecError([f"{what} {name!r} is outside the presets directory"])
+        raise SpecError([f"{what} {name!r} is outside the preset's directory"])
     try:
         return candidate.read_text(encoding="utf-8")
     except OSError as e:

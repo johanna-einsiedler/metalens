@@ -902,7 +902,7 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
         if not disagreed:
             agreed += 1
 
-    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed)}
+    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed), "agreed": agreed}
 
 
 def _badge_from_counts(total: int, audited: int, agreed: int) -> dict:
@@ -1246,11 +1246,14 @@ def facets(conn: psycopg.Connection, filters: dict) -> dict:
 
 def public_datasets_with_badges(conn: psycopg.Connection,
                                 limit: int = 50, offset: int = 0,
-                                q: str | None = None) -> list[dict]:
+                                q: str | None = None, preset_bases: list[str] | None = None) -> list[dict]:
     """Public datasets each with a COMPUTED credibility badge, in ONE query (no N+1).
     When ``q`` is given, full-text search the dataset's title/description/prompt/schema
-    (the recipe) and rank by relevance; otherwise most-recent first."""
+    (the recipe) and rank by relevance; otherwise most-recent first. ``preset_bases`` keeps
+    only datasets built with one of those presets (base ids, every version, the dataset's own
+    schema or any record's)."""
     q = (q or "").strip() or None
+    bases = list(preset_bases) if preset_bases else None
     rows = conn.execute(
         """
         WITH ev AS (
@@ -1277,12 +1280,14 @@ def public_datasets_with_badges(conn: psycopg.Connection,
                        LEFT JOIN users u ON u.id = d.owner_user_id
         WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
           AND (%s::text IS NULL OR d.search_tsv @@ websearch_to_tsquery('english', %s))
+          AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[])
+               OR EXISTS (SELECT 1 FROM record r2 WHERE r2.dataset_id = d.id AND split_part(r2.schema_id, '@', 1) = ANY(%s::text[])))
         ORDER BY
           CASE WHEN %s::text IS NULL THEN 0
                ELSE ts_rank(d.search_tsv, websearch_to_tsquery('english', %s)) END DESC,
           d.created_at DESC
         LIMIT %s OFFSET %s""",
-        (q, q, q, q, limit, offset),
+        (q, q, bases, bases, bases, q, q, limit, offset),
     ).fetchall()
     out = []
     for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw, pr, ghs, pmeta, fsha) in rows:

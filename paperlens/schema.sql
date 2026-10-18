@@ -559,3 +559,31 @@ CREATE TABLE IF NOT EXISTS dataset_page (
     committed_at  timestamptz,
     UNIQUE (dataset_id, "group", key, version)
 );
+
+
+-- ── preset releases: a frozen, numbered, citable version of a curated preset ──────────
+-- A preset's data contract is content-addressed (schema id); its documentation, wording and
+-- prompt are not, so a card needs its own version counter. A release freezes the whole
+-- normalised spec (prompt and card text inlined) and may carry a DOI of its own; the lineage's
+-- concept DOI is the one Zenodo reported at the newest deposit that counts on this server.
+CREATE TABLE IF NOT EXISTS preset_release (
+    id                 uuid PRIMARY KEY,
+    preset_id          text NOT NULL,                        -- the bundled preset's current id
+    number             integer NOT NULL,                     -- the citable version number
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    created_by         uuid,
+    notes              text,
+    schema_id          text NOT NULL REFERENCES schema(id),  -- the data contract at the cut
+    spec               jsonb NOT NULL,                       -- the normalised spec, frozen
+    spec_sha           text NOT NULL,                        -- sha256 of the canonical spec: "changed since?"
+    prompt_sha256      text,                                 -- the prompt rendered with default params; NULL for import presets
+    engine             jsonb,                                -- {name, version, git_sha}
+    doi                text,
+    zenodo_record_id   bigint,
+    zenodo_url         text,
+    zenodo_concept_doi text,
+    doi_minted_at      timestamptz,
+    doi_minted_by      uuid,                                 -- the daily cap is per minting account
+    UNIQUE (preset_id, number)
+);
+CREATE INDEX IF NOT EXISTS preset_release_schema_idx ON preset_release(schema_id);
