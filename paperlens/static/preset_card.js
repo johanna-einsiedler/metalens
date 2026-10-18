@@ -174,7 +174,7 @@ const badge = (cred) => `<span class="badge tier-${esc((cred || {}).tier || "ai_
 function verificationLive(c) {
   const v = c.verification || {};
   const stat = (num, lbl) => `<div class="stat"><div class="stat-num">${esc(String(num))}</div><div class="stat-lbl">${lbl}</div></div>`;
-  if (!v.n_datasets) return `<h3 class="pc-section-h">On this server</h3><p class="muted">No public dataset uses this preset yet.</p>`;
+  if (!v.n_datasets) return "";                       // nothing to roll up yet: the block appears with the first public dataset
   return `<h3 class="pc-section-h">On this server</h3>
     <div class="ds-stats">${stat(v.n_datasets, n(v.n_datasets, "public dataset").replace(/^\d+ /, ""))}${stat(v.n_papers, "papers")}${stat(v.n_records, "records")}${stat(v.audited, "checked by a person")}${stat(pct(v.agreement), "agreed with the model")}
       <div class="stat"><div class="stat-num small">${badge(v)}</div><div class="stat-lbl">${v.agreement_ci ? `95% CI ${pct(v.agreement_ci[0])}–${pct(v.agreement_ci[1])}` : "under the dataset badge rule"}</div></div></div>
