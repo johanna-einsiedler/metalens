@@ -114,7 +114,7 @@ def test_import_picker_keeps_the_presets_the_extract_picker_hides(monkeypatch) -
     extract, imprt = ids("extract"), ids("import")
     assert "masem-direct" in extract and "masem-direct" in imprt          # visible either way
     assert "masem-indirect" not in extract and "masem-indirect" in imprt  # landing-hidden variant
-    for pid in ("register-claims", "register-tables"):                    # mode: "import" schemas
+    for pid in ("register-claims", "register-tables", "regression-tables"):   # mode: "import" schemas
         assert pid not in extract and pid in imprt
     assert c.get("/api/presets").json() == c.get("/api/presets?usage=extract").json()   # the default
 

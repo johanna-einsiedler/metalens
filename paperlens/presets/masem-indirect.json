@@ -7,7 +7,26 @@
     "tagline": "Extract item-level factor loadings, inter-factor correlations, and study metadata for any target scale (MASEM, indirect)",
     "description": "Indirect-information variant: item-level factor loadings and inter-factor correlations (plus study/sample metadata) for a psychometric scale across primary factor-analytic studies. Generic across scales — you name the scale and its items in the builder. Use it when a paper reports the measurement model rather than the effect sizes themselves; the sibling direct-information variant extracts pairwise effect sizes.",
     "mode": "extraction",
-    "hidden": true
+    "hidden": true,
+    "authors": [
+      {"family": "Schroeders", "given": "Ulrich", "orcid": "0000-0002-5225-1122", "affiliation": "University of Kassel"},
+      {"family": "Gnambs", "given": "Timo", "orcid": "0000-0002-6984-1276", "affiliation": "Leibniz Institute for Educational Trajectories (LIfBi), Bamberg"},
+      {"family": "Einsiedler", "given": "Johanna", "orcid": "0000-0002-6312-6861", "affiliation": "University of Basel; University of Copenhagen"}
+    ],
+    "keywords": ["meta-analysis", "MASEM", "factor analysis", "factor loadings", "measurement model", "psychometrics"],
+    "license": "CC-BY-4.0",
+    "related": [
+      {"kind": "paper", "title": "MASEMiner – AI-assisted data extraction for meta-analytic structural equation modeling (preprint, not peer-reviewed)", "doi": "10.31234/osf.io/dceqs_v1", "role": "describes and validates this preset"},
+      {"kind": "supplement", "title": "Prompts and JSON outputs of the validation study (OSF)", "url": "https://osf.io/ec4ug"},
+      {"kind": "repository", "title": "Metalens engine", "url": "https://github.com/johanna-einsiedler/metalens"},
+      {"kind": "repository", "title": "MASEMiner distribution (local install)", "url": "https://github.com/johanna-einsiedler/maseminer"},
+      {"kind": "website", "title": "Hosted MASEMiner", "url": "https://metalens.tech/maseminer"},
+      {"kind": "preset", "title": "MASEMiner — direct information", "id": "masem-direct"},
+      {"kind": "funding", "title": "Deutsche Forschungsgemeinschaft (DFG), project 546292646, Priority Programme SPP 2317 META-REP"}
+    ]
+  },
+  "card": {
+    "file": "masem-indirect.card.md"
   },
   "prompt": {
     "file": "masem-indirect.prompt.md",
