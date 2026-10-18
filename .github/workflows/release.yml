@@ -3,6 +3,8 @@ name: Release
 # On a version tag: build the wheel, publish it to PyPI (trusted publishing — configure the
 # project on pypi.org to trust this repo/workflow, no token needed), and push a byte-exact
 # Docker image to GHCR. The tag must match pyproject's version (`v0.1.0` ↔ `0.1.0`).
+# Both artifacts are the MASEMiner DISTRIBUTION: scripts/masem_only.py first removes the
+# presets tagged for other brands (and what is about them) from the checkout.
 on:
   push:
     tags: ["v*"]
@@ -20,6 +22,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - name: keep the MASEMiner presets only
+        run: python3 scripts/masem_only.py
       - name: check the tag matches pyproject
         run: |
           v=$(uv run python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
@@ -50,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: keep the MASEMiner presets only
+        run: python3 scripts/masem_only.py
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
