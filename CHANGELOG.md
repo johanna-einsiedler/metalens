@@ -53,6 +53,17 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- **A `metalens` package and command.** The engine runs locally as Metalens too: `metalens` opens the
+  Metalens brand with every bundled preset, data in `~/.metalens`, port 8775 (`maseminer` keeps
+  `~/.maseminer` and 8765). The release workflow publishes two PyPI projects from one tag: `maseminer`
+  (trimmed to the MASEM presets, without the `metalens` command) and `metalens` (the full engine,
+  renamed by `scripts/package_as.py`).
+- **Load a preset file.** The presets page loads a preset someone sent as a `.json` file, checks it
+  (every error and warning, and the schema id it runs under) and saves it as the viewer's own preset,
+  private or — signed in — for everyone on the site. A loaded preset keeps its own id, and so its
+  schema id, when no built-in, retired or personal preset uses it; otherwise it gets a fresh id and
+  the page says so.
+
 - **Preset pictures and smaller tiles.** The presets page shows each curated preset's picture
   (`static/tiles/presets/<id>.png`, served as `tile_url` in the inventory and card payloads) in
   smaller tiles, three to a row; a preset without one keeps the placeholder sketch. The dataset page

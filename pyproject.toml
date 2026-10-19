@@ -29,6 +29,7 @@ dependencies = [
 
 [project.scripts]
 maseminer = "paperlens.local:main"
+metalens = "paperlens.local:main_metalens"
 
 [project.urls]
 Homepage = "https://github.com/johanna-einsiedler/metalens"

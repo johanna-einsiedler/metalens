@@ -11,8 +11,9 @@ workflows do), before `uv build`, the image build, or the push to the mirror. It
   * tests, scripts and memos that are about a removed preset (they name it);
   * the hosted service's deployment, release and mirror workflows and ``fly.toml``;
 
-and writes one line at the top of the README saying what this copy is. ``--dry-run`` lists what
-would go. Never run it in the engine repository itself.
+drops the ``metalens`` command from ``pyproject.toml`` (that is the full package's), and writes one
+line at the top of the README saying what this copy is. ``--dry-run`` lists what would go. Never
+run it in the engine repository itself.
 """
 from __future__ import annotations
 
@@ -90,7 +91,12 @@ def main() -> int:
     if lines and README_NOTE not in "".join(lines[:5]):
         lines.insert(1, "\n" + README_NOTE)
         readme.write_text("".join(lines))
-    print(f"README: distribution note added · {len(gone)} paths removed")
+    py = ROOT / "pyproject.toml"
+    text = py.read_text()
+    trimmed = re.sub(r'(?m)^metalens = "paperlens\.local:main_metalens"\n', "", text)
+    if trimmed != text:
+        py.write_text(trimmed)
+    print(f"README: distribution note added · pyproject: the metalens command dropped · {len(gone)} paths removed")
     return 0
 
 
