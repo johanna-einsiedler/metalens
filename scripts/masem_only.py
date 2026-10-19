@@ -57,6 +57,7 @@ def plan() -> list[Path]:
     pdir = ROOT / "paperlens" / "presets"
     for pid in removed:
         gone += sorted(pdir.glob(f"{pid}.json")) + sorted(pdir.glob(f"{pid}.*.md")) + sorted(pdir.glob(f"{pid}.md"))
+        gone += sorted((ROOT / "paperlens" / "static" / "tiles" / "presets").glob(f"{pid}.png"))   # its inventory picture
     for folder, pattern in (("tests", "*.py"), ("scripts", "*.py"), ("docs", "*.md")):
         for f in sorted((ROOT / folder).glob(pattern)):
             if f.name == "masem_only.py":

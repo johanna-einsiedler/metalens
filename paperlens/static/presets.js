@@ -8,7 +8,10 @@ const $ = (s) => document.querySelector(s);
 const n = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
 const name = (a) => [a.given, a.family].filter(Boolean).join(" ");
 const by = (authors) => { const xs = (authors || []).map(name); return xs.length <= 2 ? xs.join(" & ") : xs.slice(0, -1).join(", ") + " & " + xs[xs.length - 1]; };
-const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice(0, 7).map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
+const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice(0, 4).map((k) => `<span class="kw">${esc(k)}</span>`).join("")}</div>` : "");
+// the preset's preview picture when one ships (static/tiles/presets/<id>.png), else a placeholder sketch
+const picture = (p) => (p.tile_url ? `<div class="tile-img"><img src="${esc(p.tile_url)}" alt="" loading="lazy"></div>`
+  : `<div class="tile-img"><div class="tile-sketch">${iconSvg("rows_table", {})}</div></div>`);
 const kicker = (p) => p.latest
   ? `Preset · v${p.latest.number}${p.latest.doi ? ` · DOI ${esc(p.latest.doi)}` : ""}`
   : `Preset · unreleased · <code>${esc(p.schema_id || "")}</code>`;
@@ -16,7 +19,7 @@ const counts = (c) => [n(c.datasets, "dataset"), n(c.records, "record"), n(c.pap
 
 function tile(p) {
   return `<article class="tile${p.hidden ? " tile-hidden" : ""}"><a class="tile-a" href="/preset?id=${encodeURIComponent(p.id)}">
-    <div class="tile-img"><div class="tile-sketch">${iconSvg("rows_table", {})}</div></div>
+    ${picture(p)}
     <div class="tile-body"><span class="tile-k">${kicker(p)}${p.hidden ? ` <span class="tile-new">builder-only</span>` : ""}${p.mode === "import" ? ` <span class="tile-new">import schema</span>` : ""}</span>
       <h3 class="tile-h">${esc(p.title || p.id)}</h3>${kws(p.keywords)}
       <p class="tile-p clamp">${esc(p.tagline || p.description || "")}</p>

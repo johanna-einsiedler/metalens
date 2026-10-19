@@ -53,6 +53,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- **Preset pictures and smaller tiles.** The presets page shows each curated preset's picture
+  (`static/tiles/presets/<id>.png`, served as `tile_url` in the inventory and card payloads) in
+  smaller tiles, three to a row; a preset without one keeps the placeholder sketch. The dataset page
+  no longer explains imported records at length: its source card names the producer and the schema.
+
 - **Locating quotes is fast again for papers with unlocatable quotes.** A quote missing from its
   cited page was searched for piece by piece on every page with PyMuPDF's page search, about 4,000
   calls for a table line printed differently from its transcription; one 63-page paper took 8.5
