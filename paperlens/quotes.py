@@ -177,19 +177,36 @@ def _flags(spec: dict) -> set[str]:
     return out
 
 
+def _all_names(spec: dict) -> set[str]:
+    out: set[str] = set()
+
+    def walk(fields):
+        for f in fields or []:
+            if isinstance(f, dict) and f.get("name"):
+                out.add(f["name"]); walk(f.get("columns"))
+    walk((spec.get("paper") or {}).get("fields"))
+    e = spec.get("entries") or {}
+    walk(e.get("fields"))
+    for ch in e.get("children") or []:
+        if isinstance(ch, dict):
+            walk(ch.get("fields"))
+    return out
+
+
 def verbatim_names(spec: dict | None) -> frozenset[str]:
     """The names of the fields (and table columns) a preset declares ``verbatim``: values that ARE
-    quotations of the paper — an abstract sentence, a table caption. The live bundled preset's
-    flags count as well when its data contract is the same (the flag never enters the schema id),
-    so a dataset or release stored before a field was flagged follows the flag."""
+    quotations of the paper — an abstract sentence, a table caption. The live preset of the same id
+    counts as well, for the fields the stored spec shares with it by name: a field keeps its meaning
+    across versions of a preset, so data stored under an older version, or before a field was
+    flagged, follows the flag (which never enters the schema id)."""
     if not isinstance(spec, dict):
         return frozenset()
     names = _flags(spec)
     try:
-        from . import preset_spec, presets          # lazy: records <-> presets <-> quotes
+        from . import presets                       # lazy: records <-> presets <-> quotes
         live = presets.get(spec.get("id")) if spec.get("id") else None
-        if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == preset_spec.content_hash(spec):
-            names |= _flags(live["spec"])
+        if live and not live.get("legacy"):
+            names |= _flags(live["spec"]) & _all_names(spec)
     except Exception:                                   # noqa: BLE001 - a broken preset never blocks a read
         pass
     return frozenset(names)

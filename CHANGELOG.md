@@ -47,8 +47,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   magnitudes, the tables presets' captions). Public copies cut those values to 200 characters too: the
   analysis table for non-owners (and so release files and dashboards), the published `results.json`,
   record detail, the rows API, the catalogue search, a paper's records, the dataset detail and the
-  dataset download. The flag never enters the schema id, and a dataset stored before a field was
-  flagged follows the live preset's flag. The card marks such fields "verbatim".
+  dataset download. The flag never enters the schema id, and data stored under an older version of
+  the preset, or before a field was flagged, follows the live preset's flag by field name. The card marks such fields "verbatim".
 - Publishing again before the pull request is merged updates that pull request instead of failing.
 
 ### Everything else

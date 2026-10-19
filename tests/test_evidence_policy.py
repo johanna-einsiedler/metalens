@@ -160,6 +160,10 @@ def test_the_verbatim_flag_never_re_versions_a_dataset_and_is_validated() -> Non
     assert ps.schema_id(bare) == ps.schema_id(spec) == "register-claims@f7387875"
     assert quotes.verbatim_names(spec) == {"anchor_quote", "intro_sentence", "magnitude_stated"}
     assert quotes.verbatim_names(bare) == quotes.verbatim_names(spec)        # a stored spec follows the live flags
+    older = copy.deepcopy(bare)                                             # an older version of the preset: another contract
+    older["entries"]["fields"] = [f for f in older["entries"]["fields"] if f["name"] != "magnitude_stated"]
+    assert ps.schema_id(older) != ps.schema_id(spec)
+    assert quotes.verbatim_names(older) == {"anchor_quote", "intro_sentence"}  # by name, for the fields it has
     bad = copy.deepcopy(spec)
     next(f for f in bad["entries"]["fields"] if f["name"] == "sign")["verbatim"] = True
     next(f for f in bad["entries"]["fields"] if f["name"] == "notes")["verbatim"] = "yes"
