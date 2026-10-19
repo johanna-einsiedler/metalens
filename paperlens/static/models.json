@@ -209,6 +209,10 @@
       "in": 3.0,
       "out": 12.0
     },
+    "computer-use-preview-2025-03-11": {
+      "in": 3.0,
+      "out": 12.0
+    },
     "deepseek-chat": {
       "in": 0.28,
       "out": 0.42
@@ -557,6 +561,10 @@
       "in": 0.6,
       "out": 2.4
     },
+    "gpt-audio-mini-2025-10-06": {
+      "in": 0.6,
+      "out": 2.4
+    },
     "gpt-audio-mini-2025-12-15": {
       "in": 0.6,
       "out": 2.4
@@ -581,6 +589,10 @@
       "in": 0.15,
       "out": 0.6
     },
+    "gpt-4o-mini-search-preview-2025-03-11": {
+      "in": 0.15,
+      "out": 0.6
+    },
     "gpt-4o-mini-transcribe": {
       "in": 1.25,
       "out": 5.0
@@ -594,6 +606,10 @@
       "out": 10.0
     },
     "gpt-4o-search-preview": {
+      "in": 2.5,
+      "out": 10.0
+    },
+    "gpt-4o-search-preview-2025-03-11": {
       "in": 2.5,
       "out": 10.0
     },
@@ -1017,6 +1033,10 @@
       "in": 10.0,
       "out": 40.0
     },
+    "o3-deep-research-2025-06-26": {
+      "in": 10.0,
+      "out": 40.0
+    },
     "o3-2025-04-16": {
       "in": 2.0,
       "out": 8.0
@@ -1042,6 +1062,10 @@
       "out": 4.4
     },
     "o4-mini-deep-research": {
+      "in": 2.0,
+      "out": 8.0
+    },
+    "o4-mini-deep-research-2025-06-26": {
       "in": 2.0,
       "out": 8.0
     },
@@ -1257,6 +1281,10 @@
       "in": 12.5,
       "out": 75.0
     },
+    "gpt-5.5-cyber-preview": {
+      "in": 12.5,
+      "out": 75.0
+    },
     "gpt-rosalind-research": {
       "in": 5.0,
       "out": 25.0
@@ -1276,6 +1304,10 @@
     "gpt-rosalind-discovery": {
       "in": 5.0,
       "out": 25.0
+    },
+    "gemini-4-argon": {
+      "in": 2.0,
+      "out": 10.0
     },
     "chatgpt-4o-latest": {
       "in": 5.0,
@@ -1377,10 +1409,6 @@
       "in": 2.5,
       "out": 10.0
     },
-    "gpt-audio-mini-2025-10-06": {
-      "in": 0.6,
-      "out": 2.4
-    },
     "gpt-4o-mini-audio-preview": {
       "in": 0.15,
       "out": 0.6
@@ -1388,10 +1416,6 @@
     "gpt-4o-mini-realtime-preview": {
       "in": 0.6,
       "out": 2.4
-    },
-    "gpt-4o-mini-search-preview-2025-03-11": {
-      "in": 0.15,
-      "out": 0.6
     },
     "gpt-4o-realtime-preview": {
       "in": 5.0,
@@ -1404,10 +1428,6 @@
     "gpt-4o-realtime-preview-2025-06-03": {
       "in": 5.0,
       "out": 20.0
-    },
-    "gpt-4o-search-preview-2025-03-11": {
-      "in": 2.5,
-      "out": 10.0
     },
     "codestral-2405": {
       "in": 1.0,
@@ -1513,14 +1533,6 @@
       "in": 2.0,
       "out": 6.0
     },
-    "o3-deep-research-2025-06-26": {
-      "in": 10.0,
-      "out": 40.0
-    },
-    "o4-mini-deep-research-2025-06-26": {
-      "in": 2.0,
-      "out": 8.0
-    },
     "text-moderation-007": {
       "in": 0.0,
       "out": 0.0
@@ -1550,5 +1562,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-10-12T07:06:58Z"
+  "generated_at": "2026-10-19T06:57:14Z"
 }
