@@ -168,8 +168,9 @@ async def sweep_anonymous_task(ctx: dict) -> dict:
 
 
 async def github_sync_task(ctx: dict) -> dict:
-    """Hourly: merged pull requests become published datasets; GitHub-only datasets are
-    imported (paperlens/github_sync.py)."""
+    """Daily (and when the worker starts): merged pull requests become published datasets;
+    GitHub-only datasets are imported (paperlens/github_sync.py). One request when nothing
+    was committed since the last run."""
     from . import github_sync
     conn = records.connect()
     try:
@@ -187,7 +188,7 @@ async def github_sync_task(ctx: dict) -> dict:
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
-                 cron(github_sync_task, minute={17}, run_at_startup=True)]
+                 cron(github_sync_task, hour={3}, minute={17}, run_at_startup=True)]
     redis_settings = redis_settings()
     allow_abort_jobs = True   # let the UI stop an in-progress extraction (Job.abort)
     max_jobs = 10

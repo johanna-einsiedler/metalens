@@ -68,7 +68,7 @@ function render() {
       <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <button class="btn btn-ghost btn-sm" id="ds-rel-btn" hidden title="freeze the dataset as it is now; published dashboards pin a release">Create release</button>
-      ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}
+      ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (it is checked daily anyway)">↻ Check GitHub</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
@@ -152,7 +152,7 @@ function render() {
 
     <!-- 6a · a dataset imported from the datasets repository has no owner: only a moderator can remove it -->
     ${ADMIN && OV.ownerless ? `<div class="ds-card" style="margin-top:10px"><div class="ds-card-h">Moderator</div>
-      <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset was imported from the datasets repository, so it has no owner and nobody can withdraw it the usual way. Deleting removes it and its records from Metalens. The copy in the repository on GitHub is untouched — if the folder is still on the default branch, the hourly sync will import it again.</p>
+      <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset was imported from the datasets repository, so it has no owner and nobody can withdraw it the usual way. Deleting removes it and its records from Metalens. The copy in the repository on GitHub is untouched — if the folder is still on the default branch, the sync imports it again the next time the repository changes.</p>
       <button type="button" class="btn btn-ghost btn-sm" id="ds-modkill">Delete this dataset</button> <span class="muted" id="ds-modmsg" style="font-size:13px"></span></div>` : ""}
 
     <!-- 6 · owner-only extras that most datasets never need -->

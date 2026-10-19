@@ -2375,7 +2375,7 @@ def set_dataset_visibility(conn: psycopg.Connection, dataset_id: str, visibility
     publish flow overrides the status to 'pending' when it opens a pull request.
 
     Private = UNLIST here: the page stops being served and the catalogue drops it, and
-    ``catalogue`` is cleared so the hourly sync does not list it again. The publish status
+    ``catalogue`` is cleared so the daily sync does not list it again. The publish status
     is left alone — a copy that reached the datasets repository is in git history and in
     every fork; nothing here can unpublish it, and pretending otherwise would mislead."""
     with conn.transaction():

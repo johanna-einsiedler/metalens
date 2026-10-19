@@ -53,6 +53,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- **The GitHub sync runs daily and costs one request when nothing changed.** It reads the datasets
+  repository's newest commit and stops when that is the commit it reconciled last time (stored in
+  `sync_state`); otherwise one request lists every file with its version, and only folders whose
+  `results.json` changed are read. The dataset page's "Check GitHub" still checks every folder.
+
 - One engine, two product surfaces: the brand (Metalens or MASEMiner) is chosen per request
   from the hostname (`paperlens/brands.py`, `GET /api/brand`), with its own landing page,
   page chrome and preset list (`meta.brands` on presets).

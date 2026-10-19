@@ -2117,12 +2117,13 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
 @app.post("/api/github/sync")
 def github_sync_now(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Reconcile the catalogue with the datasets repository now (merged pull requests become
-    published; GitHub-only datasets are imported). Runs hourly on the worker as well."""
+    published; GitHub-only datasets are imported). The worker does it daily; asked for here, every
+    folder is checked even when the repository has no new commit."""
     if not who.user_id:
         raise HTTPException(status_code=401, detail="Sign in to sync.")
     from . import github_sync
     try:
-        return github_sync.sync(db)
+        return github_sync.sync(db, force=True)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Sync failed: {exc}")
 

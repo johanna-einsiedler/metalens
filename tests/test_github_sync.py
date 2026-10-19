@@ -34,15 +34,25 @@ def _b64(obj) -> str:
     return base64.b64encode(json.dumps(obj).encode()).decode()
 
 
-def _repo(files: dict) -> httpx.Client:
-    """A fake datasets repo: files = {"datasets/<slug>/metadata.json": (obj, sha), …}."""
+def _head(files: dict) -> str:
+    import hashlib
+    return hashlib.sha1(json.dumps({k: v[1] for k, v in files.items()}, sort_keys=True).encode()).hexdigest()
+
+
+def _repo(files: dict, calls: list | None = None) -> httpx.Client:
+    """A fake datasets repo: files = {"datasets/<slug>/metadata.json": (obj, sha), …}; its newest
+    commit is a hash of the file versions, so it changes exactly when a file does."""
     def handler(request: httpx.Request) -> httpx.Response:
         p = request.url.path
-        if request.method == "GET" and p.endswith("/metalens-datasets"):
-            return httpx.Response(200, json={"default_branch": "main"})
-        if request.method == "GET" and p.endswith("/contents/datasets"):
-            slugs = sorted({k.split("/")[1] for k in files})
-            return httpx.Response(200, json=[{"type": "dir", "name": s} for s in slugs])
+        if calls is not None:
+            calls.append(p.split("/metalens-datasets", 1)[-1] or "/")
+        if request.method == "GET" and p.endswith("/commits"):
+            return httpx.Response(200, json=[{"sha": _head(files)}])
+        if request.method == "GET" and "/git/trees/" in p:
+            assert p.endswith("/" + _head(files)) and request.url.params.get("recursive") == "1"
+            return httpx.Response(200, json={"sha": _head(files), "truncated": False,
+                                             "tree": [{"path": "README.md", "type": "blob", "sha": "x"}, {"path": "datasets", "type": "tree", "sha": "t"}]
+                                                     + [{"path": k, "type": "blob", "sha": v[1]} for k, v in files.items()]})
         if request.method == "GET" and "/contents/" in p:
             key = p.split("/contents/")[1]
             if key not in files:
@@ -93,14 +103,22 @@ def test_sync_publishes_merged_and_imports_github_only_datasets() -> None:
     pub = {d["id"]: d for d in records.public_datasets_with_badges(conn)}
     assert pub[local["id"]]["published_url"] == mine["published_url"]
     assert pub[imp["id"]]["credibility"]["tier"] == "human_verified" and pub[imp["id"]]["github_source"]
-    # second run: nothing changes
-    out = github_sync.sync(conn, client=_repo(files), gh_repo="o/metalens-datasets")
+    # second run: no new commit → one request, nothing read
+    calls: list = []
+    out = github_sync.sync(conn, client=_repo(files, calls), gh_repo="o/metalens-datasets")
+    assert out["skipped"] == "no new commit" and calls == ["/commits"]
+    # asked for explicitly (the dataset page's check): every folder is looked at, nothing changes, no file is read
+    calls = []
+    out = github_sync.sync(conn, client=_repo(files, calls), gh_repo="o/metalens-datasets", force=True)
     assert out["unchanged"] == 2 and out["imported"] == 0 and out["published"] == 0
+    assert calls == ["/commits", f"/git/trees/{_head(files)}"]
     # results.json changed on GitHub → the GitHub-only dataset is re-imported, no duplicates
     gmeta2, gres2 = _material(gh_slug, "GitHub only set", n_papers=1)
     files[f"datasets/{gh_slug}/results.json"] = (gres2, "r3")
-    out = github_sync.sync(conn, client=_repo(files), gh_repo="o/metalens-datasets")
-    assert out["reimported"] == 1
+    calls = []
+    out = github_sync.sync(conn, client=_repo(files, calls), gh_repo="o/metalens-datasets")
+    assert out["reimported"] == 1 and out["unchanged"] == 1
+    assert not any(local["slug"] in c for c in calls)              # the unchanged folder's files are not read
     n_docs = conn.execute("SELECT count(DISTINCT document_id) FROM record WHERE dataset_id = %s::uuid", (imp["id"],)).fetchone()[0]
     assert n_docs == 1 and records.dataset_by_slug(conn, gh_slug)["id"] == imp["id"]
     for d in (local["id"], imp["id"]):

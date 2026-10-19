@@ -587,3 +587,10 @@ CREATE TABLE IF NOT EXISTS preset_release (
     UNIQUE (preset_id, number)
 );
 CREATE INDEX IF NOT EXISTS preset_release_schema_idx ON preset_release(schema_id);
+
+-- ── small server state: the last datasets-repository commit the GitHub sync reconciled ──
+CREATE TABLE IF NOT EXISTS sync_state (
+    key        text PRIMARY KEY,
+    value      text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
