@@ -285,6 +285,8 @@ table.au-table .au-var { text-align: left; white-space: normal; }
 table.au-table .au-group td { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-muted); background: var(--bg); padding-top: 9px; }
 table.au-table .au-hit { color: var(--error); font-weight: 600; }
 table.au-table .au-idx { font-family: var(--mono, ui-monospace, monospace); }
+table.au-table th .au-sub { display: block; font-weight: 400; font-size: 11px; text-transform: none; letter-spacing: 0; color: var(--error); }
+.au-errors { font-size: 13.5px; margin: 0 0 10px; }
 table.au-table .au-total td { font-weight: 600; border-top: 2px solid var(--border); border-bottom: none; }
 .au-note { margin-top: 10px; font-size: 12.5px; color: var(--text-muted); } .au-note summary { cursor: pointer; } .au-note p { margin: 6px 0 0; line-height: 1.5; }
 .ds-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin: 12px 0 4px; }

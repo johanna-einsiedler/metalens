@@ -525,11 +525,13 @@ async function loadAudit() {
 const fmtIdx = (v) => (v == null ? "—" : v >= 1 ? "1.00" : v.toFixed(2).replace(/^0/, ""));   // APA: no leading zero
 const AUDIT_COLS = [["extracted", "Extracted"], ["reviewed", "Reviewed"], ["unchanged", "Unchanged"], ["changed", "Changed"],
                     ["removed", "Removed"], ["added", "Added"]];
+// the kind of extraction error each revision column counts
+const AUDIT_ERRORS = { changed: "wrong values", removed: "overextraction", added: "omissions" };
 function auditNote(a) {
   const parts = [
     `Extracted = non-null values in the model output (${a.n_papers - a.n_papers_without_original} paper${a.n_papers - a.n_papers_without_original === 1 ? "" : "s"}, ${a.n_entries} entr${a.n_entries === 1 ? "y" : "ies"}).`,
     `Reviewed = extracted values in entries a human verified or removed (${a.n_entries_reviewed} of ${a.n_entries} entries).`,
-    "Changed = value replaced by the reviewer, counted as a false positive and a false negative; Removed = value, row or entry deleted (false positive); Added = value supplied by the reviewer (false negative).",
+    "Changed = wrong value: replaced by the reviewer, counted as a false positive and a false negative; Removed = overextraction: a value, row or entry the reviewer deleted (false positive); Added = omission: a value the reviewer supplied (false negative).",
     "SEN = sensitivity, TP / (TP + FN); PRE = precision, TP / (TP + FP); JAC = Jaccard index, TP / (TP + FN + FP), where TP = Unchanged and the human-reviewed data are the reference. A dash marks an index that is not defined.",
   ];
   if (a.edits_in_unreviewed_entries) parts.push(`${a.edits_in_unreviewed_entries} further edit${a.edits_in_unreviewed_entries === 1 ? " lies" : "s lie"} in entries not yet verified and ${a.edits_in_unreviewed_entries === 1 ? "is" : "are"} not included.`);
@@ -551,15 +553,15 @@ function auditPageHtml(a) {
   }).join("");
   const t = a.total;
   return `<table class="au-table"><thead><tr><th class="au-var">Variable</th>`
-    + AUDIT_COLS.map(([k, l]) => `<th title="${esc(AUDIT_HELP[k])}">${l}</th>`).join("")
+    + AUDIT_COLS.map(([k, l]) => `<th title="${esc(AUDIT_HELP[k])}">${l}${AUDIT_ERRORS[k] ? `<span class="au-sub">${AUDIT_ERRORS[k]}</span>` : ""}</th>`).join("")
     + `<th title="sensitivity: TP / (TP + FN)">SEN</th><th title="precision: TP / (TP + FP)">PRE</th><th title="Jaccard: TP / (TP + FN + FP)">JAC</th></tr></thead>`
     + `<tbody>${rows}<tr class="au-total"><td class="au-var">Total</td>` + AUDIT_COLS.map(([k]) => `<td>${t[k]}</td>`).join("")
     + idx(t.sen) + idx(t.pre) + idx(t.jac) + `</tr></tbody></table>`;
 }
 const AUDIT_HELP = {
   extracted: "non-null values in the model output", reviewed: "extracted values in entries a human verified or removed",
-  unchanged: "reviewed values that stand as extracted (true positives)", changed: "values the reviewer replaced (false positive and false negative)",
-  removed: "values, rows or entries the reviewer deleted (false positives)", added: "values the reviewer supplied (false negatives)",
+  unchanged: "reviewed values that stand as extracted (true positives)", changed: "wrong values: values the reviewer replaced (false positive and false negative)",
+  removed: "overextraction: values, rows or entries the reviewer deleted (false positives)", added: "omissions: values the reviewer supplied (false negatives)",
 };
 // LaTeX (booktabs, APA layout): \usepackage{booktabs} and, for the note, threeparttable.
 function auditTex(a) {
@@ -616,7 +618,8 @@ function renderAudit() {
         <button class="btn btn-ghost btn-sm" id="au-csv">⬇ CSV</button>
         <button class="btn btn-ghost btn-sm" id="au-doc" title="APA-style table with note; opens in Word, prints to PDF">⬇ DOC</button>
         <button class="btn btn-ghost btn-sm" id="au-tex" title="APA-style LaTeX table (booktabs, threeparttable)">⬇ TeX</button></span></div>
-    <p class="muted" style="font-size:13px;margin:0 0 10px">What the model extracted and what the review changed, per extraction target. Hover a column for its definition.</p>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">What the model extracted and what the review changed, per extraction target. Hover a column for its definition.</p>
+    <p class="au-errors">The review found ${plural(AUDIT.total.changed, "wrong value")}, ${plural(AUDIT.total.removed, "overextracted value")} and ${plural(AUDIT.total.added, "omission")}${AUDIT.n_entries_reviewed < AUDIT.n_entries ? " in the verified entries" : ""}.</p>
     <div class="au-wrap">${auditPageHtml(AUDIT)}</div>
     <details class="au-note"><summary>How this is computed</summary><p>${esc(auditNote(AUDIT))}</p></details>
     ${AUDIT.n_entries_reviewed < AUDIT.n_entries ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Only ${AUDIT.n_entries_reviewed} of ${AUDIT.n_entries} entries are verified so far. The indices describe the verified part; verify the rest in <a href="/workspace?project=${esc(id)}">Data review</a> to complete the report.</p>` : ""}`;
