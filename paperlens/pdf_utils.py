@@ -1376,7 +1376,29 @@ def pdf_to_pages_with_rects(
     # appears: trust the cited page only if the text is there, otherwise scan the document.
     n_pages = min(len(doc), MAX_PAGES)
 
+    # A cheap guard in front of page.search_for (a few ms per call, and the scan below may make
+    # thousands for a quote that is on no page — a table line transcribed differently from how it
+    # is printed): search_for only finds text whose letters and digits appear, in order, in the
+    # page's text, so a page whose letters-and-digits string lacks the candidate's is skipped.
+    # Every page's text is read once.
+    import unicodedata
+    page_keys: dict[int, str] = {}
+
+    def _key(text: str) -> str:
+        return "".join(ch for ch in unicodedata.normalize("NFKC", text).casefold() if ch.isalnum())
+
+    def _page_key(page_idx: int) -> str:
+        if page_idx not in page_keys:
+            try:
+                page_keys[page_idx] = _key(doc[page_idx].get_text("text"))
+            except Exception:                                      # an unreadable page is never skipped
+                page_keys[page_idx] = None
+        return page_keys[page_idx]
+
     def _page_contains(page_idx: int, cand: str) -> bool:
+        ck, pk = _key(cand), _page_key(page_idx)
+        if ck and pk is not None and ck not in pk:
+            return False
         pg = doc[page_idx]
         if pg.search_for(cand):
             return True
