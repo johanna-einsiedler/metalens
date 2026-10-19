@@ -53,6 +53,10 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- A preset release's deposited `card.md` writes the card page's "to be published soon" links as plain
+  text, and its README lists the card's actual sections and how to load the preset locally.
+- Workspace tiles keep their titles clear of the rename and delete buttons.
+
 - **The FAQ explains the local version** step by step: install uv, `uvx metalens` (or straight from
   GitHub until the package is on PyPI), the data folder and `--data-dir`, presets from files, importing
   without a model or extracting with an own key or a local model, exporting, updating, and `maseminer`.

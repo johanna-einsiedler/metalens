@@ -190,6 +190,9 @@ a.doctabs-label:hover { color: var(--accent); }
 .pt-vis { text-transform: capitalize; }
 .pt-vis.public { color: var(--success); }
 .proj-tile-wrap { position: relative; }
+/* the tile's corner buttons (🗑, and ✎ on datasets) sit over the tile: keep the title clear of them */
+.proj-tile-wrap .pt-title { padding-right: 22px; overflow-wrap: anywhere; }
+.proj-tile-wrap:has(.pt-rename) .pt-title { padding-right: 44px; }
 .pt-del { position: absolute; top: 10px; right: 10px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
 .pt-del:hover { opacity: 1; }
 /* dataset activity feed: icon | what changed | when */

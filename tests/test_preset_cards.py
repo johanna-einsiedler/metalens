@@ -6,6 +6,7 @@ distribution — scripts/masem_only.py — keeps this file.)"""
 from __future__ import annotations
 
 import copy
+import json
 import os
 import re
 import sys
@@ -256,3 +257,20 @@ def test_the_masem_cards_ship_their_inventory_pictures() -> None:
         assert url == f"/static/tiles/presets/{pid}.png"
         assert (Path(_ROOT) / "paperlens" / url.lstrip("/")).stat().st_size > 10_000
     assert preset_cards.tile_url("summarize") is None and preset_cards.tile_url("../base") is None
+
+
+def test_the_deposited_card_has_no_page_only_links_and_the_readme_names_its_sections() -> None:
+    """A card link the page turns into a "to be published soon" tooltip has no target in a
+    deposited file: the bundle writes it as plain text. The README lists the card's sections."""
+    from paperlens import preset_bundle
+    md = "## Introduction\n\nSee the [corpus dataset](#to-be-published).\n\n````\n## not a section\n````\n\n## Verification\n\nDone.\n"
+    assert preset_bundle.for_deposit(md).count("corpus dataset (to be published)") == 1 and "#to-be-published" not in preset_bundle.for_deposit(md)
+    assert preset_bundle.card_sections(md) == ["Introduction", "Verification"]
+    spec = ps.normalize(json.loads((Path(ps.PRESETS_DIR) / "masem-direct.json").read_text()), base_dir=ps.PRESETS_DIR)
+    spec["card"]["text"] += "\n\nThe [study data](#to-be-published) follow.\n"
+    rel = {"number": 1, "created_at": "2026-10-20T00:00:00+00:00", "schema_id": ps.schema_id(spec), "spec_sha": "x" * 64,
+           "notes": "First release.", "engine": {"name": "metalens", "version": "2.0.0"}}
+    files = preset_bundle.build(spec, rel, doi="10.5281/zenodo.1", card_url="https://metalens.tech/preset?id=masem-direct")
+    card, readme = files["card.md"].decode(), files["README.md"].decode()
+    assert "#to-be-published" not in card and "study data (to be published)" in card
+    assert "the card: Introduction, How it extracts, Verification" in readme and "limitations" not in readme
