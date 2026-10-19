@@ -53,6 +53,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- **Locating quotes is fast again for papers with unlocatable quotes.** A quote missing from its
+  cited page was searched for piece by piece on every page with PyMuPDF's page search, about 4,000
+  calls for a table line printed differently from its transcription; one 63-page paper took 8.5
+  minutes and timed out on the hosted site. Each page's letters and digits are now read once, and a
+  page that cannot contain the piece is skipped. Same highlights on every paper compared (15 of 15),
+  that paper in 17 seconds.
+
 - One engine, two product surfaces: the brand (Metalens or MASEMiner) is chosen per request
   from the hostname (`paperlens/brands.py`, `GET /api/brand`), with its own landing page,
   page chrome and preset list (`meta.brands` on presets).
