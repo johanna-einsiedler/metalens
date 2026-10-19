@@ -13,6 +13,11 @@
 //                                 columns: [{column: "Avg_Perf_Human", label: "human alone", value: d.human}, …] }));
 //
 // Rows of other sources (no release behind them) work too: leave out `rows` and pass `note`.
+//
+// Quotes in a release are cut to 200 characters around the extracted value (release.json →
+// evidence_policy): the snippet length publishers' text-and-data-mining terms allow for published
+// output. The pinned evidence says so and links the dataset page on Metalens, where the dataset's
+// owner reads the full passages.
 const d3 = window.d3;
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -95,7 +100,7 @@ export function createTips({ release, panel }) {
     };
     const cols = (desc.columns || []).map((c) => (typeof c === "string" ? { column: c, label: c } : c));
     for (const r of desc.rows || []) for (const c of cols) add(release.evidenceOf(r.unit || release.unitDefault, r.row, c.column), c);
-    const len = max > 3 ? 600 : 220, found = new Set();
+    const len = (release.meta.evidence_policy || {}).max_chars || 200, found = new Set();
     // A quote is named after the values that are actually IN it. A row-level quote is stored for every
     // value of its row, but if it only holds the AI's score it must not pass as the source of the team's.
     const out = [...seen.values()].slice(0, max).map(({ ev, it, cols: cs }) => {
@@ -108,6 +113,12 @@ export function createTips({ release, panel }) {
     if (missing.length && seen.size) out.push(`<div class="ml-where">Not in the quoted passages: ${esc(missing.map((c) => `${c.label} ${fmt(c.value)}`).join(", "))}</div>`);
     return out.join("");
   }
+  // the 200-character rule, stated where evidence is pinned
+  const policyHtml = () => {
+    const p = release.meta.evidence_policy || {}, url = p.full_quotes_url || (release.meta.dataset || {}).url;
+    return `<div class="ml-where ml-policy">Quotes are cut to ${p.max_chars || 200} characters (publishers' text-mining terms).`
+      + `${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Full quotes on Metalens</a>` : ""}</div>`;
+  };
   function html(desc, full) {
     const q = desc.rows && desc.rows.length ? quotes(desc, full ? 12 : 3) : "";
     return `<div class="ml-vals">${(desc.values || []).map((v) => `<span class="ml-val"><span class="ml-slot">${esc(v.label)}</span> ${esc(v.text ?? fmt(v.value))}</span>`).join("")}</div>`
@@ -115,6 +126,7 @@ export function createTips({ release, panel }) {
       + (desc.status ? `<div class="ml-meta"><span class="ml-pill ml-${esc(desc.status)}">${esc(STATUS[desc.status] || desc.status)}</span>${desc.detail ? ` · ${esc(desc.detail)}` : ""}</div>` : desc.detail ? `<div class="ml-meta">${esc(desc.detail)}</div>` : "")
       + (desc.formula ? `<div class="ml-where">Computed: ${esc(desc.formula)}</div>` : "")
       + (q || (desc.rows && desc.rows.length ? `<div class="ml-where">No evidence recorded for these values.</div>` : ""))
+      + (full && q && release.meta.evidence_policy ? policyHtml() : "")
       + (desc.note ? `<div class="ml-note">${esc(desc.note)}</div>` : "")
       + (!full && desc.rows && desc.rows.length ? `<div class="ml-hint">click to pin the evidence</div>` : "");
   }

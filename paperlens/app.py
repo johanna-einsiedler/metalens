@@ -770,11 +770,12 @@ def dataset_analysis_evidence(dataset_id: str, body: CellEvidenceBody, db=Depend
                               who: Principal = Depends(principal)) -> dict:
     """The evidence behind up to 300 cells of the analysis table: quote, page, source label and
     the kind of support (exact value / table row / whole table / entry-level). Never geometry,
-    page images or editors: those stay behind the owner-only document view."""
+    page images or editors: those stay behind the owner-only document view. Quotes are cut to
+    200 characters around the value for everyone but the owner."""
     from . import analysis_table
-    _dataset_gate(db, dataset_id, who)
+    owner = _dataset_gate(db, dataset_id, who)
     return {"cells": analysis_table.cell_evidence(db, dataset_id, body.unit, body.cells,
-                                                   release=_release_or_404(db, dataset_id, body.release))}
+                                                   release=_release_or_404(db, dataset_id, body.release), full=owner)}
 
 
 # ── dataset releases: frozen copies that dashboards pin ─────────────────────────
@@ -1697,8 +1698,8 @@ class DashboardEvidenceBody(CellEvidenceBody):
 @app.post("/api/dashboards/{dashboard_id}/evidence")
 def dashboards_evidence(dashboard_id: str, body: DashboardEvidenceBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     from . import analysis_table
-    d, _as_owner, rel = _dashboard_data_source(db, dashboard_id, who, body.view)
-    return {"cells": analysis_table.cell_evidence(db, d["dataset_id"], body.unit, body.cells, release=rel)}
+    d, as_owner, rel = _dashboard_data_source(db, dashboard_id, who, body.view)
+    return {"cells": analysis_table.cell_evidence(db, d["dataset_id"], body.unit, body.cells, release=rel, full=as_owner)}
 
 
 class DashboardPublishBody(BaseModel):
@@ -2254,10 +2255,11 @@ def papers_search(q: str | None = None, jel: str | None = None, topic: str | Non
 def record_detail(record_id: str, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Full record detail: record + paper(+provenance) + evidence + events + dataset.
-    Visible iff the record is in a public dataset OR owned by the principal."""
+    Visible iff the record is in a public dataset OR owned by the principal; the owner sees the
+    full quotes, everyone else at most 200 characters of each."""
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
-    d = records.record_detail(db, record_id)
+    d = records.record_detail(db, record_id, full=records.records_all_owned(db, [record_id], who))
     if d is None:
         raise HTTPException(status_code=404, detail="Record not found.")
     return d

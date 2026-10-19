@@ -81,7 +81,8 @@ export function createEvidence(table, panelHost) {
     const ctx = it && it.context;
     if (!ctx || !(ctx.cells || []).length || !ctx.cells.some((c) => c.header)) {
       const m = markNumbers((it.snippet || "").slice(0, 260), values || []);
-      return { html: `<div class="tt-quote">“${m.html}${(it.snippet || "").length > 260 ? "…" : ""}”</div>`, missing: m.missing };
+      const cut = it.truncated ? ` <span class="tt-slot">quote cut to 200 characters</span>` : "";   // the public rule (quotes.py)
+      return { html: `<div class="tt-quote">“${m.html}${(it.snippet || "").length > 260 ? "…" : ""}”${cut}</div>`, missing: m.missing };
     }
     const found = new Set();
     const cell = (c) => { const m = markNumbers(c.text, values || []); (values || []).forEach((v) => { if (!m.missing.includes(v.label)) found.add(v.label); }); return m.html; };

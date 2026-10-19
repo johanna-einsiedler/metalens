@@ -33,6 +33,7 @@ from typing import Any
 from psycopg.types.json import Json
 
 from . import contract, records, storage
+from . import quotes
 
 MAX_ROWS = 20000
 _NUMERIC = ("number", "integer")
@@ -584,12 +585,14 @@ def evidence_rows(conn, doc_ids: list[str]) -> list[tuple]:
 
 
 def cell_evidence(conn, dataset_id: str, unit_id: str | None, cells: list[dict], *, release: dict | None = None,
-                  max_cells: int | None = 300, read_layout: bool = True) -> list[dict]:
+                  max_cells: int | None = 300, read_layout: bool = True, full: bool = False) -> list[dict]:
     """[{record_id, path, column}] → the evidence of each cell. Record ids outside the dataset
     are ignored. Only quotes, pages and source labels leave: never geometry, page images or
     who edited what. With ``release`` everything is read from that release's snapshot.
     ``max_cells=None`` / ``read_layout=False`` are for the static export of a whole release: every
-    cell at once, and table context only where it is already known (no PDF is opened)."""
+    cell at once, and table context only where it is already known (no PDF is opened).
+    Quotes are cut to ``quotes.LIMIT`` characters around the cell's value unless ``full`` (the
+    dataset's owner): the 200-character rule for everything a public reader sees."""
     cells = [c for c in cells if isinstance(c, dict) and c.get("record_id") and c.get("column")][:max_cells]
     want = sorted({c["record_id"] for c in cells if records._is_uuid(c["record_id"])})   # noqa: SLF001
     if not want:
@@ -628,9 +631,10 @@ def cell_evidence(conn, dataset_id: str, unit_id: str | None, cells: list[dict],
 
     pdfs: dict[str, bytes | None] = {}
 
-    def with_context(items: list[dict], kind: str) -> list[dict]:
+    def with_context(items: list[dict], kind: str, value=None) -> list[dict]:
         """The public shape of evidence items; a quoted TABLE ROW also says what its numbers
-        mean (caption + the header above each number), read from the PDF once and then stored."""
+        mean (caption + the header above each number), read from the PDF once and then stored.
+        Unless ``full``, the quote is cut to the public limit around ``value`` (the cell's value)."""
         out = []
         for it in items[:3]:
             ctx = it.get("_context")
@@ -658,7 +662,7 @@ def cell_evidence(conn, dataset_id: str, unit_id: str | None, cells: list[dict],
             pub = {"snippet": it["snippet"], "page": it["page"], "source": it["source"]}
             if ctx:
                 pub["context"] = ctx
-            out.append(pub)
+            out.append(pub if full else quotes.shorten_item(pub, value=value))
         return out
 
     def one(rid: str, row_path: str, col: dict) -> dict:
@@ -667,10 +671,11 @@ def cell_evidence(conn, dataset_id: str, unit_id: str | None, cells: list[dict],
             return {"kind": "none", "kind_label": _KIND_WORDS["none"], "items": [], "corrected": None}
         # a table cell is supported by its ROW at best (the path grammar stops at the row)
         start = row_path if col.get("scope") == "row" else cp
+        value = quotes.value_at(recs[rid][0], cp)
         for rel, kind in _lookup_order(start):
             items = index.get(rid, {}).get(rel)
             if items:
-                return {"kind": kind, "kind_label": _KIND_WORDS[kind], "items": with_context(items, kind), "corrected": fixes.get(rid, {}).get(cp)}
+                return {"kind": kind, "kind_label": _KIND_WORDS[kind], "items": with_context(items, kind, value), "corrected": fixes.get(rid, {}).get(cp)}
         return {"kind": "none", "kind_label": _KIND_WORDS["none"], "items": [], "corrected": fixes.get(rid, {}).get(cp)}
 
     out = []

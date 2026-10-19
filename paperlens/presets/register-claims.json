@@ -3,14 +3,53 @@
   "id": "register-claims",
   "version": 1,
   "meta": {
-    "title": "Register-data claims",
-    "tagline": "What an empirical paper says it found (abstract, refined by the introduction), as atomic directional claims, each traced to the table result that shows it.",
-    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentence that says how the finding was obtained, and the table (or figure) results that operationalise it with their point estimates. Written for economics papers using Danish register data (the danish-register-econ protocol), usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell. The records are produced OUTSIDE Metalens by the danish-register-econ agent pipeline, which reads each paper in several passes; this preset is the schema they are imported into, not the recipe that made them.",
+    "title": "Stated claims",
+    "tagline": "What an empirical paper says it found, as atomic directional claims anchored in its abstract, each traced to the regression estimates that test it and to the one the authors point to.",
+    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentences that complete it, and the regression estimates that test it, grouped into estimands with one main estimate each. The protocol of the Robustness at Scale study (appendix B.4) and of the Danish Causal Atlas; usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell. The records are produced OUTSIDE Metalens by an agent pipeline that reads each paper in two structured calls; this preset is the schema they are imported into, not the recipe that made them.",
     "mode": "import",
     "hidden": false,
     "brands": [
       "metalens"
+    ],
+    "authors": [
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
+    ],
+    "keywords": [
+      "stated claims",
+      "causal claims",
+      "abstracts",
+      "headline results",
+      "claim mapping",
+      "economics"
+    ],
+    "license": "CC-BY-4.0",
+    "related": [
+      {
+        "kind": "paper",
+        "title": "Robustness at Scale (working paper)",
+        "role": "appendix B.4 describes the protocol; appendices E.3 and E.4 are the prompts"
+      },
+      {
+        "kind": "dashboard",
+        "title": "Danish Causal Atlas",
+        "url": "https://johanna-einsiedler.github.io/danish-causal-atlas/",
+        "role": "the edge claims of Danish register-data economics as one graph"
+      },
+      {
+        "kind": "preset",
+        "title": "Register-data tables",
+        "id": "register-tables",
+        "role": "companion: the transcribed regression columns the results point to"
+      }
     ]
+  },
+  "card": {
+    "file": "register-claims.card.md"
   },
   "prompt": {},
   "paper": {

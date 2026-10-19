@@ -21,6 +21,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from . import contract
+from . import quotes
 from .ingest import EvidenceSpan, FieldConfidence, IngestResult, Record
 
 _log = logging.getLogger("paperlens")
@@ -1334,8 +1335,9 @@ def papers_search(conn: psycopg.Connection, *, q: str | None = None, jel: str | 
     return {"total": total, "limit": limit, "offset": offset, "papers": papers}
 
 
-def record_detail(conn: psycopg.Connection, record_id: str) -> dict | None:
-    """Full record detail for the catalog detail panel / deep-link."""
+def record_detail(conn: psycopg.Connection, record_id: str, *, full: bool = False) -> dict | None:
+    """Full record detail for the catalog detail panel / deep-link. Quotes are cut to the public
+    limit around the field's value unless ``full`` (the record's owner)."""
     rec = get_record(conn, record_id)
     if rec is None:
         return None
@@ -1357,6 +1359,9 @@ def record_detail(conn: psycopg.Connection, record_id: str) -> dict | None:
         (record_id,)).fetchall()
     evidence = [{"field_path": f, "snippet": s, "page": pg, "source": src, "rect": rect}
                 for (f, s, pg, src, rect) in ev]
+    if not full:
+        fv = rec.get("field_values") if isinstance(rec, dict) else None
+        evidence = [quotes.shorten_item(e, value=quotes.value_at(fv, e["field_path"])) for e in evidence]
     dataset = None
     if rec["dataset_id"]:
         d = get_dataset(conn, rec["dataset_id"])
@@ -1938,14 +1943,15 @@ def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,
     """Compact provenance for a set of records (powers the figure's data table +
     chart tooltips): document_id, paper, verification, and the record's TOP evidence
     (page + snippet). Authz-scoped exactly like ``dataset_rows`` — records the
-    principal can't see are simply omitted."""
+    principal can't see are simply omitted; the snippet of a record the principal does
+    not own is cut to the public limit."""
     ids = [str(x) for x in (record_ids or []) if x]
     if not ids:
         return []
     vis_sql, vis_params = _visibility_clause(principal, public_only=public_only)
     rows = conn.execute(
         f"""SELECT r.id, r.document_id, r.verification_status, p.title, p.doi, p.year,
-                   e.page, e.snippet, e.source
+                   e.page, e.snippet, e.source, r.owner_user_id::text, r.session_id
             FROM record r JOIN paper p ON p.id = r.paper_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
             LEFT JOIN LATERAL (
@@ -1957,8 +1963,9 @@ def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,
     return [
         {"record_id": str(rid), "document_id": str(doc) if doc else None,
          "verification_status": vs, "paper_title": title, "doi": doi, "year": yr,
-         "page": page, "snippet": snippet, "source": src}
-        for (rid, doc, vs, title, doi, yr, page, snippet, src) in rows
+         "page": page, "source": src,
+         **(quotes.shorten_item({"snippet": snippet}) if not _owns(principal, owner, sess) else {"snippet": snippet})}
+        for (rid, doc, vs, title, doi, yr, page, snippet, src, owner, sess) in rows
     ]
 
 

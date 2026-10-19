@@ -10,7 +10,8 @@ the page — so it keeps working whatever happens to a Metalens server, and it c
                             citation, preset, engine, and per row layout its columns (the contract
                             a dashboard declares its needs against)
     tables/<unit>.json      one typed table per row layout: columns, papers, records, rows
-    evidence.json           the quote, page and source behind every cell that has one
+    evidence.json           the quote, page and source behind every cell that has one — quotes cut
+                            to 200 characters around the value (quotes.py: the public rule)
     README.md               what the files are and how to cite them
     tile-prompt.md          how to make the picture the Dashboards page shows, in the house style
 
@@ -25,7 +26,7 @@ import json
 import re
 import zipfile
 
-from . import analysis_table, records, tile_prompt
+from . import analysis_table, brands, quotes, records, tile_prompt
 
 FORMAT = "metalens-release"
 FORMAT_VERSION = 1
@@ -76,6 +77,7 @@ def build(conn, release: dict) -> dict[str, bytes]:
             tables[u["id"]] = analysis_table.build(conn, release["dataset_id"], u["id"], owner=False, release=release)
     d = first["dataset"]
     ds = records.get_dataset(conn, release["dataset_id"]) or {}
+    page_url = f"{brands.public_url()}/dataset?id={release['dataset_id']}"      # where the owner sees the full quotes
     files: dict[str, bytes] = {}
     items: list[dict] = []
     item_at: dict[str, int] = {}
@@ -94,11 +96,13 @@ def build(conn, release: dict) -> dict[str, bytes]:
     files["evidence.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION,
                                      "kinds": {"exact": "the value itself is quoted", "row": "the table row is quoted",
                                                "table": "the whole table is cited", "entry": "quoted for the entry as a whole"},
-                                     "items": items, "cells": cells})
+                                     "policy": quotes.policy(page_url), "items": items, "cells": cells})
     meta = {"format": FORMAT, "format_version": FORMAT_VERSION,
-            "dataset": {"title": d.get("title"), "slug": ds.get("slug"), "author": d.get("author"), "citation": d.get("citation"),
+            "dataset": {"id": release["dataset_id"], "url": page_url, "title": d.get("title"), "slug": ds.get("slug"),
+                        "author": d.get("author"), "citation": d.get("citation"),
                         "published_url": d.get("published_url"), "description": ds.get("description"),
                         "keywords": [k for k in (ds.get("keywords") or []) if isinstance(k, str)]},
+            "evidence_policy": quotes.policy(page_url),
             "release": {"number": release["number"], "created_at": release["created_at"], "content_sha": release["content_sha"],
                         "notes": release.get("notes"), "changes": release.get("changes"),
                         "doi": release.get("doi"), "concept_doi": ds.get("zenodo_concept_doi")},
@@ -152,6 +156,9 @@ def _readme(meta: dict) -> str:
               *[f"- `{u['file']}` — one row per {u['label'].lower()} ({u['n_rows']} rows)" for u in meta["units"]],
               "- `evidence.json` — the quote, page and source behind every cell that has one "
               "(`cells[unit][row index][column]` → `items`)", "",
+              f"Quotations are cut to at most {quotes.LIMIT} characters around the extracted value, the snippet length "
+              "publishers' text-and-data-mining terms allow for published output; a cut end is marked with an ellipsis. "
+              f"The full quotations are on Metalens for the dataset's owner: {ds.get('url') or ''}".rstrip(": ") + ".", "",
               "Every value was extracted from the cited paper; columns marked `derived` are computed from "
               "extracted values by the stated formula. Made with Metalens.", ""]
     return "\n".join(lines)
