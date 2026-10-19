@@ -11,9 +11,7 @@
   {"name": "code wins over emphasis", "src": "`*not em*` and `a_b_c`", "has": ["<code>*not em*</code>", "<code>a_b_c</code>"], "not": ["<em>"]},
   {"name": "bold still works", "src": "**b** and *i*", "has": ["<strong>b</strong>", "<em>i</em>"]},
   {"name": "literal br", "src": "a<br>b", "has": ["a<br/>b"]},
-  {"name": "aligned table with escaped pipe", "src": "| Target | n | SEN |\n|:--|--:|:-:|\n| Effect size | 265 | .97 |\n| a \\| b | 1 | x |",
-   "has": ["<table class=\"md-table\">", "<th style=\"text-align:left\">Target</th>", "<th style=\"text-align:right\">n</th>", "<th style=\"text-align:center\">SEN</th>", "<td style=\"text-align:left\">a | b</td>", "<td style=\"text-align:right\">265</td>"],
-   "count": {"<tr>": 3}},
+  {"name": "aligned table with escaped pipe", "src": "| Target | n | SEN |\n|:--|--:|:-:|\n| Effect size | 265 | .97 |\n| a \\| b | 1 | x |", "has": ["<table class=\"md-table\">", "<th style=\"text-align:left\">Target</th>", "<th style=\"text-align:right\">n</th>", "<th style=\"text-align:center\">SEN</th>", "<td style=\"text-align:left\">a | b</td>", "<td style=\"text-align:right\">265</td>"], "count": {"<tr>": 3}},
   {"name": "short rows are padded and long rows cut", "src": "| a | b |\n|--|--|\n| 1 |\n| 1 | 2 | 3 |", "count": {"<td>": 4}},
   {"name": "blockquote renders paragraphs inside", "src": "> q\n> r", "has": ["<blockquote class=\"md-quote\"><p>q<br/>r</p></blockquote>"]},
   {"name": "rule", "src": "a\n\n---\n\nb", "has": ["<hr class=\"md-hr\"/>"]},
@@ -23,5 +21,11 @@
   {"name": "fence escapes and keeps inner fences when opened with four", "src": "````text\n```json\n{x}\n```\n````\nafter", "has": ["<pre class=\"md-code\">```json\n{x}\n```</pre>", "<p>after</p>"], "count": {"<pre": 1}},
   {"name": "three-backtick fence as before", "src": "```\n<b>\n```", "has": ["<pre class=\"md-code\">&lt;b&gt;</pre>"]},
   {"name": "hard break on two trailing spaces", "src": "a  \nb", "has": ["a<br/><br/>b"]},
-  {"name": "paragraph lines still join with br", "src": "a\nb", "has": ["<p>a<br/>b</p>"]}
+  {"name": "paragraph lines still join with br", "src": "a\nb", "has": ["<p>a<br/>b</p>"]},
+  {"name": "a picture on this site", "src": "![One claim, step by step](/static/cards/x.svg)", "has": ["<img class=\"md-img\" src=\"/static/cards/x.svg\" alt=\"One claim, step by step\" loading=\"lazy\">"]},
+  {"name": "a picture from https", "src": "![x](https://example.org/a.png)", "has": ["<img class=\"md-img\" src=\"https://example.org/a.png\""]},
+  {"name": "a picture elsewhere stays text", "src": "![x](javascript:alert(1)) ![y](/etc/passwd)", "not": ["<img"]},
+  {"name": "an image is not a link", "src": "![a](/static/a.png) and [b](/b)", "has": ["<img class=\"md-img\" src=\"/static/a.png\"", "<a href=\"/b\">b</a>"], "count": {"<a ": 1}},
+  {"name": "a titled fold", "src": "````fold Prompt <one>\nline\n````\nafter", "has": ["<details class=\"md-fold md-titled\"><summary>Prompt &lt;one&gt;</summary><pre class=\"md-code\">line</pre></details>", "<p>after</p>"]},
+  {"name": "a fence with a language is not a fold", "src": "```json\n{}\n```", "not": ["<details"], "has": ["<pre class=\"md-code\">{}</pre>"]}
 ]

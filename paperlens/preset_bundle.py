@@ -8,6 +8,8 @@ go up, so the files name a DOI they are given — the same trick ``release_expor
 """
 from __future__ import annotations
 
+import re
+
 import copy
 import json
 
@@ -77,10 +79,11 @@ def readme(spec: dict, release: dict, *, doi: str | None, concept_doi: str | Non
                   "> " + preset_releases.citation(spec, release, concept_doi=concept_doi, url=url), ""]
     lines += ["## Files", "",
               "- `preset.json` — the declaration (Metalens preset format 2) as released; put it in a folder named by "
-              "`PAPERLENS_PRESET_DIRS` (or `<data>/presets/` of a local MASEMiner) and Metalens runs it",
+              "`PAPERLENS_PRESET_DIRS`, or in `<data>/presets/` of a local Metalens (`uvx metalens`), or load it under "
+              "My workspace → Presets → Load preset file, and Metalens runs it",
               *(["- `prompt.md` — the author's task text, read by `preset.json`"] if meta.get("mode") != "import" else
                 ["- (no prompt: this is an import schema — the records are produced outside Metalens)"]),
-              "- `card.md` — the card: introduction, how it extracts, verification, limitations, related work",
+              *([f"- `card.md` — the card: {', '.join(card_sections(cm.get('text') or '')) or 'its prose'}"] if cm.get("text") else []),
               "- `fields.md` — every field the preset extracts, with type, evidence policy and confidence group",
               "- `CITATION.cff` — citation metadata", ""]
     if cm["related"]:
@@ -91,6 +94,29 @@ def readme(spec: dict, release: dict, *, doi: str | None, concept_doi: str | Non
         lines.append("")
     lines += [f"Licence: {cm.get('license') or 'see the card'}. Made with Metalens ({ENGINE_REPO}).", ""]
     return "\n".join(lines)
+
+
+def for_deposit(card_md: str, site: str | None = None) -> str:
+    """The card as a file of its own: a link the card page turns into a "to be published soon"
+    tooltip (``[text](#to-be-published)``) has no target outside the page, so it becomes plain text;
+    a path on the site (a figure, another preset's card) becomes a full address on it."""
+    from . import brands
+    site = (site or brands.public_url()).rstrip("/")
+    out = re.sub(r"\[([^\]]+)\]\(#to-be-published\)", r"\1 (to be published)", card_md)
+    return re.sub(r"\]\((/[A-Za-z0-9][^)\s]*)\)", lambda m: f"]({site}{m.group(1)})", out)
+
+
+def card_sections(card_md: str) -> list[str]:
+    """The card's level-2 headings, in order (outside code fences)."""
+    out, fence = [], None
+    for line in card_md.splitlines():
+        m = re.match(r"^(`{3,}|~{3,})", line)
+        if m:
+            fence = None if fence and m.group(1).startswith(fence) else (fence or m.group(1))
+            continue
+        if not fence and line.startswith("## "):
+            out.append(line[3:].strip())
+    return out
 
 
 def build(spec: dict, release: dict, *, doi: str | None = None, concept_doi: str | None = None,
@@ -105,7 +131,7 @@ def build(spec: dict, release: dict, *, doi: str | None = None, concept_doi: str
         out["prompt"] = {"file": "prompt.md", **{k: v for k, v in prompt.items() if k != "file"}}
     card_text = (out.get("card") or {}).get("text")
     if card_text:
-        files["card.md"] = card_text
+        files["card.md"] = for_deposit(card_text)
         out["card"] = {"file": "card.md"}
     files["preset.json"] = json.dumps(out, indent=2, ensure_ascii=False) + "\n"
     files["fields.md"] = ps.fields_markdown(spec)

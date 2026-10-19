@@ -28,29 +28,11 @@
       "economics"
     ],
     "license": "CC-BY-4.0",
-    "related": [
+    "evaluated_with": [
       {
-        "kind": "paper",
-        "title": "Robustness at Scale (working paper)",
-        "role": "appendix B.4 describes the protocol; appendices E.3 and E.4 are the prompts"
-      },
-      {
-        "kind": "dashboard",
-        "title": "Danish Causal Atlas",
-        "url": "https://johanna-einsiedler.github.io/danish-causal-atlas/",
-        "role": "the edge claims of Danish register-data economics as one graph"
-      },
-      {
-        "kind": "preset",
-        "title": "Economics regression tables",
-        "id": "econ-regression-tables",
-        "role": "the transcribed regression columns of the Robustness-at-Scale corpus: the input of the mapping call"
-      },
-      {
-        "kind": "preset",
-        "title": "Register-data tables",
-        "id": "register-tables",
-        "role": "the transcribed regression columns of the Danish corpus"
+        "model": "claude-opus-5",
+        "mode": "agent",
+        "note": "two independent runs on the 244 articles of the Danish register-data corpus"
       }
     ]
   },

@@ -53,6 +53,21 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- A preset release's deposited `card.md` writes the card page's "to be published soon" links as plain
+  text, and its README lists the card's actual sections and how to load the preset locally.
+- Workspace tiles keep their titles clear of the rename and delete buttons.
+- A preset card opens with **How to cite**: the citation, a Copy button and the Zenodo link (the concept
+  DOI, which opens the newest version), or "No DOI yet". The Models table names the datasets each model's
+  records come from.
+- Card markdown shows pictures from the site (`![alt](/static/…)`, or https) and titled folds
+  (a fence opened with ```` ```fold <title> ````); a deposited card links site paths in full.
+- The claims card follows one claim through the records in a figure (steps 1–3 this preset, 4–8 the
+  Danish Causal Atlas), describes the two calls in the reviewed wording with illustrative examples of
+  the support grades, and reproduces both prompts as run (matched to the hashes the runs recorded).
+- The claims card drops its related work, names Claude Opus 5 as its verification model and reports the
+  consistency of two independent runs on the Danish corpus (91.4 % of edges stated by both runs, the same
+  sign in 97.9 % of those).
+
 - **The FAQ explains the local version** step by step: install uv, `uvx metalens` (or straight from
   GitHub until the package is on PyPI), the data folder and `--data-dir`, presets from files, importing
   without a model or extracting with an own key or a local model, exporting, updating, and `maseminer`.

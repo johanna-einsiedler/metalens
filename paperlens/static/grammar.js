@@ -368,12 +368,19 @@ export function renderMarkdown(src) {
     if (/^#[A-Za-z0-9_-]+$/.test(h) || /^\/[A-Za-z0-9]/.test(h)) return `<a href="${esc_(h)}">${text}</a>`;
     return `[${text}](${esc_(h)})`;
   };
-  // One tokenising pass, so nothing runs inside a code span: code · [text](href) · **bold** ·
-  // *em* (no * adjacent) · _em_ (non-word on both sides, so snake_case stays) · a literal <br>.
+  // A picture: a file on this site (/static/…) or an https address; anything else stays text.
+  const image = (alt, src) => {
+    const s = src.replace(/&amp;/g, "&");
+    if (/^\/static\/[A-Za-z0-9._\/-]+$/.test(s) || /^https:\/\//i.test(s)) return `<img class="md-img" src="${esc_(s)}" alt="${alt}" loading="lazy">`;
+    return `![${alt}](${esc_(s)})`;
+  };
+  // One tokenising pass, so nothing runs inside a code span: code · ![alt](src) · [text](href) ·
+  // **bold** · *em* (no * adjacent) · _em_ (non-word on both sides, so snake_case stays) · <br>.
   const inline = (t) => esc_(t).replace(
-    /`([^`]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|(^|[^\w*])\*([^*\n]+?)\*(?![\w*])|(^|[^\w])_([^_\n]+?)_(?![\w])|&lt;br\s*\/?&gt;/g,
-    (m, code, ltxt, href, bold, pre1, em1, pre2, em2) => {
+    /`([^`]+)`|!\[([^\]\n]*)\]\(([^)\s]+)\)|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+)\*\*|(^|[^\w*])\*([^*\n]+?)\*(?![\w*])|(^|[^\w])_([^_\n]+?)_(?![\w])|&lt;br\s*\/?&gt;/g,
+    (m, code, alt, src, ltxt, href, bold, pre1, em1, pre2, em2) => {
       if (code !== undefined) return `<code>${code}</code>`;
+      if (alt !== undefined) return image(alt, src);
       if (ltxt !== undefined) return link(ltxt, href);
       if (bold !== undefined) return `<strong>${bold}</strong>`;
       if (em1 !== undefined) return `${pre1}<em>${em1}</em>`;
@@ -388,6 +395,11 @@ export function renderMarkdown(src) {
   let para = [];                   // buffered plain lines
   let fence = null;                // buffered fenced-code lines
   let fenceLen = 0;                // backticks that opened the fence (a longer fence may hold shorter ones)
+  let fenceTitle = null;           // ```fold <title> → a closed <details> with that summary
+  const fenced = (lines_) => {
+    const pre = `<pre class="md-code">${esc_(lines_.join("\n"))}</pre>`;
+    return fenceTitle ? `<details class="md-fold md-titled"><summary>${esc_(fenceTitle)}</summary>${pre}</details>` : pre;
+  };
   let quote = null;                // buffered blockquote lines
   let table = null;                // {align, rows} while a pipe table is open
 
@@ -423,12 +435,17 @@ export function renderMarkdown(src) {
 
     if (fence !== null) {                                  // inside ```…```
       const close = line.match(/^\s*(`{3,})\s*$/);
-      if (close && close[1].length >= fenceLen) { out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`); fence = null; }
+      if (close && close[1].length >= fenceLen) { out.push(fenced(fence)); fence = null; }
       else fence.push(raw);
       continue;
     }
-    const open = line.match(/^\s*(`{3,})/);
-    if (open) { flush(); fence = []; fenceLen = open[1].length; continue; }
+    const open = line.match(/^\s*(`{3,})(.*)$/);
+    if (open) {
+      flush(); fence = []; fenceLen = open[1].length;
+      const info = open[2].trim();
+      fenceTitle = /^fold\s+\S/.test(info) ? info.replace(/^fold\s+/, "") : null;
+      continue;
+    }
 
     if (table) {                                           // rows keep coming while they carry a pipe
       if (line.includes("|") && line.trim()) { table.rows.push(splitRow(line)); continue; }
@@ -469,7 +486,7 @@ export function renderMarkdown(src) {
     flushList();
     para.push(/( {2,}|\\)$/.test(raw) ? line + "<br/>" : line);   // two trailing spaces or \ = a hard break
   }
-  if (fence !== null) out.push(`<pre class="md-code">${esc_(fence.join("\n"))}</pre>`);
+  if (fence !== null) out.push(fenced(fence));
   flush();
   return out.join("");
 }
