@@ -837,6 +837,17 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 /* ── preset inventory tiles ─────────────────────────────────────────────────────── */
 .tile-p.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .tile-k code { font-size: 10px; text-transform: none; letter-spacing: 0; }
+/* the preset inventory: smaller tiles than the Dashboards page's */
+.tiles-sm { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+.tiles-sm .tile-body { padding: 10px 12px 4px; }
+.tiles-sm .tile-k { font-size: 10px; margin-bottom: 4px; }
+.tiles-sm .tile-h { font-size: 17px; margin: 0 0 6px; }
+.tiles-sm .tile-kws { margin: -2px 0 6px; }
+.tiles-sm .tile-kws .kw { font-size: 10.5px; padding: 0 6px; }
+.tiles-sm .tile-p { font-size: 13px; line-height: 1.45; margin: 0 0 6px; }
+.tiles-sm .tile-p.clamp { -webkit-line-clamp: 2; }
+.tiles-sm .tile-by { font-size: 12px; margin: 0 0 6px; }
+.tiles-sm .tile-foot { font-size: 11px; padding: 6px 12px 10px; }
 
 /* ── preset card page ───────────────────────────────────────────────────────────── */
 .pc h1 { font: 600 32px/1.2 var(--font-serif); color: var(--accent-dark); margin: 0 0 6px; }

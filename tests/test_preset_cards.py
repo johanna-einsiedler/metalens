@@ -239,8 +239,20 @@ def test_the_maseminer_distribution_keeps_the_masem_cards() -> None:
     mod = importlib.util.module_from_spec(spec_); spec_.loader.exec_module(mod)   # type: ignore[union-attr]
     gone = {p.name for p in mod.plan()}
     assert "masem-direct.card.md" not in gone and "masem-indirect.card.md" not in gone
+    assert "masem-direct.png" not in gone and "masem-indirect.png" not in gone     # their inventory pictures stay
     _kept, removed = mod.presets()
     for pid in removed:
         card = Path(ps.PRESETS_DIR) / f"{pid}.card.md"
         if card.exists():
             assert card.name in gone, pid
+
+
+def test_the_masem_cards_ship_their_inventory_pictures() -> None:
+    """A curated preset's picture is static/tiles/presets/<id>.png; the inventory and the card
+    payload carry its URL, and a preset without one gets None (the page draws a placeholder)."""
+    from paperlens import preset_cards
+    for pid in ("masem-direct", "masem-indirect"):
+        url = preset_cards.tile_url(pid)
+        assert url == f"/static/tiles/presets/{pid}.png"
+        assert (Path(_ROOT) / "paperlens" / url.lstrip("/")).stat().st_size > 10_000
+    assert preset_cards.tile_url("summarize") is None and preset_cards.tile_url("../base") is None

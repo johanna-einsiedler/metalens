@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import psycopg
 
@@ -194,6 +195,15 @@ def _release_summary(conn: psycopg.Connection, pid: str, spec: dict) -> dict:
             "changed_since_release": preset_releases.changed_since(spec, latest) if latest else None}
 
 
+_TILES = os.path.join(os.path.dirname(__file__), "static", "tiles", "presets")
+
+
+def tile_url(pid: str) -> str | None:
+    """The preset's preview picture (``static/tiles/presets/<id>.png``) when one ships, else None
+    (the page draws a placeholder)."""
+    return f"/static/tiles/presets/{pid}.png" if os.path.isfile(os.path.join(_TILES, f"{pid}.png")) else None
+
+
 def inventory(conn: psycopg.Connection, brand: brands.Brand | None = None) -> list[dict]:
     """Every card, with counts of what was built with it: one query over the public catalogue."""
     cards = card_presets(brand)
@@ -226,7 +236,7 @@ def inventory(conn: psycopg.Connection, brand: brands.Brand | None = None) -> li
                     "mode": meta.get("mode"), "hidden": bool(meta.get("hidden")), "brands": list(meta.get("brands") or []),
                     "authors": list(meta.get("authors") or []), "keywords": list(meta.get("keywords") or []), "license": meta.get("license"),
                     "schema_id": ps.schema_id(spec), "entries_label": (spec.get("entries") or {}).get("label"),
-                    **_release_summary(conn, pid, spec),
+                    "tile_url": tile_url(pid), **_release_summary(conn, pid, spec),
                     "counts": {"datasets": len(c["datasets"]), "records": c["records"], "papers": c["papers"],
                                "dashboards": sum(dash_by_ds.get(did, 0) for did in c["datasets"])}})
     released = lambda x: 0 if x["latest"] else 1   # noqa: E731
@@ -257,7 +267,7 @@ def card(conn: psycopg.Connection, preset_id: str, *, viewer_is_admin: bool = Fa
            "authors": cm["authors"], "keywords": cm["keywords"], "license": cm["license"], "related": cm["related"],
            "card_md": cm["text"], "fields_doc": ps.field_docs(spec), "output_schema": ps.derive_output_schema(spec),
            "prompt": ps.render_prompt(spec) if meta.get("mode") != "import" else None,
-           "schema_id": ps.schema_id(spec), "card_url": card_url(pid),
+           "schema_id": ps.schema_id(spec), "card_url": card_url(pid), "tile_url": tile_url(pid),
            **_release_summary(conn, pid, spec),
            "datasets": datasets, "dashboards": dash,
            "papers": {"related": [r for r in cm["related"] if r.get("kind") in ("paper", "preregistration")],
