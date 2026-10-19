@@ -3,9 +3,9 @@
   "id": "register-claims",
   "version": 1,
   "meta": {
-    "title": "Stated claims",
-    "tagline": "What an empirical paper says it found, as atomic directional claims anchored in its abstract, each traced to the regression estimates that test it and to the one the authors point to.",
-    "description": "One entry per stated claim: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentences that complete it, and the regression estimates that test it, grouped into estimands with one main estimate each. The protocol of the Robustness at Scale study (appendix B.4) and of the Danish Causal Atlas; usable for any empirical paper. Pair it with the Register-data tables preset: a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell. The records are produced OUTSIDE Metalens by an agent pipeline that reads each paper in two structured calls; this preset is the schema they are imported into, not the recipe that made them.",
+    "title": "Claims in empirical economics papers",
+    "tagline": "Atomic directional claims anchored in the abstract of an empirical economics paper, each linked to the regression estimates that test it and to the sentences in the article that refer to it.",
+    "description": "One entry per claim stated in the abstract of an empirical economics paper: cause, effect, sign and scope, the abstract sentence that anchors it, the introduction sentences that refer to it, and the regression estimates that test it, grouped into estimands with one main estimate each. The protocol of the Robustness at Scale study (appendix B.4) and of the Danish Causal Atlas. Pair it with a tables preset (Economics regression tables, Register-data tables): a companion tables dataset lets Metalens cross-check every point estimate against the independently transcribed table cell. The records are produced OUTSIDE Metalens by an agent pipeline that reads each paper in two structured calls, the second over the paper's transcribed regression tables; this preset is the schema they are imported into, not the recipe that made them.",
     "mode": "import",
     "hidden": false,
     "brands": [
@@ -42,9 +42,15 @@
       },
       {
         "kind": "preset",
+        "title": "Economics regression tables",
+        "id": "econ-regression-tables",
+        "role": "the transcribed regression columns of the Robustness-at-Scale corpus: the input of the mapping call"
+      },
+      {
+        "kind": "preset",
         "title": "Register-data tables",
         "id": "register-tables",
-        "role": "companion: the transcribed regression columns the results point to"
+        "role": "the transcribed regression columns of the Danish corpus"
       }
     ]
   },
