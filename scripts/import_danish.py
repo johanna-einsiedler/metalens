@@ -566,6 +566,16 @@ def main() -> int:
             j = r.json()
             n = len(obj["claims"]) if key == "claims" else len(obj["regressions"])
             print(f"  ✓ {artid} {key}: {n} entries → document {j.get('document_id') or j.get('id')} · issues {len(j.get('issues') or [])}")
+    if a.resume:                                        # copies still running when this run began have landed by now:
+        for k in kinds:                                 # clean up after them too, then say what is missing
+            n = dedupe(ids[k]) + strays(PRESET_CLAIMS if k == "claims" else PRESET_TABLES)
+            if n:
+                print(f"removed {n} extra cop{'y' if n == 1 else 'ies'} of {k} papers at the end")
+            have = held(ids[k])
+            missing = [x for x in artids if f"{x}.pdf" not in have]
+            print(f"{k}: {len(artids) - len(missing)} of {len(artids)} papers in the dataset"
+                  + (f"; missing: {' '.join(missing)}" if missing else ""))
+            pending = sorted(set(pending) | set(missing))
     print("datasets:", ids)
     if pending:
         print(f"{len(pending)} papers were still being processed: {' '.join(pending)}")
