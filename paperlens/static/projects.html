@@ -28,9 +28,12 @@
     <section class="ws-section">
       <div class="ws-head">
         <h3>Presets</h3>
-        <a class="btn btn-primary btn-sm" href="/preset">＋ New preset</a>
+        <span class="ws-btns"><button class="btn btn-ghost btn-sm" id="pj-load" type="button" title="a preset someone sent you as a .json file: check it and save it as your own" hidden>⬆ Load preset file</button>
+          <input id="pj-file" type="file" accept=".json,application/json" hidden>
+          <a class="btn btn-primary btn-sm" href="/preset">＋ New preset</a></span>
       </div>
-      <p class="muted ws-hint">Your own extraction presets (prompt + review tabs). Pick them on the extract page; publishing a dataset built with one shares it.</p>
+      <p class="muted ws-hint">Your own extraction presets (prompt + review tabs). Pick them on the extract page; publishing a dataset built with one shares it. <b>Load preset file</b> adds a preset someone sent you.</p>
+      <section id="pj-loaded" class="ds-card pr-loaded" hidden aria-live="polite"></section>
       <div id="presets" class="proj-grid"></div>
     </section>
 

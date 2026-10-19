@@ -15,6 +15,9 @@
     .faq details h3 { margin: 12px 0 2px; font-size: 14px; }
     .faq details p, .faq details ul { margin: 8px 0 4px; font-size: 14px; line-height: 1.5; }
     .faq .muted-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 10px 0; font-size: 13.5px; }
+    .faq details ol { margin: 8px 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.5; }
+    .faq details ol li { margin: 6px 0; }
+    .faq pre.cmd { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin: 6px 0; font-size: 13px; overflow-x: auto; white-space: pre; }
   </style>
 </head>
 <body>
@@ -61,9 +64,22 @@
         <li><strong>To keep everything on your machine</strong>, run the software locally (next question). There <code>localhost</code> works and neither the PDF nor the text leaves your computer.</li>
       </ul>
     </details>
-    <details>
+    <details id="run-locally">
       <summary>Can I keep everything on my own computer?</summary>
-      <p>Yes. The software is open source (MIT). The <code>maseminer</code> command starts the same engine locally with an embedded database and no account; PDFs and data stay in a folder on your machine. Point it at a local model server (Ollama, vLLM, LM Studio) and nothing leaves the computer at all. Installation instructions are in the repository's README.</p>
+      <p>Yes. The software is open source (MIT) and runs on your own computer as the <code>metalens</code> command: the same engine with an embedded database and no account. Your PDFs, page images and data stay in one folder on your machine. Use it when papers may not leave your computer, when several coders should review the same papers independently, or to work with a model that runs on your computer.</p>
+      <ol>
+        <li><strong>Install uv</strong>, a small tool that installs and runs Python programs, with the one-line command from <a href="https://docs.astral.sh/uv/getting-started/installation/" target="_blank" rel="noopener">its installation page</a>. You do not need Python yourself; uv fetches what it needs.</li>
+        <li><strong>Start Metalens</strong> in a terminal:
+          <pre class="cmd">uvx metalens</pre>
+          If that reports that the package cannot be found, install it straight from GitHub instead:
+          <pre class="cmd">uvx --from git+https://github.com/johanna-einsiedler/metalens metalens</pre>
+          The first start takes a minute. Your browser then opens <code>http://127.0.0.1:8775</code>. Keep the terminal open while you work; <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal stops Metalens. Run the same command to start it again.</li>
+        <li><strong>Your data</strong> is kept in the folder <code>.metalens</code> in your home folder: the database, the PDFs and the page images. To keep a project in its own folder, start with <code>--data-dir</code>, for example <code>uvx metalens --data-dir ~/my-review</code>, and use the same option every time. Back up by copying the folder while Metalens is stopped.</li>
+        <li><strong>A preset someone sent you</strong> as a <code>.json</code> file: under <em>Presets</em> in <a href="/projects">My workspace</a>, press <em>Load preset file</em>. Or copy the file into the <code>presets</code> folder inside the data folder and reload the page.</li>
+        <li><strong>Results made elsewhere</strong> (a <code>.json</code> file per paper next to its PDF) go in through the Import page and need no model. <strong>To extract with a model</strong>, enter your own API key on the extract page, or choose "Local / self-hosted" as provider and give the address of a model server on your computer (Ollama, LM Studio, vLLM, for example <code>http://localhost:11434</code>); then nothing leaves your computer.</li>
+        <li><strong>To share your work</strong>, press <em>Export JSON</em> on the dataset page and send the file.</li>
+      </ol>
+      <p>To update to the newest version, start once with <code>uvx --refresh metalens</code>. MASEMiner, the version with the MASEM presets only, starts the same way with <code>maseminer</code> in place of <code>metalens</code> (data in <code>.maseminer</code>, address <code>http://127.0.0.1:8765</code>). Both can be installed side by side.</p>
     </details>
 
     <h2 id="sharing">Who can see my data</h2>
