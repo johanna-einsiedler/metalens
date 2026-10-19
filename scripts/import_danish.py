@@ -412,7 +412,9 @@ def main() -> int:
     ap.add_argument("--out", type=Path, help="write the converted JSON here and stop (no server)")
     ap.add_argument("--only", choices=("claims", "tables"), help="import one of the two datasets only")
     ap.add_argument("--claims-title", default="Register-data claims (Danish)", help="title of a claims dataset created here")
-    ap.add_argument("--resume", action="store_true", help="skip papers the target dataset already holds (by file name)")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip papers the target dataset already holds (by file name), after removing duplicate copies")
+    ap.add_argument("--wait", type=float, default=40, help="minutes to wait for a paper the server is still processing (default 40)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
     artids = a.artids or processed_artids(a.corpus)
@@ -427,7 +429,8 @@ def main() -> int:
         return 0
     import httpx
     import time
-    c = httpx.Client(base_url=a.base_url, timeout=600.0)
+    POST_TIMEOUT = 900.0
+    c = httpx.Client(base_url=a.base_url, timeout=httpx.Timeout(POST_TIMEOUT, connect=30.0))
     if a.email:
         if a.password is None:                          # asked for, so it stays out of the shell history
             import getpass
@@ -446,12 +449,70 @@ def main() -> int:
         r = c.post("/api/datasets", json={"title": title, "schema_id": f"{pid}@v1", "visibility": "private",
                                           "description": "Economics papers using Danish register data — imported from the danish-register-econ pipeline."})
         r.raise_for_status(); ids[key] = r.json()["id"]; print(f"created dataset {ids[key]} ({title})")
+    def docs_of(dataset_id: str) -> list[dict]:
+        """The documents a dataset holds, with file names and ids (its owner sees them)."""
+        try:
+            r = c.get(f"/api/datasets/{dataset_id}/overview", timeout=60.0)
+        except httpx.TransportError:
+            return []
+        return (r.json().get("documents") or []) if r.status_code == 200 else []
+
     def held(dataset_id: str) -> set[str]:
-        """File names of the documents a dataset already holds (the owner sees them)."""
-        r = c.get(f"/api/datasets/{dataset_id}/overview")
-        return {d.get("filename") for d in (r.json().get("documents") or []) if d.get("filename")} if r.status_code == 200 else set()
+        return {d.get("filename") for d in docs_of(dataset_id) if d.get("filename")}
+
+    def strays(pid: str) -> int:
+        """A paper posted twice (a retry while the first request was still being processed) is kept
+        once by the server — the dataset refuses a second copy of the same PDF — but the second
+        document stays in the account, outside every dataset, with its PDF and pages stored. Delete
+        exactly those: documents of this preset, named like one of these papers, in none of the
+        account's datasets."""
+        names = {f"{x}.pdf" for x in artids}
+        mine = c.get("/api/documents", params={"limit": 5000}, timeout=120.0).json().get("documents") or []
+        in_a_dataset: set[str] = set()
+        for d in c.get("/api/datasets", timeout=60.0).json().get("datasets") or []:
+            docs = c.get("/api/documents", params={"limit": 5000, "dataset": d["id"]}, timeout=120.0).json().get("documents") or []
+            in_a_dataset |= {x["document_id"] for x in docs}
+        removed = 0
+        for d in mine:
+            if d.get("filename") in names and (d.get("schema_id") or "").startswith(f"{pid}@") and d["document_id"] not in in_a_dataset:
+                rr = c.delete(f"/api/documents/{d['document_id']}", timeout=120.0)
+                removed += rr.status_code == 200
+                print(f"  − {d['filename']}: stray copy {d['document_id']} " + ("removed" if rr.status_code == 200 else f"NOT removed (HTTP {rr.status_code})"))
+        return removed
+
+    def dedupe(dataset_id: str) -> int:
+        """Two documents of the same paper inside one dataset (should the server ever let it
+        happen): the oldest copy stays, the others are deleted."""
+        by: dict[str, list[dict]] = {}
+        for d in docs_of(dataset_id):
+            if d.get("filename"):
+                by.setdefault(d["filename"], []).append(d)
+        removed = 0
+        for fn, copies in sorted(by.items()):
+            for extra in sorted(copies, key=lambda d: d.get("created_at") or "")[1:]:
+                rr = c.delete(f"/api/documents/{extra['document_id']}", timeout=120.0)
+                ok = rr.status_code == 200
+                removed += ok
+                print(f"  − {fn}: duplicate copy {extra['document_id']} " + ("removed" if ok else f"NOT removed (HTTP {rr.status_code})"))
+        return removed
+
+    def wait_for(dataset_id: str, filename: str) -> bool:
+        """The server got the paper and is still working on it: wait until it appears, never post it twice."""
+        deadline = time.time() + a.wait * 60
+        while time.time() < deadline:
+            time.sleep(30)
+            if filename in held(dataset_id):
+                return True
+        return False
+
+    if a.resume:
+        for k in kinds:
+            n = dedupe(ids[k]) + strays(PRESET_CLAIMS if k == "claims" else PRESET_TABLES)
+            if n:
+                print(f"removed {n} extra cop{'y' if n == 1 else 'ies'} of {k} papers")
     done = {k: (held(ids[k]) if a.resume else set()) for k in kinds}
     failed: list[str] = []
+    pending: list[str] = []
     for artid in artids:
         if all(f"{artid}.pdf" in done[k] for k in kinds):
             print(f"  · {artid}: already imported"); continue
@@ -467,21 +528,38 @@ def main() -> int:
                 dup = c.post("/api/documents/check-duplicates", json={"hashes": [sha], "preset_id": pid}).json().get("duplicates") or {}
                 for d in dup.get(sha) or []:
                     c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
-            r = None
-            for attempt in range(4):                    # a dropped connection or a proxy timeout is retried,
-                try:                                    # after checking that the paper did not land meanwhile
-                    r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
+            fname, r = f"{artid}.pdf", None
+            for attempt in range(3):
+                try:
+                    r = c.post("/api/ingest-pdf", files={"pdf": (fname, pdf, "application/pdf")},
                                data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
                                      "dataset_id": ids[key], "produced_by": PRODUCED_BY})
-                    if r.status_code not in (502, 503, 504):
-                        break
-                except httpx.TransportError as exc:
-                    r = None; print(f"  … {artid} {key}: {exc.__class__.__name__}, retrying")
-                time.sleep(10 * (attempt + 1))
-                if f"{artid}.pdf" in held(ids[key]):
-                    r = "landed"; break
+                except (httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+                    r = "busy"                          # the server has the paper and is still working on it
+                except httpx.TransportError as exc:     # it never reached the server: post again
+                    print(f"  … {artid} {key}: {exc.__class__.__name__}, posting again")
+                    time.sleep(15 * (attempt + 1))
+                    if fname in held(ids[key]):
+                        r = "landed"; break
+                    continue
+                if r != "busy" and r.status_code == 504:
+                    r = "busy"                          # the gateway gave up; the app may still be working
+                if r == "busy":
+                    print(f"  … {artid} {key}: still being processed on the server, waiting (up to {a.wait:g} min)")
+                    r = "landed" if wait_for(ids[key], fname) else "pending"
+                    break
+                if r.status_code in (502, 503):         # the app was unavailable (a restart): post again
+                    print(f"  … {artid} {key}: HTTP {r.status_code}, posting again")
+                    time.sleep(30 * (attempt + 1))
+                    if fname in held(ids[key]):
+                        r = "landed"; break
+                    continue
+                break
             if r == "landed":
-                print(f"  ✓ {artid} {key}: landed during a retry"); continue
+                print(f"  ✓ {artid} {key}: landed"); continue
+            if r == "pending":
+                pending.append(artid)
+                print(f"  ⧗ {artid} {key}: not there after {a.wait:g} min; --resume later picks it up"); continue
             if r is None or r.status_code != 200:
                 failed.append(artid)
                 print(f"  ✗ {artid} {key}: " + (f"HTTP {r.status_code} {r.text[:300]}" if r is not None else "no answer")); continue
@@ -489,9 +567,11 @@ def main() -> int:
             n = len(obj["claims"]) if key == "claims" else len(obj["regressions"])
             print(f"  ✓ {artid} {key}: {n} entries → document {j.get('document_id') or j.get('id')} · issues {len(j.get('issues') or [])}")
     print("datasets:", ids)
-    if failed:
-        print(f"{len(failed)} papers failed; run again with --claims-dataset/--tables-dataset and --resume: {' '.join(failed)}")
-    return 1 if failed else 0
+    if pending:
+        print(f"{len(pending)} papers were still being processed: {' '.join(pending)}")
+    if failed or pending:
+        print(f"run again with --claims-dataset/--tables-dataset and --resume to finish ({len(failed)} failed, {len(pending)} pending)")
+    return 1 if failed or pending else 0
 
 
 if __name__ == "__main__":
