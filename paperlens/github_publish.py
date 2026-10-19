@@ -92,7 +92,8 @@ def _put_file(client, gh_repo, path, obj, branch, message, *, raw: str | None = 
             "content": base64.b64encode(content).decode()}
     if sha:
         body["sha"] = sha
-    _ok(client.put(url, json=body, headers=_headers(), timeout=30.0), f"put {path}")
+    # a large dataset's results.json is tens of MB: give the upload time in proportion
+    _ok(client.put(url, json=body, headers=_headers(), timeout=max(30.0, len(content) / 200_000)), f"put {path}")
 
 
 def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None,
