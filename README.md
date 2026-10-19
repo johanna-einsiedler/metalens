@@ -38,6 +38,22 @@ checkout to that distribution); the general presets live here and load from a ch
 
 Docker alternative: `docker compose up` (see `docker-compose.yml`).
 
+## Run Metalens locally
+
+The same engine with every bundled preset, as the `metalens` command:
+
+```bash
+pipx install metalens         # or: uvx metalens  ·  or, from a checkout: uv run metalens
+metalens                      # data in ~/.metalens, opens http://127.0.0.1:8775
+metalens --data-dir ./review  # keep everything next to a project
+```
+
+Everything said above for MASEMiner holds: embedded PostgreSQL, no accounts, nothing leaves the
+machine except the model call, and presets placed in `<data>/presets/` are loaded next to the
+built-in ones. Use it when the PDFs should stay on the reviewer's machine, for instance to have
+several coders review the same papers independently. `maseminer` and `metalens` keep separate data
+folders and ports, so both can be installed side by side.
+
 ## Run the hosted stack (development)
 
 ```bash

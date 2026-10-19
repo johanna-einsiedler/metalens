@@ -1,9 +1,13 @@
-"""``maseminer`` — run the engine on one machine, one command, no account.
+"""``maseminer`` / ``metalens`` — run the engine on one machine, one command, no account.
 
     maseminer                      # data in ~/.maseminer, opens http://127.0.0.1:8765
     maseminer --data-dir ./study   # keep everything next to the project
-    maseminer --brand metalens     # the general Metalens surface instead of MASEMiner
     maseminer --port 9000 --no-browser
+    metalens                       # the general Metalens surface: data in ~/.metalens, http://127.0.0.1:8775
+
+The two commands are the same engine with different defaults (product name, brand, data
+folder, port): ``maseminer`` is the MASEMiner package (the MASEM presets only), ``metalens``
+the full one (every bundled preset). Either loads the presets placed in ``<data>/presets/``.
 
 What runs: embedded PostgreSQL (``pgserver``, no install) in ``<data>/pg``, PDFs and page
 images in ``<data>/artifacts``, extractions inline in the request (no Redis, no worker),
@@ -25,10 +29,19 @@ import webbrowser
 from pathlib import Path
 
 DEFAULT_PORT = 8765
+# The defaults of each command: the same engine, run as MASEMiner or as Metalens. Different
+# folders and ports, so both can be installed and run side by side.
+PRODUCTS = {
+    "maseminer": {"name": "MASEMiner", "brand": "maseminer", "home": "~/.maseminer", "home_env": "MASEMINER_HOME",
+                  "port": 8765, "port_env": "MASEMINER_PORT", "db_env": "MASEMINER_DATABASE_URL"},
+    "metalens": {"name": "Metalens", "brand": "metalens", "home": "~/.metalens", "home_env": "METALENS_HOME",
+                 "port": 8775, "port_env": "METALENS_PORT", "db_env": "METALENS_DATABASE_URL"},
+}
 
 
-def _data_dir(arg: str | None) -> Path:
-    raw = arg or os.environ.get("MASEMINER_HOME") or "~/.maseminer"
+def _data_dir(arg: str | None, product: str = "maseminer") -> Path:
+    P = PRODUCTS[product]
+    raw = arg or os.environ.get(P["home_env"]) or P["home"]
     d = Path(raw).expanduser().resolve()
     for sub in ("pg", "artifacts", "presets"):
         (d / sub).mkdir(parents=True, exist_ok=True)
@@ -54,7 +67,7 @@ def _start_postgres(d: Path) -> str:
     try:
         import pgserver
     except ImportError:  # pragma: no cover - packaging guard
-        sys.exit("pgserver is not installed — `pip install maseminer` (or: pip install pgserver).")
+        sys.exit("pgserver is not installed — reinstall the package (or: pip install pgserver).")
     _prune_stale_handles(d / "pg")
     _PG = pgserver.get_server(str(d / "pg"))
     return _PG.get_uri()
@@ -86,22 +99,33 @@ def _stop_postgres() -> None:
         _PG = None
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="maseminer", description=__doc__.split("\n\n")[0])
-    ap.add_argument("--data-dir", help="where the database, PDFs and page images live (default ~/.maseminer)")
-    ap.add_argument("--port", type=int, default=int(os.environ.get("MASEMINER_PORT", DEFAULT_PORT)))
+def parser(product: str = "maseminer") -> argparse.ArgumentParser:
+    P = PRODUCTS[product]
+    ap = argparse.ArgumentParser(prog=product, description=f"{P['name']} — run the engine on one machine, one command, no account.")
+    ap.add_argument("--data-dir", help=f"where the database, PDFs, page images and your presets live (default {P['home']})")
+    ap.add_argument("--port", type=int, default=int(os.environ.get(P["port_env"], P["port"])))
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--brand", default=os.environ.get("PAPERLENS_BRAND", "maseminer"), choices=("maseminer", "metalens"))
+    ap.add_argument("--brand", default=os.environ.get("PAPERLENS_BRAND", P["brand"]), choices=("maseminer", "metalens"))
     ap.add_argument("--no-browser", action="store_true", help="do not open the browser")
     ap.add_argument("--version", action="store_true", help="print the version and exit")
-    a = ap.parse_args(argv)
+    return ap
+
+
+def main_metalens(argv: list[str] | None = None) -> int:
+    """The ``metalens`` command."""
+    return main(argv, product="metalens")
+
+
+def main(argv: list[str] | None = None, product: str = "maseminer") -> int:
+    P = PRODUCTS[product]
+    a = parser(product).parse_args(argv)
 
     if a.version:
         from . import __version__
         print(__version__)
         return 0
 
-    d = _data_dir(a.data_dir)
+    d = _data_dir(a.data_dir, product)
     # Everything below must be in the environment BEFORE the app package is imported.
     os.environ["PAPERLENS_LOCAL_MODE"] = "1"
     os.environ["PAPERLENS_INLINE_JOBS"] = "1"
@@ -112,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["PAPERLENS_SECRET"] = _secret(d)
     os.environ.pop("PAPERLENS_BASIC_PASSWORD", None)
     # the embedded server, unless an explicit MASEMINER_DATABASE_URL points at your own Postgres
-    os.environ["PAPERLENS_DATABASE_URL"] = os.environ.get("MASEMINER_DATABASE_URL") or _start_postgres(d)
+    os.environ["PAPERLENS_DATABASE_URL"] = os.environ.get(P["db_env"]) or _start_postgres(d)
 
     from . import localmode, records
     from . import __version__
@@ -128,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     from .app import app
 
     url = f"http://{a.host}:{a.port}"
-    print(f"MASEMiner {__version__} — data in {d}\n  {url}\n  Ctrl-C stops it; copy the data folder to back it up.", flush=True)
+    print(f"{P['name']} {__version__} — data in {d}\n  {url}\n  Ctrl-C stops it; copy the data folder to back it up.", flush=True)
     if not a.no_browser:
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
     # uvicorn captures SIGTERM/SIGINT for a graceful shutdown, then re-raises them with the

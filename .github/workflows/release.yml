@@ -3,8 +3,13 @@ name: Release
 # On a version tag: build the wheel, publish it to PyPI (trusted publishing — configure the
 # project on pypi.org to trust this repo/workflow, no token needed), and push a byte-exact
 # Docker image to GHCR. The tag must match pyproject's version (`v0.1.0` ↔ `0.1.0`).
-# Both artifacts are the MASEMiner DISTRIBUTION: scripts/masem_only.py first removes the
-# presets tagged for other brands (and what is about them) from the checkout.
+# Two packages from the same tag and engine:
+#   * `maseminer` (wheel, PyPI, GHCR image) — the MASEMiner DISTRIBUTION: scripts/masem_only.py first
+#     removes the presets tagged for other brands (and what is about them) and the `metalens` command;
+#   * `metalens` (wheel, PyPI) — the full engine with every bundled preset: scripts/package_as.py
+#     renames the project and keeps only the `metalens` command.
+# Each PyPI project trusts this workflow and the `pypi` environment (pypi.org → the project →
+# Publishing → add a trusted publisher; for a project not created yet, a "pending" publisher).
 on:
   push:
     tags: ["v*"]
@@ -47,6 +52,37 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { name: dist, path: dist }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  build-metalens:
+    needs: build                    # after the release exists, so both add files to the same one
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: package the full engine as `metalens`
+        run: uv run --no-project python scripts/package_as.py metalens
+      - name: check the tag matches pyproject
+        run: |
+          v=$(uv run --no-project python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != pyproject $v"; exit 1; }
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with: { name: dist-metalens, path: "dist/*" }
+      - name: add the metalens files to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  pypi-metalens:
+    needs: build-metalens
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist-metalens, path: dist }
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   image:
