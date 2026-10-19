@@ -62,8 +62,13 @@ def test_cell_evidence_and_release_files_cut_quotes_around_the_value() -> None:
     files = release_export.build(conn, rel)
     ev = json.loads(files["evidence.json"]); meta = json.loads(files["release.json"])
     assert ev["items"] and all(len(i["snippet"]) <= 200 for i in ev["items"]) and any(i.get("truncated") for i in ev["items"])
-    assert ev["policy"]["max_chars"] == 200 and meta["evidence_policy"]["full_quotes_url"].endswith(f"/dataset?id={ds}")
-    assert meta["dataset"]["id"] == ds and meta["dataset"]["url"] == meta["evidence_policy"]["full_quotes_url"]
+    slug = records.get_dataset(conn, ds)["slug"]
+    assert ev["policy"]["max_chars"] == 200 and meta["evidence_policy"]["dataset_url"].endswith(f"/dataset?slug={slug}")
+    assert meta["dataset"]["id"] == ds and meta["dataset"]["url"] == meta["evidence_policy"]["dataset_url"]
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    r = TestClient(app).get(f"/dataset?slug={slug}", follow_redirects=False)       # the page resolves the slug
+    assert r.status_code == 307 and r.headers["location"] == f"/dataset?id={ds}"
     assert "200 characters" in files["README.md"].decode("utf-8")
     # the release's evidence API answers the same cut for a public reader
     assert at.cell_evidence(conn, ds, "conditions.measures", [cell], release=rel)[0]["items"][0]["snippet"] == pub["snippet"]

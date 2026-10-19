@@ -77,7 +77,10 @@ def build(conn, release: dict) -> dict[str, bytes]:
             tables[u["id"]] = analysis_table.build(conn, release["dataset_id"], u["id"], owner=False, release=release)
     d = first["dataset"]
     ds = records.get_dataset(conn, release["dataset_id"]) or {}
-    page_url = f"{brands.public_url()}/dataset?id={release['dataset_id']}"      # where the owner sees the full quotes
+    # the dataset's page on Metalens, by slug: a dataset published from another Metalens server keeps
+    # its slug when metalens.tech imports it from GitHub, but not its id
+    page_url = (f"{brands.public_url()}/dataset?slug={ds['slug']}" if ds.get("slug")
+                else f"{brands.public_url()}/dataset?id={release['dataset_id']}")
     files: dict[str, bytes] = {}
     items: list[dict] = []
     item_at: dict[str, int] = {}
@@ -158,7 +161,7 @@ def _readme(meta: dict) -> str:
               "(`cells[unit][row index][column]` → `items`)", "",
               f"Quotations are cut to at most {quotes.LIMIT} characters around the extracted value, the snippet length "
               "publishers' text-and-data-mining terms allow for published output; a cut end is marked with an ellipsis. "
-              f"The full quotations are on Metalens for the dataset's owner: {ds.get('url') or ''}".rstrip(": ") + ".", "",
+              "The full quotations are kept with the dataset on Metalens, where its owner reviews them against the papers.", "",
               "Every value was extracted from the cited paper; columns marked `derived` are computed from "
               "extracted values by the stated formula. Made with Metalens.", ""]
     return "\n".join(lines)

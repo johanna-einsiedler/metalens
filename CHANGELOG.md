@@ -38,9 +38,10 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   reads. Publishers' text-and-data-mining terms allow published snippets of that length with a link
   to the article, which every record carries as its DOI.
 - `release.json` states the rule under `evidence_policy` and names the dataset's page (`dataset.id`,
-  `dataset.url`); `evidence.json` carries the same `policy` and marks cut items `truncated: true`. The
-  devkit caps its display at the release's limit and, under pinned evidence, states the rule and links
-  the dataset page; dashboard tooltips mark a cut quote.
+  `dataset.url` as `/dataset?slug=`, which survives the copy to another Metalens server; the page
+  redirects a slug to the id); `evidence.json` carries the same `policy` and marks cut items
+  `truncated: true`. The devkit caps its display at the release's limit and, under pinned evidence,
+  states the rule and links the dataset page; dashboard tooltips mark a cut quote.
 
 ### Everything else
 

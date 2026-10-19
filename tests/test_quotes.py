@@ -61,6 +61,6 @@ def test_value_at_walks_record_paths() -> None:
 
 
 def test_policy_names_the_limit_and_the_page() -> None:
-    p = q.policy("https://metalens.tech/dataset?id=x")
-    assert p["max_chars"] == 200 and p["full_quotes_url"].endswith("dataset?id=x") and "200" in p["text"]
-    assert "full_quotes_url" not in q.policy()
+    p = q.policy("https://metalens.tech/dataset?slug=x")
+    assert p["max_chars"] == 200 and p["dataset_url"].endswith("dataset?slug=x") and "200" in p["text"]
+    assert "dataset_url" not in q.policy()

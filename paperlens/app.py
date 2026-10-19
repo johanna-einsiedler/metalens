@@ -231,9 +231,20 @@ def projects_page() -> FileResponse:
     return _page("projects.html")
 
 
-@app.get("/dataset")
-def dataset_page() -> FileResponse:
-    """Dataset overview (?id=…): recipe + stats + papers (add / delete / review)."""
+def _page_db():
+    """get_db for the page routes above its definition: resolved when a request arrives."""
+    yield from get_db()
+
+
+@app.get("/dataset", response_model=None)
+def dataset_page(slug: str | None = None, id: str | None = None, db=Depends(_page_db)) -> FileResponse | RedirectResponse:
+    """Dataset overview (?id=…): recipe + stats + papers (add / delete / review). ``?slug=`` (what
+    release files link to: a slug survives the copy to another Metalens server, an id does not)
+    redirects to the dataset's id here; the page's own gate decides what the reader may see."""
+    if slug and not id:
+        d = records.dataset_by_slug(db, slug)
+        if d:
+            return RedirectResponse(f"/dataset?id={d['id']}", status_code=307)
     return _page("dataset.html")
 
 

@@ -16,8 +16,8 @@
 //
 // Quotes in a release are cut to 200 characters around the extracted value (release.json →
 // evidence_policy): the snippet length publishers' text-and-data-mining terms allow for published
-// output. The pinned evidence says so and links the dataset page on Metalens, where the dataset's
-// owner reads the full passages.
+// output. The pinned evidence says so and links the dataset's page on Metalens, where the full
+// passages are kept with the dataset.
 const d3 = window.d3;
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -115,9 +115,9 @@ export function createTips({ release, panel }) {
   }
   // the 200-character rule, stated where evidence is pinned
   const policyHtml = () => {
-    const p = release.meta.evidence_policy || {}, url = p.full_quotes_url || (release.meta.dataset || {}).url;
+    const p = release.meta.evidence_policy || {}, url = p.dataset_url || (release.meta.dataset || {}).url;
     return `<div class="ml-where ml-policy">Quotes are cut to ${p.max_chars || 200} characters (publishers' text-mining terms).`
-      + `${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">Full quotes on Metalens</a>` : ""}</div>`;
+      + `${url ? ` <a href="${esc(url)}" target="_blank" rel="noopener">The dataset on Metalens</a>` : ""}</div>`;
   };
   function html(desc, full) {
     const q = desc.rows && desc.rows.length ? quotes(desc, full ? 12 : 3) : "";

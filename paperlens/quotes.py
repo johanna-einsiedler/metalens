@@ -27,15 +27,16 @@ _POLICY = {
     "text": "Quotations in these files are cut to at most 200 characters around the extracted value, with the "
             "page and the source kept: the snippet length publishers' text-and-data-mining terms allow for "
             "published output (Elsevier TDM licence). A cut end is marked with an ellipsis. The full quotations "
-            "stay on Metalens for the dataset's owner.",
+            "are kept with the dataset on Metalens, where its owner reviews them against the papers.",
 }
 
 
-def policy(full_quotes_url: str | None = None) -> dict:
-    """The policy block a release carries (``release.json`` → ``evidence_policy``)."""
+def policy(dataset_url: str | None = None) -> dict:
+    """The policy block a release carries (``release.json`` → ``evidence_policy``), with the
+    dataset's page on Metalens."""
     out = dict(_POLICY)
-    if full_quotes_url:
-        out["full_quotes_url"] = full_quotes_url
+    if dataset_url:
+        out["dataset_url"] = dataset_url
     return out
 
 
