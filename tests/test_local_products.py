@@ -59,3 +59,10 @@ def test_the_maseminer_distribution_drops_the_metalens_command() -> None:
     trimmed = re.sub(r'(?m)^metalens = "paperlens\.local:main_metalens"\n', "", text)
     assert tomllib.loads(trimmed)["project"]["scripts"] == {"maseminer": "paperlens.local:main"}
     assert r'metalens = "paperlens\.local:main_metalens"\n' in (Path(_ROOT) / "scripts" / "masem_only.py").read_text()
+
+
+def test_the_engine_reports_the_package_version() -> None:
+    """Exports (metadata.engine.version), /api/version and `--version` report paperlens.__version__;
+    the release checks the tag against pyproject, so the two must agree."""
+    import paperlens
+    assert paperlens.__version__ == tomllib.loads((Path(_ROOT) / "pyproject.toml").read_text())["project"]["version"]
