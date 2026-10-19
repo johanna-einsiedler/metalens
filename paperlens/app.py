@@ -19,6 +19,8 @@ import os
 import time
 import uuid
 
+import psycopg
+
 from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request,
                      Query, Response, UploadFile)
 from fastapi.responses import FileResponse, RedirectResponse
@@ -2896,6 +2898,16 @@ class PresetBody(BaseModel):
     spec: dict | None = None            # the declarative preset document (preferred)
     base_preset_id: str | None = None   # a saved setup: values for a built-in preset's parameters
     params: dict | None = None
+    keep_id: bool = False               # a preset loaded from a file keeps its own id (and so its schema id) when free
+
+
+def _free_preset_id(db, pid) -> bool:
+    """Can a loaded preset file keep this id? A valid preset id that no built-in, retired or
+    personal preset uses: ids are global, so the first to load a file keeps its schema id."""
+    from . import preset_spec, presets_legacy
+    return (isinstance(pid, str) and bool(preset_spec.ID_RE.match(pid)) and pid not in presets.load_all()
+            and pid not in presets_legacy.LEGACY_IDS and pid not in presets_legacy.ADAPTER_ONLY_IDS
+            and records.get_personal_preset(db, pid) is None)
 
 
 def _validated_spec(doc: dict, preset_id: str) -> dict:
@@ -2928,14 +2940,21 @@ def create_preset(body: PresetBody, db=Depends(get_db),
         title = ((body.spec.get("meta") or {}).get("title") or body.title or "").strip()
         if not title:
             raise HTTPException(status_code=422, detail="spec.meta.title is required.")
-        pid = f"{records._slugify(title)}-{uuid.uuid4().hex[:8]}"
+        fresh = f"{records._slugify(title)}-{uuid.uuid4().hex[:8]}"
+        wanted = body.spec.get("id") if body.keep_id else None
+        pid = wanted if wanted and _free_preset_id(db, wanted) else fresh
         spec = _validated_spec(body.spec, pid)
-        records.create_personal_preset(
-            db, preset_id=pid, title=spec["meta"]["title"], prompt=preset_spec.render_prompt(spec),
-            tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
-            mode=spec["meta"]["mode"], spec=spec, owner_user_id=who.user_id,
-            session_id=who.session_id, visibility=body.visibility, brand=b.id)
-        return presets.get(pid, conn=db)
+        kw = dict(title=spec["meta"]["title"], prompt=preset_spec.render_prompt(spec),
+                  tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
+                  mode=spec["meta"]["mode"], owner_user_id=who.user_id,
+                  session_id=who.session_id, visibility=body.visibility, brand=b.id)
+        try:
+            records.create_personal_preset(db, preset_id=pid, spec=spec, **kw)
+        except psycopg.errors.UniqueViolation:       # taken between the check and the insert
+            pid = fresh
+            spec = _validated_spec(body.spec, pid)
+            records.create_personal_preset(db, preset_id=pid, spec=spec, **kw)
+        return {**presets.get(pid, conn=db), "id_kept": bool(wanted) and pid == wanted, "id_wanted": wanted}
     if not (body.title or "").strip() or not (body.prompt or "").strip():
         raise HTTPException(status_code=422, detail="title and prompt are required.")
     return records.create_personal_preset(

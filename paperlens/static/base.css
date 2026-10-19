@@ -848,6 +848,19 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .tiles-sm .tile-p.clamp { -webkit-line-clamp: 2; }
 .tiles-sm .tile-by { font-size: 12px; margin: 0 0 6px; }
 .tiles-sm .tile-foot { font-size: 11px; padding: 6px 12px 10px; }
+/* the presets page: load a preset someone sent as a file */
+.pr-actions { margin-left: auto; padding-top: 6px; }
+.pr-loaded { position: relative; margin: 14px 0 6px; max-width: 760px; }
+.pr-loaded .pr-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; cursor: pointer; color: var(--text-muted); font-size: 14px; }
+.pr-loaded .pr-tag { margin: -2px 0 8px; font-size: 13.5px; }
+.pr-loaded .pr-meta { font-size: 13px; margin: 0 0 8px; }
+.pr-loaded .pr-errs { font-size: 13px; margin: 6px 0 0; padding-left: 18px; color: var(--error); }
+.pr-loaded .pr-warn { font-size: 13px; margin: 0 0 8px; }
+.pr-loaded .pr-warn .pr-errs { color: var(--conf-med); }
+.pr-loaded .pr-vis { border: 0; padding: 0; margin: 4px 0 10px; font-size: 13.5px; display: grid; gap: 4px; }
+.pr-loaded .pr-vis legend { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.pr-loaded .pr-note { font-size: 13px; margin: 0 0 10px; }
+.pr-loaded .pr-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* ── preset card page ───────────────────────────────────────────────────────────── */
 .pc h1 { font: 600 32px/1.2 var(--font-serif); color: var(--accent-dark); margin: 0 0 6px; }
