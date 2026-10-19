@@ -87,6 +87,7 @@ function render() {
     <div class="ds-head"><div><h1>${esc(c.title)}</h1>${c.tagline ? `<p class="lede">${esc(c.tagline)}</p>` : ""}
       ${authors ? `<p class="pc-authors">${authors}</p>` : ""}${kws}<div class="pc-badges">${badges}</div></div>
       <div class="pc-actions">${actions}</div></div>
+    ${citeTop(c)}
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="how"><h2>How it extracts</h2>${md((sections["how-it-extracts"] || {}).body)}${howGenerated(c)}</section>
@@ -198,13 +199,24 @@ function doiBadge(x) {
   if (!x.doi) return "";
   return ` <a class="badge" href="${esc(x.zenodo_url || "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x.doi) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this version"}">${testDoi(x.doi) ? "test " : ""}DOI ${esc(x.doi)}</a>`;
 }
+// How to cite, at the top of the card: the concept DOI when there is one (it resolves to the newest
+// version on Zenodo), the card page otherwise
+function citeTop(c) {
+  const latest = c.latest || {};
+  const doi = c.concept_doi || latest.doi;
+  const zen = doi
+    ? `<a class="badge pc-zenodo" href="${esc(c.concept_doi ? "https://doi.org/" + c.concept_doi : (latest.zenodo_url || "https://doi.org/" + latest.doi))}" target="_blank" rel="noopener" title="${c.concept_doi ? "the DOI of every version: it opens the newest one on Zenodo" : "the DOI of this version on Zenodo"}">${testDoi(doi) ? "test " : ""}Zenodo · DOI ${esc(doi)}</a>`
+    : `<span class="muted pc-nodoi">No DOI yet</span>`;
+  return `<div class="ds-cite pc-citetop"><span class="rk">How to cite</span><blockquote id="pc-cite-text">${esc(c.cite_as || "")}</blockquote>
+    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}</div></div>`;
+}
 function versions(c) {
   const admin = CARD.viewer && CARD.viewer.is_admin;
   const zen = c.zenodo || {};
   const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI</span>`)}
       <span class="muted"> · schema <code>${esc(x.schema_id)}</code> · <a href="${esc(x.bundle_url)}" title="preset.json, prompt.md, card.md, fields.md, CITATION.cff, README — a loadable preset folder">⬇ files</a></span>
       ${x.notes ? `<div class="md" style="margin:2px 0 0">${renderMarkdown(x.notes)}</div>` : ""}</div>`).join("");
-  const cite = `<div class="ds-cite"><span class="rk">How to cite</span><blockquote id="pc-cite-text">${esc(c.cite_as || "")}</blockquote><button class="btn btn-ghost btn-sm" id="pc-cite-copy">Copy</button>
+  const cite = `<div class="ds-cite"><p class="muted" style="font-size:12.5px;margin:6px 0 0">The citation is at the top of this page${c.concept_doi ? "; its DOI always opens the newest version" : ""}.</p>
     ${c.cite_this_version && c.cite_this_version !== c.cite_as ? `<p class="muted" style="font-size:12.5px;margin:6px 0 0">This version only: ${esc(c.cite_this_version)}</p>` : ""}
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">In a methods section, name the schema id and the model id of your run (the export carries both): <code>${esc(c.schema_id)}</code>. See <a href="https://github.com/johanna-einsiedler/metalens/blob/main/docs/REPRODUCIBILITY.md" target="_blank" rel="noopener">REPRODUCIBILITY.md</a>.</p></div>`;
   const none = `<p class="muted">No numbered release yet. The data contract is still identified: cite the schema id <code>${esc(c.schema_id)}</code> and the engine version of your run.</p>`;
@@ -242,8 +254,9 @@ function usedBy(c) {
 function models(c) {
   const rows = c.models || [];
   if (!rows.length) return `<p class="muted">No model has been recorded for this preset yet.</p>`;
-  return `<table class="ds-cc"><thead><tr><th>Model</th><th>Mode</th><th>Papers</th><th>Records</th><th></th></tr></thead><tbody>
-    ${rows.map((m) => `<tr><td><code>${esc(m.model)}</code>${m.produced_by && m.produced_by !== m.model ? ` <span class="muted">· ${esc(m.produced_by)}</span>` : ""}</td><td>${esc(m.mode)}</td>
+  const dsLinks = (m) => (m.datasets || []).length ? m.datasets.map((d) => `<a href="/dataset?id=${encodeURIComponent(d.id)}">${esc(d.title || "dataset")}</a>`).join(", ") : `<span class="muted">—</span>`;
+  return `<table class="ds-cc"><thead><tr><th>Model</th><th>Mode</th><th>Datasets</th><th>Papers</th><th>Records</th><th></th></tr></thead><tbody>
+    ${rows.map((m) => `<tr><td><code>${esc(m.model)}</code>${m.produced_by && m.produced_by !== m.model ? ` <span class="muted">· ${esc(m.produced_by)}</span>` : ""}</td><td>${esc(m.mode)}</td><td>${dsLinks(m)}</td>
       <td>${m.n_papers == null ? "—" : m.n_papers}</td><td>${m.n_records == null ? "—" : m.n_records}</td>
       <td>${m.verification ? `<span class="badge tier-human_verified" title="${esc(m.note || "the model the verification exercises were run with")}">verification study</span>` : ""}</td></tr>`).join("")}</tbody></table>
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">Counts are from the public datasets built with this preset on this server. The badge marks the model the verification exercises above were run with; figures for other models exist only once a dataset verified by people exists for them.</p>`;

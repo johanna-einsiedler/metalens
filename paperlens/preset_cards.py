@@ -128,7 +128,8 @@ def models_for(conn: psycopg.Connection, bases: list[str], evaluated: list[dict]
     before any public dataset exists."""
     rows = conn.execute(
         """SELECT coalesce(r.extraction->>'resolved_model', r.extraction->>'model', r.extraction->>'produced_by', 'unknown'),
-                  r.extraction->>'produced_by', count(DISTINCT r.paper_id), count(*)
+                  r.extraction->>'produced_by', count(DISTINCT r.paper_id), count(*),
+                  jsonb_agg(DISTINCT jsonb_build_object('id', d.id::text, 'title', d.title))
            FROM record r JOIN dataset d ON d.id = r.dataset_id
            WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
              AND split_part(r.schema_id, '@', 1) = ANY(%s::text[]) AND NOT COALESCE(r.screened_empty, false)
@@ -137,16 +138,17 @@ def models_for(conn: psycopg.Connection, bases: list[str], evaluated: list[dict]
         a, b = (name or "").lower(), (e.get("model") or "").lower()
         return bool(a and b) and (a == b or a.startswith(b) or b.startswith(a) or b in a)
     out = []
-    for name, produced_by, n_papers, n_records in rows:
+    for name, produced_by, n_papers, n_records, datasets in rows:
         mode = "import" if produced_by else "extraction"
         hit = next((e for e in evaluated if matches(name, e)), None)
         out.append({"model": name, "mode": (hit or {}).get("mode") or mode, "produced_by": produced_by,
-                    "n_papers": int(n_papers), "n_records": int(n_records), "verification": bool(hit), "note": (hit or {}).get("note")})
+                    "n_papers": int(n_papers), "n_records": int(n_records), "verification": bool(hit), "note": (hit or {}).get("note"),
+                    "datasets": sorted(datasets or [], key=lambda d: (d.get("title") or "").lower())})
     seen = {o["model"].lower() for o in out}
     for e in evaluated:                               # named on the card but not (yet) seen in public data
         if not any(matches(s, e) for s in seen):
             out.append({"model": e["model"], "mode": e.get("mode") or "extraction", "produced_by": None,
-                        "n_papers": None, "n_records": None, "verification": True, "note": e.get("note")})
+                        "n_papers": None, "n_records": None, "verification": True, "note": e.get("note"), "datasets": []})
     return out
 
 

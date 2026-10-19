@@ -40,6 +40,19 @@ Evidence: every claim cites the abstract sentence that anchors it and the introd
 
 ## Verification
 
-No verification exercise has been completed for this preset yet. Two checks run on every imported dataset without a person: Metalens locates each quoted sentence in the PDF and flags the quotations it cannot find, and, where a companion tables dataset exists, every point estimate a result carries is compared with the independently transcribed cell of the companion.
+One verification exercise has been completed for this preset: the consistency of two independent runs, on the [Danish register-data corpus](#to-be-published) of 244 articles. Two checks also run on every imported dataset without a person: Metalens locates each quoted sentence in the PDF and flags the quotations it cannot find, and, where a companion tables dataset exists, every point estimate a result carries is compared with the independently transcribed cell of the companion.
 
-On the Robustness-at-Scale corpus (308 articles with at least one regression table) the two calls yielded 1,881 claims: 1,325 edges, 197 comparisons and 359 not causal. Of the 1,522 edges and comparisons, 1,264 were matched to at least one main estimate and 257 to no regression. 3,999 regression rows are main estimates; 502 of them are pointed to by number in the abstract or introduction, 1,609 by reference and 1,888 are not pointed to. A human coding of the claims and their main estimates is planned; its figures will appear here once a verified dataset exists.
+**Consistency between two runs.** Every article was run twice with the same model, Claude Opus 5 (`claude-opus-5`) in agent mode, the same prompts and the same inputs. To compare the two sets of claims, a further call matched the variables the runs name, so that two wordings of the same cause or effect count as one variable; an edge is then a cause–effect pair between matched variables.
+
+| | |
+|:--|--:|
+| Articles run twice | 244 |
+| Claims, first / second run | 1,837 / 1,799 |
+| Same deciding section (abstract, introduction or conclusion) | 242 (99.2 %) |
+| Cause–effect edges stated by at least one run | 1,030 |
+| … stated by both runs | 941 (91.4 %) |
+| Same sign, where both runs state the edge | 921 of 941 (97.9 %) |
+
+The two runs mostly agree on which findings an article states, and where both state a finding they almost always give it the same direction.
+
+On the Robustness-at-Scale corpus (308 articles with at least one regression table) the two calls yielded 1,881 claims: 1,325 edges, 197 comparisons and 359 not causal. Of the 1,522 edges and comparisons, 1,264 were matched to at least one main estimate and 257 to no regression. 3,999 regression rows are main estimates; 502 of them are pointed to by number in the abstract or introduction, 1,609 by reference and 1,888 are not pointed to.
