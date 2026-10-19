@@ -35,7 +35,7 @@ async function renderPresets(grid, _me) {
   }
   grid.innerHTML = presets.map((p) =>
     `<div class="proj-tile-wrap">`
-    + `<a class="proj-tile" href="/preset?id=${encodeURIComponent(p.id)}">`
+    + `<a class="proj-tile" href="/preset?id=${encodeURIComponent(p.id)}&edit=1">`
     + `<div class="pt-title">${esc(p.title)}</div>`
     + `<div class="pt-meta">${esc(p.tagline || p.mode || "preset")} · `
     + `<span class="pt-vis ${esc(p.visibility)}">${esc(p.visibility)}</span></div></a>`

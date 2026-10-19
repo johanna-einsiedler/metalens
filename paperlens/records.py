@@ -21,6 +21,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from . import contract
+from . import quotes
 from .ingest import EvidenceSpan, FieldConfidence, IngestResult, Record
 
 _log = logging.getLogger("paperlens")
@@ -902,7 +903,7 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
         if not disagreed:
             agreed += 1
 
-    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed)}
+    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed), "agreed": agreed}
 
 
 def _badge_from_counts(total: int, audited: int, agreed: int) -> dict:
@@ -1211,13 +1212,13 @@ def search_records(conn: psycopg.Connection, filters: dict,
     rank_params = [filters["q"]] if has_q else []
     rows = conn.execute(sql, [*rank_params, *params, limit, offset]).fetchall()
     total = rows[0][16] if rows else 0
-    results = [{
+    results = cap_field_values(conn, [{
         "id": str(r[0]), "entry_index": r[1], "schema_id": r[2],
         "verification_status": r[3], "field_values": r[4],
         "paper": {"id": str(r[6]) if r[6] else None, "doi": r[7], "title": r[8],
                   "year": r[9], "journal": r[10], "primary_topic": r[11], "jel_codes": r[12]},
         "dataset": ({"id": str(r[5]), "slug": r[13], "title": r[14]} if r[5] else None),
-    } for r in rows]
+    } for r in rows])                                           # the public catalogue: verbatim fields cut
     return {"total": total, "limit": limit, "offset": offset, "results": results}
 
 
@@ -1246,11 +1247,14 @@ def facets(conn: psycopg.Connection, filters: dict) -> dict:
 
 def public_datasets_with_badges(conn: psycopg.Connection,
                                 limit: int = 50, offset: int = 0,
-                                q: str | None = None) -> list[dict]:
+                                q: str | None = None, preset_bases: list[str] | None = None) -> list[dict]:
     """Public datasets each with a COMPUTED credibility badge, in ONE query (no N+1).
     When ``q`` is given, full-text search the dataset's title/description/prompt/schema
-    (the recipe) and rank by relevance; otherwise most-recent first."""
+    (the recipe) and rank by relevance; otherwise most-recent first. ``preset_bases`` keeps
+    only datasets built with one of those presets (base ids, every version, the dataset's own
+    schema or any record's)."""
     q = (q or "").strip() or None
+    bases = list(preset_bases) if preset_bases else None
     rows = conn.execute(
         """
         WITH ev AS (
@@ -1277,12 +1281,14 @@ def public_datasets_with_badges(conn: psycopg.Connection,
                        LEFT JOIN users u ON u.id = d.owner_user_id
         WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
           AND (%s::text IS NULL OR d.search_tsv @@ websearch_to_tsquery('english', %s))
+          AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[])
+               OR EXISTS (SELECT 1 FROM record r2 WHERE r2.dataset_id = d.id AND split_part(r2.schema_id, '@', 1) = ANY(%s::text[])))
         ORDER BY
           CASE WHEN %s::text IS NULL THEN 0
                ELSE ts_rank(d.search_tsv, websearch_to_tsquery('english', %s)) END DESC,
           d.created_at DESC
         LIMIT %s OFFSET %s""",
-        (q, q, q, q, limit, offset),
+        (q, q, bases, bases, bases, q, q, limit, offset),
     ).fetchall()
     out = []
     for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw, pr, ghs, pmeta, fsha) in rows:
@@ -1329,8 +1335,25 @@ def papers_search(conn: psycopg.Connection, *, q: str | None = None, jel: str | 
     return {"total": total, "limit": limit, "offset": offset, "papers": papers}
 
 
-def record_detail(conn: psycopg.Connection, record_id: str) -> dict | None:
-    """Full record detail for the catalog detail panel / deep-link."""
+def cap_field_values(conn: psycopg.Connection, rows: list[dict], *, key: str = "field_values",
+                     schema_key: str = "schema_id", keep=None) -> list[dict]:
+    """``rows`` with the verbatim fields of each row's ``key`` cut to the public limit (quotes.py),
+    the fields read from the row's schema. ``keep(row)`` → True leaves a row whole (its owner)."""
+    names: dict[str | None, frozenset] = {}
+    out = []
+    for row in rows:
+        if keep is not None and keep(row):
+            out.append(row); continue
+        sid = row.get(schema_key)
+        if sid not in names:
+            names[sid] = quotes.verbatim_names(schema_spec(conn, sid) if sid else None)
+        out.append({**row, key: quotes.cap_values(row.get(key), names[sid])} if names[sid] else row)
+    return out
+
+
+def record_detail(conn: psycopg.Connection, record_id: str, *, full: bool = False) -> dict | None:
+    """Full record detail for the catalog detail panel / deep-link. Quotes are cut to the public
+    limit around the field's value unless ``full`` (the record's owner)."""
     rec = get_record(conn, record_id)
     if rec is None:
         return None
@@ -1352,6 +1375,10 @@ def record_detail(conn: psycopg.Connection, record_id: str) -> dict | None:
         (record_id,)).fetchall()
     evidence = [{"field_path": f, "snippet": s, "page": pg, "source": src, "rect": rect}
                 for (f, s, pg, src, rect) in ev]
+    if not full:
+        fv = rec.get("field_values") if isinstance(rec, dict) else None
+        evidence = [quotes.shorten_item(e, value=quotes.value_at(fv, e["field_path"])) for e in evidence]
+        rec = cap_field_values(conn, [rec])[0]                  # verbatim fields too
     dataset = None
     if rec["dataset_id"]:
         d = get_dataset(conn, rec["dataset_id"])
@@ -1910,7 +1937,8 @@ def dataset_rows(conn: psycopg.Connection, dataset_ids, *, principal=None,
     where, params = _record_query({"dataset": ids}, principal, public_only=public_only)
     rows = conn.execute(
         f"""SELECT r.id, r.document_id, r.paper_id, r.dataset_id, r.schema_id,
-                   r.verification_status, r.field_values, p.year, p.primary_topic, p.title
+                   r.verification_status, r.field_values, p.year, p.primary_topic, p.title,
+                   r.owner_user_id::text, r.session_id
             FROM record r JOIN paper p ON p.id = r.paper_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
             WHERE {where} AND NOT r.screened_empty
@@ -1918,14 +1946,16 @@ def dataset_rows(conn: psycopg.Connection, dataset_ids, *, principal=None,
             LIMIT %s""",
         (*params, limit),
     ).fetchall()
-    return [
+    out = [
         {"record_id": str(rid), "document_id": str(doc) if doc else None,
          "paper_id": str(pid) if pid else None,
          "dataset_id": str(dsid) if dsid else None, "schema_id": sid,
          "verification_status": vs, "year": yr, "primary_topic": pt,
-         "paper_title": title, "field_values": fv}
-        for (rid, doc, pid, dsid, sid, vs, fv, yr, pt, title) in rows
+         "paper_title": title, "field_values": fv, "_own": _owns(principal, owner, sess)}
+        for (rid, doc, pid, dsid, sid, vs, fv, yr, pt, title, owner, sess) in rows
     ]
+    # a row the principal does not own shows verbatim fields cut to 200 characters (quotes.py)
+    return [{k: v for k, v in r.items() if k != "_own"} for r in cap_field_values(conn, out, keep=lambda r: r["_own"])]
 
 
 def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,
@@ -1933,14 +1963,15 @@ def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,
     """Compact provenance for a set of records (powers the figure's data table +
     chart tooltips): document_id, paper, verification, and the record's TOP evidence
     (page + snippet). Authz-scoped exactly like ``dataset_rows`` — records the
-    principal can't see are simply omitted."""
+    principal can't see are simply omitted; the snippet of a record the principal does
+    not own is cut to the public limit."""
     ids = [str(x) for x in (record_ids or []) if x]
     if not ids:
         return []
     vis_sql, vis_params = _visibility_clause(principal, public_only=public_only)
     rows = conn.execute(
         f"""SELECT r.id, r.document_id, r.verification_status, p.title, p.doi, p.year,
-                   e.page, e.snippet, e.source
+                   e.page, e.snippet, e.source, r.owner_user_id::text, r.session_id
             FROM record r JOIN paper p ON p.id = r.paper_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
             LEFT JOIN LATERAL (
@@ -1952,8 +1983,9 @@ def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,
     return [
         {"record_id": str(rid), "document_id": str(doc) if doc else None,
          "verification_status": vs, "paper_title": title, "doi": doi, "year": yr,
-         "page": page, "snippet": snippet, "source": src}
-        for (rid, doc, vs, title, doi, yr, page, snippet, src) in rows
+         "page": page, "source": src,
+         **(quotes.shorten_item({"snippet": snippet}) if not _owns(principal, owner, sess) else {"snippet": snippet})}
+        for (rid, doc, vs, title, doi, yr, page, snippet, src, owner, sess) in rows
     ]
 
 

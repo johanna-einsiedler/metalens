@@ -58,7 +58,7 @@ METALENS = Brand(
     tagline="AI-assisted data extraction from research papers, with human review.",
     logo="/static/logo.svg", landing="landing.html",
     credit_label="Metalens credits",
-    nav_shared=(("/dashboards", "Dashboards"), ("/catalog", "Data Catalogue")),
+    nav_shared=(("/dashboards", "Dashboards"), ("/catalog", "Data Catalogue"), ("/presets", "Presets")),
     nav_personal=(("/extract", "Process papers"), ("/import", "Import"), ("/workspace", "Data review")),
     links={"source": "https://github.com/johanna-einsiedler/metalens"},
 )
@@ -70,7 +70,7 @@ MASEMINER = Brand(
     logo="/static/maseminer-mark.svg", landing="maseminer.html",
     default_preset="masem-direct",
     credit_label="MASEMiner credits",
-    nav_shared=(),
+    nav_shared=(("/presets", "Presets"),),          # the two MASEMiner cards: how they extract, how they were validated
     nav_personal=(("/extract", "Extract"), ("/import", "Import"), ("/workspace", "Review")),
     links={"source": "https://github.com/johanna-einsiedler/metalens",
            "run_locally": "https://github.com/johanna-einsiedler/metalens#run-maseminer-locally",

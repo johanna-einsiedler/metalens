@@ -62,21 +62,34 @@ IDENTITY_FIELDS = (
 )
 
 _ALLOWED_KEYS = {
-    "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display"},
-    "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url", "update"},
+    "root": {"format", "id", "version", "meta", "prompt", "paper", "entries", "confidence", "display", "card"},
+    "meta": {"title", "tagline", "description", "mode", "hidden", "brands", "source_url", "update",
+             "authors", "keywords", "license", "related", "evaluated_with"},
     "prompt": {"file", "text", "params", "generate"},
     "param": {"type", "label", "help", "default", "columns", "numbered", "empty", "block"},
     "paper": {"fields"},
     "entries": {"key", "label", "help", "cardinality", "id_field", "title", "evidence", "fields", "children"},
     "child": {"key", "label", "help", "title", "evidence", "layout", "fields"},
     "field": {"name", "label", "type", "help", "required", "range", "options", "allow_other",
-              "columns", "evidence", "confidence"},
-    "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
+              "columns", "evidence", "confidence", "verbatim"},
+    "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other", "verbatim"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
     "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review"},
     "tab": {"id", "label", "fields"},
+    # the card: a curated preset's own documentation page, and who to credit for the preset
+    "card": {"file", "text"},
+    "author": {"family", "given", "orcid", "affiliation"},
+    "related": {"kind", "title", "doi", "url", "id", "role"},
+    "evaluated": {"model", "mode", "note"},
 }
+RUN_MODES = ("extraction", "agent", "import")
+
+# what a card may relate the preset to (papers describing or using it, its preregistration,
+# supplements, code, dashboards, a companion preset, its funding)
+RELATED_KINDS = ("paper", "preregistration", "supplement", "repository", "dashboard", "website", "preset", "funding")
+ORCID_RE = re.compile(r"^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$")
+DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
 
 
 class SpecError(ValueError):
@@ -101,17 +114,19 @@ def canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def _read_sibling(name: str, base_dir: Path) -> str:
-    """Read a file next to the preset JSON, refusing anything outside the presets dir."""
-    candidate = (base_dir / name).resolve()
+def _read_sibling(name: str, base_dir: Path, *, what: str = "prompt.file") -> str:
+    """Read a file next to the preset JSON, refusing anything outside the preset's own directory
+    (a bundled preset's siblings live in ``PRESETS_DIR``; a preset loaded from
+    ``PAPERLENS_PRESET_DIRS`` or a deposited bundle keeps its files beside it)."""
+    candidate = (Path(base_dir) / name).resolve()
     try:
-        candidate.relative_to(PRESETS_DIR.resolve())
+        candidate.relative_to(Path(base_dir).resolve())
     except ValueError:
-        raise SpecError([f"prompt.file {name!r} is outside the presets directory"])
+        raise SpecError([f"{what} {name!r} is outside the preset's directory"])
     try:
         return candidate.read_text(encoding="utf-8")
     except OSError as e:
-        raise SpecError([f"prompt.file {name!r} could not be read: {e}"])
+        raise SpecError([f"{what} {name!r} could not be read: {e}"])
 
 
 def _collapse_blank_lines(text: str) -> str:
@@ -195,6 +210,14 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
                             spec.get("id"))
         prompt["text"] = _read_sibling(prompt["file"], Path(base_dir))
     prompt.pop("file", None)
+    card = spec.get("card")
+    if isinstance(card, dict):                   # the card text travels like the prompt text
+        if card.get("file") and not card.get("text"):
+            if base_dir is None:
+                raise SpecError([f"card.file {card['file']!r} given but no base directory to read it from"],
+                                spec.get("id"))
+            card["text"] = _read_sibling(card["file"], Path(base_dir), what="card.file")
+        card.pop("file", None)
     prompt.setdefault("params", {})
     for pname, pdecl in list(prompt["params"].items()):
         if not isinstance(pdecl, dict):             # shorthand: a bare default value
@@ -251,6 +274,102 @@ def _param_type_from_default(v: Any) -> str:
 
 
 # ── validation ────────────────────────────────────────────────────────────────
+
+def _validate_card(spec: dict, meta: dict, E, W) -> None:
+    """The card metadata: authors, keywords, licence, related work and the card text. None
+    of it enters the data contract; all of it is checked because a card is shown on a public
+    page and deposited under a DOI, where a typo is permanent."""
+    authors = meta.get("authors")
+    if authors is not None:
+        if not isinstance(authors, list):
+            E("$.meta.authors must be a list of {family, given, orcid?, affiliation?} objects"); authors = None
+        else:
+            for i, a in enumerate(authors):
+                at = f"$.meta.authors[{i}]"
+                if not isinstance(a, dict):
+                    E(f"{at} must be an object"); continue
+                for k in a:
+                    if k not in _ALLOWED_KEYS["author"]:
+                        E(f"{at}: unknown key {k!r}")
+                if not (isinstance(a.get("family"), str) and a["family"].strip()):
+                    E(f"{at}.family is required")
+                for k in ("given", "affiliation"):
+                    if a.get(k) is not None and not isinstance(a[k], str):
+                        E(f"{at}.{k} must be a string")
+                orcid = a.get("orcid")
+                if orcid is not None and not (isinstance(orcid, str) and ORCID_RE.match(orcid)):
+                    E(f"{at}.orcid must look like 0000-0002-1825-0097")
+    kws = meta.get("keywords")
+    if kws is not None and not (isinstance(kws, list) and all(isinstance(k, str) and k.strip() for k in kws)):
+        E("$.meta.keywords must be a list of non-empty strings")
+    lic = meta.get("license")
+    if lic is not None and not (isinstance(lic, str) and lic.strip()):
+        E("$.meta.license must be an SPDX licence id such as CC-BY-4.0")
+    related = meta.get("related")
+    if related is not None:
+        if not isinstance(related, list):
+            E("$.meta.related must be a list of {kind, title, doi?, url?, id?, role?} objects")
+        else:
+            for i, r in enumerate(related):
+                at = f"$.meta.related[{i}]"
+                if not isinstance(r, dict):
+                    E(f"{at} must be an object"); continue
+                for k in r:
+                    if k not in _ALLOWED_KEYS["related"]:
+                        E(f"{at}: unknown key {k!r}")
+                kind = r.get("kind")
+                if kind not in RELATED_KINDS:
+                    E(f"{at}.kind must be one of {', '.join(RELATED_KINDS)}")
+                if not (isinstance(r.get("title"), str) and r["title"].strip()):
+                    E(f"{at}.title is required")
+                doi = r.get("doi")
+                if doi is not None and not (isinstance(doi, str) and DOI_RE.match(doi)):
+                    E(f"{at}.doi must be a bare DOI such as 10.31234/osf.io/dceqs_v1 (no https://doi.org/)")
+                url = r.get("url")
+                if url is not None and not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+                    E(f"{at}.url must be an http(s) URL")
+                if kind == "preset" and not (isinstance(r.get("id"), str) and ID_RE.match(r["id"])):
+                    E(f"{at}.id must name a preset when kind is 'preset'")
+                if r.get("id") is not None and kind != "preset":
+                    E(f"{at}.id only applies to kind 'preset'")
+                if r.get("role") is not None and not isinstance(r["role"], str):
+                    E(f"{at}.role must be a string")
+    ev = meta.get("evaluated_with")
+    if ev is not None:
+        if not isinstance(ev, list):
+            E("$.meta.evaluated_with must be a list of {model, mode?, note?} objects")
+        else:
+            for i, m in enumerate(ev):
+                at = f"$.meta.evaluated_with[{i}]"
+                if not isinstance(m, dict):
+                    E(f"{at} must be an object"); continue
+                for k in m:
+                    if k not in _ALLOWED_KEYS["evaluated"]:
+                        E(f"{at}: unknown key {k!r}")
+                if not (isinstance(m.get("model"), str) and m["model"].strip()):
+                    E(f"{at}.model is required (the model id as the provider names it)")
+                if m.get("mode") is not None and m["mode"] not in RUN_MODES:
+                    E(f"{at}.mode must be one of {', '.join(RUN_MODES)}")
+                if m.get("note") is not None and not isinstance(m["note"], str):
+                    E(f"{at}.note must be a string")
+    card = spec.get("card")
+    if card is not None:
+        if not isinstance(card, dict):
+            E('$.card must be an object: {"file": "<id>.card.md"} or {"text": "…"}')
+        else:
+            for k in card:
+                if k not in _ALLOWED_KEYS["card"]:
+                    E(f"$.card: unknown key {k!r}")
+            if not (isinstance(card.get("text"), str) and card["text"].strip()):
+                E("$.card.file or $.card.text must hold the card markdown (non-empty)")
+    # a card is deposited under its authors and a licence
+    if (card is not None or authors is not None) and not authors:
+        E("$.meta.authors (at least one) is required when a preset carries a card")
+    if (card is not None or authors) and not lic:
+        E("$.meta.license is required when a preset carries a card (CC-BY-4.0 is the convention)")
+    if (card is not None or authors) and not kws:
+        W("$.meta.keywords: a card without keywords is hard to find in the inventory and on Zenodo")
+
 
 def validate(spec: dict) -> tuple[list[str], list[str]]:
     """Every problem at once, path-prefixed. Returns (errors, warnings); errors block
@@ -314,6 +433,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E(f"{at}: a pages step names its group (design, theory, ...)")
                     if not (isinstance(st.get("keyed_by"), str) and st["keyed_by"]):
                         E(f"{at}: a pages step names keyed_by (the entries column whose values key the pages)")
+
+    _validate_card(spec, meta, E, W)
 
     prompt = spec.get("prompt")
     params: dict = {}
@@ -394,6 +515,11 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             E(f"{at}.options only applies to enum / multi fields")
         if f.get("allow_other") and ftype != "enum":
             E(f"{at}.allow_other only applies to enum fields")
+        if "verbatim" in f:                               # the value IS a quotation of the paper: cut in public copies
+            if not isinstance(f["verbatim"], bool):
+                E(f"{at}.verbatim must be true or false")
+            elif f["verbatim"] and ftype not in ("string", "text", "list"):
+                E(f"{at}.verbatim only applies to string, text or list fields")
         rng = f.get("range")
         if rng is not None:
             if ftype not in ("integer", "number"):
@@ -852,6 +978,9 @@ def parse_path(path: str | None, spec: dict | None = None, key: str | None = Non
 # ── hashing / identity ────────────────────────────────────────────────────────
 
 _WORDING_KEYS = ("label", "help", "title")
+# Publication policy, not shape: a field declared `verbatim` holds a quotation of the paper, which
+# public copies cut to 200 characters (paperlens/quotes.py). Flagging a field never re-versions data.
+_POLICY_KEYS = ("verbatim",)
 
 
 def data_contract(spec: dict) -> dict:
@@ -860,7 +989,7 @@ def data_contract(spec: dict) -> dict:
     changing the shape of what it extracts."""
     def strip(node):
         if isinstance(node, dict):
-            return {k: strip(v) for k, v in node.items() if k not in _WORDING_KEYS}
+            return {k: strip(v) for k, v in node.items() if k not in _WORDING_KEYS and k not in _POLICY_KEYS}
         if isinstance(node, list):
             return [strip(x) for x in node]
         return node
@@ -879,6 +1008,45 @@ def schema_id(spec: dict) -> str:
 
 def label(spec: dict) -> str:
     return f"{spec['meta']['title']} v{spec.get('version', 1)} ({content_hash(spec)[:8]})"
+
+
+# ── the card: a curated preset's documentation and credits ───────────────────
+
+def has_card(spec: dict) -> bool:
+    """A curated preset is one that carries a card — the condition for being listed in the
+    public inventory and released under its own DOI. Personal presets never qualify."""
+    return bool(((spec.get("card") or {}).get("text") or "").strip())
+
+
+def card_meta(spec: dict) -> dict:
+    m = spec.get("meta") or {}
+    return {"authors": list(m.get("authors") or []), "keywords": list(m.get("keywords") or []),
+            "license": m.get("license"), "related": list(m.get("related") or []),
+            "evaluated_with": list(m.get("evaluated_with") or []),
+            "text": (spec.get("card") or {}).get("text")}
+
+
+def author_name(a: dict) -> str:
+    """``Given Family``, for display."""
+    return " ".join(x for x in (str(a.get("given") or "").strip(), str(a.get("family") or "").strip()) if x)
+
+
+def _initials(given: str) -> str:
+    return " ".join("-".join(p[0] + "." for p in tok.split("-") if p) for tok in given.split())
+
+
+def authors_apa(authors: list[dict] | None) -> str:
+    """``Schroeders, U., Gnambs, T., & Einsiedler, J.`` — the author list of a citation."""
+    names = []
+    for a in authors or []:
+        fam = str(a.get("family") or "").strip()
+        ini = _initials(str(a.get("given") or ""))
+        names.append(f"{fam}, {ini}" if ini else fam)
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + f", & {names[-1]}"
 
 
 # ── parameters ────────────────────────────────────────────────────────────────
@@ -1659,3 +1827,232 @@ def field_defs_for(spec: dict) -> dict:
         "core_keys": placeable,
         "spec": spec,
     }
+
+
+# ── documentation for people: the card's Fields section and the bundle's fields.md ──
+# One source, two renderings (the page draws the structure; the deposit gets the markdown),
+# so the documentation of a preset can never drift from its declaration.
+
+EVIDENCE_TEXT = {
+    "value": "quoted — the snippet must contain the value verbatim (coded categories: the passage that justifies the code)",
+    "row": "identified — one quotation per entry or row",
+    "table": "cited as a block — the caption or header row",
+    "none": "no quotation required",
+}
+
+
+def _type_text(f: dict) -> str:
+    t = f.get("type", "string")
+    if t == "string":
+        return "text"
+    if t == "text":
+        return "free text (markdown)"
+    if t in ("integer", "number"):
+        rng = f.get("range")
+        return t + (f" in [{rng[0]}, {rng[1]}]" if rng else "")
+    if t == "boolean":
+        return "yes / no"
+    if t == "enum":
+        return "one of the options"
+    if t == "multi":
+        return "any of the options"
+    if t == "list":
+        return "list of strings"
+    if t == "table":
+        return f"table, {len(f.get('columns') or [])} columns"
+    return t
+
+
+def _code_label(pdecl: dict, value: Any, code: str) -> str | None:
+    if pdecl.get("type") == "table" and isinstance(value, list):
+        cols = pdecl.get("columns") or ["code", "label"]
+        for row in value:
+            if isinstance(row, dict) and str(row.get(cols[0])) == code:
+                second = row.get(cols[1]) if len(cols) > 1 else None
+                if second not in (None, ""):
+                    return str(second)
+    return _DEFAULT_CODE_LABELS.get(code.lower())
+
+
+def _options_doc(f: dict, params: dict, decl: dict) -> dict | None:
+    opts = f.get("options")
+    if isinstance(opts, str):
+        m = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", opts)
+        if not m:
+            return None
+        pname = m.group(1)
+        pdecl = decl.get(pname, {})
+        codes = _param_codes(pdecl, params.get(pname))
+        return {"kind": "param", "param": pname, "param_label": pdecl.get("label") or format_key(pname),
+                "items": [{"value": c, "label": _code_label(pdecl, params.get(pname), c)} for c in codes],
+                "empty": pdecl.get("empty")}
+    if isinstance(opts, list):
+        return {"kind": "fixed", "items": [{"value": o.get("value"), "label": o.get("label")} if isinstance(o, dict)
+                                            else {"value": o, "label": None} for o in opts]}
+    return None
+
+
+def _field_doc(f: dict, path: str, params: dict, decl: dict, groups: dict) -> dict:
+    gid = f.get("confidence")
+    ev = f.get("evidence")
+    d = {"name": f["name"], "path": path, "label": f.get("label") or format_key(f["name"]),
+         "type": f.get("type", "string"), "type_text": _type_text(f), "required": bool(f.get("required")),
+         "help": f.get("help"), "options": _options_doc(f, params, decl), "allow_other": bool(f.get("allow_other")),
+         "range": f.get("range"), "evidence": ev, "evidence_text": EVIDENCE_TEXT.get(ev) if ev else None,
+         "confidence": gid, "confidence_label": (groups.get(gid) or {}).get("label") if gid else None,
+         "verbatim": bool(f.get("verbatim"))}
+    if f.get("type") == "table":
+        d["columns"] = [_field_doc(c, f"{path}[r].{c['name']}", params, decl, groups) for c in f.get("columns") or []]
+    return d
+
+
+def field_docs(spec: dict, params: dict | None = None) -> dict:
+    """Every declared field, documented for people: identity fields, paper-level fields, the
+    entries and their sub-entries (table columns nested), the parameters and what they feed,
+    the confidence groups and what they cover, and the evidence legend."""
+    params = params if params is not None else resolve_params(spec)
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    groups = {g["id"]: g for g in (spec.get("confidence") or {}).get("groups") or []}
+    ent = spec.get("entries") or {}
+    key = ent.get("key")
+    identity = [{"name": n, "type": t, "help": h} for n, t, h in IDENTITY_FIELDS]
+    paper = [_field_doc(f, f"paper_metadata.{f['name']}", params, decl, groups)
+             for f in (spec.get("paper") or {}).get("fields") or []]
+    entries = None
+    children: list[dict] = []
+    if ent:
+        entries = {"key": key, "label": ent.get("label"), "help": ent.get("help"), "cardinality": ent.get("cardinality"),
+                   "id_field": ent.get("id_field"), "title": ent.get("title"), "evidence": ent.get("evidence"),
+                   "evidence_text": EVIDENCE_TEXT.get(ent.get("evidence")),
+                   "fields": [_field_doc(f, f"{key}[i].{f['name']}", params, decl, groups) for f in ent.get("fields") or []]}
+        for ch in ent.get("children") or []:
+            children.append({"key": ch["key"], "label": ch.get("label"), "help": ch.get("help"), "layout": ch.get("layout"),
+                             "evidence": ch.get("evidence"), "evidence_text": EVIDENCE_TEXT.get(ch.get("evidence")),
+                             "fields": [_field_doc(f, f"{key}[i].{ch['key']}[j].{f['name']}", params, decl, groups)
+                                        for f in ch.get("fields") or []]})
+    every = list(paper) + list((entries or {}).get("fields") or []) + [f for ch in children for f in ch["fields"]]
+    text = (spec.get("prompt") or {}).get("text") or ""
+    pdocs = []
+    for name, d in decl.items():
+        used_by = [fd["path"] for fd in every if (fd.get("options") or {}).get("param") == name]
+        if f"${{{name}}}" in text:
+            used_by.append("the prompt text")
+        default = d.get("default")
+        pdocs.append({"name": name, "label": d.get("label") or format_key(name), "type": d.get("type"), "help": d.get("help"),
+                      "default": default, "default_text": render_param(d, default) if default not in (None, "", []) else None,
+                      "empty_text": d.get("empty"), "used_by": used_by})
+    conf = spec.get("confidence") or {}
+    cgroups = [{"id": g["id"], "label": g.get("label"), "scope": g.get("scope"), "help": g.get("help"),
+                "covers": fields_of_group(spec, g["id"])} for g in conf.get("groups") or []]
+    counts = {"fields": len(every), "required": sum(1 for d in every if d["required"]),
+              "tables": sum(1 for d in every if d["type"] == "table"),
+              "columns": sum(len(d.get("columns") or []) for d in every),
+              "children": len(children), "params": len(decl)}
+    return {"schema_id": schema_id(spec), "identity": identity, "paper": paper, "entries": entries, "children": children,
+            "params": pdocs, "confidence": {"levels": conf.get("levels"), "notes": conf.get("notes"), "groups": cgroups},
+            "evidence_legend": dict(EVIDENCE_TEXT), "counts": counts}
+
+
+def _md_cell(s: Any) -> str:
+    return str(s if s is not None else "").replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _opt_text(o: dict) -> str:
+    return f"{o['value']} = {o['label']}" if o.get("label") else str(o["value"])
+
+
+def _md_meaning(d: dict, extra: list) -> str:
+    meaning = d["label"] or ""
+    if d.get("help"):
+        meaning += f" — {d['help']}"
+    if d.get("verbatim"):
+        meaning += " · a quotation of the paper: public copies show at most 200 characters"
+    opts = d.get("options")
+    if opts:
+        if opts["kind"] == "param":
+            meaning += f" · codes from the **{opts['param_label']}** parameter, set per run"
+            if opts["items"]:
+                meaning += " · default: " + "; ".join(_opt_text(o) for o in opts["items"])
+            elif opts.get("empty"):
+                meaning += f" · no default ({opts['empty']})"
+        elif len(opts["items"]) <= 8:
+            meaning += " · " + "; ".join(_opt_text(o) for o in opts["items"])
+        else:
+            extra.append((d["name"], opts["items"]))
+            meaning += f" · {len(opts['items'])} options, listed below"
+    if d.get("allow_other"):
+        meaning += " · or the paper's own term"
+    return meaning
+
+
+def _md_fields(rows: list[dict], *, columns: bool = False) -> list[str]:
+    extra: list = []
+    if columns:
+        lines = ["| Column | Type | Required | Meaning |", "|:--|:--|:--|:--|"]
+        for d in rows:
+            lines.append(f"| `{_md_cell(d['name'])}` | {_md_cell(d['type_text'])} | {'yes' if d['required'] else ''} | {_md_cell(_md_meaning(d, extra))} |")
+    else:
+        lines = ["| Field | Type | Required | Evidence | Confidence | Meaning |", "|:--|:--|:--|:--|:--|:--|"]
+        for d in rows:
+            ev = (d.get("evidence_text") or "").split(" — ")[0]
+            lines.append(f"| `{_md_cell(d['name'])}` | {_md_cell(d['type_text'])} | {'yes' if d['required'] else ''} | {_md_cell(ev)} | "
+                         f"{_md_cell(d.get('confidence_label') or '')} | {_md_cell(_md_meaning(d, extra))} |")
+    for name, items in extra:
+        lines += ["", f"Options of `{name}`:", ""] + [f"- {_opt_text(o)}" for o in items]
+    for d in rows:
+        if d.get("columns"):
+            lines += ["", f"### Columns of {d['label']} (`{d['name']}`)", ""] + _md_fields(d["columns"], columns=True)
+    return lines
+
+
+def fields_markdown(spec: dict, params: dict | None = None) -> str:
+    """``field_docs`` as markdown with pipe tables — the deposited ``fields.md``."""
+    doc = field_docs(spec, params)
+    title = (spec.get("meta") or {}).get("title") or spec["id"]
+    L = [f"# Fields — {title} (`{doc['schema_id']}`)", "",
+         "Every value this preset extracts: its type, whether it is required, the evidence policy and the "
+         "confidence group it is rated under. Paths follow the evidence grammar (`paper_metadata.<field>`, "
+         "`<entries>[i].<field>`, `<entries>[i].<child>[j].<field>`, `<table>[r].<column>`), so a row here "
+         "matches a cell in a release's `evidence.json`.", "",
+         "## Identity fields", "", "Always extracted, whatever the preset declares (`paper_metadata`):", ""]
+    L += [f"- `{i['name']}` ({i['type']}) — {i['help']}" for i in doc["identity"]]
+    if doc["paper"]:
+        L += ["", "## Paper-level fields", "", "Once per paper, in `paper_metadata`:", ""] + _md_fields(doc["paper"])
+    e = doc["entries"]
+    if e:
+        L += ["", f"## {e['label']} (`{e['key']}`)", ""]
+        intro = f"One `{e['key']}` element per {e['label'].lower()}" if e.get("cardinality") != "one" else f"Exactly one {e['label'].lower()}"
+        if e.get("help"):
+            intro += f" — {e['help']}"
+        bits = []
+        if e.get("id_field"):
+            bits.append(f"identified by `{e['id_field']}`")
+        if e.get("evidence_text"):
+            bits.append(f"evidence: {e['evidence_text']}")
+        L += [intro + "." + (" " + "; ".join(bits).capitalize() + "." if bits else ""), ""] + _md_fields(e["fields"])
+        for ch in doc["children"]:
+            L += ["", f"## {ch['label']} (`{ch['key']}`, inside each {e['label'].lower()})", ""]
+            lead = f"Zero or more per {e['label'].lower()}"
+            if ch.get("help"):
+                lead += f" — {ch['help']}"
+            if ch.get("evidence_text"):
+                lead += f". Evidence: {ch['evidence_text']}"
+            L += [lead + ".", ""] + _md_fields(ch["fields"])
+    if doc["params"]:
+        L += ["", "## Parameters", "", "Set per run; the defaults are what the inventory documents.", "",
+              "| Parameter | Type | Default | Used by | Meaning |", "|:--|:--|:--|:--|:--|"]
+        for p in doc["params"]:
+            default = p["default_text"] if p["default_text"] else (f"none ({p['empty_text']})" if p.get("empty_text") else "none")
+            L.append(f"| `{p['name']}` | {_md_cell(p['type'])} | {_md_cell(default)} | {_md_cell(', '.join(p['used_by']) or '—')} | "
+                     f"{_md_cell(p['label'] + (' — ' + p['help'] if p.get('help') else ''))} |")
+    conf = doc["confidence"]
+    if conf["groups"]:
+        L += ["", "## Confidence ratings", "",
+              f"The model rates its confidence per group on the levels {', '.join(conf['levels'] or [])}"
+              + (", with a note" if conf.get("notes") else "") + ":", ""]
+        for g in conf["groups"]:
+            covers = ", ".join(f"`{c}`" for c in g["covers"]) or "—"
+            L.append(f"- **{g['label']}** (`{g['id']}`, per {g['scope']}): {g['help'] + ' — ' if g.get('help') else ''}covers {covers}")
+    L += ["", "## Evidence policy", "", "What a coder sees next to each value in the review screen:", ""]
+    L += [f"- **{k}**: {v}" for k, v in doc["evidence_legend"].items()]
+    return "\n".join(L) + "\n"

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, quotes, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -231,15 +231,33 @@ def projects_page() -> FileResponse:
     return _page("projects.html")
 
 
-@app.get("/dataset")
-def dataset_page() -> FileResponse:
-    """Dataset overview (?id=…): recipe + stats + papers (add / delete / review)."""
+def _page_db():
+    """get_db for the page routes above its definition: resolved when a request arrives."""
+    yield from get_db()
+
+
+@app.get("/dataset", response_model=None)
+def dataset_page(slug: str | None = None, id: str | None = None, db=Depends(_page_db)) -> FileResponse | RedirectResponse:
+    """Dataset overview (?id=…): recipe + stats + papers (add / delete / review). ``?slug=`` (what
+    release files link to: a slug survives the copy to another Metalens server, an id does not)
+    redirects to the dataset's id here; the page's own gate decides what the reader may see."""
+    if slug and not id:
+        d = records.dataset_by_slug(db, slug)
+        if d:
+            return RedirectResponse(f"/dataset?id={d['id']}", status_code=307)
     return _page("dataset.html")
+
+
+@app.get("/presets")
+def presets_page() -> FileResponse:
+    """Public: the preset inventory — one card per curated preset (what it extracts, how it was
+    verified, how to cite it, what was built with it)."""
+    return _page("presets.html")
 
 
 @app.get("/preset")
 def preset_page() -> FileResponse:
-    """Personal preset editor: create (no ?id) or edit (?id=…) an owned preset."""
+    """Public card of a curated preset (?id=…); the editor with ?edit=1, or without an id (new)."""
     return _page("preset.html")
 
 
@@ -455,7 +473,8 @@ def papers_lookup(doi: str, db=Depends(get_db)) -> dict:
 
 @app.get("/api/papers/{paper_id}/records")
 def papers_records(paper_id: str, db=Depends(get_db)) -> dict:
-    return {"paper_id": paper_id, "records": records.records_for_paper(db, paper_id)}
+    # a public route: verbatim fields cut to 200 characters (quotes.py)
+    return {"paper_id": paper_id, "records": records.cap_field_values(db, records.records_for_paper(db, paper_id))}
 
 
 @app.get("/api/documents")
@@ -637,13 +656,15 @@ def list_datasets(db=Depends(get_db), who: Principal = Depends(principal)) -> di
 
 
 @app.get("/api/datasets/public")
-def datasets_public(limit: int = 50, offset: int = 0, q: str | None = None,
+def datasets_public(limit: int = 50, offset: int = 0, q: str | None = None, preset: str | None = None,
                     db=Depends(get_db)) -> dict:
     """Public datasets each with a computed credibility badge (one query). Declared
     before /{dataset_id} so 'public' isn't captured as an id. ``q`` full-text searches
-    the dataset title/description/prompt/preset."""
+    the dataset title/description/prompt/preset; ``preset`` keeps the datasets built with
+    that preset (every version of it)."""
+    from . import preset_cards
     return {"datasets": records.public_datasets_with_badges(
-        db, limit=min(limit, 200), offset=offset, q=q)}
+        db, limit=min(limit, 200), offset=offset, q=q, preset_bases=preset_cards.bases_for(preset) if preset else None)}
 
 
 @app.get("/api/datasets/rows")
@@ -663,9 +684,12 @@ def get_dataset(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     if d["visibility"] != "public" and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=404, detail="Dataset not found.")
+    owner = records.is_dataset_owner(db, dataset_id, who)
     d["records"] = records.dataset_records(db, dataset_id)
+    if not owner:                                                   # verbatim fields cut for a public reader
+        d["records"] = records.cap_field_values(db, d["records"])
     d["credibility"] = records.dataset_credibility(db, dataset_id)  # computed badge
-    if not records.is_dataset_owner(db, dataset_id, who):
+    if not owner:
         d.pop("owner_citation_name", None)
     return d
 
@@ -761,11 +785,12 @@ def dataset_analysis_evidence(dataset_id: str, body: CellEvidenceBody, db=Depend
                               who: Principal = Depends(principal)) -> dict:
     """The evidence behind up to 300 cells of the analysis table: quote, page, source label and
     the kind of support (exact value / table row / whole table / entry-level). Never geometry,
-    page images or editors: those stay behind the owner-only document view."""
+    page images or editors: those stay behind the owner-only document view. Quotes are cut to
+    200 characters around the value for everyone but the owner."""
     from . import analysis_table
-    _dataset_gate(db, dataset_id, who)
+    owner = _dataset_gate(db, dataset_id, who)
     return {"cells": analysis_table.cell_evidence(db, dataset_id, body.unit, body.cells,
-                                                   release=_release_or_404(db, dataset_id, body.release))}
+                                                   release=_release_or_404(db, dataset_id, body.release), full=owner)}
 
 
 # ── dataset releases: frozen copies that dashboards pin ─────────────────────────
@@ -1688,8 +1713,8 @@ class DashboardEvidenceBody(CellEvidenceBody):
 @app.post("/api/dashboards/{dashboard_id}/evidence")
 def dashboards_evidence(dashboard_id: str, body: DashboardEvidenceBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     from . import analysis_table
-    d, _as_owner, rel = _dashboard_data_source(db, dashboard_id, who, body.view)
-    return {"cells": analysis_table.cell_evidence(db, d["dataset_id"], body.unit, body.cells, release=rel)}
+    d, as_owner, rel = _dashboard_data_source(db, dashboard_id, who, body.view)
+    return {"cells": analysis_table.cell_evidence(db, d["dataset_id"], body.unit, body.cells, release=rel, full=as_owner)}
 
 
 class DashboardPublishBody(BaseModel):
@@ -1834,8 +1859,14 @@ def dataset_export(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     out = records.dataset_export(db, dataset_id)
     if not owner:                        # don't leak the uploader's local filenames
+        names = {sid: quotes.verbatim_names(records.schema_spec(db, sid))
+                 for (sid,) in db.execute("SELECT DISTINCT schema_id FROM record WHERE dataset_id = %s::uuid AND schema_id IS NOT NULL",
+                                          (dataset_id,)).fetchall()}
+        cut = frozenset().union(*names.values()) if names else frozenset()
         for paper in out.get("papers", []):
             paper["filename"] = None
+            for rec in paper.get("records") or []:                  # verbatim fields cut to 200 characters
+                rec["values"] = quotes.cap_values(rec.get("values"), cut)
     return out
 
 
@@ -2245,10 +2276,11 @@ def papers_search(q: str | None = None, jel: str | None = None, topic: str | Non
 def record_detail(record_id: str, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Full record detail: record + paper(+provenance) + evidence + events + dataset.
-    Visible iff the record is in a public dataset OR owned by the principal."""
+    Visible iff the record is in a public dataset OR owned by the principal; the owner sees the
+    full quotes, everyone else at most 200 characters of each."""
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
-    d = records.record_detail(db, record_id)
+    d = records.record_detail(db, record_id, full=records.records_all_owned(db, [record_id], who))
     if d is None:
         raise HTTPException(status_code=404, detail="Record not found.")
     return d
@@ -3066,6 +3098,115 @@ def preset_detail(preset_id: str, db=Depends(get_db),
     if meta is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
     return meta
+
+
+# ── the preset inventory: one card per curated preset, with releases and DOIs ─────────────────
+
+def _viewer(db, who: Principal) -> dict | None:
+    user = auth.get_user(db, who.user_id) if who.user_id else None
+    if user is None and localmode.enabled() and who.user_id:        # the fixed local owner moderates its own instance
+        user = {"id": who.user_id, "email": localmode.LOCAL_EMAIL}
+    return user
+
+
+@app.get("/api/presets/cards")
+def preset_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict:
+    """Public: every curated preset this brand offers (hidden and import-mode ones included),
+    with its latest release, citation and counts of what was built with it."""
+    from . import preset_cards
+    return {"cards": preset_cards.inventory(db, b)}
+
+
+@app.get("/api/presets/{preset_id}/card")
+def preset_card(preset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Public: the card of a curated preset — its text, every field documented, releases and
+    citations, the public datasets and dashboards built with it, the verification roll-up. Not
+    gated by brand (a DOI landing must always resolve); 404 for anything without a card."""
+    from . import preset_cards
+    user = _viewer(db, who)
+    out = preset_cards.card(db, preset_id, viewer_is_admin=admins.is_admin(user), user=user)
+    if out is None:
+        raise HTTPException(status_code=404, detail="No card for this preset.")
+    return out
+
+
+@app.get("/api/presets/{preset_id}/releases/{number}/bundle")
+def preset_release_bundle(preset_id: str, number: int, db=Depends(get_db)):
+    """Public: one release as a zip — a loadable preset directory (preset.json, prompt.md,
+    card.md) plus fields.md, CITATION.cff and a README; the same files a deposit holds."""
+    from fastapi.responses import Response
+    from . import preset_bundle, preset_cards, preset_releases, zenodo
+    pid = presets.resolve_id(preset_id)
+    rel = preset_releases.get_by_number(db, pid, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such release.")
+    files = preset_bundle.build(rel["spec"], rel, doi=rel["doi"] if zenodo.counts_here(rel.get("doi")) else None,
+                                concept_doi=preset_releases.concept_doi(db, pid), card_url=preset_cards.card_url(pid))
+    return Response(content=preset_bundle.as_zip(files, pid, number), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{pid}-v{number}.zip"'})
+
+
+class PresetReleaseBody(BaseModel):
+    notes: str = ""
+    doi: bool = False           # mint the DOI in the same call
+
+
+def _mint_preset(db, rel: dict, who: Principal) -> dict:
+    from . import preset_cards, zenodo
+    pid = rel["preset_id"]
+    return zenodo.deposit_preset(db, rel, minted_by=who.user_id, card_url=preset_cards.card_url(pid),
+                                 dataset_dois=preset_cards.dataset_dois_for(db, pid, rel["spec"]))
+
+
+@app.post("/api/presets/{preset_id}/releases")
+def preset_release_create(preset_id: str, body: PresetReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only (PAPERLENS_ADMINS): cut the next release of a curated preset as shipped
+    now — declaration, prompt and card frozen next to the schema row they hash to. 404 for a
+    preset without a card, 409 when nothing changed since the latest release."""
+    from . import preset_releases, zenodo
+    user = _require_admin(db, who)
+    try:
+        rel = preset_releases.create(db, preset_id, notes=body.notes, created_by=who.user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    out: dict = {**preset_releases.public_row(rel), "problems": []}
+    if body.doi:
+        why = "Zenodo isn’t configured on this server." if not zenodo.configured() else zenodo.may_mint(db, user)
+        if why:
+            out["problems"].append(f"no DOI: {why}")
+        else:
+            try:
+                out.update(preset_releases.public_row(_mint_preset(db, rel, who)))
+            except RuntimeError as exc:
+                out["problems"].append(f"no DOI: {exc}")
+    return out
+
+
+@app.post("/api/presets/{preset_id}/releases/{number}/doi")
+def preset_release_doi(preset_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only: mint the DOI of a preset release on Zenodo (a new version of the
+    preset's record, under the server's account — permanent). 400 when Zenodo is not configured,
+    403 when this account may not mint (allow-list, daily cap), 409 when the release has its DOI,
+    502 when Zenodo refuses a step."""
+    from . import preset_releases, zenodo
+    user = _require_admin(db, who)
+    if not zenodo.configured():
+        raise HTTPException(status_code=400, detail="Zenodo isn’t configured on this server.")
+    rel = preset_releases.get_by_number(db, presets.resolve_id(preset_id), number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such release.")
+    if zenodo.counts_here(rel.get("doi")):
+        raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
+    why = zenodo.may_mint(db, user)
+    if why:
+        raise HTTPException(status_code=403, detail=why)
+    try:
+        rel = _mint_preset(db, rel, who)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {**preset_releases.public_row(rel), "minted": True}
 
 
 class BuildPresetBody(BaseModel):

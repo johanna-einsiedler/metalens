@@ -105,6 +105,20 @@ def test_publish_flow() -> None:
     # PR url written back onto the dataset
     got = records.get_dataset(conn, ds_id)
     assert got["git_pr_url"] == "https://github.com/o/metalens-datasets/pull/7"
+    # publishing again before the merge updates the open pull request instead of failing on it
+    def again(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path.endswith("/pulls"):
+            return httpx.Response(422, json={"message": "Validation Failed", "errors": [{"message": "A pull request already exists for o:metalens/test-branch."}]})
+        if request.method == "GET" and request.url.path.endswith("/pulls"):
+            assert request.url.params["head"].endswith(":metalens/test-branch")
+            return httpx.Response(200, json=[{"html_url": "https://github.com/o/metalens-datasets/pull/7"}])
+        return handler(request)
+    os.environ["PAPERLENS_GITHUB_TOKEN"] = "ghp_test"
+    try:
+        res2 = github_publish.publish_dataset(conn, ds_id, client=httpx.Client(transport=httpx.MockTransport(again)), branch="metalens/test-branch")
+    finally:
+        os.environ.pop("PAPERLENS_GITHUB_TOKEN", None)
+    assert res2["pr_url"].endswith("/pull/7")
 
     # with a release (the endpoint cuts one before publishing): its static files go under releases/vN/,
     # and releases/latest.json points at it — what a dashboard outside Metalens reads and pins

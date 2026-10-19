@@ -92,7 +92,8 @@ def _put_file(client, gh_repo, path, obj, branch, message, *, raw: str | None = 
             "content": base64.b64encode(content).decode()}
     if sha:
         body["sha"] = sha
-    _ok(client.put(url, json=body, headers=_headers(), timeout=30.0), f"put {path}")
+    # a large dataset's results.json is tens of MB: give the upload time in proportion
+    _ok(client.put(url, json=body, headers=_headers(), timeout=max(30.0, len(content) / 200_000)), f"put {path}")
 
 
 def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None,
@@ -147,12 +148,19 @@ def publish_dataset(conn, dataset_id: str, *, client: httpx.Client | None = None
                        "content_sha": rel["content_sha"], "credibility": rel.get("credibility"), "doi": rel.get("doi"),
                        "files": sorted(files)}, branch, f"metalens: {slug} latest release → v{rel['number']}")
 
-        # 4) open the PR
-        pr = _ok(client.post(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,
-                             json={"title": f"Add dataset: {material['metadata'].get('title') or slug}",
-                                   "head": branch, "base": base,
-                                   "body": ("Published from Metalens.\n\n" + (f"How to cite:\n\n> {material['metadata'].get('citation')}\n\n" if material["metadata"].get("citation") else "") + "🤖 Generated with Metalens")}),
-                 "open PR").json()
+        # 4) open the PR — or, when this branch already has an open one (a re-publication before
+        #    the merge), the files above updated it and its address is reused
+        r = client.post(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,
+                        json={"title": f"Add dataset: {material['metadata'].get('title') or slug}",
+                              "head": branch, "base": base,
+                              "body": ("Published from Metalens.\n\n" + (f"How to cite:\n\n> {material['metadata'].get('citation')}\n\n" if material["metadata"].get("citation") else "") + "🤖 Generated with Metalens")})
+        if r.status_code == 422 and "already exists" in r.text:
+            owner = gh_repo.split("/")[0]
+            open_prs = _ok(client.get(f"{_API}/repos/{gh_repo}/pulls", headers=_headers(), timeout=30.0,
+                                      params={"head": f"{owner}:{branch}", "state": "open"}), "find PR").json()
+            pr = open_prs[0] if open_prs else {}
+        else:
+            pr = _ok(r, "open PR").json()
         pr_url = pr.get("html_url")
     finally:
         if close:

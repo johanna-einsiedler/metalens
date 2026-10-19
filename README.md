@@ -80,6 +80,12 @@ tile-prompt.md        how to make the picture the Dashboards page shows for your
 Get them from the dataset page ("⬇ files"), from the datasets repository on GitHub, or from a
 Zenodo deposit. Pin a folder and your figures never move under you; drop in a newer one to update.
 
+Quotations in `evidence.json` are cut to at most 200 characters around the extracted value, the
+snippet length publishers' text-and-data-mining terms allow for published output; a cut end is
+marked with an ellipsis and the item says `truncated: true`. `release.json` states the rule under
+`evidence_policy` and names the dataset's page on Metalens (`dataset.url`, by slug), where the full
+passages are kept with the dataset; the devkit shows both under pinned evidence.
+
 `paperlens/static/devkit/metalens-dash.js` is the helper library. Copy it next to your page —
 it has no dependencies beyond D3 — or fetch the canonical copy from
 `https://metalens.tech/static/devkit/metalens-dash.js`:

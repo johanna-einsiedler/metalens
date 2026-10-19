@@ -61,7 +61,7 @@ def test_landing_and_brand_api_follow_the_host(monkeypatch) -> None:
     assert [n["href"] for n in b["nav_personal"]] == ["/extract", "/import", "/workspace"]
     b = c.get("/api/brand").json()
     assert b["id"] == "metalens" and b["default_preset"] is None
-    assert [n["href"] for n in b["nav_shared"]] == ["/dashboards", "/catalog"]   # About lives in the footer now
+    assert [n["href"] for n in b["nav_shared"]] == ["/dashboards", "/catalog", "/presets"]   # About lives in the footer now
 
 
 def test_beta_gate_realm_names_the_brand(monkeypatch) -> None:
@@ -114,7 +114,7 @@ def test_import_picker_keeps_the_presets_the_extract_picker_hides(monkeypatch) -
     extract, imprt = ids("extract"), ids("import")
     assert "masem-direct" in extract and "masem-direct" in imprt          # visible either way
     assert "masem-indirect" not in extract and "masem-indirect" in imprt  # landing-hidden variant
-    for pid in ("register-claims", "register-tables"):                    # mode: "import" schemas
+    for pid in ("register-claims", "register-tables", "econ-regression-tables"):   # mode: "import" schemas
         assert pid not in extract and pid in imprt
     assert c.get("/api/presets").json() == c.get("/api/presets?usage=extract").json()   # the default
 

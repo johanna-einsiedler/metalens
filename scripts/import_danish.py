@@ -4,6 +4,9 @@
     uv run python scripts/import_danish.py --email me@example.org --password …            # all processed papers
     uv run python scripts/import_danish.py --artids dk_W2213841331 --replace              # one paper again
     uv run python scripts/import_danish.py --out /tmp/converted                           # only convert, write JSON, no server
+    uv run python scripts/import_danish.py --base-url https://metalens.tech --email me@example.org \
+        --only claims --claims-title "…"                                                    # to the hosted site; asks for the password
+    … --claims-dataset <id> --resume                                                        # carry on after an interruption
 
 The pipeline's per-paper files (stated claims + claim map + result claims, and the tables file)
 become one ``register-claims`` and one ``register-tables`` result each — the canonical
@@ -141,11 +144,74 @@ def paper_metadata(artid: str, papers: dict, stated: dict) -> dict:
 
 
 # ── the claims chain ─────────────────────────────────────────────────────────────────────────
-def convert_claims(stated: dict, cmap: dict, results: dict, tables: dict, meta: dict, offset: int) -> tuple[dict, list[str]]:
+def _figure_panels(figures: dict) -> dict:
+    """{"<artid>::F2::B1": (figure, panel)} from the pipeline's figures file."""
+    out = {}
+    for f in (figures or {}).get("figures") or []:
+        for p in f.get("panels") or []:
+            if f.get("figure_id") and p.get("panel_id"):
+                out[f"{f['figure_id']}::{p['panel_id']}"] = (f, p)
+    return out
+
+
+def link_result(mt: dict, regs: dict, panels: dict, offset: int, path: str, k: int) -> tuple[dict | None, list[dict], str | None]:
+    """One claim-map (v1) link → (result row, evidence items, warning). The link names the
+    regression column (or figure panel) by id and the coefficient by its row index; the value is
+    the transcribed cell, so the number is the one printed in the table."""
+    from paperlens import horizons
+    rid, tr = mt.get("regression_id"), mt.get("target_row")
+    joined = _num((mt.get("join") or {}).get("cell_value"))
+    horizon = mt.get("horizon")
+    hz = horizons.parse(horizon) if horizon else None
+    why = mt.get("why")
+    if mt.get("derivation"):
+        why = f"{why or ''} Derivation: {mt['derivation']}".strip()
+    row = {"result_id": f"R{k + 1}", "estimand": mt.get("estimand"), "role": mt.get("role") or "supporting",
+           "subgroup": mt.get("subgroup"), "horizon": horizon,
+           "horizon_lo": hz[0] if hz else None, "horizon_hi": hz[1] if hz else None, "horizon_kind": hz[2] if hz else None,
+           "treatment_relation": mt.get("treatment_relation"), "outcome_relation": mt.get("outcome_relation"),
+           "sign_consistent": mt.get("sign_consistent"), "why": why}
+    items: list[dict] = []
+    reg = regs.get(rid)
+    if reg is not None:
+        cells = reg.get("cells") or []
+        cell = next((c for c in cells if c.get("row_index") == tr), None)
+        se = next((c for c in cells if c.get("refers_to") == tr and c.get("row_type") == "se" and c.get("numeric_value") is not None), None)
+        pt = _num((cell or {}).get("numeric_value"))
+        row.update({"exhibit": "table", "source_table": reg.get("table_number"), "panel": reg.get("panel"), "column": reg.get("column"),
+                    "row_label": (cell or {}).get("row_label") or ((reg.get("target_regressors") or [{}])[0]).get("name"),
+                    "outcome_variable": reg.get("outcome_variable"), "regressor": (cell or {}).get("row_label"),
+                    "value_from": "printed" if pt is not None else "absent", "point_estimate": pt,
+                    "estimate_se": _num(se["numeric_value"]) if se else None})
+        if cell is not None:                            # the table line: label and value as printed
+            items.append({"snippet": f"{cell.get('row_label') or ''} {cell.get('raw_text') or ''}".strip(), "page": _pdf_page(reg.get("page"), offset),
+                          "source": reg.get("table_number"), "field": [path] + ([f"{path}.point_estimate"] if pt is not None else [])})
+        warn = None if cell is not None else f"{rid}: no cell at row {tr}"
+    elif rid in panels:
+        fig, panel = panels[rid]
+        ann = next((a for a in panel.get("printed_annotations") or [] if joined is not None and _num(a.get("value")) is not None
+                    and abs(_num(a["value"]) - joined) <= max(5e-4, 5e-3 * abs(joined))), None)
+        row.update({"exhibit": "figure", "source_table": fig.get("figure_number"), "panel": panel.get("panel_id"), "column": None,
+                    "row_label": (ann or {}).get("text"), "outcome_variable": (((panel.get("axes") or {}).get("y") or {}).get("label")),
+                    "regressor": None, "value_from": "printed" if ann else "absent",
+                    "point_estimate": _num(ann.get("value")) if ann else None,     # a figure's number only when it PRINTS it
+                    "estimate_se": _num(ann.get("se")) if ann else None})
+        if fig.get("caption_verbatim"):                 # the caption names the figure on its page
+            items.append({"snippet": fig["caption_verbatim"], "page": _int_page(fig.get("page")) or 1, "source": fig.get("figure_number"), "field": [path]})
+        warn = None
+    else:
+        return None, [], f"{rid}: neither a transcribed regression column nor a figure panel"
+    if mt.get("pointer_quote") and mt.get("pointer_quote_verified"):     # the sentence that points to this estimate
+        items.append({"snippet": mt["pointer_quote"], "page": mt.get("pointer_pdf_page") or 1, "source": "pointer", "field": [path]})
+    return row, items, warn
+
+
+def convert_claims(stated: dict, cmap: dict, results: dict, tables: dict, meta: dict, offset: int, figures: dict | None = None) -> tuple[dict, list[str]]:
     """stated_claims + claim_map + result claims (+ the tables file for the cited cells) → one
     register-claims result. Returns (result, warnings)."""
     warnings: list[str] = []
     regs = {r["regression_id"]: r for r in (tables.get("regressions") or [])}
+    panels = _figure_panels(figures or {})
     maps = {m["id"]: m for m in (cmap.get("claims") or [])}
     claims, evidence = [], []
     for i, sc in enumerate(stated.get("claims") or []):
@@ -185,7 +251,16 @@ def convert_claims(stated: dict, cmap: dict, results: dict, tables: dict, meta: 
             if sc.get("magnitude_stated") and not cited_mag and sc["magnitude_stated"] in e["quote"]:
                 fields.append(f"claims[{i}].magnitude_stated"); cited_mag = True
             evidence.append({"snippet": e["quote"], "page": e.get("pdf_page") or _pdf_page(e.get("page"), offset), "source": e.get("section") or None, "field": fields})
-        for j, mt in enumerate(m.get("matches") or []):
+        for mt in m.get("matches") or []:
+            j = len(claim["results"])                   # the row's index as stored, so evidence paths stay aligned
+            if mt.get("regression_id"):                 # claim map v1: the link names the column and the row itself
+                row, items, warn = link_result(mt, regs, panels, offset, f"claims[{i}].results[{j}]", j)
+                if warn:
+                    warnings.append(f"{sc['id']}: {warn}")
+                if row is not None:
+                    row["confidence"] = {"results": {"level": m.get("confidence") or "medium", "notes": ""}}
+                    claim["results"].append(row); evidence.extend(items)
+                continue
             rc = results.get(mt.get("claim_id"))
             if rc is None:
                 warnings.append(f"{sc['id']}: match {mt.get('claim_id')} is not among the result claims"); continue
@@ -311,9 +386,10 @@ def convert_paper(corpus: Path, artid: str, papers: dict) -> tuple[dict, dict, l
     stated = json.loads((ex / "stated_claims" / f"{artid}.json").read_text(encoding="utf-8"))
     cmap = json.loads((ex / "claim_map" / f"{artid}.json").read_text(encoding="utf-8")) if (ex / "claim_map" / f"{artid}.json").exists() else {}
     tables = json.loads((ex / "tables" / f"{artid}.json").read_text(encoding="utf-8")) if (ex / "tables" / f"{artid}.json").exists() else {}
+    figures = json.loads((ex / "figures" / f"{artid}.json").read_text(encoding="utf-8")) if (ex / "figures" / f"{artid}.json").exists() else {}
     offset = page_offset(stated)
     meta = paper_metadata(artid, papers, stated)
-    claims, w1 = convert_claims(stated, cmap, load_results(corpus, artid), tables, meta, offset)
+    claims, w1 = convert_claims(stated, cmap, load_results(corpus, artid), tables, meta, offset, figures)
     tabs, w2 = convert_tables(tables, meta, offset)
     return claims, tabs, w1 + w2
 
@@ -334,6 +410,9 @@ def main() -> int:
     ap.add_argument("--artids", nargs="*")
     ap.add_argument("--replace", action="store_true", help="delete the paper's earlier import first")
     ap.add_argument("--out", type=Path, help="write the converted JSON here and stop (no server)")
+    ap.add_argument("--only", choices=("claims", "tables"), help="import one of the two datasets only")
+    ap.add_argument("--claims-title", default="Register-data claims (Danish)", help="title of a claims dataset created here")
+    ap.add_argument("--resume", action="store_true", help="skip papers the target dataset already holds (by file name)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
     artids = a.artids or processed_artids(a.corpus)
@@ -347,40 +426,72 @@ def main() -> int:
                   + (f"; {len(warns)} warnings: " + " | ".join(warns[:3]) if warns else ""))
         return 0
     import httpx
+    import time
     c = httpx.Client(base_url=a.base_url, timeout=600.0)
     if a.email:
+        if a.password is None:                          # asked for, so it stays out of the shell history
+            import getpass
+            a.password = getpass.getpass(f"Metalens password for {a.email}: ")
         r = c.post("/api/auth/login", json={"email": a.email, "password": a.password or ""})
         if r.status_code != 200:
             print("login failed:", r.text[:200]); return 2
     ids = {}
-    for key, pid, title in (("claims", PRESET_CLAIMS, "Register-data claims (Danish)"), ("tables", PRESET_TABLES, "Register-data tables (Danish)")):
+    kinds = [k for k in ("claims", "tables") if not a.only or k == a.only]
+    for key, pid, title in (("claims", PRESET_CLAIMS, a.claims_title), ("tables", PRESET_TABLES, "Register-data tables (Danish)")):
+        if key not in kinds:
+            continue
         given = a.claims_dataset if key == "claims" else a.tables_dataset
         if given:
             ids[key] = given; continue
         r = c.post("/api/datasets", json={"title": title, "schema_id": f"{pid}@v1", "visibility": "private",
                                           "description": "Economics papers using Danish register data — imported from the danish-register-econ pipeline."})
         r.raise_for_status(); ids[key] = r.json()["id"]; print(f"created dataset {ids[key]} ({title})")
+    def held(dataset_id: str) -> set[str]:
+        """File names of the documents a dataset already holds (the owner sees them)."""
+        r = c.get(f"/api/datasets/{dataset_id}/overview")
+        return {d.get("filename") for d in (r.json().get("documents") or []) if d.get("filename")} if r.status_code == 200 else set()
+    done = {k: (held(ids[k]) if a.resume else set()) for k in kinds}
+    failed: list[str] = []
     for artid in artids:
+        if all(f"{artid}.pdf" in done[k] for k in kinds):
+            print(f"  · {artid}: already imported"); continue
         pdf = (a.corpus / "pdfs" / f"{artid}.pdf").read_bytes()
         sha = hashlib.sha256(pdf).hexdigest()
         claims, tabs, warns = convert_paper(a.corpus, artid, papers)
         for w in warns:
             print(f"  ! {artid}: {w}")
         for key, pid, obj in (("claims", PRESET_CLAIMS, claims), ("tables", PRESET_TABLES, tabs)):
+            if key not in kinds or f"{artid}.pdf" in done[key]:
+                continue
             if a.replace:
                 dup = c.post("/api/documents/check-duplicates", json={"hashes": [sha], "preset_id": pid}).json().get("duplicates") or {}
                 for d in dup.get(sha) or []:
                     c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
-            r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
-                       data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
-                             "dataset_id": ids[key], "produced_by": PRODUCED_BY})
-            if r.status_code != 200:
-                print(f"  ✗ {artid} {key}: HTTP {r.status_code} {r.text[:300]}"); continue
+            r = None
+            for attempt in range(4):                    # a dropped connection or a proxy timeout is retried,
+                try:                                    # after checking that the paper did not land meanwhile
+                    r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
+                               data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
+                                     "dataset_id": ids[key], "produced_by": PRODUCED_BY})
+                    if r.status_code not in (502, 503, 504):
+                        break
+                except httpx.TransportError as exc:
+                    r = None; print(f"  … {artid} {key}: {exc.__class__.__name__}, retrying")
+                time.sleep(10 * (attempt + 1))
+                if f"{artid}.pdf" in held(ids[key]):
+                    r = "landed"; break
+            if r == "landed":
+                print(f"  ✓ {artid} {key}: landed during a retry"); continue
+            if r is None or r.status_code != 200:
+                failed.append(artid)
+                print(f"  ✗ {artid} {key}: " + (f"HTTP {r.status_code} {r.text[:300]}" if r is not None else "no answer")); continue
             j = r.json()
             n = len(obj["claims"]) if key == "claims" else len(obj["regressions"])
             print(f"  ✓ {artid} {key}: {n} entries → document {j.get('document_id') or j.get('id')} · issues {len(j.get('issues') or [])}")
     print("datasets:", ids)
-    return 0
+    if failed:
+        print(f"{len(failed)} papers failed; run again with --claims-dataset/--tables-dataset and --resume: {' '.join(failed)}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

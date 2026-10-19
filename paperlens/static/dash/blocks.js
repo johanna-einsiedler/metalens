@@ -48,7 +48,7 @@ function infoHtml(table, rows, block, filters) {
     + line("Extracted", models.map(([m, c]) => `${esc(m)} <span class="muted">(${c} row${c === 1 ? "" : "s"})</span>`).join(", ")
       + (dates.length ? `<br/><span class="muted">${dates[0] === dates[dates.length - 1] ? `on ${esc(day(dates[0]))}` : `between ${esc(day(dates[0]))} and ${esc(day(dates[dates.length - 1]))}`}</span>` : ""))
     + line("Last change", d.data_updated_at ? esc(day(d.data_updated_at)) : "")
-    + line("Preset", d.preset ? `<a href="/preset?id=${encodeURIComponent(d.preset.id)}">${esc(d.preset.title)}</a> <span class="muted">(prompt, fields and evidence rules)</span>` : "")
+    + line("Preset", d.preset ? `<a href="/preset?id=${encodeURIComponent(d.preset.id)}">${esc(d.preset.title)}</a> <span class="muted">(what it extracts, how it was verified, how to cite)</span>` : "")
     + line("Data", d.published_url ? `<a href="${esc(d.published_url)}" target="_blank" rel="noopener">published copy on GitHub ↗</a>` : `<span class="muted">not published on GitHub yet</span>`)
     + line("Cite", d.citation ? esc(d.citation) : "")
     + `</table>`;
