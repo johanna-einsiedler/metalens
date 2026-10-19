@@ -900,6 +900,11 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc .pc-citetop { margin: 4px 0 14px; max-width: 900px; }
 .pc .pc-cite-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pc .pc-zenodo { text-decoration: none; }
+.md img.md-img { display: block; max-width: 100%; height: auto; margin: 10px 0 4px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+.md img.md-img[src$=".svg"] { width: 100%; }   /* a vector figure takes the text width, so its small type stays legible */
+.md details.md-titled { margin: 8px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.md details.md-titled > summary { cursor: pointer; padding: 8px 12px; font-weight: 600; font-size: 13.5px; }
+.md details.md-titled > pre.md-code { margin: 0; border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); max-height: 70vh; overflow: auto; }
 .pc .ds-relform textarea { margin-top: 6px; }
 .pc-soon { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; position: relative; color: inherit; }
 .pc-tip { position: absolute; left: 0; top: 1.4em; white-space: nowrap; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--text); color: var(--surface); z-index: 5; }

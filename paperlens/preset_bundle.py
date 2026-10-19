@@ -96,10 +96,14 @@ def readme(spec: dict, release: dict, *, doi: str | None, concept_doi: str | Non
     return "\n".join(lines)
 
 
-def for_deposit(card_md: str) -> str:
+def for_deposit(card_md: str, site: str | None = None) -> str:
     """The card as a file of its own: a link the card page turns into a "to be published soon"
-    tooltip (``[text](#to-be-published)``) has no target outside the page, so it becomes plain text."""
-    return re.sub(r"\[([^\]]+)\]\(#to-be-published\)", r"\1 (to be published)", card_md)
+    tooltip (``[text](#to-be-published)``) has no target outside the page, so it becomes plain text;
+    a path on the site (a figure, another preset's card) becomes a full address on it."""
+    from . import brands
+    site = (site or brands.public_url()).rstrip("/")
+    out = re.sub(r"\[([^\]]+)\]\(#to-be-published\)", r"\1 (to be published)", card_md)
+    return re.sub(r"\]\((/[A-Za-z0-9][^)\s]*)\)", lambda m: f"]({site}{m.group(1)})", out)
 
 
 def card_sections(card_md: str) -> list[str]:

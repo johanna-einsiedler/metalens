@@ -101,7 +101,7 @@ function render() {
   // long code blocks (a quoted pipeline prompt) fold
   body.querySelectorAll("pre.md-code").forEach((pre) => {
     const lines = pre.textContent.split("\n").length;
-    if (lines <= 30) return;
+    if (lines <= 30 || pre.closest("details")) return;        // a titled fold (```fold …) is folded already
     const d = document.createElement("details"); d.className = "pc-foldable md-fold";
     d.innerHTML = `<summary>Show all ${lines} lines</summary>`;
     pre.parentNode.insertBefore(d, pre); d.appendChild(pre);
