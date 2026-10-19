@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from . import reconstruct, records
+from . import quotes, reconstruct, records
 
 
 def _preset_block(conn, schema_id: str | None) -> dict | None:
@@ -83,7 +83,8 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
     default_model = (ov.get("recipe") or {}).get("model")
     papers = []
     for (doc_id, filename) in doc_rows:
-        pub = reconstruct.reconstruct_publishable(records.load(conn, str(doc_id)))
+        # a public file: every quotation cut to the 200-character limit (quotes.py)
+        pub = quotes.cap_document(reconstruct.reconstruct_publishable(records.load(conn, str(doc_id))))
         mrow = conn.execute(
             "SELECT extraction FROM record WHERE document_id = %s LIMIT 1", (doc_id,)
         ).fetchone()

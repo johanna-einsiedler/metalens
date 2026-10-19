@@ -31,7 +31,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 - **The 200-character rule** (`paperlens/quotes.py`). Everything a reader who does not own the data can
   see shows at most 200 characters of each quotation, cut around the extracted value and marked with an
-  ellipsis, page and source kept: the release files (GitHub, Zenodo, the devkit), the dashboard
+  ellipsis, page and source kept: the release files (GitHub, Zenodo, the devkit), the dataset folder's
+  `results.json` in the datasets repository, the dashboard
   evidence endpoint, the analysis-table evidence of a public dataset, the public record and provenance
   APIs. The full quotations stay in the database for the owner's review screen and the owner's own
   reads. Publishers' text-and-data-mining terms allow published snippets of that length with a link

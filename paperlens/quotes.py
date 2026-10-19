@@ -15,6 +15,7 @@ cut into the located value.
 """
 from __future__ import annotations
 
+import copy
 import re
 
 LIMIT = 200
@@ -155,3 +156,21 @@ def value_at(field_values: dict | None, path: str | None):
     if isinstance(cur, dict) and "value" in cur and len(cur) <= 3:          # a wrapped {value, …}
         cur = cur["value"]
     return cur if isinstance(cur, (str, int, float)) and not isinstance(cur, bool) else None
+
+
+def cap_document(doc, *, limit: int = LIMIT):
+    """A canonical result (what ``reconstruct_publishable`` returns) with every evidence quotation
+    cut to the public limit, centred on the value its ``field`` path names. Returns a new
+    structure; the input is left as it is. This is what a dataset's ``results.json`` carries
+    when it is published to the datasets repository."""
+    out = copy.deepcopy(doc)
+
+    def walk(x):
+        if isinstance(x, dict):
+            if isinstance(x.get("snippet"), str) and ("field" in x or "page" in x or "source" in x):
+                return shorten_item(x, value=value_at(out, x.get("field")), limit=limit)
+            return {k: walk(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [walk(v) for v in x]
+        return x
+    return walk(out)

@@ -17,7 +17,7 @@ for p in (_ROOT, _HERE):
 
 import pytest  # noqa: E402
 
-from paperlens import analysis_table as at, records, release_export, releases  # noqa: E402
+from paperlens import analysis_table as at, exporter, quotes, records, release_export, releases  # noqa: E402
 from test_analysis_table import HAC, _db_ok, _seed  # noqa: E402
 
 LONG_ROW = ("The accuracy of the three conditions, measured on the held-out items of the second experiment and "
@@ -96,4 +96,35 @@ def test_public_apis_cut_quotes_for_everyone_but_the_owner() -> None:
     theirs = c.post("/api/records/provenance", json={"ids": [rid]}, headers=OTHER).json()["records"][0]
     assert len(mine["snippet"]) > 200 and "truncated" not in mine
     assert len(theirs["snippet"]) <= 200 and theirs["truncated"] is True and theirs["page"] == mine["page"]
+    conn.close()
+
+
+def _snippets(x):
+    if isinstance(x, dict):
+        if isinstance(x.get("snippet"), str):
+            yield x
+        for v in x.values():
+            yield from _snippets(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _snippets(v)
+
+
+def test_the_published_dataset_file_is_cut_too() -> None:
+    """results.json in the datasets repository is a public file: the same rule, centred on the
+    value each item's field path names; the document in the database is untouched."""
+    doc = {"paper_metadata": {"title": "T"}, "experiments": [{"conditions": [{"measures": [{"mean": 0.7}]}]}],
+           "evidence": [{"field": "experiments[0].conditions[0].measures[0].mean", "snippet": LONG_ROW, "page": 5, "source": "Table 3"},
+                        {"field": "experiments[0]", "snippet": "short", "page": 1, "source": None}]}
+    capped = quotes.cap_document(doc)
+    assert len(doc["evidence"][0]["snippet"]) > 200                                   # the input is untouched
+    assert capped["evidence"][0]["truncated"] and "0.70" in capped["evidence"][0]["snippet"] and len(capped["evidence"][0]["snippet"]) <= 200
+    assert capped["evidence"][1] == doc["evidence"][1]
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    conn = records.connect(); records.init_db(conn)
+    ds, _doc = _seed(conn, _long_hac(), "human-ai-collab", f"q-{uuid.uuid4().hex[:6]}")
+    material = exporter.materialize_dataset(conn, ds)
+    items = list(_snippets(material["results"]))
+    assert items and all(len(i["snippet"]) <= 200 for i in items) and any(i.get("truncated") for i in items)
     conn.close()
