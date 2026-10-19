@@ -1212,13 +1212,13 @@ def search_records(conn: psycopg.Connection, filters: dict,
     rank_params = [filters["q"]] if has_q else []
     rows = conn.execute(sql, [*rank_params, *params, limit, offset]).fetchall()
     total = rows[0][16] if rows else 0
-    results = [{
+    results = cap_field_values(conn, [{
         "id": str(r[0]), "entry_index": r[1], "schema_id": r[2],
         "verification_status": r[3], "field_values": r[4],
         "paper": {"id": str(r[6]) if r[6] else None, "doi": r[7], "title": r[8],
                   "year": r[9], "journal": r[10], "primary_topic": r[11], "jel_codes": r[12]},
         "dataset": ({"id": str(r[5]), "slug": r[13], "title": r[14]} if r[5] else None),
-    } for r in rows]
+    } for r in rows])                                           # the public catalogue: verbatim fields cut
     return {"total": total, "limit": limit, "offset": offset, "results": results}
 
 
@@ -1335,6 +1335,22 @@ def papers_search(conn: psycopg.Connection, *, q: str | None = None, jel: str | 
     return {"total": total, "limit": limit, "offset": offset, "papers": papers}
 
 
+def cap_field_values(conn: psycopg.Connection, rows: list[dict], *, key: str = "field_values",
+                     schema_key: str = "schema_id", keep=None) -> list[dict]:
+    """``rows`` with the verbatim fields of each row's ``key`` cut to the public limit (quotes.py),
+    the fields read from the row's schema. ``keep(row)`` → True leaves a row whole (its owner)."""
+    names: dict[str | None, frozenset] = {}
+    out = []
+    for row in rows:
+        if keep is not None and keep(row):
+            out.append(row); continue
+        sid = row.get(schema_key)
+        if sid not in names:
+            names[sid] = quotes.verbatim_names(schema_spec(conn, sid) if sid else None)
+        out.append({**row, key: quotes.cap_values(row.get(key), names[sid])} if names[sid] else row)
+    return out
+
+
 def record_detail(conn: psycopg.Connection, record_id: str, *, full: bool = False) -> dict | None:
     """Full record detail for the catalog detail panel / deep-link. Quotes are cut to the public
     limit around the field's value unless ``full`` (the record's owner)."""
@@ -1362,6 +1378,7 @@ def record_detail(conn: psycopg.Connection, record_id: str, *, full: bool = Fals
     if not full:
         fv = rec.get("field_values") if isinstance(rec, dict) else None
         evidence = [quotes.shorten_item(e, value=quotes.value_at(fv, e["field_path"])) for e in evidence]
+        rec = cap_field_values(conn, [rec])[0]                  # verbatim fields too
     dataset = None
     if rec["dataset_id"]:
         d = get_dataset(conn, rec["dataset_id"])
@@ -1920,7 +1937,8 @@ def dataset_rows(conn: psycopg.Connection, dataset_ids, *, principal=None,
     where, params = _record_query({"dataset": ids}, principal, public_only=public_only)
     rows = conn.execute(
         f"""SELECT r.id, r.document_id, r.paper_id, r.dataset_id, r.schema_id,
-                   r.verification_status, r.field_values, p.year, p.primary_topic, p.title
+                   r.verification_status, r.field_values, p.year, p.primary_topic, p.title,
+                   r.owner_user_id::text, r.session_id
             FROM record r JOIN paper p ON p.id = r.paper_id
             LEFT JOIN dataset d ON d.id = r.dataset_id
             WHERE {where} AND NOT r.screened_empty
@@ -1928,14 +1946,16 @@ def dataset_rows(conn: psycopg.Connection, dataset_ids, *, principal=None,
             LIMIT %s""",
         (*params, limit),
     ).fetchall()
-    return [
+    out = [
         {"record_id": str(rid), "document_id": str(doc) if doc else None,
          "paper_id": str(pid) if pid else None,
          "dataset_id": str(dsid) if dsid else None, "schema_id": sid,
          "verification_status": vs, "year": yr, "primary_topic": pt,
-         "paper_title": title, "field_values": fv}
-        for (rid, doc, pid, dsid, sid, vs, fv, yr, pt, title) in rows
+         "paper_title": title, "field_values": fv, "_own": _owns(principal, owner, sess)}
+        for (rid, doc, pid, dsid, sid, vs, fv, yr, pt, title, owner, sess) in rows
     ]
+    # a row the principal does not own shows verbatim fields cut to 200 characters (quotes.py)
+    return [{k: v for k, v in r.items() if k != "_own"} for r in cap_field_values(conn, out, keep=lambda r: r["_own"])]
 
 
 def records_provenance(conn: psycopg.Connection, record_ids, *, principal=None,

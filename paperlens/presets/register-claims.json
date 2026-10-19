@@ -177,6 +177,7 @@
       {
         "name": "anchor_quote",
         "type": "text",
+        "verbatim": true,
         "required": true,
         "label": "Abstract anchor",
         "evidence": "value",
@@ -185,6 +186,7 @@
       {
         "name": "intro_sentence",
         "type": "text",
+        "verbatim": true,
         "label": "Introduction sentence",
         "evidence": "value",
         "help": "the introduction sentence that completes the claim (which variables, which direction) or says HOW the finding was obtained — the design, the sample, the comparison, the exhibit; VERBATIM, at most 60 words, source 'introduction'; null when the abstract alone carries everything and the introduction adds nothing"
@@ -245,6 +247,7 @@
       {
         "name": "magnitude_stated",
         "type": "string",
+        "verbatim": true,
         "label": "Stated magnitude",
         "evidence": "value",
         "help": "a magnitude the abstract or introduction states, verbatim ('earnings decline by 2 percent'); null when none is stated"

@@ -42,6 +42,14 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   redirects a slug to the id); `evidence.json` carries the same `policy` and marks cut items
   `truncated: true`. The devkit caps its display at the release's limit and, under pinned evidence,
   states the rule and links the dataset page; dashboard tooltips mark a cut quote.
+- **Verbatim fields.** A field or table column may be declared `verbatim: true` when its value IS a
+  quotation of the paper (the claims preset's abstract and introduction sentences and stated
+  magnitudes, the tables presets' captions). Public copies cut those values to 200 characters too: the
+  analysis table for non-owners (and so release files and dashboards), the published `results.json`,
+  record detail, the rows API, the catalogue search, a paper's records, the dataset detail and the
+  dataset download. The flag never enters the schema id, and a dataset stored before a field was
+  flagged follows the live preset's flag. The card marks such fields "verbatim".
+- Publishing again before the pull request is merged updates that pull request instead of failing.
 
 ### Everything else
 

@@ -146,7 +146,8 @@ function optionsHtml(d) {
 function fieldRows(fields) {
   const head = ["Field", "Type", "Required", "Evidence", "Confidence", "Meaning"];
   const row = (d, parent) => {
-    const meaning = `${esc(d.label || "")}${d.help ? ` <span class="muted">— ${esc(d.help)}</span>` : ""}${optionsHtml(d)}${d.allow_other ? ` <span class="muted">· or the paper's own term</span>` : ""}`;
+    const meaning = `${esc(d.label || "")}${d.help ? ` <span class="muted">— ${esc(d.help)}</span>` : ""}${optionsHtml(d)}${d.allow_other ? ` <span class="muted">· or the paper's own term</span>` : ""}`
+      + (d.verbatim ? ` <span class="badge" title="The value is a quotation of the paper: public copies (catalogue, GitHub, Zenodo, dashboards) show at most 200 characters of it.">verbatim</span>` : "");
     const name = parent ? `<span class="fd-indent" title="a column of ${esc(parent)}">└</span> <code>${esc(d.name)}</code>` : `<code>${esc(d.name)}</code>`;
     const cells = [name, esc(d.type_text || d.type || ""), d.required ? `<span class="badge">required</span>` : "",
                    d.evidence_text ? `<span title="${esc(d.evidence_text)}">${esc(d.evidence_text.split(" — ")[0])}</span>` : (parent ? `<span class="muted">with the table</span>` : ""),

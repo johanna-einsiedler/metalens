@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, records, storage, worker, retention
+from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, quotes, records, storage, worker, retention
 from .ingest import ingest
 from .principal import Principal
 
@@ -473,7 +473,8 @@ def papers_lookup(doi: str, db=Depends(get_db)) -> dict:
 
 @app.get("/api/papers/{paper_id}/records")
 def papers_records(paper_id: str, db=Depends(get_db)) -> dict:
-    return {"paper_id": paper_id, "records": records.records_for_paper(db, paper_id)}
+    # a public route: verbatim fields cut to 200 characters (quotes.py)
+    return {"paper_id": paper_id, "records": records.cap_field_values(db, records.records_for_paper(db, paper_id))}
 
 
 @app.get("/api/documents")
@@ -683,9 +684,12 @@ def get_dataset(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     if d["visibility"] != "public" and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=404, detail="Dataset not found.")
+    owner = records.is_dataset_owner(db, dataset_id, who)
     d["records"] = records.dataset_records(db, dataset_id)
+    if not owner:                                                   # verbatim fields cut for a public reader
+        d["records"] = records.cap_field_values(db, d["records"])
     d["credibility"] = records.dataset_credibility(db, dataset_id)  # computed badge
-    if not records.is_dataset_owner(db, dataset_id, who):
+    if not owner:
         d.pop("owner_citation_name", None)
     return d
 
@@ -1855,8 +1859,14 @@ def dataset_export(dataset_id: str, db=Depends(get_db),
         raise HTTPException(status_code=404, detail="Dataset not found.")
     out = records.dataset_export(db, dataset_id)
     if not owner:                        # don't leak the uploader's local filenames
+        names = {sid: quotes.verbatim_names(records.schema_spec(db, sid))
+                 for (sid,) in db.execute("SELECT DISTINCT schema_id FROM record WHERE dataset_id = %s::uuid AND schema_id IS NOT NULL",
+                                          (dataset_id,)).fetchall()}
+        cut = frozenset().union(*names.values()) if names else frozenset()
         for paper in out.get("papers", []):
             paper["filename"] = None
+            for rec in paper.get("records") or []:                  # verbatim fields cut to 200 characters
+                rec["values"] = quotes.cap_values(rec.get("values"), cut)
     return out
 
 

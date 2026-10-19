@@ -159,12 +159,73 @@ def value_at(field_values: dict | None, path: str | None):
     return cur if isinstance(cur, (str, int, float)) and not isinstance(cur, bool) else None
 
 
-def cap_document(doc, *, limit: int = LIMIT):
+def _flags(spec: dict) -> set[str]:
+    out: set[str] = set()
+
+    def walk(fields):
+        for f in fields or []:
+            if isinstance(f, dict):
+                if f.get("verbatim") is True and f.get("name"):
+                    out.add(f["name"])
+                walk(f.get("columns"))
+    walk((spec.get("paper") or {}).get("fields"))
+    e = spec.get("entries") or {}
+    walk(e.get("fields"))
+    for ch in e.get("children") or []:
+        if isinstance(ch, dict):
+            walk(ch.get("fields"))
+    return out
+
+
+def verbatim_names(spec: dict | None) -> frozenset[str]:
+    """The names of the fields (and table columns) a preset declares ``verbatim``: values that ARE
+    quotations of the paper — an abstract sentence, a table caption. The live bundled preset's
+    flags count as well when its data contract is the same (the flag never enters the schema id),
+    so a dataset or release stored before a field was flagged follows the flag."""
+    if not isinstance(spec, dict):
+        return frozenset()
+    names = _flags(spec)
+    try:
+        from . import preset_spec, presets          # lazy: records <-> presets <-> quotes
+        live = presets.get(spec.get("id")) if spec.get("id") else None
+        if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == preset_spec.content_hash(spec):
+            names |= _flags(live["spec"])
+    except Exception:                                   # noqa: BLE001 - a broken preset never blocks a read
+        pass
+    return frozenset(names)
+
+
+def cap_values(obj, names, *, limit: int = LIMIT):
+    """``obj`` (record field values, a canonical result, nested children and table rows) with the
+    value of every field named in ``names`` cut to the public limit. A new structure; strings,
+    ``{value: …}`` wrappers and lists of strings are cut, everything else is copied as it is."""
+    if not names:
+        return obj
+
+    def cut(v):
+        if isinstance(v, str):
+            return shorten(v, limit=limit)[0]
+        if isinstance(v, dict) and isinstance(v.get("value"), str):
+            return {**v, "value": shorten(v["value"], limit=limit)[0]}
+        if isinstance(v, list) and all(isinstance(x, str) for x in v):
+            return [shorten(x, limit=limit)[0] for x in v]
+        return walk(v)
+
+    def walk(x):
+        if isinstance(x, dict):
+            return {k: (cut(v) if k in names else walk(v)) for k, v in x.items()}
+        if isinstance(x, list):
+            return [walk(v) for v in x]
+        return x
+    return walk(obj)
+
+
+def cap_document(doc, *, names=frozenset(), limit: int = LIMIT):
     """A canonical result (what ``reconstruct_publishable`` returns) with every evidence quotation
-    cut to the public limit, centred on the value its ``field`` path names. Returns a new
-    structure; the input is left as it is. This is what a dataset's ``results.json`` carries
-    when it is published to the datasets repository."""
-    out = copy.deepcopy(doc)
+    cut to the public limit, centred on the value its ``field`` path names, and every verbatim
+    field (``names``, see ``verbatim_names``) cut too. Returns a new structure; the input is left
+    as it is. This is what a dataset's ``results.json`` carries when it is published."""
+    out = cap_values(copy.deepcopy(doc), names, limit=limit)
 
     def walk(x):
         if isinstance(x, dict):

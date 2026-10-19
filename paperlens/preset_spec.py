@@ -71,8 +71,8 @@ _ALLOWED_KEYS = {
     "entries": {"key", "label", "help", "cardinality", "id_field", "title", "evidence", "fields", "children"},
     "child": {"key", "label", "help", "title", "evidence", "layout", "fields"},
     "field": {"name", "label", "type", "help", "required", "range", "options", "allow_other",
-              "columns", "evidence", "confidence"},
-    "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other"},
+              "columns", "evidence", "confidence", "verbatim"},
+    "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other", "verbatim"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
     "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review"},
@@ -515,6 +515,11 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             E(f"{at}.options only applies to enum / multi fields")
         if f.get("allow_other") and ftype != "enum":
             E(f"{at}.allow_other only applies to enum fields")
+        if "verbatim" in f:                               # the value IS a quotation of the paper: cut in public copies
+            if not isinstance(f["verbatim"], bool):
+                E(f"{at}.verbatim must be true or false")
+            elif f["verbatim"] and ftype not in ("string", "text", "list"):
+                E(f"{at}.verbatim only applies to string, text or list fields")
         rng = f.get("range")
         if rng is not None:
             if ftype not in ("integer", "number"):
@@ -973,6 +978,9 @@ def parse_path(path: str | None, spec: dict | None = None, key: str | None = Non
 # ── hashing / identity ────────────────────────────────────────────────────────
 
 _WORDING_KEYS = ("label", "help", "title")
+# Publication policy, not shape: a field declared `verbatim` holds a quotation of the paper, which
+# public copies cut to 200 characters (paperlens/quotes.py). Flagging a field never re-versions data.
+_POLICY_KEYS = ("verbatim",)
 
 
 def data_contract(spec: dict) -> dict:
@@ -981,7 +989,7 @@ def data_contract(spec: dict) -> dict:
     changing the shape of what it extracts."""
     def strip(node):
         if isinstance(node, dict):
-            return {k: strip(v) for k, v in node.items() if k not in _WORDING_KEYS}
+            return {k: strip(v) for k, v in node.items() if k not in _WORDING_KEYS and k not in _POLICY_KEYS}
         if isinstance(node, list):
             return [strip(x) for x in node]
         return node
@@ -1891,7 +1899,8 @@ def _field_doc(f: dict, path: str, params: dict, decl: dict, groups: dict) -> di
          "type": f.get("type", "string"), "type_text": _type_text(f), "required": bool(f.get("required")),
          "help": f.get("help"), "options": _options_doc(f, params, decl), "allow_other": bool(f.get("allow_other")),
          "range": f.get("range"), "evidence": ev, "evidence_text": EVIDENCE_TEXT.get(ev) if ev else None,
-         "confidence": gid, "confidence_label": (groups.get(gid) or {}).get("label") if gid else None}
+         "confidence": gid, "confidence_label": (groups.get(gid) or {}).get("label") if gid else None,
+         "verbatim": bool(f.get("verbatim"))}
     if f.get("type") == "table":
         d["columns"] = [_field_doc(c, f"{path}[r].{c['name']}", params, decl, groups) for c in f.get("columns") or []]
     return d
@@ -1956,6 +1965,8 @@ def _md_meaning(d: dict, extra: list) -> str:
     meaning = d["label"] or ""
     if d.get("help"):
         meaning += f" — {d['help']}"
+    if d.get("verbatim"):
+        meaning += " · a quotation of the paper: public copies show at most 200 characters"
     opts = d.get("options")
     if opts:
         if opts["kind"] == "param":

@@ -4,6 +4,9 @@
     uv run python scripts/import_danish.py --email me@example.org --password …            # all processed papers
     uv run python scripts/import_danish.py --artids dk_W2213841331 --replace              # one paper again
     uv run python scripts/import_danish.py --out /tmp/converted                           # only convert, write JSON, no server
+    uv run python scripts/import_danish.py --base-url https://metalens.tech --email me@example.org \
+        --only claims --claims-title "…"                                                    # to the hosted site; asks for the password
+    … --claims-dataset <id> --resume                                                        # carry on after an interruption
 
 The pipeline's per-paper files (stated claims + claim map + result claims, and the tables file)
 become one ``register-claims`` and one ``register-tables`` result each — the canonical
@@ -409,6 +412,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, help="write the converted JSON here and stop (no server)")
     ap.add_argument("--only", choices=("claims", "tables"), help="import one of the two datasets only")
     ap.add_argument("--claims-title", default="Register-data claims (Danish)", help="title of a claims dataset created here")
+    ap.add_argument("--resume", action="store_true", help="skip papers the target dataset already holds (by file name)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
     artids = a.artids or processed_artids(a.corpus)
@@ -422,8 +426,12 @@ def main() -> int:
                   + (f"; {len(warns)} warnings: " + " | ".join(warns[:3]) if warns else ""))
         return 0
     import httpx
+    import time
     c = httpx.Client(base_url=a.base_url, timeout=600.0)
     if a.email:
+        if a.password is None:                          # asked for, so it stays out of the shell history
+            import getpass
+            a.password = getpass.getpass(f"Metalens password for {a.email}: ")
         r = c.post("/api/auth/login", json={"email": a.email, "password": a.password or ""})
         if r.status_code != 200:
             print("login failed:", r.text[:200]); return 2
@@ -438,29 +446,52 @@ def main() -> int:
         r = c.post("/api/datasets", json={"title": title, "schema_id": f"{pid}@v1", "visibility": "private",
                                           "description": "Economics papers using Danish register data — imported from the danish-register-econ pipeline."})
         r.raise_for_status(); ids[key] = r.json()["id"]; print(f"created dataset {ids[key]} ({title})")
+    def held(dataset_id: str) -> set[str]:
+        """File names of the documents a dataset already holds (the owner sees them)."""
+        r = c.get(f"/api/datasets/{dataset_id}/overview")
+        return {d.get("filename") for d in (r.json().get("documents") or []) if d.get("filename")} if r.status_code == 200 else set()
+    done = {k: (held(ids[k]) if a.resume else set()) for k in kinds}
+    failed: list[str] = []
     for artid in artids:
+        if all(f"{artid}.pdf" in done[k] for k in kinds):
+            print(f"  · {artid}: already imported"); continue
         pdf = (a.corpus / "pdfs" / f"{artid}.pdf").read_bytes()
         sha = hashlib.sha256(pdf).hexdigest()
         claims, tabs, warns = convert_paper(a.corpus, artid, papers)
         for w in warns:
             print(f"  ! {artid}: {w}")
         for key, pid, obj in (("claims", PRESET_CLAIMS, claims), ("tables", PRESET_TABLES, tabs)):
-            if key not in kinds:
+            if key not in kinds or f"{artid}.pdf" in done[key]:
                 continue
             if a.replace:
                 dup = c.post("/api/documents/check-duplicates", json={"hashes": [sha], "preset_id": pid}).json().get("duplicates") or {}
                 for d in dup.get(sha) or []:
                     c.delete(f"/api/documents/{d['document_id'] if isinstance(d, dict) and 'document_id' in d else d.get('id')}")
-            r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
-                       data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
-                             "dataset_id": ids[key], "produced_by": PRODUCED_BY})
-            if r.status_code != 200:
-                print(f"  ✗ {artid} {key}: HTTP {r.status_code} {r.text[:300]}"); continue
+            r = None
+            for attempt in range(4):                    # a dropped connection or a proxy timeout is retried,
+                try:                                    # after checking that the paper did not land meanwhile
+                    r = c.post("/api/ingest-pdf", files={"pdf": (f"{artid}.pdf", pdf, "application/pdf")},
+                               data={"result": json.dumps(obj, ensure_ascii=False), "schema_id": f"{pid}@v1",
+                                     "dataset_id": ids[key], "produced_by": PRODUCED_BY})
+                    if r.status_code not in (502, 503, 504):
+                        break
+                except httpx.TransportError as exc:
+                    r = None; print(f"  … {artid} {key}: {exc.__class__.__name__}, retrying")
+                time.sleep(10 * (attempt + 1))
+                if f"{artid}.pdf" in held(ids[key]):
+                    r = "landed"; break
+            if r == "landed":
+                print(f"  ✓ {artid} {key}: landed during a retry"); continue
+            if r is None or r.status_code != 200:
+                failed.append(artid)
+                print(f"  ✗ {artid} {key}: " + (f"HTTP {r.status_code} {r.text[:300]}" if r is not None else "no answer")); continue
             j = r.json()
             n = len(obj["claims"]) if key == "claims" else len(obj["regressions"])
             print(f"  ✓ {artid} {key}: {n} entries → document {j.get('document_id') or j.get('id')} · issues {len(j.get('issues') or [])}")
     print("datasets:", ids)
-    return 0
+    if failed:
+        print(f"{len(failed)} papers failed; run again with --claims-dataset/--tables-dataset and --resume: {' '.join(failed)}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

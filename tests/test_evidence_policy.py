@@ -133,3 +133,75 @@ def test_the_published_dataset_file_is_cut_too() -> None:
     items = list(_snippets(material["results"]))
     assert items and all(len(i["snippet"]) <= 200 for i in items) and any(i.get("truncated") for i in items)
     conn.close()
+
+
+# ── verbatim fields: values that ARE quotations of the paper ─────────────────────────────────────
+LONG_ANCHOR = ("Using employer-employee matched data from Denmark for the years 1999 to 2009, we show that rising import "
+               "competition from China has led to reduced employment in mid-wage occupations, while employment in both "
+               "high-wage and low-wage occupations has grown, a pattern consistent with job polarization.")
+
+
+def _long_claims() -> dict:
+    from test_register_presets import CLAIMS
+    r = copy.deepcopy(CLAIMS)
+    r["claims"][0]["anchor_quote"] = LONG_ANCHOR
+    r["evidence"][0]["snippet"] = LONG_ANCHOR
+    assert len(LONG_ANCHOR) > 200
+    return r
+
+
+def test_the_verbatim_flag_never_re_versions_a_dataset_and_is_validated() -> None:
+    from paperlens import preset_spec as ps, presets
+    spec = presets.load_all()["register-claims"]
+    spec = spec.get("spec", spec)
+    bare = copy.deepcopy(spec)
+    for f in bare["entries"]["fields"]:
+        f.pop("verbatim", None)
+    assert ps.schema_id(bare) == ps.schema_id(spec) == "register-claims@f7387875"
+    assert quotes.verbatim_names(spec) == {"anchor_quote", "intro_sentence", "magnitude_stated"}
+    assert quotes.verbatim_names(bare) == quotes.verbatim_names(spec)        # a stored spec follows the live flags
+    bad = copy.deepcopy(spec)
+    next(f for f in bad["entries"]["fields"] if f["name"] == "sign")["verbatim"] = True
+    next(f for f in bad["entries"]["fields"] if f["name"] == "notes")["verbatim"] = "yes"
+    errs, _ = ps.validate(bad)
+    assert any("verbatim only applies" in e for e in errs) and any("verbatim must be true or false" in e for e in errs)
+    assert quotes.cap_values({"a": "x" * 300, "b": "y" * 300, "c": [{"a": "z" * 250}]}, {"a"}) == \
+        {"a": quotes.shorten("x" * 300)[0], "b": "y" * 300, "c": [{"a": quotes.shorten("z" * 250)[0]}]}
+
+
+def test_verbatim_fields_are_cut_for_everyone_but_the_owner() -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    conn = records.connect(); records.init_db(conn)
+    sess = f"v-{uuid.uuid4().hex[:6]}"
+    ds, _doc = _seed(conn, _long_claims(), "register-claims", sess)
+    records.set_dataset_visibility(conn, ds, "public"); conn.commit()
+    short = lambda s: isinstance(s, str) and len(s) <= 200 and s.endswith("…")          # noqa: E731
+    # the analysis table (and so the release files and dashboards)
+    def anchors(owner):
+        t = at.build(conn, ds, "claims", owner=owner)
+        k = next(i for i, c in enumerate(t["columns"]) if c["name"] == "anchor_quote")
+        return [row["v"][k] for row in t["rows"]]
+    assert LONG_ANCHOR in anchors(True) and any(short(v) for v in anchors(False)) and LONG_ANCHOR not in anchors(False)
+    rel = releases.get(conn, releases.create(conn, ds, notes="v")["id"], with_snapshot=True)
+    files = release_export.build(conn, rel)
+    assert LONG_ANCHOR not in "".join(v.decode("utf-8") for k, v in files.items() if k.startswith("tables/") or k == "evidence.json")
+    assert any("anchor_quote" in v.decode("utf-8") for k, v in files.items() if k.startswith("tables/"))
+    # the published results.json
+    assert LONG_ANCHOR not in json.dumps(exporter.materialize_dataset(conn, ds)["results"], ensure_ascii=False)
+    # the APIs: record detail, rows, catalogue search, dataset detail and download
+    c = TestClient(app); OWNER = {"X-Session-Id": sess}; OTHER = {"X-Session-Id": f"o-{uuid.uuid4().hex[:6]}"}
+    rid = next(r["id"] for r in records.dataset_records(conn, ds) if (r["field_values"] or {}).get("claim_id") == "S1")
+    fv = lambda h: c.get(f"/api/records/{rid}", headers=h).json()["record"]["field_values"]["anchor_quote"]   # noqa: E731
+    assert fv(OWNER) == LONG_ANCHOR and short(fv(OTHER))
+    rows = lambda h: {r["record_id"]: r["field_values"].get("anchor_quote") for r in c.get(f"/api/datasets/rows?dataset={ds}", headers=h).json()["rows"]}  # noqa: E731
+    assert rows(OWNER)[rid] == LONG_ANCHOR and short(rows(OTHER)[rid])
+    hits = c.get(f"/api/search?dataset={ds}").json()["results"]
+    assert hits and LONG_ANCHOR not in json.dumps(hits, ensure_ascii=False)
+    assert LONG_ANCHOR in json.dumps(c.get(f"/api/datasets/{ds}", headers=OWNER).json(), ensure_ascii=False)
+    assert LONG_ANCHOR not in json.dumps(c.get(f"/api/datasets/{ds}", headers=OTHER).json(), ensure_ascii=False)
+    assert LONG_ANCHOR in json.dumps(c.get(f"/api/datasets/{ds}/export", headers=OWNER).json(), ensure_ascii=False)
+    assert LONG_ANCHOR not in json.dumps(c.get(f"/api/datasets/{ds}/export", headers=OTHER).json(), ensure_ascii=False)
+    conn.close()

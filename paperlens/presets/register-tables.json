@@ -44,6 +44,7 @@
       {
         "name": "table_title",
         "type": "string",
+        "verbatim": true,
         "label": "Title",
         "evidence": "row",
         "help": "the full caption"

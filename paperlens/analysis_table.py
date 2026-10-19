@@ -502,9 +502,14 @@ def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, rel
                 present = [row["vals"][cdef["name"]] for row in rows if row["vals"].get(cdef["name"])]
                 cols.append({**cdef, "n": len(present), "distinct": len(set(present)), "samples": sorted(set(present))[:5]})
     corrected = src["corrected"]
+    # a verbatim column holds quotations of the paper: a public reader sees at most 200 characters
+    verbatim = set() if owner else {c["name"] for c in cols} & quotes.verbatim_names(spec)
+    cut = lambda v: quotes.cap_values({"v": v}, {"v"})["v"]                          # noqa: E731
+    if verbatim:
+        cols = [({**c, "samples": [cut(x) for x in c["samples"]]} if c["name"] in verbatim and c.get("samples") else c) for c in cols]
     wire = []
     for row in rows:
-        item = {"r": row["r"], "p": row["p"], "v": [row["vals"].get(c["name"]) for c in cols]}
+        item = {"r": row["r"], "p": row["p"], "v": [cut(row["vals"].get(c["name"])) if c["name"] in verbatim else row["vals"].get(c["name"]) for c in cols]}
         fixes = corrected.get(recs_out[row["r"]]["id"])
         if fixes:
             hit = [k for k, c in enumerate(cols) if _cell_path(row["p"], c) in fixes]

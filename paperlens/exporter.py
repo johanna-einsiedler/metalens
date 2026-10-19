@@ -82,9 +82,8 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
 
     default_model = (ov.get("recipe") or {}).get("model")
     papers = []
+    verbatim: dict[str | None, frozenset] = {}
     for (doc_id, filename) in doc_rows:
-        # a public file: every quotation cut to the 200-character limit (quotes.py)
-        pub = quotes.cap_document(reconstruct.reconstruct_publishable(records.load(conn, str(doc_id))))
         mrow = conn.execute(
             "SELECT extraction FROM record WHERE document_id = %s LIMIT 1", (doc_id,)
         ).fetchone()
@@ -93,6 +92,11 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
         drow = conn.execute(
             "SELECT prompt_sha256, params, created_at, schema_id FROM extraction_document WHERE id = %s", (doc_id,)
         ).fetchone()
+        sid = drow[3] if drow else None
+        if sid not in verbatim:
+            verbatim[sid] = quotes.verbatim_names(records.schema_spec(conn, sid) if sid else None)
+        # a public file: every quotation — evidence and verbatim fields — cut to 200 characters (quotes.py)
+        pub = quotes.cap_document(reconstruct.reconstruct_publishable(records.load(conn, str(doc_id))), names=verbatim[sid])
         name = filename or (pub.get("paper_metadata") or {}).get("title") or str(doc_id)
         papers.append({"filename": name, "model": model, "result": pub,
                        # per-paper provenance: enough to re-run the same extraction later
