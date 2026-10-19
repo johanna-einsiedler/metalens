@@ -848,9 +848,9 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .tiles-sm .tile-p.clamp { -webkit-line-clamp: 2; }
 .tiles-sm .tile-by { font-size: 12px; margin: 0 0 6px; }
 .tiles-sm .tile-foot { font-size: 11px; padding: 6px 12px 10px; }
-/* the presets page: load a preset someone sent as a file */
-.pr-actions { margin-left: auto; padding-top: 6px; }
-.pr-loaded { position: relative; margin: 14px 0 6px; max-width: 760px; }
+/* My workspace → Presets: load a preset someone sent as a file (static/preset_file.js) */
+.ws-btns { display: inline-flex; gap: 8px; align-items: center; }
+.pr-loaded { position: relative; margin: 10px 0 14px; max-width: 760px; }
 .pr-loaded .pr-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; cursor: pointer; color: var(--text-muted); font-size: 14px; }
 .pr-loaded .pr-tag { margin: -2px 0 8px; font-size: 13.5px; }
 .pr-loaded .pr-meta { font-size: 13px; margin: 0 0 8px; }

@@ -2,6 +2,7 @@
 // each opening its overview) and Analyses (saved views/dashboards over ≥1 dataset).
 import { api } from "/static/api.js";
 import { esc } from "/static/grammar.js";
+import { mountPresetFile } from "/static/preset_file.js";
 
 async function init() {
   const dsGrid = document.querySelector("#datasets");
@@ -19,6 +20,12 @@ async function init() {
   }
   renderDatasets(dsGrid, me);
   renderPresets(preGrid, me);
+  const load = document.querySelector("#pj-load");
+  if (load && preGrid) {                          // a preset someone sent as a file → one of mine
+    load.hidden = false;
+    mountPresetFile({ button: load, input: document.querySelector("#pj-file"), panel: document.querySelector("#pj-loaded"),
+                      signedIn: true, onSaved: () => renderPresets(preGrid, me) });
+  }
   renderAnalyses(anGrid, me);
   renderPapers(papGrid, me);
 }
@@ -30,7 +37,8 @@ async function renderPresets(grid, _me) {
   catch (e) { grid.innerHTML = `<p class="muted">error: ${esc(e.message)}</p>`; return; }
   if (!presets.length) {
     grid.innerHTML = '<p class="muted">No personal presets yet. Click '
-      + '<a href="/preset">＋ New preset</a> to define your own extraction (prompt + review tabs).</p>';
+      + '<a href="/preset">＋ New preset</a> to define your own extraction (prompt + review tabs), '
+      + 'or <b>Load preset file</b> to add one someone sent you.</p>';
     return;
   }
   grid.innerHTML = presets.map((p) =>

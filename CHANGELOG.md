@@ -53,12 +53,16 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### Everything else
 
+- **The FAQ explains the local version** step by step: install uv, `uvx metalens` (or straight from
+  GitHub until the package is on PyPI), the data folder and `--data-dir`, presets from files, importing
+  without a model or extracting with an own key or a local model, exporting, updating, and `maseminer`.
+
 - **A `metalens` package and command.** The engine runs locally as Metalens too: `metalens` opens the
   Metalens brand with every bundled preset, data in `~/.metalens`, port 8775 (`maseminer` keeps
   `~/.maseminer` and 8765). The release workflow publishes two PyPI projects from one tag: `maseminer`
   (trimmed to the MASEM presets, without the `metalens` command) and `metalens` (the full engine,
   renamed by `scripts/package_as.py`).
-- **Load a preset file.** The presets page loads a preset someone sent as a `.json` file, checks it
+- **Load a preset file.** *My workspace* → Presets loads a preset someone sent as a `.json` file, checks it
   (every error and warning, and the schema id it runs under) and saves it as the viewer's own preset,
   private or — signed in — for everyone on the site. A loaded preset keeps its own id, and so its
   schema id, when no built-in, retired or personal preset uses it; otherwise it gets a fresh id and
