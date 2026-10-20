@@ -900,6 +900,8 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc .pc-citetop { margin: 4px 0 14px; max-width: 900px; }
 .pc .pc-cite-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pc .pc-zenodo { text-decoration: none; }
+.pc .pc-mint-note { font-size: 12.5px; }
+.pc .pc-flash { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius); transition: outline-color .4s; }
 .md img.md-img { display: block; max-width: 100%; height: auto; margin: 10px 0 4px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
 .md img.md-img[src$=".svg"] { width: 100%; }   /* a vector figure takes the text width, so its small type stays legible */
 .md details.md-titled { margin: 8px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
@@ -908,3 +910,56 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc .ds-relform textarea { margin-top: 6px; }
 .pc-soon { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; position: relative; color: inherit; }
 .pc-tip { position: absolute; left: 0; top: 1.4em; white-space: nowrap; font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--text); color: var(--surface); z-index: 5; }
+
+/* ── card figures drawn in HTML (static/card_figures.js): theme fonts and colours ── */
+.md-figure { margin: 14px 0 6px; }
+.cf { margin: 0; --cf-wash: color-mix(in srgb, var(--accent) 7%, var(--surface)); --cf-paper: color-mix(in srgb, var(--conf-med-bg) 55%, var(--surface)); }
+.cf-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.cf-step { margin: 0; min-width: 0; }
+.md-figure, .cf-box { min-width: 0; max-width: 100%; }
+.cf-cup { font: 17px/1 var(--font-serif); vertical-align: -2px; }
+.cf-h { display: flex; align-items: center; gap: 8px; font: 600 14px/1.2 var(--font-serif); color: var(--accent); margin: 0 0 6px; }
+.cf-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+        background: var(--accent); color: var(--on-accent, #fff); font: 700 11px/1 var(--font); }
+.cf-box { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.cf-box p { margin: 0; }
+.cf-box p + p { margin-top: 4px; }
+.cf-abs em, .cf-q { font-family: var(--font-serif); }
+.cf-k { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-right: 4px; }
+.cf-math i, .cf-line i, .cf-est i { font-family: var(--font-serif); }
+.cf-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.cf-sent { background: var(--cf-paper); border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); padding: 8px 10px; }
+.cf-q { font-style: italic; font-size: 13.5px; }
+.cf-meta { font-size: 12px; color: var(--text-muted); margin-top: 4px !important; }
+.cf-to { display: inline-block; margin-top: 6px !important; font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.cf-to::before { content: "↓ "; }
+.cf-ests { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.cf-group { border: 1px dashed var(--border); border-radius: var(--radius-sm, 6px); padding: 4px 6px 6px; }
+.cf-glab { font-size: 11.5px; color: var(--text-muted); text-align: center; margin-bottom: 4px; }
+.cf-est { border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); background: var(--surface); padding: 6px; text-align: center; font-size: 12.5px; line-height: 1.45; }
+.cf-est.cf-main { border-color: var(--accent); background: var(--cf-wash); }
+.cf-eid { font-family: var(--font-serif); }
+.cf-num { font-family: var(--font-mono); font-size: 12px; }
+.cf-role { color: var(--text-muted); }
+.cf-role.main { color: var(--accent); font-weight: 700; }
+.cf-line { font-size: 12.5px; margin-top: 8px !important; }
+.cf-line:first-child { margin-top: 0 !important; }
+.cf-box code { font-size: 11.5px; }
+.cf-scroll { overflow-x: auto; }
+.cf-table { border-collapse: collapse; font-size: 12.5px; }
+.cf-table td { padding: 3px 14px 3px 0; white-space: nowrap; }
+.cf-badge { background: var(--accent); color: var(--on-accent, #fff); font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 3px; }
+.cf-graph { display: block; width: 100%; min-width: 460px; height: auto; }
+.cf-node rect { fill: var(--cf-wash); stroke: var(--accent); stroke-width: 1; }
+.cf-node text { font: 12px var(--font-mono); fill: var(--text); }
+.cf-edge { stroke-width: 1.5; }
+.cf-edge.neg { stroke: var(--error); }
+.cf-edge.thick { stroke-width: 3; }
+.cf-edge.dotted { stroke-dasharray: 2 3; }
+.cf-edge.mute { stroke: var(--text-muted); }
+.cf-edge.dashed { stroke-dasharray: 5 4; }
+.cf-mk-neg { fill: var(--error); }
+.cf-mk-mute { fill: var(--text-muted); }
+.cf-elab { font: 11.5px var(--font); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.cf-elab.neg { fill: var(--error); }
+.cf-elab.mute { fill: var(--text-muted); }

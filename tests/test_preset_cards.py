@@ -266,6 +266,8 @@ def test_the_deposited_card_has_no_page_only_links_and_the_readme_names_its_sect
     md = "## Introduction\n\nSee the [corpus dataset](#to-be-published).\n\n````\n## not a section\n````\n\n## Verification\n\nDone.\n"
     assert preset_bundle.for_deposit(md).count("corpus dataset (to be published)") == 1 and "#to-be-published" not in preset_bundle.for_deposit(md)
     assert preset_bundle.card_sections(md) == ["Introduction", "Verification"]
+    fig = preset_bundle.for_deposit("Before\n```figure claim-chain\nOne claim, step by step.\n```\nAfter", site="https://metalens.tech", card_url="https://metalens.tech/preset?id=x")
+    assert fig == "Before\n*Figure: One claim, step by step. It is drawn on the card page: https://metalens.tech/preset?id=x.*\nAfter"
     site = preset_bundle.for_deposit("![fig](/static/cards/a.svg) and [card](/preset?id=x) and [ext](https://e.org)", site="https://metalens.tech")
     assert site == "![fig](https://metalens.tech/static/cards/a.svg) and [card](https://metalens.tech/preset?id=x) and [ext](https://e.org)"
     spec = ps.normalize(json.loads((Path(ps.PRESETS_DIR) / "masem-direct.json").read_text()), base_dir=ps.PRESETS_DIR)

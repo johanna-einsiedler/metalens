@@ -396,7 +396,9 @@ export function renderMarkdown(src) {
   let fence = null;                // buffered fenced-code lines
   let fenceLen = 0;                // backticks that opened the fence (a longer fence may hold shorter ones)
   let fenceTitle = null;           // ```fold <title> → a closed <details> with that summary
+  let fenceFigure = null;          // ```figure <name> → a placeholder the page fills (static/card_figures.js)
   const fenced = (lines_) => {
+    if (fenceFigure) return `<div class="md-figure" data-figure="${fenceFigure}" data-alt="${esc_(lines_.join(" ").trim())}"></div>`;
     const pre = `<pre class="md-code">${esc_(lines_.join("\n"))}</pre>`;
     return fenceTitle ? `<details class="md-fold md-titled"><summary>${esc_(fenceTitle)}</summary>${pre}</details>` : pre;
   };
@@ -444,6 +446,8 @@ export function renderMarkdown(src) {
       flush(); fence = []; fenceLen = open[1].length;
       const info = open[2].trim();
       fenceTitle = /^fold\s+\S/.test(info) ? info.replace(/^fold\s+/, "") : null;
+      const fig = info.match(/^figure\s+([a-z0-9-]{1,40})$/);
+      fenceFigure = fig ? fig[1] : null;
       continue;
     }
 

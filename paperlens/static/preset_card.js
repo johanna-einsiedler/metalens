@@ -106,12 +106,23 @@ function render() {
     d.innerHTML = `<summary>Show all ${lines} lines</summary>`;
     pre.parentNode.insertBefore(d, pre); d.appendChild(pre);
   });
+  if (body.querySelector(".md-figure")) import("/static/card_figures.js").then((f) => f.mountFigures(body));   // figures drawn in HTML
   body.querySelectorAll('a[href="#to-be-published"]').forEach((a) => {
     a.classList.add("pc-soon"); a.title = "to be published soon";
     a.onclick = (e) => { e.preventDefault(); let t = a.querySelector(".pc-tip"); if (t) { t.remove(); return; }
       t = document.createElement("span"); t.className = "pc-tip"; t.textContent = "to be published soon"; a.appendChild(t); setTimeout(() => t.remove(), 2500); };
   });
   wireAdmin();
+  const jump = $("#pc-mint-jump");
+  if (jump) jump.onclick = (e) => {                 // to the release form, DOI ticked — or to the version's ◎ DOI button
+    e.preventDefault();
+    const target = jump.dataset.mint === "existing" ? document.querySelector("[data-reldoi]") : $("#pc-relform");
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const tick = $("#pc-rel-doi"); if (tick && jump.dataset.mint === "new") tick.checked = true;
+    const notes = $("#pc-rel-notes"); if (notes && jump.dataset.mint === "new") setTimeout(() => notes.focus(), 350);
+    target.classList.add("pc-flash"); setTimeout(() => target.classList.remove("pc-flash"), 1600);
+  };
   const copy = $("#pc-cite-copy");
   if (copy) copy.onclick = async () => { try { await navigator.clipboard.writeText($("#pc-cite-text").textContent); copy.textContent = "Copied"; } catch { /* clipboard blocked */ } };
 }
@@ -208,12 +219,26 @@ function citeTop(c) {
     ? `<a class="badge pc-zenodo" href="${esc(c.concept_doi ? "https://doi.org/" + c.concept_doi : (latest.zenodo_url || "https://doi.org/" + latest.doi))}" target="_blank" rel="noopener" title="${c.concept_doi ? "the DOI of every version: it opens the newest one on Zenodo" : "the DOI of this version on Zenodo"}">${testDoi(doi) ? "test " : ""}Zenodo · DOI ${esc(doi)}</a>`
     : `<span class="muted pc-nodoi">No DOI yet</span>`;
   return `<div class="ds-cite pc-citetop"><span class="rk">How to cite</span><blockquote id="pc-cite-text">${esc(c.cite_as || "")}</blockquote>
-    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}</div></div>`;
+    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}${doi ? "" : mintHint(c)}</div></div>`;
+}
+// Without a DOI, say what this viewer can do about it: a moderator gets the way to the release form
+// (or why a DOI cannot be minted here); a signed-in account that is not one is told so.
+function mintHint(c) {
+  const admin = c.viewer && c.viewer.is_admin, zen = c.zenodo || {}, latest = c.latest;
+  if (!admin) return ME && ME.email ? ` <span class="muted pc-mint-note">Only moderators release a preset and mint its DOI.</span>` : "";
+  const why = !zen.configured ? "Zenodo is not configured on this server." : (!zen.allowed ? (zen.why_not || "This account may not mint DOIs here.") : "");
+  if (latest && !latest.doi && c.changed_since_release === false)          // released, nothing changed: mint that version
+    return zen.allowed ? ` <a class="btn btn-primary btn-sm" href="#versions" id="pc-mint-jump" data-mint="existing">Mint the DOI of v${latest.number}</a>` : ` <span class="muted pc-mint-note">${esc(why)}</span>`;
+  const next = ((latest || {}).number || 0) + 1;
+  return ` <a class="btn btn-primary btn-sm" href="#pc-relform" id="pc-mint-jump" data-mint="new">Release v${next}${zen.allowed ? " and mint a DOI" : ""}</a>`
+    + (why ? ` <span class="muted pc-mint-note">${esc(why)}</span>` : "");
 }
 function versions(c) {
   const admin = CARD.viewer && CARD.viewer.is_admin;
   const zen = c.zenodo || {};
-  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI</span>`)}
+  // a moderator who may not mint here is told why (the allow-list, the daily cap, no Zenodo token)
+  const cannot = admin && !zen.allowed ? (zen.configured ? (zen.why_not || "this account may not mint DOIs here") : "Zenodo is not configured on this server") : "";
+  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI${cannot ? ` · ${esc(cannot)}` : ""}</span>`)}
       <span class="muted"> · schema <code>${esc(x.schema_id)}</code> · <a href="${esc(x.bundle_url)}" title="preset.json, prompt.md, card.md, fields.md, CITATION.cff, README — a loadable preset folder">⬇ files</a></span>
       ${x.notes ? `<div class="md" style="margin:2px 0 0">${renderMarkdown(x.notes)}</div>` : ""}</div>`).join("");
   const cite = `<div class="ds-cite"><p class="muted" style="font-size:12.5px;margin:6px 0 0">The citation is at the top of this page${c.concept_doi ? "; its DOI always opens the newest version" : ""}.</p>
@@ -221,7 +246,7 @@ function versions(c) {
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">In a methods section, name the schema id and the model id of your run (the export carries both): <code>${esc(c.schema_id)}</code>. See <a href="https://github.com/johanna-einsiedler/metalens/blob/main/docs/REPRODUCIBILITY.md" target="_blank" rel="noopener">REPRODUCIBILITY.md</a>.</p></div>`;
   const none = `<p class="muted">No numbered release yet. The data contract is still identified: cite the schema id <code>${esc(c.schema_id)}</code> and the engine version of your run.</p>`;
   const form = admin ? `<div class="ds-relform" id="pc-relform"><b>Release v${((c.latest || {}).number || 0) + 1}</b> <span class="muted">— freezes the current declaration, prompt and card text into a numbered, downloadable bundle${zen.configured ? ", which can then get a DOI" : ""}.</span>
-      ${c.changed_since_release === false ? `<p class="muted" style="margin:6px 0 0">Nothing changed since v${c.latest.number}.</p>` : `<textarea id="pc-rel-notes" rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
+      ${c.changed_since_release === false ? `<p class="muted" style="margin:6px 0 0">Nothing changed since v${c.latest.number}.${cannot ? ` A DOI cannot be minted here: ${esc(cannot.replace(/\.$/, ""))}.` : ""}</p>` : `<textarea id="pc-rel-notes" rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="pc-rel-go">Release v${((c.latest || {}).number || 0) + 1}</button>${zen.allowed ? `<label class="muted" style="font-size:12.5px"><input type="checkbox" id="pc-rel-doi"/> and mint its DOI${zen.sandbox ? " (sandbox)" : ""}</label>` : (zen.configured ? `<span class="muted" style="font-size:12.5px">${esc(zen.why_not || "")}</span>` : "")}<span class="muted" id="pc-rel-msg"></span></div>`}</div>` : "";
   return `${form}${rows || none}${cite}`;
 }
