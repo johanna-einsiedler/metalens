@@ -48,8 +48,8 @@ export function mountPresetFile({ button, input, panel, signedIn = false, onSave
       const moved = r.id_wanted && !r.id_kept
         ? `<p class="pr-note">The id <code>${esc(r.id_wanted)}</code> is already in use here, so it was saved as <code>${esc(id)}</code> and runs under the schema <code>${esc(r.schema_id || "")}</code>.</p>` : "";
       const use = r.mode === "import"
-        ? `<a class="btn btn-primary" href="/import">Import papers with it</a>`
-        : `<a class="btn btn-primary" href="/extract?preset=${encodeURIComponent(id)}">Run it on papers</a> <a class="btn btn-ghost" href="/import">Import results</a>`;
+        ? `<a class="btn btn-primary" href="/import?preset=${encodeURIComponent(id)}">Import papers with it</a>`
+        : `<a class="btn btn-primary" href="/extract?preset=${encodeURIComponent(id)}">Run it on papers</a> <a class="btn btn-ghost" href="/import?preset=${encodeURIComponent(id)}">Import results</a>`;
       show(`${head}<p>Saved as your preset <code>${esc(id)}</code>${vis === "public" ? ", usable by everyone on this site" : ", visible only to you"}. It appears under <i>Review as</i> on the Import page and in the extract picker.</p>${moved}
         <div class="pr-btns">${use} <a class="btn btn-ghost" href="/preset?id=${encodeURIComponent(id)}&edit=1">Open in the editor</a></div>`);
       if (onSaved) onSaved(r);
