@@ -236,7 +236,9 @@ function mintHint(c) {
 function versions(c) {
   const admin = CARD.viewer && CARD.viewer.is_admin;
   const zen = c.zenodo || {};
-  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI</span>`)}
+  // a moderator who may not mint here is told why (the allow-list, the daily cap, no Zenodo token)
+  const cannot = admin && !zen.allowed ? (zen.configured ? (zen.why_not || "this account may not mint DOIs here") : "Zenodo is not configured on this server") : "";
+  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI${cannot ? ` · ${esc(cannot)}` : ""}</span>`)}
       <span class="muted"> · schema <code>${esc(x.schema_id)}</code> · <a href="${esc(x.bundle_url)}" title="preset.json, prompt.md, card.md, fields.md, CITATION.cff, README — a loadable preset folder">⬇ files</a></span>
       ${x.notes ? `<div class="md" style="margin:2px 0 0">${renderMarkdown(x.notes)}</div>` : ""}</div>`).join("");
   const cite = `<div class="ds-cite"><p class="muted" style="font-size:12.5px;margin:6px 0 0">The citation is at the top of this page${c.concept_doi ? "; its DOI always opens the newest version" : ""}.</p>
@@ -244,7 +246,7 @@ function versions(c) {
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">In a methods section, name the schema id and the model id of your run (the export carries both): <code>${esc(c.schema_id)}</code>. See <a href="https://github.com/johanna-einsiedler/metalens/blob/main/docs/REPRODUCIBILITY.md" target="_blank" rel="noopener">REPRODUCIBILITY.md</a>.</p></div>`;
   const none = `<p class="muted">No numbered release yet. The data contract is still identified: cite the schema id <code>${esc(c.schema_id)}</code> and the engine version of your run.</p>`;
   const form = admin ? `<div class="ds-relform" id="pc-relform"><b>Release v${((c.latest || {}).number || 0) + 1}</b> <span class="muted">— freezes the current declaration, prompt and card text into a numbered, downloadable bundle${zen.configured ? ", which can then get a DOI" : ""}.</span>
-      ${c.changed_since_release === false ? `<p class="muted" style="margin:6px 0 0">Nothing changed since v${c.latest.number}.</p>` : `<textarea id="pc-rel-notes" rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
+      ${c.changed_since_release === false ? `<p class="muted" style="margin:6px 0 0">Nothing changed since v${c.latest.number}.${cannot ? ` A DOI cannot be minted here: ${esc(cannot.replace(/\.$/, ""))}.` : ""}</p>` : `<textarea id="pc-rel-notes" rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="pc-rel-go">Release v${((c.latest || {}).number || 0) + 1}</button>${zen.allowed ? `<label class="muted" style="font-size:12.5px"><input type="checkbox" id="pc-rel-doi"/> and mint its DOI${zen.sandbox ? " (sandbox)" : ""}</label>` : (zen.configured ? `<span class="muted" style="font-size:12.5px">${esc(zen.why_not || "")}</span>` : "")}<span class="muted" id="pc-rel-msg"></span></div>`}</div>` : "";
   return `${form}${rows || none}${cite}`;
 }

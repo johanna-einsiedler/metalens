@@ -59,6 +59,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - Without a DOI, the top of a preset card says what the viewer can do: a moderator gets "Release vN and
   mint a DOI" (to the release form, DOI ticked) or the reason minting is not possible here; a signed-in
   account that is not a moderator reads that only moderators release presets.
+  A moderator who may not mint on this server (the Zenodo allow-list, the daily cap) sees why, in the
+  version list and in the release box, instead of a bare "no DOI".
 - A preset card opens with **How to cite**: the citation, a Copy button and the Zenodo link (the concept
   DOI, which opens the newest version), or "No DOI yet". The Models table names the datasets each model's
   records come from.
