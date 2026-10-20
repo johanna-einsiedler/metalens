@@ -900,6 +900,8 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .pc .pc-citetop { margin: 4px 0 14px; max-width: 900px; }
 .pc .pc-cite-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pc .pc-zenodo { text-decoration: none; }
+.pc .pc-mint-note { font-size: 12.5px; }
+.pc .pc-flash { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius); transition: outline-color .4s; }
 .md img.md-img { display: block; max-width: 100%; height: auto; margin: 10px 0 4px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
 .md img.md-img[src$=".svg"] { width: 100%; }   /* a vector figure takes the text width, so its small type stays legible */
 .md details.md-titled { margin: 8px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }

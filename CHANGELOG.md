@@ -56,6 +56,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - A preset release's deposited `card.md` writes the card page's "to be published soon" links as plain
   text, and its README lists the card's actual sections and how to load the preset locally.
 - Workspace tiles keep their titles clear of the rename and delete buttons.
+- Without a DOI, the top of a preset card says what the viewer can do: a moderator gets "Release vN and
+  mint a DOI" (to the release form, DOI ticked) or the reason minting is not possible here; a signed-in
+  account that is not a moderator reads that only moderators release presets.
 - A preset card opens with **How to cite**: the citation, a Copy button and the Zenodo link (the concept
   DOI, which opens the newest version), or "No DOI yet". The Models table names the datasets each model's
   records come from.

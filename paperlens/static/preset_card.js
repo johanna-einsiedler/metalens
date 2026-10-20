@@ -113,6 +113,16 @@ function render() {
       t = document.createElement("span"); t.className = "pc-tip"; t.textContent = "to be published soon"; a.appendChild(t); setTimeout(() => t.remove(), 2500); };
   });
   wireAdmin();
+  const jump = $("#pc-mint-jump");
+  if (jump) jump.onclick = (e) => {                 // to the release form, DOI ticked — or to the version's ◎ DOI button
+    e.preventDefault();
+    const target = jump.dataset.mint === "existing" ? document.querySelector("[data-reldoi]") : $("#pc-relform");
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    const tick = $("#pc-rel-doi"); if (tick && jump.dataset.mint === "new") tick.checked = true;
+    const notes = $("#pc-rel-notes"); if (notes && jump.dataset.mint === "new") setTimeout(() => notes.focus(), 350);
+    target.classList.add("pc-flash"); setTimeout(() => target.classList.remove("pc-flash"), 1600);
+  };
   const copy = $("#pc-cite-copy");
   if (copy) copy.onclick = async () => { try { await navigator.clipboard.writeText($("#pc-cite-text").textContent); copy.textContent = "Copied"; } catch { /* clipboard blocked */ } };
 }
@@ -209,7 +219,19 @@ function citeTop(c) {
     ? `<a class="badge pc-zenodo" href="${esc(c.concept_doi ? "https://doi.org/" + c.concept_doi : (latest.zenodo_url || "https://doi.org/" + latest.doi))}" target="_blank" rel="noopener" title="${c.concept_doi ? "the DOI of every version: it opens the newest one on Zenodo" : "the DOI of this version on Zenodo"}">${testDoi(doi) ? "test " : ""}Zenodo · DOI ${esc(doi)}</a>`
     : `<span class="muted pc-nodoi">No DOI yet</span>`;
   return `<div class="ds-cite pc-citetop"><span class="rk">How to cite</span><blockquote id="pc-cite-text">${esc(c.cite_as || "")}</blockquote>
-    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}</div></div>`;
+    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}${doi ? "" : mintHint(c)}</div></div>`;
+}
+// Without a DOI, say what this viewer can do about it: a moderator gets the way to the release form
+// (or why a DOI cannot be minted here); a signed-in account that is not one is told so.
+function mintHint(c) {
+  const admin = c.viewer && c.viewer.is_admin, zen = c.zenodo || {}, latest = c.latest;
+  if (!admin) return ME && ME.email ? ` <span class="muted pc-mint-note">Only moderators release a preset and mint its DOI.</span>` : "";
+  const why = !zen.configured ? "Zenodo is not configured on this server." : (!zen.allowed ? (zen.why_not || "This account may not mint DOIs here.") : "");
+  if (latest && !latest.doi && c.changed_since_release === false)          // released, nothing changed: mint that version
+    return zen.allowed ? ` <a class="btn btn-primary btn-sm" href="#versions" id="pc-mint-jump" data-mint="existing">Mint the DOI of v${latest.number}</a>` : ` <span class="muted pc-mint-note">${esc(why)}</span>`;
+  const next = ((latest || {}).number || 0) + 1;
+  return ` <a class="btn btn-primary btn-sm" href="#pc-relform" id="pc-mint-jump" data-mint="new">Release v${next}${zen.allowed ? " and mint a DOI" : ""}</a>`
+    + (why ? ` <span class="muted pc-mint-note">${esc(why)}</span>` : "");
 }
 function versions(c) {
   const admin = CARD.viewer && CARD.viewer.is_admin;
