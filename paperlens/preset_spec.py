@@ -75,7 +75,8 @@ _ALLOWED_KEYS = {
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other", "verbatim"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
-    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review"},
+    "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review",
+                "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
@@ -770,6 +771,10 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E(f"$.display.analysis.derived[{di}] needs name, unit, inputs and a known formula (r_ci_fisher, hedges_g)")
         if display.get("citation_flash") is not None and not isinstance(display.get("citation_flash"), bool):
             E("$.display.citation_flash must be true or false")
+        # inline_evidence: under each field, its confidence note and its quotes (source · page), not only
+        # as PDF highlights — for presets whose reviewer judges a call against the model's reading
+        if display.get("inline_evidence") is not None and not isinstance(display.get("inline_evidence"), bool):
+            E("$.display.inline_evidence must be true or false")
         aud = display.get("audit")      # {"<table field>": {"key": [columns that identify a row]}} for the audit report
         if aud is not None:
             if not isinstance(aud, dict):
