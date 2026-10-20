@@ -805,9 +805,10 @@ def dataset_releases(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     rows = releases.list_for_dataset(db, dataset_id)
     out = {"releases": [releases.public_row(r) for r in rows]}
     if owner:
-        from . import auth, zenodo
+        from . import auth, github_publish, zenodo
         out["head"] = {"changed": releases.changed_since(db, dataset_id, rows[0] if rows else None)}
         out["zenodo"] = zenodo.status(db, auth.get_user(db, who.user_id) if who.user_id else None)
+        out["github"] = {"configured": bool(github_publish.token())}     # a DOI minted here then publishes there
         out["sync"] = _release_sync(db, dataset_id, rows)
     return out
 
@@ -1238,7 +1239,9 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
     version of the dataset's Zenodo record). Permanent and issued under the server's Zenodo
     account, so guarded: the allow-list when set, a daily cap per account, a release with papers.
     400 when Zenodo is not configured. A release that already has its DOI is not minted again:
-    the call then only (re)sends the DOI to the GitHub copy, so a missed pull request can be redone."""
+    the call then only (re)sends the DOI to the GitHub copy, so a missed pull request can be redone.
+    Zenodo first, then GitHub and the catalogue: a freshly minted latest release of a dataset that
+    is not on GitHub yet is published there in the same call (a pull request), naming its DOI."""
     from . import auth, github_publish, releases, zenodo
     if not _dataset_gate(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Only the owner can mint a DOI.")
@@ -1273,6 +1276,12 @@ def dataset_release_doi(dataset_id: str, number: int, db=Depends(get_db), who: P
             out["github"] = {"error": f"the GitHub copy could not be updated: {exc}"}
     elif not fresh:
         raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {minted['doi']}")
+    elif github_publish.token() and (releases.latest(db, dataset_id) or {}).get("number") == number:
+        # not on GitHub yet: the copies follow the DOI — the release goes there now and into the catalogue
+        try:
+            out["publish"] = _publish_dataset(db, dataset_id, who, "github+metalens", number)
+        except HTTPException as exc:
+            out["github"] = {"error": f"not published: {exc.detail}"}
     return out
 
 

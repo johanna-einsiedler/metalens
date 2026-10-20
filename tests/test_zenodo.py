@@ -231,3 +231,43 @@ def test_create_release_mints_first_then_reports_what_did_not_follow(monkeypatch
     sync = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["sync"]
     assert sync["behind"] == ["zenodo"] and sync["in_sync"] is False and sync["zenodo"] == 1 and sync["latest"] == 2
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_a_doi_minted_on_a_release_kept_here_publishes_it(monkeypatch) -> None:
+    """The copies follow the DOI: a release kept in Metalens only, given its DOI later, goes to
+    GitHub and the catalogue in the same call — a pull request naming the DOI, no second click."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod, github_publish, worker
+    monkeypatch.setenv("PAPERLENS_ZENODO_TOKEN", "t-test"); monkeypatch.setenv("PAPERLENS_ZENODO_SANDBOX", "1")
+    monkeypatch.setenv("PAPERLENS_GITHUB_TOKEN", "gh-test"); monkeypatch.delenv("PAPERLENS_ZENODO_USERS", raising=False)
+    z = FakeZenodo()
+    monkeypatch.setattr(zenodo, "new_client", lambda: httpx.Client(transport=httpx.MockTransport(z.handler)))
+    monkeypatch.setattr(worker, "enqueue", lambda *a, **k: None)                 # inline, like a server without Redis
+    published: list[str] = []
+    def fake_publish(conn, dataset_id, **kw):
+        rel = releases.latest(conn, dataset_id)
+        assert rel["doi"] == "10.5072/zenodo.101", "the files go out after the DOI exists, naming it"
+        releases.mark_published(conn, rel["id"]); github_publish.write_pr_url(conn, dataset_id, "https://github.com/x/datasets/pull/1")
+        published.append(dataset_id)
+        return {"pr_url": "https://github.com/x/datasets/pull/1", "branch": "metalens/x"}
+    monkeypatch.setattr(github_publish, "publish_dataset", fake_publish)
+    conn = records.connect(); records.init_db(conn)
+    sess = f"zen-pub-{uuid.uuid4().hex[:6]}"; mine = {"X-Session-Id": sess}
+    ds, _ = _seed(conn, HAC, "human-ai-collab", sess)
+    c = TestClient(appmod.app)
+    uid = c.post("/api/auth/register", json={"email": f"zen-{uuid.uuid4().hex[:8]}@example.org", "password": "zenodo-test-pass-1"}, headers=mine).json()["user"]["id"]
+    conn.execute("UPDATE record SET owner_user_id = %s::uuid WHERE dataset_id = %s::uuid", (uid, ds)); conn.commit()
+    made = c.post(f"/api/datasets/{ds}/releases", json={"notes": "kept here"}, headers=mine).json()   # no DOI, not published
+    assert made["number"] == 1 and made["doi"] is None and published == []
+    assert c.get(f"/api/datasets/{ds}/releases", headers=mine).json()["github"] == {"configured": True}
+    r = c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine).json()
+    assert r["minted"] is True and r["doi"] == "10.5072/zenodo.101" and r["publish"]["pr_url"].endswith("/pull/1") and published == [ds]
+    listing = c.get(f"/api/datasets/{ds}/releases", headers=mine).json()
+    assert listing["releases"][0]["published_at"] and listing["sync"]["github"] == 1 and listing["sync"]["pending"] is True
+    assert listing["sync"]["catalogue"] is True and listing["sync"]["in_sync"] is True
+    # minting again is a resend, never a second publication
+    r2 = c.post(f"/api/datasets/{ds}/releases/1/doi", headers=mine)
+    assert r2.status_code in (200, 409) and published == [ds]
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

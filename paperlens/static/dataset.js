@@ -15,6 +15,7 @@ function fmtDate(iso) {
 }
 
 let OV = null, OWNER = false, ANON = false, ADMIN = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
+let GH = { configured: false };   // does this server publish to GitHub? (a DOI minted here then publishes there)
 let JUST_SAVED = new URLSearchParams(location.search).get("saved") === "1";   // arrived from "Save" in the review
 
 async function init() {
@@ -226,16 +227,16 @@ async function loadReleases() {
   const host = $("#ds-rellist"); if (!host) return;
   let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
   const list = r.releases || [];
-  ZEN = r.zenodo || ZEN;
+  ZEN = r.zenodo || ZEN; GH = r.github || GH;
   renderSync(r.sync, list);
   const gh = OV.published_url || (OV.git_pr_url ? OV.git_pr_url.replace(/\/pull\/\d+$/, "") : "");
   const pubState = (x, k) => x.published_at ? (k === 0 && OV.publish_status === "pending" ? `<span class="badge">pull request open</span>` : `<a class="badge" href="${esc(gh ? gh + "/releases/v" + x.number : "#")}" target="_blank" rel="noopener" title="on GitHub since ${esc(fmtDate(x.published_at))}">on GitHub ↗</a>`)
     : (k === 0 && OWNER && !ANON ? `<button type="button" class="btn btn-ghost btn-sm" data-relpub="${x.number}" title="send this release to the datasets repository">⬆ Publish</button>` : `<span class="muted">not published</span>`);
   const testDoi = (x) => (x.doi || "").startsWith("10.5072/");
-  const doiState = (x) => x.doi && (testDoi(x) === ZEN.sandbox || !ZEN.configured) ? ` <a class="badge" href="${esc(testDoi(x) ? x.zenodo_url || "#" : "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this release" + (x.zenodo_url ? " · " + esc(x.zenodo_url) : "")}">${testDoi(x) ? "test " : ""}DOI ${esc(x.doi)}</a>`
+  const doiState = (x, k) => x.doi && (testDoi(x) === ZEN.sandbox || !ZEN.configured) ? ` <a class="badge" href="${esc(testDoi(x) ? x.zenodo_url || "#" : "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this release" + (x.zenodo_url ? " · " + esc(x.zenodo_url) : "")}">${testDoi(x) ? "test " : ""}DOI ${esc(x.doi)}</a>`
     + (OWNER && !ANON && ZEN.allowed && !testDoi(x) && (x.published_at || OV.published_url) ? ` <button type="button" class="btn btn-ghost btn-sm" data-doigh="${x.number}" title="send this DOI to the GitHub copy of the release (a small pull request), if it does not have it yet">DOI → GitHub</button>` : "")
-    : (OWNER && !ANON && ZEN.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
-  host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
+    : (OWNER && !ANON && ZEN.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}"${k === 0 && !x.published_at && !OV.published_url && GH.configured ? ' data-pubnext="1"' : ""} title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
+  host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x, k)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
     + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
     + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
     + ` · <a href="#" data-relzip="${x.number}" title="this release as static files (tables, evidence, metadata): what a dashboard you write yourself reads">⬇ files</a></span>${x.notes ? `<div class="muted" style="margin:2px 0 0 0">${esc(x.notes)}</div>` : ""}</div>`).join("")
@@ -256,9 +257,12 @@ async function loadReleases() {
     loadReleases();
   }));
   host.querySelectorAll("[data-reldoi]").forEach((b) => (b.onclick = async () => {
-    if (!confirm(`Mint a DOI for release v${b.dataset.reldoi} on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the release's files are deposited under it and cannot be withdrawn.`)) return;
-    b.disabled = true; b.textContent = "Minting…";
-    try { await api.releaseDoi(id, +b.dataset.reldoi); } catch (e) { alert(`Minting the DOI failed: ${e.message}`); }
+    // Zenodo first, then the copies: a dataset not on GitHub yet is published there in the same step
+    const then = b.dataset.pubnext ? " It is then published to GitHub and listed in the Metalens catalogue: a pull request in the datasets repository, for you to merge." : "";
+    if (!confirm(`Mint a DOI for release v${b.dataset.reldoi} on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the release's files are deposited under it and cannot be withdrawn.${then}`)) return;
+    b.disabled = true; b.textContent = b.dataset.pubnext ? "Minting, publishing…" : "Minting…";
+    try { const r = await api.releaseDoi(id, +b.dataset.reldoi); if (r.github && r.github.error) alert(`The DOI was minted, but: ${r.github.error}`); if (r.publish) OV = await api.datasetOverview(id); }
+    catch (e) { alert(`Minting the DOI failed: ${e.message}`); }
     loadReleases();
   }));
   host.querySelectorAll("[data-relzip]").forEach((a) => (a.onclick = async (e) => {
@@ -306,7 +310,7 @@ function publishChoices(p) {
     rows = [opt("doi", `Publish v${p.next_number} as a new version everywhere`, `new DOI on Zenodo (same concept DOI), the GitHub copy, the Metalens catalogue`, true),
             opt("none", "Keep it in Metalens only", "not published; Zenodo and GitHub stay at their release until you sync")];
   } else {
-    rows = [ZEN.allowed ? opt("doi", "Publish with a DOI", `Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} first, then GitHub and the Metalens catalogue · a DOI is permanent`, false) : "",
+    rows = [ZEN.allowed ? opt("doi", "Publish with a DOI", `published to Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""} with a permanent DOI; up-to-date copies on GitHub and in the Metalens catalogue`, false) : "",
             opt("github+metalens", "Publish without a DOI", "GitHub and the Metalens catalogue", published),
             opt("none", "Keep it in Metalens only", "you can publish it later from the release history", !published)];
   }
