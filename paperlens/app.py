@@ -3232,6 +3232,7 @@ class BuildPresetBody(BaseModel):
     preset_id: str
     template_params: dict = {}     # alias kept for the MASEMiner builder
     params: dict | None = None
+    segments: bool = False         # also return the prompt cut into template text and entries
 
 
 @app.post("/api/build-preset-prompt")
@@ -3243,11 +3244,21 @@ def build_preset_prompt(body: BuildPresetBody, db=Depends(get_db),
     and (visible) personal presets alike."""
     if not presets.is_visible(db, body.preset_id, who):
         raise HTTPException(status_code=404, detail="Preset not found.")
-    out = presets.render(body.preset_id, body.params or body.template_params or {}, conn=db)
+    given = body.params or body.template_params or {}
+    out = presets.render(body.preset_id, given, conn=db)
     if out is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
-    return {"prompt": out["prompt"], "sub_views": out["sub_views"],
-            "schema_id": out["schema_id"], "params": out["params"]}
+    res = {"prompt": out["prompt"], "sub_views": out["sub_views"],
+           "schema_id": out["schema_id"], "params": out["params"]}
+    if body.segments and out.get("spec"):
+        # the colour-coded preview: what the template says vs what the user's entries inserted
+        # (only when the pieces join to the prompt sent, which a pre-format-2 preset's stored text may not)
+        from . import preset_spec
+        segs = preset_spec.render_prompt_segments(
+            out["spec"], out["params"], preset_spec.given_params(out["spec"], given))
+        if "".join(x["text"] for x in segs) == out["prompt"]:
+            res["segments"] = segs
+    return res
 
 
 class TestKeyBody(BaseModel):

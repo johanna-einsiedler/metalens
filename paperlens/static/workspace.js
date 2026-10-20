@@ -733,6 +733,28 @@ function renderLegacyConf(rec) {
   return `<div class="group-head">${entries.map(([gid, r]) => renderConfBadge(gid, VM.groups[gid] || { label: formatKey(gid) }, r, VM.levels)).join("")}</div>`;
 }
 
+// display.inline_evidence: under a field, the note of its confidence group (once per group) and the
+// quotes that cite it exactly — each with its source label ("supporting", "questioning", a table…)
+// and page, a button that jumps to the highlight — so a call is judged next to the model's reading.
+function inlineEvidence(rec, f, shown) {
+  let note = "";
+  const gid = f.confidence;
+  if (gid && !shown.has(gid)) {
+    shown.add(gid);
+    const r = (rec.confidence || {})[gid];
+    if (r && (r.level || r.notes))
+      note = `<div class="rv-inote">${r.level ? `${renderConfDot(r.level, VM.levels, r.level)} <b>${esc(String(r.level))}</b>` : ""}${r.notes ? `${r.level ? " · " : ""}${esc(r.notes)}` : ""}</div>`;
+  }
+  const ids = EV.exact.get(`${rec.id}|${f.name}`) || [];
+  const quotes = ids.map((i) => {
+    const ev = DATA.evidence[i] || {};
+    const src = String(ev.source || "quote");
+    return `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">`
+      + `<span class="rv-stance" data-src="${esc(src.toLowerCase())}">${esc(src)}</span> p. ${ev.page || "?"}</button> “${esc(ev.snippet || "")}”</li>`;
+  }).join("");
+  return note || quotes ? `<div class="rv-inline">${note}${quotes ? `<ul class="rv-iquotes">${quotes}</ul>` : ""}</div>` : "";
+}
+
 // The declared layout: tabs → (group badges → fields → sub-entries) per tab, an "Other"
 // tab for anything undeclared the model returned. Every declared field appears, a missing
 // one visibly so.
@@ -745,8 +767,11 @@ function renderEntryBody(rec) {
     // child-scope groups are rated per sub-entry and shown on each card, not on the tab
     const badges = (t.groups || []).filter((gid) => (VM.groups[gid] || {}).scope !== "child")
       .map((gid) => renderConfBadge(gid, VM.groups[gid], (rec.confidence || {})[gid], VM.levels)).join("");
-    let html = badges ? `<div class="group-head">${badges}</div>` : "";
-    if (defs.length) html += `<div class="rv-root">${renderFields(defs, fv, "", eopts)}</div>`;
+    let html = badges && !VM.inlineEvidence ? `<div class="group-head">${badges}</div>` : "";
+    if (defs.length && VM.inlineEvidence) {             // each field, then its note and its quotes
+      const shown = new Set();
+      html += `<div class="rv-root">${defs.map((f) => renderFields([f], fv, "", eopts) + inlineEvidence(rec, f, shown)).join("")}</div>`;
+    } else if (defs.length) html += `<div class="rv-root">${renderFields(defs, fv, "", eopts)}</div>`;
     for (const ch of children) {
       const cites = EV.tableCites.get(`${rec.id}|${ch.key}`);
       html += `<div class="rv-row rv-row-block rv-decl" data-field="${esc(ch.key)}"><div class="rv-key" data-path="${esc(ch.key)}" title="${esc(ch.help || "")}">`

@@ -56,6 +56,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - A preset release's deposited `card.md` writes the card page's "to be published soon" links as plain
   text, and its README lists the card's actual sections and how to load the preset locally.
 - Workspace tiles keep their titles clear of the rename and delete buttons.
+- **`display.inline_evidence`**: the review card shows, under each field, its confidence note and the quotes
+  that cite it, each with its source label ("supporting", "questioning", a table) and page, a button that jumps
+  to the highlight. For presets where the reviewer judges each call against the model's reading.
 - Without a DOI, the top of a preset card says what the viewer can do: a moderator gets "Release vN and
   mint a DOI" (to the release form, DOI ticked) or the reason minting is not possible here; a signed-in
   account that is not a moderator reads that only moderators release presets.

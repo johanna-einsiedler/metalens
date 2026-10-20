@@ -117,6 +117,10 @@
 
                 <div class="wf-field"><label>Live preview <span class="muted"><span id="masemPreviewLen">0</span> characters</span>
                     <span class="masem-edit-tools"><button type="button" class="btn btn-ghost btn-sm" id="masemRegen" hidden title="throw the hand edits away and build the prompt from the form again">Regenerate from the form</button></span></label>
+                  <div id="masemLegend" class="pp-legend" hidden>
+                    <span><i class="pp-sw pp-u"></i><span id="masemLegendOwn">Your entries</span></span>
+                    <span id="masemLegendEx"><i class="pp-sw pp-u pp-ex"></i>The preset's example, until you fill in that field</span>
+                    <span><i class="pp-sw pp-t"></i>Template text, the same in every extraction</span></div>
                   <pre id="masemPreviewBox" class="masem-raw"></pre>
                   <textarea id="masemPromptEdit" class="promptbox masem-raw" rows="18" hidden spellcheck="false"></textarea>
                   <div id="masemEditNote" class="sf-help" hidden>Edited by hand: the form no longer rewrites this prompt. What you see here is what the model gets; you can still change it in step 3.</div></div>

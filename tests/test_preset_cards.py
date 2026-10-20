@@ -278,3 +278,13 @@ def test_the_deposited_card_has_no_page_only_links_and_the_readme_names_its_sect
     card, readme = files["card.md"].decode(), files["README.md"].decode()
     assert "#to-be-published" not in card and "study data (to be published)" in card
     assert "the card: Introduction, How it extracts, Verification" in readme and "limitations" not in readme
+
+
+def test_inline_evidence_is_a_display_switch_outside_the_schema_id() -> None:
+    """display.inline_evidence shows each field's note and quotes under it in the review card: a
+    true/false switch, and — like all of display — never part of the schema id."""
+    base = ps.normalize(json.loads((Path(ps.PRESETS_DIR) / "masem-direct.json").read_text()), base_dir=ps.PRESETS_DIR)
+    on = copy.deepcopy(base); on["display"]["inline_evidence"] = True
+    bad = copy.deepcopy(base); bad["display"]["inline_evidence"] = "yes"
+    assert not ps.validate(on)[0] and ps.schema_id(on) == ps.schema_id(base)
+    assert any("inline_evidence must be true or false" in e for e in ps.validate(bad)[0])
