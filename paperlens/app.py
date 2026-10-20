@@ -2901,6 +2901,23 @@ class PresetBody(BaseModel):
     keep_id: bool = False               # a preset loaded from a file keeps its own id (and so its schema id) when free
 
 
+def _unique_title(db, who: Principal, title: str, *, exclude_id: str | None = None) -> str:
+    """No two presets a person sees under one name: a loaded, saved or renamed preset whose title
+    a built-in or one of their own already carries gets " (1)", " (2)", … appended."""
+    import re
+    mine = records.list_personal_presets(db, owner_user_id=who.user_id, session_id=who.session_id, owned_only=True)
+    taken = {(p.get("title") or "").strip().lower() for p in mine if p.get("id") != exclude_id}
+    taken |= {(sp["meta"].get("title") or "").strip().lower() for sp in presets.load_all().values()}
+    title = title.strip()
+    if title.lower() not in taken:
+        return title
+    base = re.sub(r"\s*\(\d+\)$", "", title) or title
+    k = 1
+    while f"{base} ({k})".lower() in taken:
+        k += 1
+    return f"{base} ({k})"
+
+
 def _free_preset_id(db, pid) -> bool:
     """Can a loaded preset file keep this id? A valid preset id that no built-in, retired or
     personal preset uses: ids are global, so the first to load a file keeps its schema id."""
@@ -2944,6 +2961,8 @@ def create_preset(body: PresetBody, db=Depends(get_db),
         wanted = body.spec.get("id") if body.keep_id else None
         pid = wanted if wanted and _free_preset_id(db, wanted) else fresh
         spec = _validated_spec(body.spec, pid)
+        wanted_title = spec["meta"]["title"]
+        spec["meta"]["title"] = _unique_title(db, who, wanted_title)
         kw = dict(title=spec["meta"]["title"], prompt=preset_spec.render_prompt(spec),
                   tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
                   mode=spec["meta"]["mode"], owner_user_id=who.user_id,
@@ -2953,12 +2972,13 @@ def create_preset(body: PresetBody, db=Depends(get_db),
         except psycopg.errors.UniqueViolation:       # taken between the check and the insert
             pid = fresh
             spec = _validated_spec(body.spec, pid)
+            spec["meta"]["title"] = kw["title"]
             records.create_personal_preset(db, preset_id=pid, spec=spec, **kw)
-        return {**presets.get(pid, conn=db), "id_kept": bool(wanted) and pid == wanted, "id_wanted": wanted}
+        return {**presets.get(pid, conn=db), "id_kept": bool(wanted) and pid == wanted, "id_wanted": wanted, "title_wanted": wanted_title}
     if not (body.title or "").strip() or not (body.prompt or "").strip():
         raise HTTPException(status_code=422, detail="title and prompt are required.")
     return records.create_personal_preset(
-        db, title=body.title, prompt=body.prompt, tagline=body.tagline,
+        db, title=_unique_title(db, who, body.title), prompt=body.prompt, tagline=body.tagline,
         description=body.description, mode=body.mode, sub_views=body.sub_views,
         template_params=body.template_params, accent_color=body.accent_color,
         owner_user_id=who.user_id, session_id=who.session_id, visibility=body.visibility, brand=b.id)
@@ -2986,6 +3006,7 @@ def _create_setup(db, who: Principal, body: PresetBody, *, brand_id: str | None 
     title = (body.title or "").strip()
     if not title:
         raise HTTPException(status_code=422, detail="title is required.")
+    title = _unique_title(db, who, title)
     pid = f"{records._slugify(title)}-{uuid.uuid4().hex[:8]}"
     rendered = presets.render(base["id"], params)["prompt"]
     records.create_personal_preset(
@@ -3054,9 +3075,14 @@ def update_preset(preset_id: str, body: PresetPatch, db=Depends(get_db),
         "description": body.description, "mode": body.mode, "sub_views": body.sub_views,
         "template_params": body.template_params, "accent_color": body.accent_color,
         "visibility": body.visibility}.items() if v is not None}
+    if body.title is not None and body.title.strip():
+        fields["title"] = _unique_title(db, who, body.title, exclude_id=preset_id)
+        if body.spec is None and isinstance(row.get("spec"), dict):    # a declarative preset is named by its declaration
+            fields["spec"] = {**row["spec"], "meta": {**(row["spec"].get("meta") or {}), "title": fields["title"]}}
     if body.spec is not None:
         from . import preset_spec
         spec = _validated_spec(body.spec, preset_id)
+        spec["meta"]["title"] = _unique_title(db, who, spec["meta"]["title"], exclude_id=preset_id)
         fields.update(spec=spec, prompt=preset_spec.render_prompt(spec), title=spec["meta"]["title"],
                       tagline=spec["meta"].get("tagline"), description=spec["meta"].get("description"),
                       mode=spec["meta"]["mode"])

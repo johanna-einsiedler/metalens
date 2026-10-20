@@ -127,6 +127,8 @@ function currentSchemaId() {
 
 // ── file shapes → one canonical result per paper ────────────────────────────────────────
 function classify(obj) {
+  // a preset file (format 2: meta + entries declaration) is not a paper: it is loaded in My Workspace
+  if (obj && obj.format === 2 && obj.meta && obj.entries && !Array.isArray(obj.entries)) return "preset";
   if (obj && obj.results && Array.isArray(obj.results.papers)) return "dataset";
   if (obj && Array.isArray(obj.papers) && obj.papers.some((p) => p && (Array.isArray(p.records) || Array.isArray(p.entries)))) return "datasetfile";
   if (obj && Array.isArray(obj.entries) && (obj.filename || RAW_REPLY.some((k) => obj[k]))) return "pipeline";
@@ -303,6 +305,10 @@ async function addFiles(files) {
       try { obj = JSON.parse(await f.text()); }
       catch { JSONS[base(f.name)] = { name: f.name, error: "invalid JSON" }; continue; }
       const kind = classify(obj);
+      if (kind === "preset") {
+        JSONS[base(f.name)] = { name: f.name, error: `a preset file (“${(obj.meta || {}).title || base(f.name)}”), not a paper — load it under My Workspace → Load preset file` };
+        continue;
+      }
       if (kind === "dataset" || kind === "datasetfile") {
         if (kind === "datasetfile" && !(obj.recipe && obj.recipe.schema_id)) {
           const g = guessSchema((obj.papers || []).flatMap((pp) => pp.entries || []));
@@ -429,9 +435,17 @@ function renderPairs() {
       cls = act === "skip" ? "warn" : cls;
     }
     return `<div class="import-row ${cls}" data-k="${esc(r.key)}">`
-      + `<span class="ir-name">${esc(r.json ? r.json.name : r.key + ".pdf")}</span><span class="ir-stat">${state}</span></div>`;
+      + `<span class="ir-name">${esc(r.json ? r.json.name : r.key + ".pdf")}</span><span class="ir-stat">${state}</span>`
+      + (RUNNING ? "" : `<button type="button" class="ir-del" data-k="${esc(r.key)}" data-what="${r.json ? "json" : "pdf"}" title="remove this file from the import (nothing is uploaded until you press Import)">✕</button>`) + `</div>`;
   }).join("") : '<p class="muted" style="padding:8px 0">Drop <code>.json</code> results (single papers, a workspace export, or a dataset export) and their <code>.pdf</code> files.</p>';
   $("#pairs").querySelectorAll(".dup-action").forEach((sel) => (sel.onchange = () => { ACTION[sel.dataset.k] = sel.value; renderPairs(); }));
+  // ✕: a file dropped by mistake leaves the list; a JSON's PDF stays staged on its own row (its own ✕ removes it)
+  $("#pairs").querySelectorAll(".ir-del").forEach((b) => (b.onclick = () => {
+    const k = b.dataset.k;
+    if (b.dataset.what === "json") { delete JSONS[k]; delete MANUAL[k]; delete ACTION[k]; }
+    else { delete PDFS[k]; for (const j of Object.keys(MANUAL)) if (MANUAL[j] === k) delete MANUAL[j]; }
+    renderPairs();
+  }));
   $("#pairs").querySelectorAll(".assign-pdf").forEach((sel) => (sel.onchange = () => {
     if (sel.value) MANUAL[sel.dataset.k] = sel.value; else delete MANUAL[sel.dataset.k];
     renderPairs();

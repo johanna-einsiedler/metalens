@@ -207,7 +207,19 @@ def test_spec_presets_api() -> None:
     pid = p["id"]
     assert pid.startswith("screening-codebook-") and p["spec"]["id"] == pid
     assert p["schema_id"].startswith(pid + "@") and "# OUTPUT SCHEMA (generated" in p["prompt"]
-    assert p["title"] == "Screening codebook" and p["source"] == "personal"
+    assert p["title"] == "Screening codebook" and p["source"] == "personal" and p["title_wanted"] == "Screening codebook"
+    # no two presets of mine under one name: a second copy is "(1)", a third "(2)", a rename dodges both
+    twice = c.post("/api/presets", json={"spec": _MINI_SPEC, "visibility": "private"}).json()
+    assert twice["title"] == "Screening codebook (1)" and twice["spec"]["meta"]["title"] == "Screening codebook (1)" and twice["title_wanted"] == "Screening codebook"
+    thrice = c.post("/api/presets", json={"spec": _MINI_SPEC, "visibility": "private"}).json()
+    assert thrice["title"] == "Screening codebook (2)"
+    assert c.request("PATCH", f"/api/presets/{thrice['id']}", json={"title": "Screening codebook (1)"}).json()["title"] == "Screening codebook (2)"   # the next free number: its own
+    assert c.request("PATCH", f"/api/presets/{thrice['id']}", json={"title": "Screening codebook (3)"}).json()["title"] == "Screening codebook (3)"   # keeping one's own name is fine
+    builtin = presets.load_all()["summarize"]["meta"]["title"]
+    clash = c.post("/api/presets", json={"spec": {**_MINI_SPEC, "meta": {**_MINI_SPEC["meta"], "title": builtin}}, "visibility": "private"}).json()
+    assert clash["title"] == f"{builtin} (1)"
+    for x in (twice, thrice, clash):
+        c.delete(f"/api/presets/{x['id']}")
     # the picker + detail carry the format-2 row
     assert any(r.get("preset_id") == pid and r.get("format") == 2 for r in c.get("/api/presets").json()["presets"])
     assert c.get(f"/api/presets/{pid}/detail").json()["spec"]["entries"]["key"] == "records"
@@ -286,6 +298,9 @@ def test_saved_setup_api_create_list_update_private() -> None:
     me = next(p for p in rows if p["preset_id"] == pid)
     assert me["setup"] and me["base_preset_id"] == "masem-indirect" and me["personal"] and me["owned"]
     assert me["params"]["n_items"] == 20 and me["title"] == "TAS-20"
+    r2 = c.post("/api/presets", json={"title": "TAS-20", "base_preset_id": "masem-indirect", "params": {"n_items": 21}}, headers=h)
+    assert r2.status_code == 200 and r2.json()["title"] == "TAS-20 (1)"            # a second setup of that name is told apart
+    c.delete(f"/api/presets/{r2.json()['id']}", headers=h)
     other = c.get("/api/presets", headers={"X-Session-Id": "other-" + sid}).json()["presets"]
     assert all(p["preset_id"] != pid for p in other)                         # private
     r = c.patch(f"/api/presets/{pid}", json={"params": {"scale_name": "TAS-20", "n_items": 20,
