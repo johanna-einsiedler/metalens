@@ -61,7 +61,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   records come from.
 - Card markdown shows pictures from the site (`![alt](/static/…)`, or https) and titled folds
   (a fence opened with ```` ```fold <title> ````); a deposited card links site paths in full.
-- The claims card follows one claim through the records in a figure (steps 1–3 this preset, 4–8 the
+- The claims card follows one claim through the records in a figure drawn in HTML and the site's theme
+  (`static/card_figures.js`, placed by a ```` ```figure claim-chain ```` fence; steps 1–3 this preset, 4–8 the
   Danish Causal Atlas), describes the two calls in the reviewed wording with illustrative examples of
   the support grades, and reproduces both prompts as run (matched to the hashes the runs recorded).
 - The claims card drops its related work, names Claude Opus 5 as its verification model and reports the

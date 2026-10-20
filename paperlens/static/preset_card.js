@@ -106,6 +106,7 @@ function render() {
     d.innerHTML = `<summary>Show all ${lines} lines</summary>`;
     pre.parentNode.insertBefore(d, pre); d.appendChild(pre);
   });
+  if (body.querySelector(".md-figure")) import("/static/card_figures.js").then((f) => f.mountFigures(body));   // figures drawn in HTML
   body.querySelectorAll('a[href="#to-be-published"]').forEach((a) => {
     a.classList.add("pc-soon"); a.title = "to be published soon";
     a.onclick = (e) => { e.preventDefault(); let t = a.querySelector(".pc-tip"); if (t) { t.remove(); return; }

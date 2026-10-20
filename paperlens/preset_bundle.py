@@ -96,13 +96,18 @@ def readme(spec: dict, release: dict, *, doi: str | None, concept_doi: str | Non
     return "\n".join(lines)
 
 
-def for_deposit(card_md: str, site: str | None = None) -> str:
+def for_deposit(card_md: str, site: str | None = None, card_url: str | None = None) -> str:
     """The card as a file of its own: a link the card page turns into a "to be published soon"
     tooltip (``[text](#to-be-published)``) has no target outside the page, so it becomes plain text;
-    a path on the site (a figure, another preset's card) becomes a full address on it."""
+    a figure the page draws (a ```figure fence) becomes a pointer to it on the card page; a path on
+    the site (another preset's card) becomes a full address on it."""
     from . import brands
     site = (site or brands.public_url()).rstrip("/")
     out = re.sub(r"\[([^\]]+)\]\(#to-be-published\)", r"\1 (to be published)", card_md)
+    def figure(m_):
+        what = " ".join(m_.group(2).split()).rstrip(".") or "Figure"
+        return f"*Figure: {what}. It is drawn on the card page" + (f": {card_url}" if card_url else "") + ".*"
+    out = re.sub(r"(?m)^(`{3,})figure\s+[a-z0-9-]+[ \t]*\n(.*?)^\1[ \t]*$", figure, out, flags=re.S)
     return re.sub(r"\]\((/[A-Za-z0-9][^)\s]*)\)", lambda m: f"]({site}{m.group(1)})", out)
 
 
@@ -131,7 +136,7 @@ def build(spec: dict, release: dict, *, doi: str | None = None, concept_doi: str
         out["prompt"] = {"file": "prompt.md", **{k: v for k, v in prompt.items() if k != "file"}}
     card_text = (out.get("card") or {}).get("text")
     if card_text:
-        files["card.md"] = for_deposit(card_text)
+        files["card.md"] = for_deposit(card_text, card_url=card_url)
         out["card"] = {"file": "card.md"}
     files["preset.json"] = json.dumps(out, indent=2, ensure_ascii=False) + "\n"
     files["fields.md"] = ps.fields_markdown(spec)

@@ -12,7 +12,9 @@ The claim's scope, as far as it can be determined from the sentences, is recorde
 
 Each claim is mapped to one or more **table results** that operationalise it: a regression column (or a figure) whose target regressor measures the cause, whose outcome measures the effect and whose sample lies within the claim's scope. Results that estimate the same quantity are grouped into an estimand, and exactly one result per estimand is marked as the **main** estimate; this is judged from how the authors refer to it in the text. The other estimates are supporting, robustness or heterogeneity results. A regression linked as a main estimate is termed a *headline result* of the paper.
 
-![One claim followed from the abstract to the corpus graph](/static/cards/register-claims-one-claim.svg)
+```figure claim-chain
+One claim followed from the abstract to the corpus graph
+```
 
 *One claim followed through the records, for an illustrative paper on parental death and adult earnings. Steps 1–3 are what this preset records: the claim read from the abstract (1), the introduction sentences that support it (2), and the estimates they link to, grouped into estimands with one main estimate (3). Steps 4–8 are what the Danish Causal Atlas builds from these records: the scope read from the estimates' samples (4), the design behind the main estimate (5), the claim's wordings placed on a shared vocabulary (6), the signed edge in the paper's graph (7) and the merged edge in the corpus graph (8).*
 

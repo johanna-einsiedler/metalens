@@ -27,5 +27,7 @@
   {"name": "a picture elsewhere stays text", "src": "![x](javascript:alert(1)) ![y](/etc/passwd)", "not": ["<img"]},
   {"name": "an image is not a link", "src": "![a](/static/a.png) and [b](/b)", "has": ["<img class=\"md-img\" src=\"/static/a.png\"", "<a href=\"/b\">b</a>"], "count": {"<a ": 1}},
   {"name": "a titled fold", "src": "````fold Prompt <one>\nline\n````\nafter", "has": ["<details class=\"md-fold md-titled\"><summary>Prompt &lt;one&gt;</summary><pre class=\"md-code\">line</pre></details>", "<p>after</p>"]},
-  {"name": "a fence with a language is not a fold", "src": "```json\n{}\n```", "not": ["<details"], "has": ["<pre class=\"md-code\">{}</pre>"]}
+  {"name": "a fence with a language is not a fold", "src": "```json\n{}\n```", "not": ["<details"], "has": ["<pre class=\"md-code\">{}</pre>"]},
+  {"name": "a figure fence is a placeholder", "src": "```figure claim-chain\nOne claim, step by step.\n```", "has": ["<div class=\"md-figure\" data-figure=\"claim-chain\" data-alt=\"One claim, step by step.\"></div>"], "not": ["<pre"]},
+  {"name": "a figure name must be plain", "src": "```figure <x>\nhi\n```", "not": ["md-figure"], "has": ["<pre class=\"md-code\">hi</pre>"]}
 ]
