@@ -110,8 +110,9 @@ function recordKeys(canonical) {
 function matchWarning(rows) {
   const sid = currentSchemaId();
   const chosen = PRESETS.find((p) => p.schema_id === sid);
-  if (!chosen || !chosen.field_types) return "";
-  const declared = new Set(Object.keys(chosen.field_types));
+  if (!chosen) return "";
+  const declared = declaredNames(chosen);
+  if (!declared.size) return "";
   const bad = [];
   let better = null;
   for (const r of rows) {
@@ -121,8 +122,8 @@ function matchWarning(rows) {
     const hit = [...keys].filter((k) => declared.has(k)).length;
     if (hit * 2 >= keys.size) continue;                                   // at least half the keys are declared: fine
     bad.push({ name: r.json.name, keys: [...keys] });
-    const alt = PRESETS.filter((p) => p.schema_id && !p.setup && p.schema_id !== sid && p.field_types)
-      .map((p) => ({ p, hit: [...keys].filter((k) => k in p.field_types).length })).sort((a, b) => b.hit - a.hit)[0];
+    const alt = PRESETS.filter((p) => p.schema_id && !p.setup && p.schema_id !== sid)
+      .map((p) => { const d = declaredNames(p); return { p, hit: [...keys].filter((k) => d.has(k)).length }; }).sort((a, b) => b.hit - a.hit)[0];
     if (alt && alt.hit > hit && alt.hit * 2 >= keys.size) better = alt.p;
   }
   if (!bad.length) return "";
@@ -138,12 +139,26 @@ function matchWarning(rows) {
 // preset — so indirect data (factor loadings) silently imported under the direct preset, where
 // none of its fields are declared and every value lands in "Other". Score the importable
 // presets by how many of the entry's own keys each one declares and take a clear winner.
+// every entry-level name a preset declares: its declaration when the picker row carries one
+// (field_types lists only the typed fields, so a preset of text fields would score near zero)
+function declaredNames(p) {
+  const names = new Set(Object.keys(p.field_types || {}));
+  const spec = p.spec;
+  if (spec && spec.entries) {
+    for (const f of spec.entries.fields || []) if (f && f.name) names.add(f.name);
+    for (const ch of spec.entries.children || []) if (ch && ch.key) names.add(ch.key);
+  } else {
+    for (const k of p.core_keys || []) names.add(k);
+    for (const v of p.sub_views || []) for (const k of v.include_keys || []) names.add(k);
+  }
+  return names;
+}
 function guessSchema(entries) {
   const keys = new Set();
   for (const e of entries.slice(0, 5)) for (const k of Object.keys(e || {})) keys.add(k);
   if (!keys.size) return null;
   const scored = PRESETS.filter((p) => p.schema_id && !p.setup).map((p) => {
-    const declared = new Set(Object.keys(p.field_types || {}));
+    const declared = declaredNames(p);
     return { p, hit: [...keys].filter((k) => declared.has(k)).length };
   }).sort((a, b) => b.hit - a.hit);
   if ($("#schema").dataset.user) return null;                              // they chose one themselves

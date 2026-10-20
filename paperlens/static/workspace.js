@@ -945,7 +945,13 @@ function wireCard(card, rec) {
   card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
-  wireControls(card, (path, val) => saveFieldEdit(rec, card, path, val, curVal(rec, path)), true);
+  const rv = criteriaSpec();
+  const blindCalls = rv && rv.blind ? new Set((rv.criteria || []).map((c) => c.call)) : null;
+  wireControls(card, (path, val) => {
+    const saved = saveFieldEdit(rec, card, path, val, curVal(rec, path));
+    if (blindCalls && blindCalls.has(path)) saved.then(() => rerenderCard(card, rec));   // the model's side appears once the call is made
+    return saved;
+  }, true);
   wireTableRows(card, rec);
 }
 
