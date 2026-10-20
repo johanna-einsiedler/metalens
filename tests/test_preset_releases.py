@@ -176,6 +176,7 @@ def test_api_cards_releases_and_the_catalogue_filter(monkeypatch) -> None:
     card = c.get("/api/presets/masem/card").json()                     # the legacy id resolves
     assert card["id"] == "masem-direct" and card["fields_doc"]["schema_id"] == card["schema_id"] and card["viewer"]["is_admin"] is False
     assert "zenodo" not in card and card["prompt"] and card["card_md"].startswith("## Introduction")
+    assert "zenodo" not in c.get("/api/presets/cards").json()          # the moderator's facts stay off the public list
     assert any(m["verification"] and m["model"].startswith("gpt-5.5") and m["mode"] == "extraction" for m in card["models"])
     assert c.get("/presets").status_code == 200 and "pr-tiles" in c.get("/presets").text
     assert c.get("/preset?id=masem-direct").status_code == 200
@@ -194,6 +195,9 @@ def test_api_cards_releases_and_the_catalogue_filter(monkeypatch) -> None:
     card = c.get(f"/api/presets/{PID}/card", headers=mine).json()
     assert card["viewer"]["is_admin"] is True and card["zenodo"]["configured"] is False and card["latest"]["number"] == 1
     assert card["changed_since_release"] is False and "(version 1)" in card["cite_as"]
+    lst = c.get("/api/presets/cards", headers=mine).json()             # what the workspace's release controls read
+    assert lst["viewer"]["is_admin"] is True and lst["zenodo"]["configured"] is False
+    assert next(x for x in lst["cards"] if x["id"] == PID)["changed_since_release"] is False
     z = c.get(f"/api/presets/{PID}/releases/1/bundle")
     assert z.status_code == 200 and z.headers["content-type"] == "application/zip" and f"{PID}-v1.zip" in z.headers["content-disposition"]
     import io, zipfile

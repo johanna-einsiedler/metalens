@@ -112,14 +112,20 @@ def main() -> int:
         page.goto(f"{a.base}/preset?id=masem-direct&edit=1")
         check("the editor asks an anonymous visitor to sign in", "sign in" in settled().lower())
 
-        # 5. a moderator sees the release controls
+        # 5. a moderator's release controls live in the workspace; the card only presents
         if a.admin_email and a.admin_password:
             page.goto(f"{a.base}/preset?id=masem-direct"); page.wait_for_selector(".pc h1", timeout=15000)
             page.evaluate("""async ([e, pw]) => { const m = await import("/static/api.js");
                 try { await m.api.register(e, pw); } catch (x) { await m.api.login(e, pw); } }""", [a.admin_email, a.admin_password])
             page.reload(); page.wait_for_selector(".pc h1", timeout=15000)
-            check("admin: the release form is shown", page.query_selector("#pc-relform") is not None)
+            check("admin: no release form on the card", page.query_selector("[data-relform]") is None and not page.query_selector_all("[data-reldoi]"))
+            check("admin: the card links to the workspace", "Manage releases" in page.inner_text(".pc-actions"))
             check("admin: 'Duplicate as a personal preset' offered when signed in", "Duplicate" in page.inner_text(".pc-actions"))
+            page.goto(f"{a.base}/projects"); page.wait_for_selector("#curated:not([hidden]) .pj-cur", timeout=15000)
+            titles = [t.inner_text() for t in page.query_selector_all("#curated .pj-cur .ds-card-h a")]
+            check("admin: the workspace lists the curated presets", "MASEMiner" in " ".join(titles), " | ".join(titles))
+            check("admin: a release form or the nothing-changed note per preset",
+                  all(c.query_selector("[data-relform], .pj-relnote") for c in page.query_selector_all("#curated .pj-cur")))
         browser.close()
     print(f"\n{'ALL OK' if not FAILS else f'{FAILS} FAILED'}")
     return 1 if FAILS else 0

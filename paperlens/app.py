@@ -3129,11 +3129,18 @@ def _viewer(db, who: Principal) -> dict | None:
 
 
 @app.get("/api/presets/cards")
-def preset_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict:
+def preset_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand), who: Principal = Depends(principal)) -> dict:
     """Public: every curated preset this brand offers (hidden and import-mode ones included),
-    with its latest release, citation and counts of what was built with it."""
+    with its latest release, citation and counts of what was built with it. A moderator also
+    learns whether this account may mint DOIs here: the workspace cuts releases from this list."""
     from . import preset_cards
-    return {"cards": preset_cards.inventory(db, b)}
+    out: dict = {"cards": preset_cards.inventory(db, b)}
+    user = _viewer(db, who)
+    if admins.is_admin(user):
+        from . import zenodo
+        out["viewer"] = {"is_admin": True}
+        out["zenodo"] = zenodo.status(db, user)
+    return out
 
 
 @app.get("/api/presets/{preset_id}/card")
