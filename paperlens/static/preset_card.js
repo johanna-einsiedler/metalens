@@ -1,7 +1,8 @@
 // /preset?id=<curated preset> — the public card: introduction · how it extracts · fields ·
 // verification · versions and citation · used by · related work. The prose comes from the
 // preset's card markdown (level-2 sections), everything else is generated from the declaration
-// and the live database. Moderators (PAPERLENS_ADMINS) see the release and DOI controls.
+// and the live database. Releases and DOIs are cut in the workspace (/projects, moderators only):
+// this page only presents them.
 import { api } from "/static/api.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 
@@ -76,6 +77,7 @@ function render() {
   const actions = [
     c.mode === "import" ? `<a class="btn btn-primary btn-sm" href="${useHref}">Import into this schema</a>` : `<a class="btn btn-primary btn-sm" href="${useHref}">Use this preset</a>`,
     ME && ME.email ? `<a class="btn btn-ghost btn-sm" href="/preset?id=${encodeURIComponent(c.id)}&edit=1">Duplicate as a personal preset</a>` : "",
+    c.viewer && c.viewer.is_admin ? `<a class="btn btn-ghost btn-sm" href="/projects#curated" title="releases and DOIs are cut in your workspace">Manage releases</a>` : "",
   ].filter(Boolean).join("");
   const relatedMd = (sections["related-work"] || {}).body || "";
   const relatedHtml = md(relatedMd) + relatedRest(c, relatedMd);
@@ -112,17 +114,6 @@ function render() {
     a.onclick = (e) => { e.preventDefault(); let t = a.querySelector(".pc-tip"); if (t) { t.remove(); return; }
       t = document.createElement("span"); t.className = "pc-tip"; t.textContent = "to be published soon"; a.appendChild(t); setTimeout(() => t.remove(), 2500); };
   });
-  wireAdmin();
-  const jump = $("#pc-mint-jump");
-  if (jump) jump.onclick = (e) => {                 // to the release form, DOI ticked — or to the version's ◎ DOI button
-    e.preventDefault();
-    const target = jump.dataset.mint === "existing" ? document.querySelector("[data-reldoi]") : $("#pc-relform");
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    const tick = $("#pc-rel-doi"); if (tick && jump.dataset.mint === "new") tick.checked = true;
-    const notes = $("#pc-rel-notes"); if (notes && jump.dataset.mint === "new") setTimeout(() => notes.focus(), 350);
-    target.classList.add("pc-flash"); setTimeout(() => target.classList.remove("pc-flash"), 1600);
-  };
   const copy = $("#pc-cite-copy");
   if (copy) copy.onclick = async () => { try { await navigator.clipboard.writeText($("#pc-cite-text").textContent); copy.textContent = "Copied"; } catch { /* clipboard blocked */ } };
 }
@@ -219,36 +210,17 @@ function citeTop(c) {
     ? `<a class="badge pc-zenodo" href="${esc(c.concept_doi ? "https://doi.org/" + c.concept_doi : (latest.zenodo_url || "https://doi.org/" + latest.doi))}" target="_blank" rel="noopener" title="${c.concept_doi ? "the DOI of every version: it opens the newest one on Zenodo" : "the DOI of this version on Zenodo"}">${testDoi(doi) ? "test " : ""}Zenodo · DOI ${esc(doi)}</a>`
     : `<span class="muted pc-nodoi">No DOI yet</span>`;
   return `<div class="ds-cite pc-citetop"><span class="rk">How to cite</span><blockquote id="pc-cite-text">${esc(c.cite_as || "")}</blockquote>
-    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}${doi ? "" : mintHint(c)}</div></div>`;
-}
-// Without a DOI, say what this viewer can do about it: a moderator gets the way to the release form
-// (or why a DOI cannot be minted here); a signed-in account that is not one is told so.
-function mintHint(c) {
-  const admin = c.viewer && c.viewer.is_admin, zen = c.zenodo || {}, latest = c.latest;
-  if (!admin) return ME && ME.email ? ` <span class="muted pc-mint-note">Only moderators release a preset and mint its DOI.</span>` : "";
-  const why = !zen.configured ? "Zenodo is not configured on this server." : (!zen.allowed ? (zen.why_not || "This account may not mint DOIs here.") : "");
-  if (latest && !latest.doi && c.changed_since_release === false)          // released, nothing changed: mint that version
-    return zen.allowed ? ` <a class="btn btn-primary btn-sm" href="#versions" id="pc-mint-jump" data-mint="existing">Mint the DOI of v${latest.number}</a>` : ` <span class="muted pc-mint-note">${esc(why)}</span>`;
-  const next = ((latest || {}).number || 0) + 1;
-  return ` <a class="btn btn-primary btn-sm" href="#pc-relform" id="pc-mint-jump" data-mint="new">Release v${next}${zen.allowed ? " and mint a DOI" : ""}</a>`
-    + (why ? ` <span class="muted pc-mint-note">${esc(why)}</span>` : "");
+    <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="pc-cite-copy" type="button">Copy</button> ${zen}</div></div>`;
 }
 function versions(c) {
-  const admin = CARD.viewer && CARD.viewer.is_admin;
-  const zen = c.zenodo || {};
-  // a moderator who may not mint here is told why (the allow-list, the daily cap, no Zenodo token)
-  const cannot = admin && !zen.allowed ? (zen.configured ? (zen.why_not || "this account may not mint DOIs here") : "Zenodo is not configured on this server") : "";
-  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && zen.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI${cannot ? ` · ${esc(cannot)}` : ""}</span>`)}
+  const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || ` <span class="muted">no DOI</span>`}
       <span class="muted"> · schema <code>${esc(x.schema_id)}</code> · <a href="${esc(x.bundle_url)}" title="preset.json, prompt.md, card.md, fields.md, CITATION.cff, README — a loadable preset folder">⬇ files</a></span>
       ${x.notes ? `<div class="md" style="margin:2px 0 0">${renderMarkdown(x.notes)}</div>` : ""}</div>`).join("");
   const cite = `<div class="ds-cite"><p class="muted" style="font-size:12.5px;margin:6px 0 0">The citation is at the top of this page${c.concept_doi ? "; its DOI always opens the newest version" : ""}.</p>
     ${c.cite_this_version && c.cite_this_version !== c.cite_as ? `<p class="muted" style="font-size:12.5px;margin:6px 0 0">This version only: ${esc(c.cite_this_version)}</p>` : ""}
     <p class="muted" style="font-size:12.5px;margin:6px 0 0">In a methods section, name the schema id and the model id of your run (the export carries both): <code>${esc(c.schema_id)}</code>. See <a href="https://github.com/johanna-einsiedler/metalens/blob/main/docs/REPRODUCIBILITY.md" target="_blank" rel="noopener">REPRODUCIBILITY.md</a>.</p></div>`;
   const none = `<p class="muted">No numbered release yet. The data contract is still identified: cite the schema id <code>${esc(c.schema_id)}</code> and the engine version of your run.</p>`;
-  const form = admin ? `<div class="ds-relform" id="pc-relform"><b>Release v${((c.latest || {}).number || 0) + 1}</b> <span class="muted">— freezes the current declaration, prompt and card text into a numbered, downloadable bundle${zen.configured ? ", which can then get a DOI" : ""}.</span>
-      ${c.changed_since_release === false ? `<p class="muted" style="margin:6px 0 0">Nothing changed since v${c.latest.number}.${cannot ? ` A DOI cannot be minted here: ${esc(cannot.replace(/\.$/, ""))}.` : ""}</p>` : `<textarea id="pc-rel-notes" rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="pc-rel-go">Release v${((c.latest || {}).number || 0) + 1}</button>${zen.allowed ? `<label class="muted" style="font-size:12.5px"><input type="checkbox" id="pc-rel-doi"/> and mint its DOI${zen.sandbox ? " (sandbox)" : ""}</label>` : (zen.configured ? `<span class="muted" style="font-size:12.5px">${esc(zen.why_not || "")}</span>` : "")}<span class="muted" id="pc-rel-msg"></span></div>`}</div>` : "";
-  return `${form}${rows || none}${cite}`;
+  return `${rows || none}${cite}`;
 }
 
 // ── used by: datasets, dashboards, papers ──────────────────────────────────────────────
@@ -294,24 +266,4 @@ function relatedRest(c, written) {
   if (!rest.length) return "";
   const line = (r) => r.kind === "preset" ? `<a href="/preset?id=${encodeURIComponent(r.id)}">${esc(r.title)}</a>` : `${esc(r.title)}${r.doi ? ` <a href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">doi:${esc(r.doi)}</a>` : (r.url ? ` <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url.replace(/^https?:\/\//, ""))}</a>` : "")}`;
   return `<ul class="md-list">${rest.map((r) => `<li><span class="muted">${esc(r.kind)}:</span> ${line(r)}${r.role ? ` <span class="muted">— ${esc(r.role)}</span>` : ""}</li>`).join("")}</ul>`;
-}
-
-// ── moderator controls ─────────────────────────────────────────────────────────────────
-function wireAdmin() {
-  const go = $("#pc-rel-go");
-  if (go) go.onclick = async () => {
-    go.disabled = true; $("#pc-rel-msg").textContent = "Releasing…";
-    try {
-      const r = await api.createPresetRelease(ID, { notes: $("#pc-rel-notes").value, doi: !!($("#pc-rel-doi") && $("#pc-rel-doi").checked) });
-      if ((r.problems || []).length) alert(r.problems.join("\n"));
-      await init(ID);
-    } catch (e) { $("#pc-rel-msg").textContent = "✗ " + e.message; go.disabled = false; }
-  };
-  body.querySelectorAll("[data-reldoi]").forEach((b) => (b.onclick = async () => {
-    const zen = CARD.zenodo || {};
-    if (!confirm(`Mint a DOI for version v${b.dataset.reldoi} of this preset on Zenodo${zen.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the version's files are deposited under it and cannot be withdrawn.`)) return;
-    b.disabled = true; b.textContent = "Minting…";
-    try { await api.presetReleaseDoi(ID, +b.dataset.reldoi); } catch (e) { alert(`Minting the DOI failed: ${e.message}`); }
-    await init(ID);
-  }));
 }

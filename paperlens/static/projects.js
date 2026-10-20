@@ -1,7 +1,7 @@
 // My Workspace — the signed-in hub. Two sections: Datasets (extracted records,
 // each opening its overview) and Analyses (saved views/dashboards over ≥1 dataset).
 import { api } from "/static/api.js";
-import { esc } from "/static/grammar.js";
+import { esc, renderMarkdown } from "/static/grammar.js";
 import { mountPresetFile } from "/static/preset_file.js";
 
 async function init() {
@@ -28,6 +28,58 @@ async function init() {
   }
   renderAnalyses(anGrid, me);
   renderPapers(papGrid, me);
+  if (me.is_admin) renderCurated(document.querySelector("#curated"));
+}
+
+// ── curated presets: the release and DOI controls, for the accounts named in PAPERLENS_ADMINS ──
+// A curated preset is public by nature (its card is a page of the inventory), so it is managed
+// from here and its card only presents: a reader never meets a button that is not for them.
+const relDay = (iso) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "");
+const isTestDoi = (d) => /^10\.5072\//.test(d || "");
+const doiBadge = (x) => `<a class="badge" href="${esc(x.zenodo_url || "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${isTestDoi(x.doi) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this version"}">${isTestDoi(x.doi) ? "test " : ""}DOI ${esc(x.doi)}</a>`;
+
+async function renderCurated(sec) {
+  if (!sec) return;
+  let r;
+  try { r = await api.presetCards(); } catch { return; }
+  if (!r.viewer || !r.viewer.is_admin) return;
+  sec.hidden = false;
+  const list = sec.querySelector("#curated-list");
+  const zen = r.zenodo || {};
+  // why this account may not mint here: no Zenodo token, the allow-list, the daily cap
+  const cannot = !zen.configured ? "Zenodo is not configured on this server" : (!zen.allowed ? (zen.why_not || "this account may not mint DOIs here").replace(/\.$/, "") : "");
+  list.innerHTML = (r.cards || []).map((c) => curatedCard(c, zen, cannot)).join("") || `<p class="muted">No curated preset on this server.</p>`;
+  list.querySelectorAll("[data-release]").forEach((b) => (b.onclick = async () => {
+    const form = b.closest("[data-relform]"), msg = form.querySelector("[data-msg]"), tick = form.querySelector("[data-doi]");
+    b.disabled = true; msg.textContent = "Releasing…";
+    try {
+      const made = await api.createPresetRelease(b.dataset.release, { notes: form.querySelector("textarea").value, doi: !!(tick && tick.checked) });
+      if ((made.problems || []).length) alert(made.problems.join("\n"));
+      renderCurated(sec);
+    } catch (e) { msg.textContent = "✗ " + e.message; b.disabled = false; }
+  }));
+  list.querySelectorAll("[data-reldoi]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Mint a DOI for version v${b.dataset.reldoi} of this preset on Zenodo${zen.sandbox ? " (sandbox: a test DOI that resolves nowhere)" : ""}? A DOI is permanent: the version's files are deposited under it and cannot be withdrawn.`)) return;
+    b.disabled = true; b.textContent = "Minting…";
+    try { await api.presetReleaseDoi(b.dataset.pid, +b.dataset.reldoi); } catch (e) { alert(`Minting the DOI failed: ${e.message}`); }
+    renderCurated(sec);
+  }));
+}
+
+function curatedCard(c, zen, cannot) {
+  const latest = c.latest, next = ((latest || {}).number || 0) + 1;
+  const state = latest ? `<span class="badge tier-human_verified">v${latest.number}${latest.doi ? ` · ${isTestDoi(latest.doi) ? "test " : ""}DOI ${esc(latest.doi)}` : ""}</span>` : `<span class="badge">unreleased</span>`;
+  const rels = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(relDay(x.created_at))}</span>
+      ${x.doi ? doiBadge(x) : (zen.allowed ? `<button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" data-pid="${esc(c.id)}" title="mint a permanent DOI for this version on Zenodo${zen.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : `<span class="muted">· no DOI${cannot ? ` · ${esc(cannot)}` : ""}</span>`)}
+      <span class="muted">· schema <code>${esc(x.schema_id)}</code> · <a href="${esc(x.bundle_url)}" title="preset.json, prompt.md, card.md, fields.md, CITATION.cff, README — a loadable preset folder">⬇ files</a></span>
+      ${x.notes ? `<div class="md" style="margin:2px 0 0">${renderMarkdown(x.notes)}</div>` : ""}</div>`).join("");
+  const form = latest && c.changed_since_release === false
+    ? `<p class="muted pj-relnote">Nothing changed since v${latest.number}.${!latest.doi && cannot ? ` A DOI cannot be minted here: ${esc(cannot)}.` : ""}</p>`
+    : `<div class="ds-relform" data-relform="${esc(c.id)}"><b>Release v${next}</b> <span class="muted">— freezes the current declaration, prompt and card text into a numbered, downloadable bundle${zen.configured ? ", which can then get a DOI" : ""}.</span>
+      <textarea rows="2" placeholder="release notes (markdown): what changed and why"></textarea>
+      <div class="pj-relrow"><button type="button" class="btn btn-primary btn-sm" data-release="${esc(c.id)}">Release v${next}</button>${zen.allowed ? `<label class="muted"><input type="checkbox" data-doi/> and mint its DOI${zen.sandbox ? " (sandbox)" : ""}</label>` : (cannot ? `<span class="muted">${esc(cannot)}</span>` : "")}<span class="muted" data-msg></span></div></div>`;
+  return `<div class="ds-card pj-cur"><div class="ds-card-h"><a href="/preset?id=${encodeURIComponent(c.id)}">${esc(c.title)}</a> ${state} <code>${esc(c.schema_id)}</code>${c.hidden ? ` <span class="badge" title="selected inside the MASEMiner builder, not from the extract picker">builder-only</span>` : ""}${c.mode === "import" ? ` <span class="badge">import schema</span>` : ""}</div>
+    ${rels}${form}</div>`;
 }
 
 async function renderPresets(grid, _me) {

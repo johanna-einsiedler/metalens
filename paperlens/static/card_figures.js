@@ -34,13 +34,13 @@ const markers = `<defs>
 const svg = (w, h, label, body) => `<svg class="cf-graph" viewBox="0 0 ${w} ${h}" style="max-width:${w}px" role="img" aria-label="${label}">${markers}${body}</svg>`;
 
 function paperGraph() {
-  const a = node(8, 12, "family.parental_death"), b = node(360, 12, "income.labor"), c = node(360, 62, "health.mental_health");
-  return svg(530, 96, "Paper graph: parental death lowers labour income (causal) and is associated with worse mental health",
+  const a = node(8, 10, "family.parental_death"), b = node(360, 10, "income.labor"), c = node(360, 54, "health.mental_health");
+  return svg(530, 84, "Paper graph: parental death lowers labour income (causal) and is associated with worse mental health",
     `${edge(a, b, "neg", "− causal")}${edge(a, c, "neg dotted", "− associational", { dy: 20, at: 0.32, anchor: "end" })}${boxes(a, b, c)}`);
 }
 function corpusGraph() {
-  const a = node(8, 12, "family.parental_death"), b = node(330, 12, "income.labor"), c = node(470, 64, "family.fertility");
-  return svg(612, 98, "Corpus graph: two papers find that parental death lowers labour income; the effect of labour income on fertility is contradicted",
+  const a = node(8, 10, "family.parental_death"), b = node(330, 10, "income.labor"), c = node(470, 56, "family.fertility");
+  return svg(612, 86, "Corpus graph: two papers find that parental death lowers labour income; the effect of labour income on fertility is contradicted",
     `${edge(a, b, "neg thick", "− 2 papers: (−, −)")}${edge(b, c, "mute dashed", "± contradicted: (+, −)", { dy: 16, at: 0.25, anchor: "end" })}${boxes(a, b, c)}`);
 }
 
