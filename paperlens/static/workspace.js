@@ -750,7 +750,7 @@ function inlineEvidence(rec, f, shown) {
     const ev = DATA.evidence[i] || {};
     const src = String(ev.source || "quote");
     return `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">`
-      + `<span class="rv-stance" data-src="${esc(src.toLowerCase())}">${esc(src)}</span> p. ${ev.page || "?"}</button> “${esc(ev.snippet || "")}”</li>`;
+      + `<span class="rv-stance" data-src="${esc(src.toLowerCase())}">${esc(src)}</span> p. ${ev.page || "?"}</button> <span class="rv-qt">“${esc(ev.snippet || "")}”</span></li>`;
   }).join("");
   return note || quotes ? `<div class="rv-inline">${note}${quotes ? `<ul class="rv-iquotes">${quotes}</ul>` : ""}</div>` : "";
 }
@@ -1127,27 +1127,35 @@ const certaintyWord = (p) => { const c = Math.abs(p - 0.5) * 2; return c >= 0.8 
 // button that jumps to the highlight. The fields the layout names follow; everything else folds.
 function renderCriteriaBody(rec, rv) {
   const fv = rec.field_values || {}, eopts = { editable: true };
-  const sides = { for: "supporting", against: "contradictory", ...(rv.sides || {}) };
-  const forL = String(sides.for).toLowerCase(), agL = String(sides.against).toLowerCase();
+  // the evidence source labels of each side: a string or a list; "questioning" is read as against
+  const lower = (x) => (Array.isArray(x) ? x : [x]).map((s) => String(s).toLowerCase());
+  const sides = { for: ["supporting"], against: ["contradictory", "questioning"], ...(rv.sides || {}) };
+  const forL = lower(sides.for), agL = lower(sides.against);
+  const blind = !!rv.blind;
   const def = (n) => { const x = n && VM.fieldIndex.get(n); return x && x.scope === "entry" ? x.field : null; };
   const used = new Set();
   const quoteList = (label, title, list) => list.length ? `<div class="cr-side cr-${label}"><b>${title}</b><ul class="rv-iquotes">`
-    + list.map(({ i, ev }) => `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">p. ${ev.page || "?"}</button> “${esc(ev.snippet || "")}”</li>`).join("") + `</ul></div>` : "";
+    + list.map(({ i, ev }) => `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">p. ${ev.page || "?"}</button> <span class="rv-qt">“${esc(ev.snippet || "")}”</span></li>`).join("") + `</ul></div>` : "";
   const rows = (rv.criteria || []).map((c) => {
     const f = def(c.call); if (!f) return "";
     [c.call, c.probability, c.reasoning, c.overturn, ...(c.hidden || [])].forEach((n) => n && used.add(n));
     const p = c.probability && fv[c.probability] != null && fv[c.probability] !== "" ? Number(fv[c.probability]) : NaN;
-    const chip = Number.isFinite(p) ? `<span class="cr-p" style="--cert:${Math.min(1, Math.abs(p - 0.5) * 2).toFixed(2)}" title="the model's probability that the criterion is met: ${p.toFixed(2)} — ${certaintyWord(p)}">${p.toFixed(2)}</span>` : "";
-    const reason = c.reasoning ? fv[c.reasoning] : null;
-    const ot = def(c.overturn);
+    // blind: the coder calls first; the model's probability, reasoning and the why-differ field appear after
+    const called = fv[c.call] != null && fv[c.call] !== "";
+    const veiled = blind && !called;
+    const chip = veiled ? `<span class="cr-p cr-veiled" title="the model's probability appears once you have made your call">?</span>`
+      : Number.isFinite(p) ? `<span class="cr-p" style="--cert:${Math.min(1, Math.abs(p - 0.5) * 2).toFixed(2)}" title="the model's probability that the criterion is met: ${p.toFixed(2)} — ${certaintyWord(p)}">${p.toFixed(2)}</span>` : "";
+    const reason = veiled ? null : (c.reasoning ? fv[c.reasoning] : null);
+    const ot = veiled ? null : def(c.overturn);
     const quotes = (EV.exact.get(`${rec.id}|${c.call}`) || []).map((i) => ({ i, ev: DATA.evidence[i] || {} }));
     const src = (q) => String(q.ev.source || "").toLowerCase();
-    const ev = quoteList("for", "Supports", quotes.filter((q) => src(q) === forL)) + quoteList("against", "Contradicts", quotes.filter((q) => src(q) === agL))
-      + quoteList("other", "Quotes", quotes.filter((q) => src(q) !== forL && src(q) !== agL));
+    const ev = quoteList("for", "Supports", quotes.filter((q) => forL.includes(src(q)))) + quoteList("against", "Contradicts", quotes.filter((q) => agL.includes(src(q))))
+      + quoteList("other", "Quotes", quotes.filter((q) => !forL.includes(src(q)) && !agL.includes(src(q))));
     return `<div class="cr" data-field="${esc(c.call)}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>
       <div class="cr-head"><div class="cr-label" title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</div>
         <div class="cr-call">${renderFields([f], fv, "", eopts)}</div>${chip}
         ${ot ? `<div class="cr-ot" title="${esc(ot.help || "")}"><span class="muted">${esc(shortLabel(ot, f))}</span>${renderFields([ot], fv, "", eopts)}</div>` : ""}</div>
+      ${veiled ? `<div class="cr-reason cr-veiled-note">Your call first: the model's probability and reasoning appear once you have chosen.</div>` : ""}
       ${reason != null && String(reason).trim() ? `<div class="cr-reason">${esc(String(reason))}</div>` : ""}
       ${ev ? `<div class="cr-ev">${ev}</div>` : `<div class="cr-ev muted">no quote for this criterion</div>`}</div>`;
   }).join("");

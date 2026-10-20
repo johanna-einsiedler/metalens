@@ -317,6 +317,9 @@ tr:hover .rv-rowdel { opacity: .75; }
         color: color-mix(in srgb, var(--conf-high) calc(var(--cert) * 100%), var(--conf-low));
         border: 1px solid color-mix(in srgb, var(--conf-high-bd) calc(var(--cert) * 100%), var(--conf-low-bd)); }
 .cr-ot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.cr-p.cr-veiled { background: var(--bg); color: var(--text-muted); border-color: var(--border); }
+.cr-veiled-note { font-style: italic; }
+.rv-qt { font-family: var(--font-serif); font-style: italic; font-size: 13.5px; }
 .cr-reason { font-size: 12.5px; color: var(--text-muted); margin: 5px 0 0; line-height: 1.45; }
 .cr-ev { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 14px; margin-top: 6px; font-size: 12.5px; }
 .cr-side b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
