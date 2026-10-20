@@ -85,9 +85,52 @@ async function loadPresets() {
     o.value = p.schema_id; o.textContent = p.title + (p.personal ? " (personal)" : "");
     sel.insertBefore(o, custom);
   }
-  const first = PRESETS.find((p) => p.preset_id === "masem-direct") || PRESETS.find((p) => p.schema_id && !p.setup);
-  if (first && !sel.dataset.auto) sel.value = first.schema_id;
+  // ?preset=<id> (the loader's "Import papers with it" link): that preset, and the files never override it
+  const wanted = new URLSearchParams(location.search).get("preset");
+  const asked = wanted && PRESETS.find((p) => p.preset_id === wanted || p.schema_id === wanted);
+  const first = asked || PRESETS.find((p) => p.preset_id === "masem-direct") || PRESETS.find((p) => p.schema_id && !p.setup);
+  if (first && !sel.dataset.auto) { sel.value = first.schema_id; if (asked) sel.dataset.user = "1"; }
   sel.onchange();
+}
+
+// Do the staged files look like the preset chosen under "Review as"? The records' own keys
+// against the preset's declared fields: none in common, or another preset clearly closer, and
+// the page says so above the list instead of importing everything into "Other".
+function recordKeys(canonical) {
+  const keys = new Set();
+  if (!canonical || typeof canonical !== "object") return keys;
+  let best = null;
+  for (const [k, v] of Object.entries(canonical)) {
+    if (k === "evidence" || !Array.isArray(v) || !v.length || !v.every((x) => x && typeof x === "object")) continue;
+    if (!best || v.length > best.length) best = v;
+  }
+  for (const e of (best || []).slice(0, 5)) for (const k of Object.keys(e || {})) if (k !== "confidence") keys.add(k);
+  return keys;
+}
+function matchWarning(rows) {
+  const sid = currentSchemaId();
+  const chosen = PRESETS.find((p) => p.schema_id === sid);
+  if (!chosen) return "";
+  const declared = declaredNames(chosen);
+  if (!declared.size) return "";
+  const bad = [];
+  let better = null;
+  for (const r of rows) {
+    if (!r.json || r.json.error || !r.json.canonical || r.json.kind === "dataset") continue;
+    const keys = recordKeys(r.json.canonical);
+    if (!keys.size) continue;
+    const hit = [...keys].filter((k) => declared.has(k)).length;
+    if (hit * 2 >= keys.size) continue;                                   // at least half the keys are declared: fine
+    bad.push({ name: r.json.name, keys: [...keys] });
+    const alt = PRESETS.filter((p) => p.schema_id && !p.setup && p.schema_id !== sid)
+      .map((p) => { const d = declaredNames(p); return { p, hit: [...keys].filter((k) => d.has(k)).length }; }).sort((a, b) => b.hit - a.hit)[0];
+    if (alt && alt.hit > hit && alt.hit * 2 >= keys.size) better = alt.p;
+  }
+  if (!bad.length) return "";
+  const sample = bad[0].keys.slice(0, 6).map((k) => `<code>${esc(k)}</code>`).join(", ");
+  return `<div class="import-warn"><b>${bad.length === 1 ? "This file does not" : `${bad.length} files do not`} look like “${esc(chosen.title)}”.</b> `
+    + `The records carry fields like ${sample}${bad[0].keys.length > 6 ? ", …" : ""}, which that preset ${bad.length === 1 ? "" : "mostly "}does not declare, so they would land under “Other” and nothing could be reviewed or cited. `
+    + (better ? `They match <b>“${esc(better.title)}”</b> — <button type="button" class="btn btn-ghost btn-sm" id="matchuse" data-sid="${esc(better.schema_id)}">use it</button>` : `Pick the preset they were made for under “Review as”, or load it first in My Workspace.`) + `</div>`;
 }
 
 // A file that carries its schema id (an export) picks the matching preset, or fills in the
@@ -96,12 +139,26 @@ async function loadPresets() {
 // preset — so indirect data (factor loadings) silently imported under the direct preset, where
 // none of its fields are declared and every value lands in "Other". Score the importable
 // presets by how many of the entry's own keys each one declares and take a clear winner.
+// every entry-level name a preset declares: its declaration when the picker row carries one
+// (field_types lists only the typed fields, so a preset of text fields would score near zero)
+function declaredNames(p) {
+  const names = new Set(Object.keys(p.field_types || {}));
+  const spec = p.spec;
+  if (spec && spec.entries) {
+    for (const f of spec.entries.fields || []) if (f && f.name) names.add(f.name);
+    for (const ch of spec.entries.children || []) if (ch && ch.key) names.add(ch.key);
+  } else {
+    for (const k of p.core_keys || []) names.add(k);
+    for (const v of p.sub_views || []) for (const k of v.include_keys || []) names.add(k);
+  }
+  return names;
+}
 function guessSchema(entries) {
   const keys = new Set();
   for (const e of entries.slice(0, 5)) for (const k of Object.keys(e || {})) keys.add(k);
   if (!keys.size) return null;
   const scored = PRESETS.filter((p) => p.schema_id && !p.setup).map((p) => {
-    const declared = new Set(Object.keys(p.field_types || {}));
+    const declared = declaredNames(p);
     return { p, hit: [...keys].filter((k) => declared.has(k)).length };
   }).sort((a, b) => b.hit - a.hit);
   if ($("#schema").dataset.user) return null;                              // they chose one themselves
@@ -436,6 +493,12 @@ function renderPairs() {
     if (sel.value) MANUAL[sel.dataset.k] = sel.value; else delete MANUAL[sel.dataset.k];
     renderPairs();
   }));
+  const warnBox = $("#matchwarn");
+  if (warnBox) {
+    warnBox.innerHTML = matchWarning(rows);
+    const use = $("#matchuse");
+    if (use) use.onclick = () => { $("#schema").value = use.dataset.sid; $("#schema").dataset.user = "1"; $("#schema").onchange(); renderPairs(); };
+  }
   const n = rows.filter(importable).length;
   const run = $("#run");
   const legalOk = $("#legal-ok").checked;

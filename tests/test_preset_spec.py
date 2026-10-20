@@ -307,7 +307,7 @@ def _criteria_spec() -> dict:
             "display": {"tabs": [{"id": "all", "label": "All", "fields": [f["name"] for f in fields]}],
                         "review": {"layout": "criteria",
                                    "criteria": [{"call": c, "probability": f"{c}_p", "reasoning": f"{c}_reason", "overturn": f"{c}_overturn", "hidden": [f"{c}_support"]} for c in ("c1", "c2")],
-                                   "sides": {"for": "supporting", "against": "contradictory"}, "fields": ["n", "notes"]}}}
+                                   "sides": {"for": "supporting", "against": ["contradictory", "questioning"]}, "blind": True, "fields": ["n", "notes"]}}}
 
 
 def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
@@ -328,5 +328,7 @@ def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
     assert any("hidden: 'nope'" in e for e in broken(lambda rv: rv["criteria"][0].update(hidden=["nope"])))
     assert any("fields: 'nope'" in e for e in broken(lambda rv: rv.update(fields=["nope"])))
     assert any("sides must map" in e for e in broken(lambda rv: rv.update(sides={"left": "x"})))
+    assert any("sides must map" in e for e in broken(lambda rv: rv.update(sides={"against": []})))
+    assert any("blind must be" in e for e in broken(lambda rv: rv.update(blind="yes")))
     assert any("at least one criterion" in e for e in broken(lambda rv: rv.update(criteria=[])))
     assert any("'chain' or 'criteria'" in e for e in broken(lambda rv: rv.update(layout="grid")))

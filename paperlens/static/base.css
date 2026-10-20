@@ -154,6 +154,8 @@ a.doctabs-label:hover { color: var(--accent); }
 .import-row.ok { border-color: var(--accent-3); }
 .import-row .ir-name { font-weight: 600; }
 .import-row .ir-stat { color: var(--text-muted); }
+.import-warn { margin: 0 0 8px; padding: 9px 12px; border: 1px solid var(--conf-med-bd); background: var(--conf-med-bg); color: var(--text); border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5; }
+.import-warn code { font-size: 11.5px; }
 .doctab.jobfail { color: var(--error); border-color: var(--error); font-size: 12px; cursor: pointer; }
 /* "＋ Add papers" — back to the extract page in add-papers mode for this dataset */
 .doctab-add { justify-content: center; margin-top: 8px; border-style: dashed; color: var(--accent);
