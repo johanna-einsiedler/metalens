@@ -1,0 +1,683 @@
+{
+ "format": 2,
+ "id": "register-designs",
+ "version": 1,
+ "meta": {
+  "title": "Causal designs in Danish register-data papers",
+  "tagline": "Every empirical design behind a paper's results, one entry per design: the identification strategy and its sub-design, the source of variation, the instrument, and the result records it carries with their estimand, estimate and assumptions.",
+  "description": "One entry per DESIGN of a paper — a group of result records sharing an identification strategy (family), a sub-design from the design taxonomy, a source of exogenous variation and an instrument — with the records themselves as rows: statement, treatment and outcome with their concepts, sign and point estimate, estimand type, population, estimator and exhibit, the key assumptions and the threats discussed. Records the taxonomy pass did not place (descriptive results, papers not yet placed) form one design per strategy, flagged. The records are produced OUTSIDE Metalens by the danish-register-econ agent pipeline (the result-claims pass with identification blocks, then the design-taxonomy pass); this preset is the schema they are imported into, not the recipe that made them. The companion of the Claims in empirical economics papers preset, which holds the same corpus' stated claims.",
+  "mode": "import",
+  "hidden": false,
+  "brands": [
+   "metalens"
+  ],
+  "related": [
+   {
+    "kind": "preset",
+    "id": "register-claims",
+    "title": "Claims in empirical economics papers",
+    "role": "the stated claims of the same corpus"
+   },
+   {
+    "kind": "preset",
+    "id": "register-tables",
+    "title": "Register-data tables",
+    "role": "the regression tables the records cite"
+   }
+  ]
+ },
+ "prompt": {},
+ "paper": {
+  "fields": [
+   {
+    "name": "registers",
+    "type": "table",
+    "label": "Registers",
+    "help": "the administrative registers the paper draws on, as the paper names them, with the Statistics Denmark code where the paper gives one",
+    "evidence": "none",
+    "columns": [
+     {
+      "name": "name_in_paper",
+      "type": "string",
+      "label": "Register",
+      "required": true
+     },
+     {
+      "name": "dst_code",
+      "type": "string",
+      "label": "DST code"
+     },
+     {
+      "name": "years",
+      "type": "string",
+      "label": "Years"
+     },
+     {
+      "name": "role",
+      "type": "string",
+      "label": "Role",
+      "help": "treatment, outcome, controls, sample definition …"
+     },
+     {
+      "name": "variables_mentioned",
+      "type": "string",
+      "label": "Variables",
+      "help": "the variables the paper takes from it"
+     }
+    ]
+   },
+   {
+    "name": "linkages",
+    "type": "list",
+    "label": "Linkages",
+    "help": "how the registers are linked (person id, firm id, family links)",
+    "evidence": "none"
+   },
+   {
+    "name": "sample_universe",
+    "type": "text",
+    "label": "Universe",
+    "help": "the population the registers cover for this paper",
+    "evidence": "none"
+   },
+   {
+    "name": "unit_of_observation",
+    "type": "string",
+    "label": "Unit of observation",
+    "evidence": "none"
+   },
+   {
+    "name": "selection_rules",
+    "type": "list",
+    "label": "Selection rules",
+    "help": "the rules that cut the universe down to the estimation sample",
+    "evidence": "none"
+   },
+   {
+    "name": "sample_period",
+    "type": "string",
+    "label": "Period",
+    "evidence": "none"
+   },
+   {
+    "name": "n_observations",
+    "type": "string",
+    "label": "Observations",
+    "help": "as the paper states it",
+    "evidence": "none"
+   },
+   {
+    "name": "n_individuals",
+    "type": "string",
+    "label": "Individuals",
+    "help": "as the paper states it",
+    "evidence": "none"
+   },
+   {
+    "name": "construction_notes",
+    "type": "list",
+    "label": "Construction notes",
+    "help": "how key variables were built (imputed, simulated, deflated …)",
+    "evidence": "none"
+   },
+   {
+    "name": "code_data_availability",
+    "type": "text",
+    "label": "Code and data availability",
+    "help": "the paper's statement, verbatim or summarised",
+    "evidence": "none"
+   }
+  ]
+ },
+ "entries": {
+  "key": "designs",
+  "label": "Design",
+  "help": "one empirical design of the paper: the result records that share an identification strategy, a sub-design, a source of variation and an instrument. The taxonomy pass places records into designs; records it did not place (descriptive results, papers not yet placed) form one design per strategy, flagged",
+  "cardinality": "many",
+  "id_field": "unit_id",
+  "title": "{family} · {design_treatment} → {design_outcome}",
+  "evidence": "row",
+  "fields": [
+   {
+    "name": "unit_id",
+    "type": "string",
+    "label": "Design id",
+    "help": "<artid>::<unit>, as the taxonomy pass numbers the paper's designs; <artid>::<strategy> for an unplaced group",
+    "required": true,
+    "evidence": "row"
+   },
+   {
+    "name": "family",
+    "type": "enum",
+    "label": "Strategy",
+    "help": "the identification strategy family of the records",
+    "required": true,
+    "options": [
+     "RCT",
+     "lottery",
+     "regression_discontinuity",
+     "difference_in_differences",
+     "event_study",
+     "instrumental_variables",
+     "matching",
+     "selection_on_observables",
+     "fixed_effects_within",
+     "sibling_family_comparison",
+     "twin_comparison",
+     "bunching",
+     "synthetic_control",
+     "structural_model",
+     "descriptive",
+     "other"
+    ],
+    "evidence": "none",
+    "confidence": "design"
+   },
+   {
+    "name": "sub_design",
+    "type": "string",
+    "label": "Sub-design",
+    "help": "the taxonomy entry (<family>.<slug>) the design was placed under; null when the taxonomy pass has not placed it",
+    "evidence": "none",
+    "confidence": "design"
+   },
+   {
+    "name": "sub_design_label",
+    "type": "string",
+    "label": "Sub-design label",
+    "evidence": "none"
+   },
+   {
+    "name": "pattern",
+    "type": "string",
+    "label": "General pattern",
+    "help": "the taxonomy's general pattern behind the sub-design",
+    "evidence": "none"
+   },
+   {
+    "name": "source_kind",
+    "type": "enum",
+    "label": "Source of variation (kind)",
+    "help": "what kind of exogenous variation the design rests on",
+    "options": [
+     "policy_reform",
+     "institutional_rule_or_threshold",
+     "natural_or_health_shock",
+     "economic_shock",
+     "randomization_or_lottery",
+     "timing_or_cohort",
+     "geography_or_distance",
+     "family_structure",
+     "administrative_assignment",
+     "other",
+     "none",
+     "model"
+    ],
+    "evidence": "none",
+    "confidence": "design"
+   },
+   {
+    "name": "source_label",
+    "type": "string",
+    "label": "Source of variation",
+    "help": "the concrete source, named",
+    "evidence": "none"
+   },
+   {
+    "name": "source_of_variation",
+    "type": "text",
+    "label": "Source of variation (as read)",
+    "help": "the pipeline's description of the variation that identifies the effect",
+    "evidence": "none"
+   },
+   {
+    "name": "instrument",
+    "type": "text",
+    "label": "Instrument",
+    "help": "the instrument or the device that carries the variation; null when the design has none",
+    "evidence": "none"
+   },
+   {
+    "name": "design_treatment",
+    "type": "string",
+    "label": "Treatment",
+    "evidence": "none"
+   },
+   {
+    "name": "design_outcome",
+    "type": "string",
+    "label": "Outcome",
+    "evidence": "none"
+   },
+   {
+    "name": "summary",
+    "type": "text",
+    "label": "Summary",
+    "help": "the design in one or two sentences",
+    "evidence": "none"
+   },
+   {
+    "name": "carries_headline",
+    "type": "boolean",
+    "label": "Carries a headline result",
+    "help": "true when one of the records is a headline result of the paper",
+    "evidence": "none"
+   },
+   {
+    "name": "n_records",
+    "type": "integer",
+    "label": "Records",
+    "help": "how many result records the design carries",
+    "evidence": "none"
+   },
+   {
+    "name": "flags",
+    "type": "list",
+    "label": "Flags",
+    "help": "what a reader must know: the taxonomy pass merged or dropped something, the records were not placed, the design is descriptive",
+    "evidence": "none"
+   }
+  ],
+  "children": [
+   {
+    "key": "records",
+    "label": "Result record",
+    "help": "one result the design carries: a claim the paper's results section makes, with its estimand, estimate and the assumptions the pipeline read behind it",
+    "title": "{record_id} · {statement}",
+    "evidence": "row",
+    "layout": "table",
+    "fields": [
+     {
+      "name": "record_id",
+      "type": "string",
+      "label": "Record id",
+      "help": "the pipeline's claim id",
+      "required": true,
+      "evidence": "row"
+     },
+     {
+      "name": "headline",
+      "type": "boolean",
+      "label": "Headline",
+      "help": "a headline result of the paper (matched to its abstract)",
+      "evidence": "none"
+     },
+     {
+      "name": "statement",
+      "type": "text",
+      "label": "Statement",
+      "required": true,
+      "evidence": "row",
+      "confidence": "record"
+     },
+     {
+      "name": "treatment",
+      "type": "string",
+      "label": "Treatment",
+      "evidence": "none"
+     },
+     {
+      "name": "treatment_concept",
+      "type": "string",
+      "label": "Treatment concept",
+      "help": "the atlas concept (ontology node)",
+      "evidence": "none"
+     },
+     {
+      "name": "outcome",
+      "type": "string",
+      "label": "Outcome",
+      "evidence": "none"
+     },
+     {
+      "name": "outcome_concept",
+      "type": "string",
+      "label": "Outcome concept",
+      "evidence": "none"
+     },
+     {
+      "name": "sign",
+      "type": "enum",
+      "label": "Sign",
+      "options": [
+       "positive",
+       "negative",
+       "null",
+       "mixed",
+       "nonmonotonic"
+      ],
+      "evidence": "none",
+      "confidence": "record"
+     },
+     {
+      "name": "point_estimate",
+      "type": "number",
+      "label": "Point estimate",
+      "help": "the estimate as the paper states it, when it states one; the quotes identify the record, the exhibit holds the number (a quote that prints it is linked to it)",
+      "evidence": "none",
+      "confidence": "record"
+     },
+     {
+      "name": "se_or_ci",
+      "type": "string",
+      "label": "SE or CI",
+      "help": "as printed",
+      "evidence": "none"
+     },
+     {
+      "name": "units",
+      "type": "string",
+      "label": "Units",
+      "help": "what the number is: an elasticity, percentage points, log points …",
+      "evidence": "none"
+     },
+     {
+      "name": "estimand_type",
+      "type": "enum",
+      "label": "Estimand",
+      "options": [
+       "ATE",
+       "ATT",
+       "ATU",
+       "LATE",
+       "ITT",
+       "CATE",
+       "elasticity",
+       "semi-elasticity",
+       "hazard_ratio",
+       "distributional",
+       "structural_parameter",
+       "descriptive_gap",
+       "other"
+      ],
+      "evidence": "none",
+      "confidence": "record"
+     },
+     {
+      "name": "target_population",
+      "type": "text",
+      "label": "Target population",
+      "evidence": "none"
+     },
+     {
+      "name": "time_horizon",
+      "type": "string",
+      "label": "Horizon",
+      "evidence": "none"
+     },
+     {
+      "name": "population",
+      "type": "text",
+      "label": "Population",
+      "help": "the estimation sample as described",
+      "evidence": "none"
+     },
+     {
+      "name": "sex",
+      "type": "enum",
+      "label": "Sex",
+      "options": [
+       "all",
+       "women",
+       "men",
+       "couples"
+      ],
+      "evidence": "none"
+     },
+     {
+      "name": "period",
+      "type": "string",
+      "label": "Period",
+      "evidence": "none"
+     },
+     {
+      "name": "strategy",
+      "type": "enum",
+      "label": "Strategy",
+      "help": "this record's own strategy; normally the design's family",
+      "options": [
+       "RCT",
+       "lottery",
+       "regression_discontinuity",
+       "difference_in_differences",
+       "event_study",
+       "instrumental_variables",
+       "matching",
+       "selection_on_observables",
+       "fixed_effects_within",
+       "sibling_family_comparison",
+       "twin_comparison",
+       "bunching",
+       "synthetic_control",
+       "structural_model",
+       "descriptive",
+       "other"
+      ],
+      "evidence": "none"
+     },
+     {
+      "name": "estimator",
+      "type": "string",
+      "label": "Estimator",
+      "evidence": "none"
+     },
+     {
+      "name": "source_table",
+      "type": "string",
+      "label": "Exhibit",
+      "help": "the table or figure the estimate was read from",
+      "evidence": "none"
+     },
+     {
+      "name": "key_assumptions",
+      "type": "list",
+      "label": "Key assumptions",
+      "help": "each with (stated) or (implicit)",
+      "evidence": "none",
+      "confidence": "record"
+     },
+     {
+      "name": "threats_discussed",
+      "type": "list",
+      "label": "Threats discussed",
+      "evidence": "none"
+     },
+     {
+      "name": "robustness_checks",
+      "type": "list",
+      "label": "Robustness checks",
+      "evidence": "none"
+     },
+     {
+      "name": "ambiguities",
+      "type": "list",
+      "label": "Ambiguities",
+      "help": "what the pipeline could not settle",
+      "evidence": "none"
+     }
+    ]
+   }
+  ]
+ },
+ "confidence": {
+  "levels": [
+   "high",
+   "medium",
+   "low"
+  ],
+  "notes": true,
+  "groups": [
+   {
+    "id": "design",
+    "label": "Design",
+    "scope": "entry",
+    "help": "family, sub-design, source of variation: is this the design the records share? high when the taxonomy pass placed them, medium for an unplaced group"
+   },
+   {
+    "id": "record",
+    "label": "Record",
+    "scope": "child",
+    "help": "statement, sign, estimate, estimand, assumptions: the pipeline's own confidence in the record"
+   }
+  ]
+ },
+ "display": {
+  "tabs": [
+   {
+    "id": "design",
+    "label": "Design",
+    "fields": [
+     "unit_id",
+     "family",
+     "sub_design",
+     "sub_design_label",
+     "pattern",
+     "source_kind",
+     "source_label",
+     "source_of_variation",
+     "instrument",
+     "design_treatment",
+     "design_outcome",
+     "summary",
+     "carries_headline",
+     "n_records",
+     "flags"
+    ]
+   },
+   {
+    "id": "records",
+    "label": "Records",
+    "fields": [
+     "records"
+    ]
+   }
+  ],
+  "entries": "cards",
+  "grid_rows": "records",
+  "triage": "low_confidence_first",
+  "paper_panel": "open",
+  "audit": {
+   "registers": {
+    "key": [
+     "name_in_paper"
+    ]
+   }
+  },
+  "analysis": {
+   "default_unit": "records",
+   "roles": {
+    "unit_id": [
+     "identifier",
+     "label"
+    ],
+    "family": [
+     "dimension"
+    ],
+    "sub_design": [
+     "dimension"
+    ],
+    "source_kind": [
+     "dimension"
+    ],
+    "n_records": [
+     "measure"
+    ],
+    "record_id": [
+     "identifier"
+    ],
+    "sign": [
+     "dimension"
+    ],
+    "estimand_type": [
+     "dimension"
+    ],
+    "strategy": [
+     "dimension"
+    ],
+    "sex": [
+     "dimension"
+    ],
+    "point_estimate": [
+     "measure"
+    ],
+    "carries_headline": [
+     "dimension"
+    ]
+   },
+   "default_dashboard": [
+    {
+     "template": "stat_count",
+     "title": "Papers",
+     "unit": "records",
+     "bindings": {
+      "column": {
+       "column": "_study"
+      }
+     }
+    },
+    {
+     "template": "stat_count",
+     "title": "Designs",
+     "unit": "entries",
+     "bindings": {}
+    },
+    {
+     "template": "stat_count",
+     "title": "Result records",
+     "unit": "records",
+     "bindings": {}
+    },
+    {
+     "template": "bar",
+     "title": "Designs by strategy",
+     "unit": "entries",
+     "bindings": {
+      "category": {
+       "column": "family"
+      }
+     }
+    },
+    {
+     "template": "bar",
+     "title": "Designs by source of variation",
+     "unit": "entries",
+     "bindings": {
+      "category": {
+       "column": "source_kind"
+      }
+     }
+    },
+    {
+     "template": "bar",
+     "title": "Records by estimand",
+     "unit": "records",
+     "bindings": {
+      "category": {
+       "column": "estimand_type"
+      }
+     }
+    },
+    {
+     "template": "rows_table",
+     "title": "Designs and their records",
+     "unit": "records",
+     "bindings": {
+      "columns": {
+       "columns": [
+        "_study",
+        "unit_id",
+        "family",
+        "sub_design",
+        "record_id",
+        "statement",
+        "sign",
+        "point_estimate",
+        "estimand_type"
+       ]
+      }
+     }
+    }
+   ]
+  }
+ }
+}

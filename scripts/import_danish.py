@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import the danish-register-econ extractions into Metalens as two datasets.
+"""Import the danish-register-econ extractions into Metalens as three datasets.
 
     uv run python scripts/import_danish.py --email me@example.org --password …            # all processed papers
     uv run python scripts/import_danish.py --artids dk_W2213841331 --replace              # one paper again
@@ -7,9 +7,12 @@
     uv run python scripts/import_danish.py --base-url https://metalens.tech --email me@example.org \
         --only claims --claims-title "…"                                                    # to the hosted site; asks for the password
     … --claims-dataset <id> --resume                                                        # carry on after an interruption
+    uv run python scripts/import_danish.py --only designs --email …                           # the causal designs (result claims + taxonomy)
 
 The pipeline's per-paper files (stated claims + claim map + result claims, and the tables file)
-become one ``register-claims`` and one ``register-tables`` result each — the canonical
+become one ``register-claims`` and one ``register-tables`` result each; the result-claims document
+with its identification blocks and the design-taxonomy placements become one ``register-designs``
+result (one entry per design, its records as rows) — each the canonical
 single-paper shape ``{paper_metadata, <entries>, evidence}`` — and are posted with the PDF to
 ``POST /api/ingest-pdf``, so pages are rendered and quotes located exactly as for a live run.
 
@@ -35,7 +38,7 @@ from collections import Counter
 from pathlib import Path
 
 CORPUS = Path.home() / "Documents/research/44_automated_science/danish-register-econ/corpora/danish-register-econ"
-PRESET_CLAIMS, PRESET_TABLES = "register-claims", "register-tables"
+PRESET_CLAIMS, PRESET_TABLES, PRESET_DESIGNS = "register-claims", "register-tables", "register-designs"
 
 # ── the exhibit grammar (ported from pipeline/link_tables.py) ───────────────────────────────
 _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
@@ -399,6 +402,168 @@ def processed_artids(corpus: Path) -> list[str]:
     return sorted(p.stem for p in (ex / "stated_claims").glob("dk_*.json") if (ex / "tables" / p.name).exists() and (corpus / "pdfs" / f"{p.stem}.pdf").exists())
 
 
+# ── the causal designs: result claims grouped by the taxonomy pass ───────────────────────────
+def _v(x):
+    """A v0.5 field carries ``{value, confidence}``; older documents the bare value."""
+    return x.get("value") if isinstance(x, dict) and "value" in x else x
+
+
+def load_design_doc(corpus: Path, artid: str) -> dict | None:
+    """The result-claims document of a paper (the waiting copy, ``final`` when it has one)."""
+    p = corpus / "extractions" / "_waiting" / "claims" / f"{artid}.json"
+    if not p.exists():
+        return None
+    d = json.loads(p.read_text(encoding="utf-8"))
+    return d.get("final") or d
+
+
+def load_taxonomy(corpus: Path, artid: str) -> tuple[dict, dict]:
+    """(the paper's design-taxonomy placements, the dictionary's id → label) — empty when the
+    taxonomy pass has not reached the paper."""
+    tdir = corpus / "extractions" / "design_taxonomy"
+    p = tdir / f"{artid}.json"
+    tax = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    dp = tdir / "dictionary.json"
+    labels = {}
+    if dp.exists():
+        for e in json.loads(dp.read_text(encoding="utf-8")).get("entries") or []:
+            if e.get("id"):
+                labels[e["id"]] = e.get("label")
+    return tax, labels
+
+
+MAX_RECORD_QUOTES = 8
+_SIGNS = ("positive", "negative", "null", "mixed", "nonmonotonic")
+
+
+def _record(c: dict) -> dict:
+    """One result claim → a row of the design's records table."""
+    t, o, rel, est, pop, ident, estm = (c.get("treatment") or {}), (c.get("outcome") or {}), (c.get("relationship") or {}), (c.get("estimand") or {}), \
+        (c.get("population") or {}), (c.get("identification") or {}), (c.get("estimation") or {})
+    mag = _v(rel.get("magnitude")) or {}
+    sign = _v(rel.get("sign"))
+    assumptions = [f"{_v(a.get('assumption'))} ({_v(a.get('stated_or_implicit')) or 'stated'})" for a in ident.get("key_assumptions") or []
+                   if isinstance(a, dict) and _v(a.get("assumption"))]
+    conf = _v(c.get("extraction_confidence")) or "medium"
+    se = _v(mag.get("se_or_ci"))
+    return {"record_id": c["claim_id"], "headline": bool(_v(c.get("headline"))), "statement": _v(c.get("statement")),
+            "treatment": _v(t.get("label")), "treatment_concept": _v(t.get("ontology_node")),
+            "outcome": _v(o.get("label")), "outcome_concept": _v(o.get("ontology_node")),
+            "sign": sign if sign in _SIGNS else None, "point_estimate": _num(_v(mag.get("point_estimate"))),
+            "se_or_ci": str(se) if se not in (None, "") else None, "units": _v(mag.get("units")),
+            "estimand_type": _v(est.get("type")), "target_population": _v(est.get("target_population")), "time_horizon": _v(est.get("time_horizon")),
+            "population": _v(pop.get("description")), "sex": _v(pop.get("sex")), "period": _v(pop.get("period")),
+            "strategy": _v(ident.get("strategy")), "estimator": _v(estm.get("estimator")), "source_table": _v(estm.get("source_table")),
+            "key_assumptions": assumptions, "threats_discussed": [str(_v(x)) for x in ident.get("threats_discussed") or [] if _v(x)],
+            "robustness_checks": [str(_v(x)) for x in ident.get("robustness_checks") or [] if _v(x)],
+            "ambiguities": [str(_v(x)) for x in c.get("ambiguities") or [] if _v(x)],
+            "confidence": {"record": {"level": conf if conf in ("high", "medium", "low") else "medium", "notes": ""}}}
+
+
+def _record_quotes(c: dict, offset: int) -> list[tuple[str, int]]:
+    out = []
+    for q in ((c.get("provenance") or {}).get("quotes") or [])[:MAX_RECORD_QUOTES]:
+        text = " ".join(str(_v(q.get("text")) or "").split())
+        if text:
+            out.append((text, q.get("pdf_page") or _pdf_page(q.get("page"), offset)))
+    return out
+
+
+def _num_in(value: float, text: str) -> bool:
+    """Does the quote print this number (any minus glyph, thousands separators ignored)?"""
+    s = text.replace("\u2212", "-").replace(",", "")
+    v = abs(value)
+    for m in re.finditer(r"\d+(?:\.\d+)?", s):
+        x = float(m.group())
+        if abs(x - v) <= 1e-9 or (v >= 1 and abs(x - v) < 5e-4):
+            return True
+    return False
+
+
+def convert_designs(doc: dict, tax: dict, labels: dict, meta: dict, offset: int) -> tuple[dict, list[str]]:
+    """The result-claims document + the taxonomy placements → one register-designs result: one
+    entry per design unit with its records as rows; the records the taxonomy did not place
+    form one flagged design per strategy. Returns (result, warnings)."""
+    artid = doc.get("artid") or ""
+    claims = [c for c in doc.get("claims") or [] if c.get("claim_id")]
+    by_id = {c["claim_id"]: c for c in claims}
+    units: list[dict] = []
+    placed: set[str] = set()
+    for u in tax.get("units") or []:
+        ids = [r for r in u.get("records") or [] if r in by_id and r not in placed]
+        if not ids:
+            continue
+        placed.update(ids)
+        src = u.get("source") or {}
+        units.append({"unit_id": f"{artid}::{u.get('unit') or len(units) + 1}", "family": u.get("family"),
+                      "sub_design": u.get("sub_design"), "sub_design_label": labels.get(u.get("sub_design")),
+                      "pattern": labels.get(u.get("pattern")) or u.get("pattern"),
+                      "source_kind": src.get("kind"), "source_label": src.get("label"),
+                      "source_of_variation": u.get("source_of_variation"), "instrument": u.get("instrument"),
+                      "design_treatment": u.get("treatment"), "design_outcome": u.get("outcome"), "summary": u.get("summary"),
+                      "flags": [str(x) for x in u.get("flags") or []], "_ids": ids, "_placed": True})
+    groups: dict[str, list[dict]] = {}
+    for c in claims:
+        if c["claim_id"] not in placed:
+            groups.setdefault(_v((c.get("identification") or {}).get("strategy")) or "other", []).append(c)
+    for strategy, cs in groups.items():
+        first, ident = cs[0], (cs[0].get("identification") or {})
+        units.append({"unit_id": f"{artid}::{strategy}", "family": strategy, "sub_design": None, "sub_design_label": None, "pattern": None,
+                      "source_kind": None, "source_label": None, "source_of_variation": _v(ident.get("source_of_variation")), "instrument": _v(ident.get("instrument")),
+                      "design_treatment": _v((first.get("treatment") or {}).get("label")), "design_outcome": _v((first.get("outcome") or {}).get("label")), "summary": None,
+                      "flags": ["descriptive: no identification strategy claimed" if strategy == "descriptive" else "not placed by the taxonomy pass"],
+                      "_ids": [c["claim_id"] for c in cs], "_placed": False})
+    out_units, evidence, warnings = [], [], []
+    for i, u in enumerate(units):
+        ids, was_placed = u.pop("_ids"), u.pop("_placed")
+        recs = [by_id[r] for r in ids]
+        u["records"] = [_record(c) for c in recs]
+        u["carries_headline"] = any(r["headline"] for r in u["records"])
+        u["n_records"] = len(u["records"])
+        u["confidence"] = {"design": {"level": "high" if was_placed and not u["flags"] else "medium", "notes": ""}}
+        row_cited = False
+        for j, c in enumerate(recs):
+            quotes = _record_quotes(c, offset)
+            if not quotes:
+                warnings.append(f"{c['claim_id']}: no provenance quote")
+            pt = u["records"][j]["point_estimate"]
+            for k, (text, page) in enumerate(quotes):
+                fields = [f"designs[{i}].records[{j}]"]
+                if not row_cited:                                # the first quote also identifies the design
+                    fields.insert(0, f"designs[{i}]"); row_cited = True
+                if pt is not None and _num_in(pt, text):
+                    fields.append(f"designs[{i}].records[{j}].point_estimate")
+                evidence.append({"snippet": text, "page": page, "source": "results", "field": fields})
+        out_units.append(u)
+    data, paper = doc.get("data") or {}, doc.get("paper") or {}
+    sample = data.get("sample") or {}
+    text_or_none = lambda x: str(_v(x)) if _v(x) not in (None, "") else None   # noqa: E731
+    pm = {**meta,
+          "registers": [{"name_in_paper": _v(r.get("name_in_paper")), "dst_code": text_or_none(r.get("dst_code")), "years": text_or_none(r.get("years")),
+                         "role": text_or_none(r.get("role")), "variables_mentioned": "; ".join(str(_v(x)) for x in r.get("variables_mentioned") or [] if _v(x)) or None}
+                        for r in data.get("registers") or [] if isinstance(r, dict) and _v(r.get("name_in_paper"))],
+          "linkages": [str(_v(x)) for x in data.get("linkages") or [] if _v(x)], "sample_universe": text_or_none(sample.get("universe")),
+          "unit_of_observation": text_or_none(sample.get("unit_of_observation")), "selection_rules": [str(_v(x)) for x in sample.get("selection_rules") or [] if _v(x)],
+          "sample_period": text_or_none(sample.get("period")), "n_observations": text_or_none(sample.get("n_observations")), "n_individuals": text_or_none(sample.get("n_individuals")),
+          "construction_notes": [str(_v(x)) for x in data.get("construction_notes") or [] if _v(x)], "code_data_availability": text_or_none(paper.get("code_data_availability"))}
+    return {"paper_metadata": pm, "designs": out_units, "evidence": evidence}, warnings
+
+
+def convert_designs_paper(corpus: Path, artid: str, papers: dict) -> tuple[dict | None, list[str]]:
+    doc = load_design_doc(corpus, artid)
+    if doc is None:
+        return None, [f"{artid}: no result-claims document"]
+    sp = corpus / "extractions" / "stated_claims" / f"{artid}.json"
+    stated = json.loads(sp.read_text(encoding="utf-8")) if sp.exists() else {}
+    tax, labels = load_taxonomy(corpus, artid)
+    return convert_designs(doc, tax, labels, paper_metadata(artid, papers, stated), page_offset(stated))
+
+
+def design_artids(corpus: Path) -> list[str]:
+    ex = corpus / "extractions" / "_waiting" / "claims"
+    return sorted(p.stem for p in ex.glob("dk_*.json") if (corpus / "pdfs" / f"{p.stem}.pdf").exists())
+
+
 # ── the server ───────────────────────────────────────────────────────────────────────────────
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -407,18 +572,29 @@ def main() -> int:
     ap.add_argument("--email"); ap.add_argument("--password")
     ap.add_argument("--claims-dataset", help="dataset id for the claims (created when omitted)")
     ap.add_argument("--tables-dataset", help="dataset id for the tables (created when omitted)")
+    ap.add_argument("--designs-dataset", help="dataset id for the causal designs (created when omitted)")
     ap.add_argument("--artids", nargs="*")
     ap.add_argument("--replace", action="store_true", help="delete the paper's earlier import first")
     ap.add_argument("--out", type=Path, help="write the converted JSON here and stop (no server)")
-    ap.add_argument("--only", choices=("claims", "tables"), help="import one of the two datasets only")
+    ap.add_argument("--only", choices=("claims", "tables", "designs"), help="import one of the datasets only (designs: never together with the other two)")
     ap.add_argument("--claims-title", default="Register-data claims (Danish)", help="title of a claims dataset created here")
+    ap.add_argument("--designs-title", default="Causal designs in Danish register-data papers", help="title of a designs dataset created here")
     ap.add_argument("--resume", action="store_true", help="skip papers the target dataset already holds (by file name)")
     a = ap.parse_args()
     papers = load_papers(a.corpus)
-    artids = a.artids or processed_artids(a.corpus)
+    designs_only = a.only == "designs"
+    artids = a.artids or (design_artids(a.corpus) if designs_only else processed_artids(a.corpus))
     if a.out:
         a.out.mkdir(parents=True, exist_ok=True)
         for artid in artids:
+            if designs_only:
+                des, warns = convert_designs_paper(a.corpus, artid, papers)
+                if des is None:
+                    print(f"{artid}: " + " | ".join(warns)); continue
+                (a.out / f"{artid}.designs.json").write_text(json.dumps(des, ensure_ascii=False, indent=1), encoding="utf-8")
+                print(f"{artid}: {len(des['designs'])} designs, {sum(len(u['records']) for u in des['designs'])} records, {len(des['evidence'])} quotes"
+                      + (f"; {len(warns)} warnings: " + " | ".join(warns[:3]) if warns else ""))
+                continue
             claims, tabs, warns = convert_paper(a.corpus, artid, papers)
             (a.out / f"{artid}.claims.json").write_text(json.dumps(claims, ensure_ascii=False, indent=1), encoding="utf-8")
             (a.out / f"{artid}.tables.json").write_text(json.dumps(tabs, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -436,11 +612,11 @@ def main() -> int:
         if r.status_code != 200:
             print("login failed:", r.text[:200]); return 2
     ids = {}
-    kinds = [k for k in ("claims", "tables") if not a.only or k == a.only]
-    for key, pid, title in (("claims", PRESET_CLAIMS, a.claims_title), ("tables", PRESET_TABLES, "Register-data tables (Danish)")):
+    kinds = ["designs"] if designs_only else [k for k in ("claims", "tables") if not a.only or k == a.only]
+    for key, pid, title in (("claims", PRESET_CLAIMS, a.claims_title), ("tables", PRESET_TABLES, "Register-data tables (Danish)"), ("designs", PRESET_DESIGNS, a.designs_title)):
         if key not in kinds:
             continue
-        given = a.claims_dataset if key == "claims" else a.tables_dataset
+        given = {"claims": a.claims_dataset, "tables": a.tables_dataset, "designs": a.designs_dataset}[key]
         if given:
             ids[key] = given; continue
         r = c.post("/api/datasets", json={"title": title, "schema_id": f"{pid}@v1", "visibility": "private",
@@ -457,10 +633,17 @@ def main() -> int:
             print(f"  · {artid}: already imported"); continue
         pdf = (a.corpus / "pdfs" / f"{artid}.pdf").read_bytes()
         sha = hashlib.sha256(pdf).hexdigest()
-        claims, tabs, warns = convert_paper(a.corpus, artid, papers)
+        if designs_only:
+            des, warns = convert_designs_paper(a.corpus, artid, papers)
+            if des is None:
+                failed.append(artid); print(f"  ✗ {artid}: " + " | ".join(warns)); continue
+            objs = (("designs", PRESET_DESIGNS, des),)
+        else:
+            claims, tabs, warns = convert_paper(a.corpus, artid, papers)
+            objs = (("claims", PRESET_CLAIMS, claims), ("tables", PRESET_TABLES, tabs))
         for w in warns:
             print(f"  ! {artid}: {w}")
-        for key, pid, obj in (("claims", PRESET_CLAIMS, claims), ("tables", PRESET_TABLES, tabs)):
+        for key, pid, obj in objs:
             if key not in kinds or f"{artid}.pdf" in done[key]:
                 continue
             if a.replace:
@@ -486,11 +669,11 @@ def main() -> int:
                 failed.append(artid)
                 print(f"  ✗ {artid} {key}: " + (f"HTTP {r.status_code} {r.text[:300]}" if r is not None else "no answer")); continue
             j = r.json()
-            n = len(obj["claims"]) if key == "claims" else len(obj["regressions"])
+            n = len(obj["claims"]) if key == "claims" else len(obj["regressions"]) if key == "tables" else f"{len(obj['designs'])} designs, {sum(len(u['records']) for u in obj['designs'])}"
             print(f"  ✓ {artid} {key}: {n} entries → document {j.get('document_id') or j.get('id')} · issues {len(j.get('issues') or [])}")
     print("datasets:", ids)
     if failed:
-        print(f"{len(failed)} papers failed; run again with --claims-dataset/--tables-dataset and --resume: {' '.join(failed)}")
+        print(f"{len(failed)} papers failed; run again with --claims-dataset/--tables-dataset/--designs-dataset and --resume: {' '.join(failed)}")
     return 1 if failed else 0
 
 

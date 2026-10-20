@@ -66,12 +66,14 @@ TABLES = {
 
 def test_presets_are_import_schemas_with_no_prompt() -> None:
     all_ = presets.load_all()
-    claims, tables = all_["register-claims"], all_["register-tables"]
+    claims, tables, designs = all_["register-claims"], all_["register-tables"], all_["register-designs"]
     assert claims["entries"]["key"] == "claims" and claims["entries"]["children"][0]["key"] == "results"
     assert tables["entries"]["key"] == "regressions" and [f["name"] for f in tables["entries"]["fields"] if f["type"] == "table"] == ["cells"]
+    assert designs["entries"]["key"] == "designs" and designs["entries"]["children"][0]["key"] == "records"
+    assert [f["name"] for f in designs["paper"]["fields"] if f["type"] == "table"] == ["registers"]
     # the records come from an agent pipeline that runs outside; a prompt here would claim
     # authorship of data it never produced
-    for spec in (claims, tables):
+    for spec in (claims, tables, designs):
         assert spec["meta"]["mode"] == "import"
         assert not (spec.get("prompt") or {}).get("text")
         assert "OUTSIDE Metalens" in spec["meta"]["description"]

@@ -70,3 +70,48 @@ def test_tables_convert_cell_by_cell() -> None:
     assert out["evidence"][0]["field"] == ["regressions[0]", "regressions[0].cells"] and out["evidence"][0]["page"] == 8
     real = [i for i in preset_spec.validate_result(copy.deepcopy(out), presets.load_all()["register-tables"], {}) if i["code"] != "missing_confidence"]
     assert real == [], real
+
+
+def test_designs_group_result_claims_by_the_taxonomy_units() -> None:
+    """The causal designs: a result-claims document (v0.5, value/confidence wrappers) and the
+    taxonomy placements → one entry per design unit with its records as rows; records the
+    taxonomy did not place form one flagged design per strategy; the first quote of a design
+    identifies it; a quote that prints the estimate is linked to the value."""
+    vc = lambda x: {"value": x, "confidence": "high"}   # noqa: E731
+    def claim(cid, strategy, stmt, pt, quote, headline=False):
+        return {"claim_id": cid, "headline": headline, "statement": stmt, "treatment": {"label": "net-of-tax rate", "ontology_node": "income.taxes"},
+                "outcome": {"label": "labor income", "ontology_node": "labor.earnings"}, "relationship": {"sign": vc("positive"), "magnitude": {"point_estimate": vc(pt), "se_or_ci": "(0.011)", "units": "elasticity"}},
+                "estimand": {"type": "elasticity", "bound": "point", "target_population": "tax filers"}, "population": {"description": "balanced panel", "sex": "all", "period": "1982-1993"},
+                "identification": {"strategy": strategy, "source_of_variation": "the 1987 reform", "instrument": "simulated rate change",
+                                   "key_assumptions": [{"assumption": "parallel trends", "stated_or_implicit": "stated"}], "threats_discussed": ["mean reversion"], "robustness_checks": []},
+                "estimation": {"estimator": vc("2SLS"), "source_table": "Table 2, col. 1"}, "provenance": {"quotes": [{"page": 286, "text": quote}]},
+                "extraction_confidence": "high", "ambiguities": []}
+    doc = {"artid": "dk_X", "paper": {"title": "T", "code_data_availability": "No statement."},
+           "data": {"registers": [{"name_in_paper": "Income Tax Register", "dst_code": "SKAT", "years": "1980-2005", "role": "treatment", "variables_mentioned": ["labor income"]}],
+                    "linkages": ["person id"], "sample": {"universe": "all residents", "unit_of_observation": "individual-year", "selection_rules": ["age 15-70"], "period": "1984-2005", "n_observations": 49000000, "n_individuals": None},
+                    "construction_notes": ["tax rates simulated"]},
+           "claims": [claim("dk_X_c1", "instrumental_variables", "A higher net-of-tax rate raises labor income.", 0.214, "DD elasticity = 0.214 (0.011)", True),
+                      claim("dk_X_c2", "instrumental_variables", "The effect is larger for the self-employed.", 0.46, "about 0.5 for the self-employed"),
+                      claim("dk_X_c3", "descriptive", "Top earners pay most of the tax.", None, "the top decile pays 60 percent")]}
+    tax = {"units": [{"unit": "u1", "family": "instrumental_variables", "records": ["dk_X_c1", "dk_X_c2"], "headline": True, "instrument": "simulated rate change",
+                      "source_of_variation": "mechanical reform changes", "sub_design": "instrumental_variables.simulated_mechanical_policy", "pattern": "pattern.mechanical",
+                      "source": {"id": "source.tax_reform", "label": "tax reform rate changes", "kind": "policy_reform"}, "treatment": "net-of-tax rate", "outcome": "labor income", "summary": "Reforms shift rates.", "flags": []}]}
+    labels = {"instrumental_variables.simulated_mechanical_policy": "Simulated (mechanical) policy instrument", "pattern.mechanical": "A mechanical change in X"}
+    out, warns = imp.convert_designs(doc, tax, labels, {"title": "T", "doi": None, "year": 2014, "authors": None, "journal": "AEJ"}, 0)
+    assert warns == []
+    assert [u["unit_id"] for u in out["designs"]] == ["dk_X::u1", "dk_X::descriptive"]
+    u1, u2 = out["designs"]
+    assert u1["family"] == "instrumental_variables" and u1["sub_design_label"] == "Simulated (mechanical) policy instrument" and u1["pattern"] == "A mechanical change in X"
+    assert u1["source_kind"] == "policy_reform" and u1["carries_headline"] is True and u1["n_records"] == 2 and u1["confidence"]["design"]["level"] == "high"
+    assert u2["family"] == "descriptive" and u2["flags"] == ["descriptive: no identification strategy claimed"] and u2["confidence"]["design"]["level"] == "medium"
+    r = u1["records"][0]
+    assert r["record_id"] == "dk_X_c1" and r["sign"] == "positive" and r["point_estimate"] == 0.214 and r["estimator"] == "2SLS"   # wrappers unwrapped
+    assert r["key_assumptions"] == ["parallel trends (stated)"] and r["estimand_type"] == "elasticity" and r["headline"] is True
+    ev = out["evidence"]
+    assert ev[0]["field"] == ["designs[0]", "designs[0].records[0]", "designs[0].records[0].point_estimate"] and ev[0]["page"] == 286
+    assert ev[1]["field"] == ["designs[0].records[1]"]                                          # 0.5 is not 0.46: no value link
+    assert ev[2]["field"] == ["designs[1]", "designs[1].records[0]"]
+    pm = out["paper_metadata"]
+    assert pm["registers"][0]["variables_mentioned"] == "labor income" and pm["n_observations"] == "49000000" and pm["code_data_availability"] == "No statement."
+    real = [i for i in preset_spec.validate_result(copy.deepcopy(out), presets.load_all()["register-designs"], {}) if i["code"] != "missing_confidence"]
+    assert real == [], real
