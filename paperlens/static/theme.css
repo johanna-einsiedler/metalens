@@ -43,6 +43,12 @@
   --override-line: #eab308;
   --rose-wash:     #fbf2f4;   /* subtle rose for nested sub-field cards */
 
+  /* the colour-coded prompt of the MASEMiner builder: the user's entries vs the template's text */
+  --prompt-own-bg: #dce8fb;   /* inserted from the user's entries, or typed by hand */
+  --prompt-own-bd: #5b86c9;   /* their underline (dashed: the preset's example value) */
+  --prompt-ex-bg:  #eef3fc;   /* the preset's example, until the user fills in the field */
+  --prompt-tpl-bg: #fcefc7;   /* the template's own text */
+
   /* confidence badges */
   --conf-high:     #1c6a37; --conf-high-bg:  #e7f7ec; --conf-high-bd:  #2f9e54;
   --conf-med:      #7d5a02; --conf-med-bg:   #fdf5d3; --conf-med-bd:   #c79412;

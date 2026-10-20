@@ -1467,6 +1467,77 @@ def render_prompt(spec: dict, params: dict | None = None) -> str:
     """The final prompt: the author's text with ``${params}`` substituted, plus the enabled
     generated sections (substituted in place where the text says ``${section}``, else
     appended in the fixed order)."""
+    return _render_prompt(spec, params)
+
+
+# Markers around a substituted parameter while the prompt is rendered for segments_of: private-use
+# code points, placed around the value's non-blank core only, so blank-line collapsing sees the
+# same newlines as in a plain render and the segments join to exactly render_prompt's text.
+_MARK_OPEN, _MARK_MID, _MARK_CLOSE = "\ue000", "\ue001", "\ue002"
+_MARK_RE = re.compile("\ue000([gde])([^\ue001]*)\ue001([^\ue002]*)\ue002", re.S)
+_MARK_STRIP = {0xE000: None, 0xE001: None, 0xE002: None}
+
+
+def _marked(text: str, name: str, kind: str) -> str:
+    core = text.strip()
+    if not core:
+        return text
+    lead = text[:len(text) - len(text.lstrip())]
+    trail = text[len(text.rstrip()):]
+    return f"{lead}{_MARK_OPEN}{kind}{name}{_MARK_MID}{core.translate(_MARK_STRIP)}{_MARK_CLOSE}{trail}"
+
+
+def render_prompt_segments(spec: dict, params: dict | None = None,
+                           given: Any = ()) -> list[dict]:
+    """The rendered prompt cut into what the template says and what a parameter inserted, for
+    the builder's colour-coded preview. Each segment is ``{"text", "kind"}``:
+
+      * ``template`` — the author's text and the generated sections, the same in every run; a
+        parameter's ``empty`` text (shown while the parameter is empty) is template text too
+        and carries ``param``/``label``, so the preview can say which entry replaces it;
+      * ``param`` — a parameter's rendered value, with ``param``, ``label`` and ``given``:
+        true when the value came from the caller (``given`` names them), false when it is the
+        preset's own default (an example, until the user fills the field in).
+
+    ``"".join(s["text"] for s in segments) == render_prompt(spec, params)``."""
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    text = _render_prompt(spec, params, given=set(given or ()))
+    out: list[dict] = []
+
+    def add(seg: dict) -> None:
+        if not seg["text"]:
+            return
+        if out and seg["kind"] == "template" and out[-1]["kind"] == "template" \
+                and "param" not in seg and "param" not in out[-1]:
+            out[-1]["text"] += seg["text"]
+        else:
+            out.append(seg)
+
+    pos = 0
+    for m in _MARK_RE.finditer(text):
+        add({"text": text[pos:m.start()], "kind": "template"})
+        kind, name, core = m.group(1), m.group(2), m.group(3)
+        label = (decl.get(name) or {}).get("label") or name
+        if kind == "e":
+            add({"text": core, "kind": "template", "param": name, "label": label})
+        else:
+            add({"text": core, "kind": "param", "param": name, "label": label, "given": kind == "g"})
+        pos = m.end()
+    add({"text": text[pos:], "kind": "template"})
+    return out
+
+
+def given_params(spec: dict, overrides: dict | None) -> list[str]:
+    """The declared parameters a caller actually set: the names resolve_params lets through."""
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    return [n for n, v in (overrides or {}).items()
+            if n in decl and v is not None and v != "" and v != []]
+
+
+def _render_prompt(spec: dict, params: dict | None = None, *, given: set | None = None) -> str:
+    """render_prompt; with ``given`` (a set of parameter names) each substituted value is wrapped
+    in markers for render_prompt_segments: kind ``g`` given, ``d`` the declared default, ``e`` the
+    parameter's ``empty`` text."""
     params = resolve_params(spec, params) if params is not None else resolve_params(spec)
     prompt = spec.get("prompt") or {}
     decl = prompt.get("params") or {}
@@ -1478,7 +1549,16 @@ def render_prompt(spec: dict, params: dict | None = None) -> str:
     sections = generated_sections(spec, params)
     text = prompt.get("text") or ""
     used = set(_placeholders(text))
-    sub = {name: render_param(decl[name], params.get(name)) for name in decl}
+    if given is None:
+        sub = {name: render_param(decl[name], params.get(name)) for name in decl}
+    else:
+        sub = {}
+        for name in decl:
+            val = _render_param(decl[name], params.get(name))
+            if val:
+                sub[name] = _marked(val, name, "g" if name in given else "d")
+            else:
+                sub[name] = _marked(str(decl[name].get("empty") or ""), name, "e")
     for s in GENERATED_SECTIONS:
         sub[s] = sections[s] if s in enabled else ""
     body = string.Template(text).safe_substitute(sub)

@@ -5,6 +5,7 @@
 import { api } from "/static/api.js";
 import { getBrand } from "/static/chrome.js";
 import { esc } from "/static/grammar.js";
+import { paintPrompt, editedSegments } from "/static/prompt_colors.js";
 import { saveToWorkspace } from "/static/save.js";
 import { getKey, setKey } from "/static/keys.js";
 
@@ -492,7 +493,7 @@ function showMode(m) {
 const isMasemPreset = (pid) => typeof pid === "string" && pid.startsWith("masem");
 
 // ── MASEMiner guided builder (one preset → Direct/Indirect toggle + live preview) ─
-const MASEM = { starter: null, defaults: {}, cache: {}, timer: null, custom: false, editing: false };   // custom: the prompt was edited by hand
+const MASEM = { starter: null, defaults: {}, cache: {}, timer: null, custom: false, editing: false, segments: null, shown: null };   // custom: the prompt was edited by hand; segments: the last generated prompt cut into template text and entries
 const MASEM_STARTERS = [
   { id: "masem-direct", label: "Direct information", tag: "The paper reports the effect sizes themselves — correlations in text or table(s)." },
   { id: "masem-indirect", label: "Indirect information", tag: "The paper reports the measurement model — factor loadings and factor correlations." },
@@ -604,10 +605,11 @@ async function doMasemPreview() {
   const pid = MASEM.starter; if (!pid) return;
   if (MASEM.custom) return;              // a prompt edited by hand is not rewritten by the form
   try {
-    const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams() });
+    const r = await api.buildPresetPrompt({ preset_id: pid, template_params: readMasemParams(), segments: true });
     const md = r.prompt || "";
     PROMPT_RENDERED = md;
-    $("#masemPreviewBox").textContent = md;          // the raw prompt, as the model sees it
+    MASEM.segments = Array.isArray(r.segments) && r.segments.length ? r.segments : null;
+    showMasemPrompt(md);                               // the raw prompt, as the model sees it
     $("#masemPromptEdit").value = md;
     $("#masemPreviewLen").textContent = md.length;
     $("#prompt").value = md;               // the RAW markdown is what the model gets
@@ -618,11 +620,31 @@ async function doMasemPreview() {
 function masemEditToggle() {
   MASEM.editing = !MASEM.editing;
   if (MASEM.editing && !MASEM.custom) $("#masemPromptEdit").value = $("#prompt").value;
-  if (!MASEM.editing && MASEM.custom) $("#masemPreviewBox").textContent = $("#masemPromptEdit").value;
+  if (!MASEM.editing && MASEM.custom) showMasemPrompt($("#masemPromptEdit").value);
   masemEditState();
   if (MASEM.editing) $("#masemPromptEdit").focus();
 }
+// The preview, colour-coded: the template's own text, the user's entries, the preset's example
+// values still in place, and (after a hand edit) the words typed by hand. Plain text whenever the
+// pieces do not add up to exactly the prompt shown.
+function showMasemPrompt(text) {
+  const box = $("#masemPreviewBox");
+  let segs = MASEM.segments && (MASEM.custom ? editedSegments(MASEM.segments, text) : MASEM.segments);
+  if (segs && segs.map((s) => s.text).join("") !== text) segs = null;
+  if (segs) box.innerHTML = paintPrompt(segs); else box.textContent = text;
+  MASEM.shown = segs;
+  masemLegend();
+}
+function masemLegend() {
+  const lg = $("#masemLegend"); if (!lg) return;
+  const segs = MASEM.shown;
+  lg.hidden = MASEM.editing || !segs;
+  if (!segs) return;
+  $("#masemLegendOwn").textContent = segs.some((s) => s.kind === "edit") ? "Your entries and edits" : "Your entries";
+  $("#masemLegendEx").hidden = !segs.some((s) => s.kind === "param" && !s.given);
+}
 function masemEditState() {
+  masemLegend();
   $("#masemPreviewBox").hidden = MASEM.editing;
   $("#masemPromptEdit").hidden = !MASEM.editing;
   $("#masemEdit").textContent = MASEM.editing ? "Back to preview" : "Edit raw prompt";
