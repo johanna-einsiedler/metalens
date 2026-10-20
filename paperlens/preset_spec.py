@@ -717,10 +717,14 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # {column: [roles]}, "derived": [{name, label, formula, unit, inputs{…}, when?, flip?}]}
         # review: a layout the workspace draws INSTEAD of the generic card — "chain" reads each entry
         # as cause → effect with a sign, its quotes, and the child results that carry it
+        # "criteria" reads each entry as a list of yes/no calls — one row per criterion with the call, the
+        # model's probability and, under it, the reasoning and the quotes for and against
         rv = display.get("review")
         if rv is not None:
-            if not isinstance(rv, dict) or rv.get("layout") != "chain":
-                E("$.display.review must be an object with layout 'chain'")
+            if not isinstance(rv, dict) or rv.get("layout") not in ("chain", "criteria"):
+                E("$.display.review must be an object with layout 'chain' or 'criteria'")
+            elif rv["layout"] == "criteria":
+                _validate_criteria_review(rv, spec, E)
             else:
                 enames = {f.get("name") for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
                 kids = {c.get("key"): {f.get("name") for f in (c.get("fields") or []) if isinstance(f, dict)}
@@ -1849,6 +1853,38 @@ def _value_paths(obj: dict, spec: dict) -> list[str]:
 
 
 # ── the schema row ────────────────────────────────────────────────────────────
+
+def _validate_criteria_review(rv: dict, spec: dict, E) -> None:
+    """display.review.layout "criteria": ``criteria`` lists, per criterion, the entry field holding
+    the call (enum or boolean) and, optionally, the fields holding the model's probability (number),
+    its reasoning (text) and why a reviewer changed the call (enum), plus ``hidden`` fields the row
+    stands for (passages kept as text, say); ``sides`` maps "for"/"against" to the evidence source
+    labels (default supporting / contradictory); ``fields`` lists what follows the criteria."""
+    enames = {f.get("name"): f for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+    crit = rv.get("criteria")
+    if not isinstance(crit, list) or not crit:
+        E("$.display.review.criteria must list at least one criterion ({call, probability?, reasoning?, overturn?, hidden?})")
+        crit = []
+    for i, c in enumerate(crit):
+        at = f"$.display.review.criteria[{i}]"
+        if not isinstance(c, dict):
+            E(f"{at} must be an object"); continue
+        if (enames.get(c.get("call")) or {}).get("type") not in ("enum", "boolean"):
+            E(f"{at}.call must name an enum or boolean entry field")
+        for k, types in (("probability", ("number", "integer")), ("reasoning", ("text", "string")), ("overturn", ("enum",))):
+            if c.get(k) is not None and (enames.get(c[k]) or {}).get("type") not in types:
+                E(f"{at}.{k} must name a {' or '.join(types)} entry field")
+        for n in c.get("hidden") or []:
+            if n not in enames:
+                E(f"{at}.hidden: {n!r} is not an entry field")
+    for n in rv.get("fields") or []:
+        if n not in enames:
+            E(f"$.display.review.fields: {n!r} is not an entry field")
+    sides = rv.get("sides")
+    if sides is not None and (not isinstance(sides, dict) or not set(sides) <= {"for", "against"}
+                              or any(not isinstance(v, str) or not v.strip() for v in sides.values())):
+        E("$.display.review.sides must map 'for' and/or 'against' to the evidence source labels")
+
 
 def field_defs_for(spec: dict) -> dict:
     """What goes into ``schema.field_defs`` for a format-2 preset: the spec itself plus

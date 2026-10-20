@@ -302,4 +302,28 @@ tr:hover .rv-rowdel { opacity: .75; }
 .rv-iq { margin-right: 4px; }
 .rv-stance { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 11px; font-weight: 600; background: var(--bg); color: var(--text-muted); border: 1px solid var(--border); }
 .rv-stance[data-src="supporting"] { background: var(--success-bg); color: var(--success); border-color: transparent; }
+/* display.review.layout "criteria": one row per criterion — label, the call, the model's probability as
+   a chip shaded from green (certain) to red (a coin toss) — then the reasoning and the quotes for/against */
+.cr-list { display: flex; flex-direction: column; gap: 8px; }
+.cr { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; }
+.cr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cr-label { font-weight: 600; flex: 1 1 160px; min-width: 0; }
+.cr-call .rv-obj, .cr-ot .rv-obj { margin: 0; }
+.cr-call .rv-row, .cr-ot .rv-row { display: block; padding: 0; border: 0; margin: 0; }
+.cr-call .rv-key, .cr-ot .rv-key { display: none; }
+.cr-call .rv-val, .cr-ot .rv-val { padding: 0; }
+.cr-p { font: 600 12px/1 var(--font-mono); padding: 4px 7px; border-radius: 10px; min-width: 36px; text-align: center;
+        background: color-mix(in srgb, var(--conf-high-bg) calc(var(--cert) * 100%), var(--conf-low-bg));
+        color: color-mix(in srgb, var(--conf-high) calc(var(--cert) * 100%), var(--conf-low));
+        border: 1px solid color-mix(in srgb, var(--conf-high-bd) calc(var(--cert) * 100%), var(--conf-low-bd)); }
+.cr-ot { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.cr-reason { font-size: 12.5px; color: var(--text-muted); margin: 5px 0 0; line-height: 1.45; }
+.cr-ev { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 14px; margin-top: 6px; font-size: 12.5px; }
+.cr-side b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.cr-for b { color: var(--success); }
+.cr-against b { color: var(--error); }
+.cr-side .rv-iquotes { margin-top: 2px; }
+.cr-after { margin-top: 10px; }
+.cr-more { margin-top: 8px; font-size: 12.5px; }
+.cr-more summary { cursor: pointer; color: var(--text-muted); }
 .rv-stance[data-src="questioning"] { background: var(--conf-med-bg); color: var(--conf-med); border-color: transparent; }
