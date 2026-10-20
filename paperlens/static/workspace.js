@@ -759,6 +759,8 @@ function inlineEvidence(rec, f, shown) {
 // tab for anything undeclared the model returned. Every declared field appears, a missing
 // one visibly so.
 function renderEntryBody(rec) {
+  const crit = criteriaSpec();
+  if (crit) return renderCriteriaBody(rec, crit);
   const fv = rec.field_values || {};
   const eopts = { editable: true };
   const tabs = VM.tabs.map((t) => {
@@ -1110,6 +1112,53 @@ function setStatus(card, status) {
 function chainSpec() {
   const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
   return rv && rv.layout === "chain" ? rv : null;
+}
+function criteriaSpec() {
+  const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
+  return rv && rv.layout === "criteria" ? rv : null;
+}
+// "AI as the treatment: why changed" next to the "AI as the treatment" row reads "why changed"
+const shortLabel = (f, call) => { const l = f.label || formatKey(f.name), c = call.label || formatKey(call.name); return l.startsWith(c + ":") ? l.slice(c.length + 1).trim() : l; };
+const certaintyWord = (p) => { const c = Math.abs(p - 0.5) * 2; return c >= 0.8 ? "certain" : c >= 0.4 ? "fairly certain" : "uncertain"; };
+
+// display.review.layout "criteria" (a screening): one row per criterion — its label, the call
+// (editable, the model's prefill), the model's probability as a chip shaded from green (certain)
+// to red (a coin toss) — then the model's reasoning and the quotes for and against the call, each a
+// button that jumps to the highlight. The fields the layout names follow; everything else folds.
+function renderCriteriaBody(rec, rv) {
+  const fv = rec.field_values || {}, eopts = { editable: true };
+  const sides = { for: "supporting", against: "contradictory", ...(rv.sides || {}) };
+  const forL = String(sides.for).toLowerCase(), agL = String(sides.against).toLowerCase();
+  const def = (n) => { const x = n && VM.fieldIndex.get(n); return x && x.scope === "entry" ? x.field : null; };
+  const used = new Set();
+  const quoteList = (label, title, list) => list.length ? `<div class="cr-side cr-${label}"><b>${title}</b><ul class="rv-iquotes">`
+    + list.map(({ i, ev }) => `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">p. ${ev.page || "?"}</button> “${esc(ev.snippet || "")}”</li>`).join("") + `</ul></div>` : "";
+  const rows = (rv.criteria || []).map((c) => {
+    const f = def(c.call); if (!f) return "";
+    [c.call, c.probability, c.reasoning, c.overturn, ...(c.hidden || [])].forEach((n) => n && used.add(n));
+    const p = c.probability && fv[c.probability] != null && fv[c.probability] !== "" ? Number(fv[c.probability]) : NaN;
+    const chip = Number.isFinite(p) ? `<span class="cr-p" style="--cert:${Math.min(1, Math.abs(p - 0.5) * 2).toFixed(2)}" title="the model's probability that the criterion is met: ${p.toFixed(2)} — ${certaintyWord(p)}">${p.toFixed(2)}</span>` : "";
+    const reason = c.reasoning ? fv[c.reasoning] : null;
+    const ot = def(c.overturn);
+    const quotes = (EV.exact.get(`${rec.id}|${c.call}`) || []).map((i) => ({ i, ev: DATA.evidence[i] || {} }));
+    const src = (q) => String(q.ev.source || "").toLowerCase();
+    const ev = quoteList("for", "Supports", quotes.filter((q) => src(q) === forL)) + quoteList("against", "Contradicts", quotes.filter((q) => src(q) === agL))
+      + quoteList("other", "Quotes", quotes.filter((q) => src(q) !== forL && src(q) !== agL));
+    return `<div class="cr" data-field="${esc(c.call)}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>
+      <div class="cr-head"><div class="cr-label" title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</div>
+        <div class="cr-call">${renderFields([f], fv, "", eopts)}</div>${chip}
+        ${ot ? `<div class="cr-ot" title="${esc(ot.help || "")}"><span class="muted">${esc(shortLabel(ot, f))}</span>${renderFields([ot], fv, "", eopts)}</div>` : ""}</div>
+      ${reason != null && String(reason).trim() ? `<div class="cr-reason">${esc(String(reason))}</div>` : ""}
+      ${ev ? `<div class="cr-ev">${ev}</div>` : `<div class="cr-ev muted">no quote for this criterion</div>`}</div>`;
+  }).join("");
+  const shown = new Set();
+  const after = (rv.fields || []).map(def).filter(Boolean);
+  after.forEach((f) => used.add(f.name));
+  const rest = ((VM.entries && VM.entries.fields) || []).filter((f) => !used.has(f.name));
+  return `<div class="subpanels"><div class="subpanel" data-vi="0"><div class="cr-list">${rows}</div>`
+    + (after.length ? `<div class="rv-root cr-after">${after.map((f) => renderFields([f], fv, "", eopts) + inlineEvidence(rec, f, shown)).join("")}</div>` : "")
+    + (rest.length ? `<details class="cr-more"><summary>More <span class="muted">(${rest.length} field${rest.length === 1 ? "" : "s"})</span></summary><div class="rv-root">${renderFields(rest, fv, "", eopts)}</div></details>` : "")
+    + `</div></div>`;
 }
 const SIGN_CLASS = { "+": "cs-plus", "-": "cs-minus", "0": "cs-zero", "mixed": "cs-mixed" };
 const SIGN_GLYPH = { "+": "+", "-": "−", "0": "0", "mixed": "±" };

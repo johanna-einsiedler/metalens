@@ -287,3 +287,46 @@ def test_validate_result_counts_rows_and_linked_fields() -> None:
     assert ("uncited_row", "experiments[0]") not in codes
     text = presets.prompt_for("human-ai-collab")
     assert "Coverage is per instance" in text and "a LIST of paths" in text
+
+
+def _criteria_spec() -> dict:
+    """A screening: one entry per paper with yes/no calls, drawn as one row per criterion."""
+    fields = []
+    for c in ("c1", "c2"):
+        fields += [{"name": c, "type": "enum", "required": True, "label": c.upper(), "options": ["true", "false"], "evidence": "value", "confidence": c},
+                   {"name": f"{c}_p", "type": "number", "label": "p", "range": [0, 1], "evidence": "none"},
+                   {"name": f"{c}_reason", "type": "text", "label": "why", "evidence": "none"},
+                   {"name": f"{c}_overturn", "type": "enum", "label": "changed", "options": ["none", "evidence_missing"], "evidence": "none"},
+                   {"name": f"{c}_support", "type": "text", "label": "passages", "evidence": "none"}]
+    fields += [{"name": "n", "type": "integer", "label": "n", "evidence": "value"}, {"name": "notes", "type": "text", "label": "notes", "evidence": "none"}]
+    return {"format": 2, "id": "crit-test", "version": 1,
+            "meta": {"title": "Screening", "mode": "import", "description": "produced OUTSIDE Metalens"},
+            "prompt": {}, "paper": {"fields": []},
+            "entries": {"key": "screening", "label": "Screening", "cardinality": "one", "title": "Screening", "evidence": "none", "fields": fields, "children": []},
+            "confidence": {"levels": ["high", "medium", "low"], "notes": True, "groups": [{"id": "c1", "label": "C1", "scope": "entry"}, {"id": "c2", "label": "C2", "scope": "entry"}]},
+            "display": {"tabs": [{"id": "all", "label": "All", "fields": [f["name"] for f in fields]}],
+                        "review": {"layout": "criteria",
+                                   "criteria": [{"call": c, "probability": f"{c}_p", "reasoning": f"{c}_reason", "overturn": f"{c}_overturn", "hidden": [f"{c}_support"]} for c in ("c1", "c2")],
+                                   "sides": {"for": "supporting", "against": "contradictory"}, "fields": ["n", "notes"]}}}
+
+
+def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
+    spec = ps.normalize(_criteria_spec())
+    errs, _ = ps.validate(spec)
+    assert errs == [], errs
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize({**_criteria_spec(), "display": {"tabs": _criteria_spec()["display"]["tabs"]}}))   # the layout never re-versions a dataset
+    def broken(mutate):                      # normalize validates too and raises: either way, the messages
+        s = _criteria_spec(); mutate(s["display"]["review"])
+        try:
+            return ps.validate(ps.normalize(s))[0]
+        except ps.SpecError as e:
+            return [str(e)]
+    assert any("call must name an enum or boolean" in e for e in broken(lambda rv: rv["criteria"][0].update(call="c1_p")))
+    assert any("probability must name a number" in e for e in broken(lambda rv: rv["criteria"][0].update(probability="c1")))
+    assert any("reasoning must name a text" in e for e in broken(lambda rv: rv["criteria"][1].update(reasoning="c2_p")))
+    assert any("overturn must name a enum" in e for e in broken(lambda rv: rv["criteria"][0].update(overturn="notes")))
+    assert any("hidden: 'nope'" in e for e in broken(lambda rv: rv["criteria"][0].update(hidden=["nope"])))
+    assert any("fields: 'nope'" in e for e in broken(lambda rv: rv.update(fields=["nope"])))
+    assert any("sides must map" in e for e in broken(lambda rv: rv.update(sides={"left": "x"})))
+    assert any("at least one criterion" in e for e in broken(lambda rv: rv.update(criteria=[])))
+    assert any("'chain' or 'criteria'" in e for e in broken(lambda rv: rv.update(layout="grid")))
