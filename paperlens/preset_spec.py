@@ -1861,7 +1861,8 @@ def _validate_criteria_review(rv: dict, spec: dict, E) -> None:
     stands for (passages kept as text, say); ``sides`` maps "for"/"against" to the evidence source
     labels (default supporting / contradictory + questioning), each a string or a list; ``fields`` lists what
     follows the criteria; ``blind`` hides the model's probability, reasoning and the why-changed field
-    until the coder has made the call."""
+    until the coder has made the call; ``quotes: "mixed"`` lists a criterion's quotes without sides, in
+    one fixed random order, so nothing about the model's reading shows."""
     enames = {f.get("name"): f for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
     crit = rv.get("criteria")
     if not isinstance(crit, list) or not crit:
@@ -1886,6 +1887,8 @@ def _validate_criteria_review(rv: dict, spec: dict, E) -> None:
     ok_label = lambda v: (isinstance(v, str) and v.strip()) or (isinstance(v, list) and v and all(isinstance(x, str) and x.strip() for x in v))   # noqa: E731
     if sides is not None and (not isinstance(sides, dict) or not set(sides) <= {"for", "against"} or not all(ok_label(v) for v in sides.values())):
         E("$.display.review.sides must map 'for' and/or 'against' to an evidence source label or a list of them")
+    if rv.get("quotes") is not None and rv["quotes"] not in ("sides", "mixed"):
+        E("$.display.review.quotes must be 'sides' (for and against, labelled) or 'mixed' (one unlabelled list in a fixed random order)")
     if rv.get("blind") is not None and not isinstance(rv["blind"], bool):
         E("$.display.review.blind must be true or false (the coder calls first; the model's probability and reasoning show after)")
 
