@@ -128,6 +128,11 @@ a.doctabs-label:hover { color: var(--accent); }
   color: var(--text-muted); cursor: pointer; padding: 7px 10px; font-size: 12.5px; }
 .doctab:hover { border-color: var(--accent-3); }
 .doctab.active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; }
+/* a paper's review state: green once every entry is verified, orange while any is flagged */
+.doctab.reviewed { background: var(--success-bg); border-color: var(--success); }
+.doctab.flagged { background: var(--flag-bg); border-color: var(--flag); }
+.doctab.active.reviewed { color: var(--success); } .doctab.active.flagged { color: var(--flag); }
+.doctab.reviewed .dt-n, .doctab.flagged .dt-n { background: var(--surface); }
 .doctab .dt-n { font-size: 11px; background: var(--bg); border-radius: 8px; padding: 0 6px; }
 /* the open paper's parts: Paper + one line per entry, under its tab */
 .docsub { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 8px 10px; padding-left: 8px; border-left: 2px solid var(--border); }

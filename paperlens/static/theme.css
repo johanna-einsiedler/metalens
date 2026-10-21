@@ -39,6 +39,8 @@
   --success-bg:    #e3f5e3;
   --error:         #c93434;
   --error-bg:      #fdeaea;
+  --flag:          #c2601a;   /* a flagged entry: orange, not the red of errors */
+  --flag-bg:       #fdeedd;
   --override-bg:   #fefce8;   /* edited-value wash */
   --override-line: #eab308;
   --rose-wash:     #fbf2f4;   /* subtle rose for nested sub-field cards */
@@ -109,7 +111,7 @@ body[data-vibe="night"], .vibe-swatch[data-vibe="night"] {     /* dark surface, 
   --bg: #0d1318; --surface: #151c22; --border: #2a343d; --border-focus: #4a6a7a; --text: #eef2f5; --text-muted: #9aa8b3;
   --ax-line: #2a343d; --ax-text: #9aa8b3; --accent: #7fb6d6; --accent-dark: #a9d0e6; --accent-3: #4a6a7a; --accent-wash: #1d2a33;
   --on-accent: #0d1318; --override-bg: #2e2a12; --override-line: #c9a200; --success: #4cc26a; --success-bg: #14301c;
-  --error: #ef7676; --error-bg: #3a1a1a; --shadow-sm: none; --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
+  --error: #ef7676; --error-bg: #3a1a1a; --flag: #f0a35e; --flag-bg: #3a2614; --shadow-sm: none; --shadow-md: 0 4px 14px rgba(0, 0, 0, .5);
   --conf-med: #e3c25a; --conf-med-bg: #2e2a12; --conf-med-bd: #c9a200;
   --mark: #3987e5; --mark-2: #d95926;
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;

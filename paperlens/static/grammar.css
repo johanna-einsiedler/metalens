@@ -129,6 +129,11 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: none;
 .subtab.active { color: var(--accent); background: var(--surface); border-color: var(--border); }
 .subpanel.hidden { display: none; }
 .verify { display: flex; gap: 6px; margin-bottom: 10px; }
+.verify-foot { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); align-items: center; }
+.verify-lead { font-size: 12px; margin-right: 4px; }
+.verify-foot .vbtn { padding: 4px 12px; font-size: 12px; }
+.verify-foot .vbtn.on[data-status="verified"] { background: var(--success-bg); border-color: var(--success); color: var(--success); font-weight: 600; }
+.verify-foot .vbtn.on[data-status="flagged"] { background: var(--flag-bg); border-color: var(--flag); color: var(--flag); font-weight: 600; }
 .vbtn { font-size: 11px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
   padding: 3px 9px; cursor: pointer; }
 .vbtn.ok:hover { background: var(--success-bg); border-color: var(--success); color: var(--success); }
@@ -190,7 +195,7 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 /* entry nav: status + confidence at a glance, needs-attention count */
 .rnav-tab .st-dot, .docsub-item .st-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; background: var(--border); vertical-align: middle; flex: none; }
 .rnav-tab .st-dot.verified, .docsub-item .st-dot.verified { background: var(--success); }
-.rnav-tab .st-dot.flagged, .docsub-item .st-dot.flagged { background: var(--error); }
+.rnav-tab .st-dot.flagged, .docsub-item .st-dot.flagged { background: var(--flag); }
 .rnav-tab .needs { font-size: 10px; font-weight: 700; color: var(--conf-low); margin-left: 4px; }
 /* progress + triage in the panel head */
 .progress { font-weight: 600; color: var(--text-muted); }

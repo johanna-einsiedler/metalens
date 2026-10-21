@@ -239,7 +239,8 @@ function renderDocTabs() {
   const addBtn = PROJECT ? addPapersMenu(PROJECT, importOnly, "doctab doctab-add") : "";
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
-    return `<button class="doctab${d.document_id === DOCID ? " active" : ""}" data-id="${d.document_id}" title="${esc(nm)}">`
+    const shade = docShade(d);
+    return `<button class="doctab${d.document_id === DOCID ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
       + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`
       + (d.document_id === DOCID ? docSubList() : "");     // the open paper's parts, one line each
   }).join("");
@@ -260,6 +261,12 @@ function renderDocTabs() {
   strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
   strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
   strip.querySelectorAll(".jobstop[data-jobid]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cancelJob(b.dataset.jobid, b); }));
+}
+
+// The sidebar's colour for a paper: green once every entry is verified, orange while any is flagged.
+function docShade(d) {
+  if ((d.n_flagged || 0) > 0) return "flagged";
+  return d.n_records > 0 && (d.n_verified || 0) >= d.n_records ? "reviewed" : "";
 }
 
 // Under the open paper in the sidebar: "Paper" + one line per entry (an experiment, a
@@ -717,10 +724,12 @@ function renderRecordCard(panel, rec) {
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
-    + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
+    // the verdict comes last: a coder reaches it after every field, not before
+    + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
+    + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">✓ verify</button>`
+    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag</button></div>`
     + `<div class="histbody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
@@ -1055,6 +1064,14 @@ function refreshNavState() {
     const rec = (DATA.records || [])[+b.dataset.sel]; if (!rec) return;
     const dot = b.querySelector(".st-dot"); if (dot) dot.className = `st-dot ${rec.verification_status}`;
   });
+  const me = DOCS.find((d) => d.document_id === DOCID);
+  if (me) {
+    const recs = DATA.records || [];
+    me.n_verified = recs.filter((r) => r.verification_status === "verified").length;
+    me.n_flagged = recs.filter((r) => r.verification_status === "flagged").length;
+    const tab = document.querySelector(`#doctabs .doctab[data-id="${DOCID}"]`);
+    if (tab) { tab.classList.remove("reviewed", "flagged"); const s = docShade(me); if (s) tab.classList.add(s); }
+  }
 }
 
 // Move to the next entry in triage order (skipping reviewed ones when `unreviewedOnly`).
@@ -1108,6 +1125,7 @@ function confirmNoRecords(btn) {
 function setStatus(card, status) {
   const badge = card.querySelector(".status");
   badge.textContent = status; badge.className = `status ${status}`;
+  card.querySelectorAll(".verify-foot .vbtn").forEach((b) => b.classList.toggle("on", b.dataset.status === status));
 }
 
 // ── the chain layout: a preset-declared review of claims as cause → effect edges ────────────
