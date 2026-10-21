@@ -381,3 +381,16 @@ def test_number_locator_prefers_whole_numbers() -> None:
     assert len(rects) == 1 and 60 * scale < rects[0][0] < 200 * scale, rects
     assert len(pdf_utils.locate_value_rects(pdf, 1, "2943")) == 1
     assert len(pdf_utils.locate_value_rects(pdf, 1, "1994")) == 1
+
+
+def test_evidence_beyond_the_model_page_cap_is_still_located() -> None:
+    """A dissertation cites page 66. A model is shown at most MAX_PAGES pages, but the reviewer
+    gets the whole paper: evidence is located on, and page images rendered for, every page."""
+    deep = pdf_utils.MAX_PAGES + 26
+    pages = [f"Filler page {i + 1}." for i in range(deep)]
+    pages[deep - 1] = "Students used an AI chatbot through MagicSchool AI."
+    items = [{"page": deep, "snippet": "Students used an AI chatbot through MagicSchool AI.",
+              "field": "screening[0].t1_ai_treatment", "source": "quote"}]
+    rendered, highlights, _ = pdf_utils.pdf_to_pages_with_rects(_make_pdf(pages), items, dpi=36)
+    assert len(rendered) == deep
+    assert [h["page"] for h in highlights] == [deep]
