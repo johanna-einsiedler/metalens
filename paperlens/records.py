@@ -632,7 +632,7 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             (document_id,),
         ).fetchone()
         if prow and prow[0]:
-            n_pages = min(int(prow[0]), pdf_utils.MAX_PAGES)
+            n_pages = min(int(prow[0]), pdf_utils.MAX_RENDER_PAGES)
 
     ev_rows = conn.execute(
         """SELECT record_id, entry_index, page, field_path, snippet, source, rect, child_rid, row_rid
@@ -2205,12 +2205,17 @@ def delete_document(conn: psycopg.Connection, document_id: str) -> dict:
     # into an explicit key list, so the cleanup never has to enumerate the bucket.
     # ListObjectsV2 is the first thing to break on an S3-compatible backend, and a
     # delete that can't list is a delete that leaks every page image.
+    # The rendered count is the records' extraction.n_pages (the whole paper, up to the render
+    # limit); the parsed text layer covers only the pages a model is shown, so it is the floor.
     prow = conn.execute(
-        "SELECT pd.n_pages FROM extraction_document d "
-        "JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256 WHERE d.id = %s::uuid",
+        "SELECT GREATEST(COALESCE(max(pd.n_pages), 0), "
+        "                COALESCE(max((r.extraction->>'n_pages')::int), 0)) "
+        "FROM extraction_document d "
+        "LEFT JOIN parsed_document pd ON pd.pdf_sha256 = d.pdf_sha256 "
+        "LEFT JOIN record r ON r.document_id = d.id WHERE d.id = %s::uuid",
         (document_id,),
     ).fetchone()
-    n_pages = min(int(prow[0]), pdf_utils.MAX_PAGES) if prow and prow[0] else 0
+    n_pages = min(int(prow[0]), pdf_utils.MAX_RENDER_PAGES) if prow and prow[0] else 0
 
     with conn.transaction():
         cur = conn.execute("DELETE FROM extraction_document WHERE id = %s::uuid", (document_id,))

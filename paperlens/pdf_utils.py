@@ -25,9 +25,11 @@ _TABLE_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
-MAX_PAGES      = 40
-EXTRACTION_DPI = 200   # high-res PNG sent to vision models
-DISPLAY_DPI    = 144   # JPEG resolution for the browser viewer
+MAX_PAGES        = 40    # pages a MODEL is shown: vision PNGs, text markdown, the pre-run probe
+MAX_RENDER_PAGES = 400   # pages a REVIEWER gets: evidence is located on, and page images rendered
+                         # for, the whole paper (a dissertation cites page 66) — only model input is capped
+EXTRACTION_DPI   = 200   # high-res PNG sent to vision models
+DISPLAY_DPI      = 144   # JPEG resolution for the browser viewer
 
 # Per-page char threshold below which we consider a page "scanned" (no
 # usable text layer).  Same constant used by pdf_to_pages_with_rects so the
@@ -823,7 +825,7 @@ def _locate_snippet_page(doc, snippet: str) -> int | None:
     for query in (norm, norm[:120], norm[:80], norm[:50]):
         if not query:
             continue
-        for page_num in range(min(len(doc), MAX_PAGES)):
+        for page_num in range(min(len(doc), MAX_RENDER_PAGES)):
             page = doc[page_num]
             try:
                 if page.search_for(query):
@@ -1374,7 +1376,7 @@ def pdf_to_pages_with_rects(
     # PRINTED (journal) page number rather than the 1-indexed PDF page — especially for
     # imported extractions — so RESOLVE each item to the PDF page where its snippet actually
     # appears: trust the cited page only if the text is there, otherwise scan the document.
-    n_pages = min(len(doc), MAX_PAGES)
+    n_pages = min(len(doc), MAX_RENDER_PAGES)
 
     # A cheap guard in front of page.search_for (a few ms per call, and the scan below may make
     # thousands for a quote that is on no page — a table line transcribed differently from how it
@@ -1441,7 +1443,7 @@ def pdf_to_pages_with_rects(
         if rp:
             by_page.setdefault(rp, []).append(ev)
 
-    for page_idx in range(min(len(doc), MAX_PAGES)):
+    for page_idx in range(min(len(doc), MAX_RENDER_PAGES)):
         page      = doc[page_idx]
         page_1idx = page_idx + 1
 
