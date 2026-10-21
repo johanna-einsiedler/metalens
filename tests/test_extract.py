@@ -394,3 +394,20 @@ def test_evidence_beyond_the_model_page_cap_is_still_located() -> None:
     rendered, highlights, _ = pdf_utils.pdf_to_pages_with_rects(_make_pdf(pages), items, dpi=36)
     assert len(rendered) == deep
     assert [h["page"] for h in highlights] == [deep]
+
+
+def test_scan_check_reads_image_boxes_without_hashing(monkeypatch) -> None:
+    """The scanned-page check needs each image's bounding box, nothing more. Asking PyMuPDF for
+    xrefs or hashes makes it render and digest every image — 20 s on a PDF whose figures are
+    sliced into a hundred strips per page — so the import then outlives the proxy's timeout."""
+    import fitz
+    calls = []
+    orig = fitz.Page.get_image_info
+
+    def spy(self, hashes=False, xrefs=False):
+        calls.append((hashes, xrefs))
+        return orig(self, hashes=hashes, xrefs=xrefs)
+
+    monkeypatch.setattr(fitz.Page, "get_image_info", spy)
+    pdf_utils.pdf_to_pages_with_rects(_make_pdf(_PAGES), [], render_pages=False)
+    assert calls and all(c == (False, False) for c in calls)

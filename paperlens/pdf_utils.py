@@ -57,7 +57,9 @@ def _largest_image_fraction(page) -> float:
     largest = 0.0
     try:
         import fitz  # PyMuPDF
-        for info in page.get_image_info(xrefs=True):
+        # bounding boxes only: asking for xrefs (or hashes) makes MuPDF render and MD5 every
+        # image on the page — 20 s for a TCPDF file that slices its figures into ~100 strips
+        for info in page.get_image_info():
             bbox = info.get("bbox")
             if not bbox:
                 continue
