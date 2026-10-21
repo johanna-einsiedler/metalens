@@ -1140,8 +1140,11 @@ function renderCriteriaBody(rec, rv) {
   const blind = !!rv.blind;
   const def = (n) => { const x = n && VM.fieldIndex.get(n); return x && x.scope === "entry" ? x.field : null; };
   const used = new Set();
-  const quoteList = (label, title, list) => list.length ? `<div class="cr-side cr-${label}"><b>${title}</b><ul class="rv-iquotes">`
-    + list.map(({ i, ev }) => `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">p. ${ev.page || "?"}</button> <span class="rv-qt">“${esc(ev.snippet || "")}”</span></li>`).join("") + `</ul></div>` : "";
+  // both sides are always listed, so an empty one is read as "the model quoted nothing against it",
+  // not as a list that failed to render
+  const quoteList = (label, title, list, always) => list.length ? `<div class="cr-side cr-${label}"><b>${title}</b><ul class="rv-iquotes">`
+    + list.map(({ i, ev }) => `<li><button type="button" class="ev-cite rv-iq" data-eids="${i}" data-page="${ev.page || 1}" title="show in the PDF">p. ${ev.page || "?"}</button> <span class="rv-qt">“${esc(ev.snippet || "")}”</span></li>`).join("") + `</ul></div>`
+    : always ? `<div class="cr-side cr-${label} cr-empty"><b>${title}</b><span class="muted">none quoted</span></div>` : "";
   const rows = (rv.criteria || []).map((c) => {
     const f = def(c.call); if (!f) return "";
     [c.call, c.probability, c.reasoning, c.overturn, ...(c.hidden || [])].forEach((n) => n && used.add(n));
@@ -1155,7 +1158,7 @@ function renderCriteriaBody(rec, rv) {
     const ot = veiled ? null : def(c.overturn);
     const quotes = (EV.exact.get(`${rec.id}|${c.call}`) || []).map((i) => ({ i, ev: DATA.evidence[i] || {} }));
     const src = (q) => String(q.ev.source || "").toLowerCase();
-    const ev = quoteList("for", "Supports", quotes.filter((q) => forL.includes(src(q)))) + quoteList("against", "Contradicts", quotes.filter((q) => agL.includes(src(q))))
+    const ev = quoteList("for", "Supports", quotes.filter((q) => forL.includes(src(q))), true) + quoteList("against", "Contradicts", quotes.filter((q) => agL.includes(src(q))), true)
       + quoteList("other", "Quotes", quotes.filter((q) => !forL.includes(src(q)) && !agL.includes(src(q))));
     return `<div class="cr" data-field="${esc(c.call)}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>
       <div class="cr-head"><div class="cr-label" title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</div>
@@ -1163,7 +1166,7 @@ function renderCriteriaBody(rec, rv) {
         ${ot ? `<div class="cr-ot" title="${esc(ot.help || "")}"><span class="muted">${esc(shortLabel(ot, f))}</span>${renderFields([ot], fv, "", eopts)}</div>` : ""}</div>
       ${veiled ? `<div class="cr-reason cr-veiled-note">Your call first: the model's probability and reasoning appear once you have chosen.</div>` : ""}
       ${reason != null && String(reason).trim() ? `<div class="cr-reason">${esc(String(reason))}</div>` : ""}
-      ${ev ? `<div class="cr-ev">${ev}</div>` : `<div class="cr-ev muted">no quote for this criterion</div>`}</div>`;
+      <div class="cr-ev">${ev}</div></div>`;
   }).join("");
   const shown = new Set();
   const after = (rv.fields || []).map(def).filter(Boolean);
