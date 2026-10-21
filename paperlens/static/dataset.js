@@ -59,7 +59,7 @@ function render() {
           <span class="pt-vis ${esc(vis)}">${esc(vis)}</span>
           · ${s.n_papers} paper${s.n_papers === 1 ? "" : "s"} · ${s.n_records} record${s.n_records === 1 ? "" : "s"}
           ${OV.cite_as ? ` · by ${esc(OV.cite_as)}` : (OV.attribution === "anonymous" ? " · published anonymously" : "")}
-          ${publishState()}
+          ${publishState()}<span id="ds-doi"></span>
         </div>
       </div>
       <span class="badge tier-${esc(cred.tier)}" title="Computed from human verification">${esc(cred.label)}</span>
@@ -228,6 +228,10 @@ async function loadReleases() {
   let r; try { r = await api.releases(id); } catch { host.textContent = ""; return; }
   const list = r.releases || [];
   ZEN = r.zenodo || ZEN;
+  // the DOI of the newest release that has one, next to the GitHub link in the header (sandbox DOIs resolve nowhere)
+  const minted = list.find((x) => x.doi && !/^10\.5072\//.test(x.doi));
+  const doiSpan = $("#ds-doi");
+  if (doiSpan) doiSpan.innerHTML = minted ? ` · <a href="https://doi.org/${encodeURIComponent(minted.doi)}" target="_blank" rel="noopener" title="release v${minted.number} on Zenodo">Zenodo ↗</a>` : "";
   renderSync(r.sync, list);
   const gh = OV.published_url || (OV.git_pr_url ? OV.git_pr_url.replace(/\/pull\/\d+$/, "") : "");
   const pubState = (x, k) => x.published_at ? (k === 0 && OV.publish_status === "pending" ? `<span class="badge">pull request open</span>` : `<a class="badge" href="${esc(gh ? gh + "/releases/v" + x.number : "#")}" target="_blank" rel="noopener" title="on GitHub since ${esc(fmtDate(x.published_at))}">on GitHub ↗</a>`)
@@ -285,7 +289,15 @@ function renderSync(sync, list) {
                  [`GitHub`, sync.github == null ? "not published" : at(sync.github) + (sync.pending ? " (pull request open)" : ""), sync.behind.includes("github")],
                  [`Catalogue`, sync.catalogue ? "listed" : "not listed", sync.behind.includes("catalogue")]];
   host.innerHTML = `<span class="ds-sync${sync.in_sync ? "" : " off"}">${cells.map(([k, v, lag]) => `<span${lag ? ' class="lag"' : ""}><b>${k}</b> ${esc(v)}</span>`).join(" · ")}</span>`
-    + (!sync.in_sync && OWNER && !ANON ? ` <button type="button" class="btn btn-ghost btn-sm" id="ds-sync-go" title="bring every copy to release v${sync.latest}${sync.zenodo != null && sync.behind.includes("zenodo") ? ": a new version on Zenodo (new DOI), then the GitHub copy and the catalogue" : ": the GitHub copy and the catalogue"}">Sync to v${sync.latest}</button>` : "");
+    + (!sync.in_sync && OWNER && !ANON ? ` <button type="button" class="btn btn-ghost btn-sm" id="ds-sync-go" title="bring every copy to release v${sync.latest}${sync.zenodo != null && sync.behind.includes("zenodo") ? ": a new version on Zenodo (new DOI), then the GitHub copy and the catalogue" : ": the GitHub copy and the catalogue"}">Sync to v${sync.latest}</button>` : "")
+    // on GitHub but not in the catalogue (published as "GitHub only"): one click lists it
+    + (sync.in_sync && sync.github != null && !sync.catalogue && OWNER && !ANON ? ` <button type="button" class="btn btn-ghost btn-sm" id="ds-list-go" title="make the dataset public here and list it in the Data Catalogue; the GitHub copy and the DOI stay as they are">List in the catalogue</button>` : "");
+  const lst = $("#ds-list-go");
+  if (lst) lst.onclick = async () => {
+    lst.disabled = true; lst.textContent = "Listing…";
+    try { await api.publishRelease(id, sync.latest, "metalens"); OV = await api.datasetOverview(id); render(); }
+    catch (e) { alert(`Could not list it: ${e.message}`); lst.disabled = false; lst.textContent = "List in the catalogue"; }
+  };
   const go = $("#ds-sync-go");
   if (go) go.onclick = async () => {
     go.disabled = true; go.textContent = "Syncing…";
