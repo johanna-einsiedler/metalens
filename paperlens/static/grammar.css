@@ -326,6 +326,8 @@ tr:hover .rv-rowdel { opacity: .75; }
 .cr-for b { color: var(--success); }
 .cr-against b { color: var(--error); }
 .cr-side .rv-iquotes { margin-top: 2px; }
+.cr-side.cr-mixed > b { display: none; }
+.cr-side.cr-mixed.cr-empty > b { display: inline; color: var(--text-muted); }
 .cr-side.cr-empty b { margin-right: 6px; }
 .cr-side.cr-empty .muted { font-size: 12px; }
 .cr-after { margin-top: 10px; }

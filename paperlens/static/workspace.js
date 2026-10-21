@@ -1138,6 +1138,10 @@ function renderCriteriaBody(rec, rv) {
   const sides = { for: ["supporting"], against: ["contradictory", "questioning"], ...(rv.sides || {}) };
   const forL = lower(sides.for), agL = lower(sides.against);
   const blind = !!rv.blind;
+  const mixed = rv.quotes === "mixed";          // no sides, no labels: the quotes alone, in a fixed random order
+  // a small seeded shuffle, so the order is random but the same every time this record is drawn
+  const shuffled = (list, seed) => { let x = 0; for (const ch of String(seed)) x = (x * 31 + ch.charCodeAt(0)) >>> 0;
+    const out = list.slice(); for (let i = out.length - 1; i > 0; i--) { x = (x * 1664525 + 1013904223) >>> 0; const j = x % (i + 1); [out[i], out[j]] = [out[j], out[i]]; } return out; };
   const def = (n) => { const x = n && VM.fieldIndex.get(n); return x && x.scope === "entry" ? x.field : null; };
   const used = new Set();
   // both sides are always listed, so an empty one is read as "the model quoted nothing against it",
@@ -1158,7 +1162,8 @@ function renderCriteriaBody(rec, rv) {
     const ot = veiled ? null : def(c.overturn);
     const quotes = (EV.exact.get(`${rec.id}|${c.call}`) || []).map((i) => ({ i, ev: DATA.evidence[i] || {} }));
     const src = (q) => String(q.ev.source || "").toLowerCase();
-    const ev = quoteList("for", "Supports", quotes.filter((q) => forL.includes(src(q))), true) + quoteList("against", "Contradicts", quotes.filter((q) => agL.includes(src(q))), true)
+    const ev = mixed ? quoteList("mixed", "Quotes", shuffled(quotes, `${rec.id}|${c.call}`), true)
+      : quoteList("for", "Supports", quotes.filter((q) => forL.includes(src(q))), true) + quoteList("against", "Contradicts", quotes.filter((q) => agL.includes(src(q))), true)
       + quoteList("other", "Quotes", quotes.filter((q) => !forL.includes(src(q)) && !agL.includes(src(q))));
     return `<div class="cr" data-field="${esc(c.call)}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>
       <div class="cr-head"><div class="cr-label" title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</div>

@@ -330,5 +330,7 @@ def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
     assert any("sides must map" in e for e in broken(lambda rv: rv.update(sides={"left": "x"})))
     assert any("sides must map" in e for e in broken(lambda rv: rv.update(sides={"against": []})))
     assert any("blind must be" in e for e in broken(lambda rv: rv.update(blind="yes")))
+    assert any("quotes must be" in e for e in broken(lambda rv: rv.update(quotes="random")))
+    assert ps.validate(ps.normalize({**_criteria_spec(), "display": {**_criteria_spec()["display"], "review": {**_criteria_spec()["display"]["review"], "quotes": "mixed"}}}))[0] == []
     assert any("at least one criterion" in e for e in broken(lambda rv: rv.update(criteria=[])))
     assert any("'chain' or 'criteria'" in e for e in broken(lambda rv: rv.update(layout="grid")))
