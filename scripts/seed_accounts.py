@@ -14,8 +14,9 @@ manifest.json (paths are relative to the manifest's own folder):
        {"email": "coder-b@example.org", "password": "…", "dataset": "Full-text screening — B",
         "papers": ["0ae57f3a2520", "1b2c3d4e5f60"]}]}
 
-``papers`` is a folder of ``<id>.json`` import files with their ``<id>.pdf`` next to them; an
-account's own ``papers`` list keeps a subset (by id), otherwise every pair in the folder goes in.
+``papers`` is a folder of ``<id>.json`` import files with their ``<id>.pdf`` next to them. An
+account's own ``papers`` is either a list of ids (a subset of that folder) or a folder of its own
+(``"papers": "coder1/papers"``); without it every pair in the shared folder goes in.
 Per account: register (or sign in when the account exists), upload the preset as that account's
 own private copy, create the dataset under the preset's schema, import each pair into it with
 its PDF so the quotes are located. Re-running is safe: an existing preset (same title) and
@@ -73,7 +74,14 @@ def own_dataset(c: httpx.Client, title: str, schema_id: str) -> tuple[str, str]:
     return r.json()["id"], "dataset created"
 
 
-def pairs(folder: Path, ids: list[str] | None) -> list[tuple[str, Path, Path]]:
+def pairs(folder: Path | None, own, root: Path) -> list[tuple[str, Path, Path]]:
+    """The account's (id, json, pdf) triples: ``own`` is a list of ids in the shared ``folder``, or
+    the account's own folder, or None for every pair in the shared folder."""
+    ids = own if isinstance(own, list) else None
+    if isinstance(own, str):
+        folder = root / own
+    if folder is None or not folder.is_dir():
+        _die(f"{folder or 'papers'} is not a folder")
     out = []
     for pid in ids or sorted(p.stem for p in folder.glob("*.json")):
         js, pdf = folder / f"{pid}.json", folder / f"{pid}.pdf"
@@ -86,10 +94,11 @@ def pairs(folder: Path, ids: list[str] | None) -> list[tuple[str, Path, Path]]:
     return out
 
 
-def seed(c: httpx.Client, acct: dict, spec: dict, folder: Path, produced_by: str | None, dry: bool) -> None:
+def seed(c: httpx.Client, acct: dict, spec: dict, folder: Path | None, root: Path,
+         produced_by: str | None, dry: bool) -> None:
     email = acct["email"]
     print(f"\n{email}")
-    todo = pairs(folder, acct.get("papers"))
+    todo = pairs(folder, acct.get("papers"), root)
     if dry:
         print(f"  would sign in, own a copy of “{spec['meta']['title']}”, make dataset “{acct['dataset']}”, "
               f"import {len(todo)} paper(s)")
@@ -134,15 +143,13 @@ def main() -> None:
     spec = json.loads((root / m["preset"]).read_text())
     if spec.get("format") != 2 or not (spec.get("meta") or {}).get("title"):
         _die(f"{m['preset']} is not a format-2 preset file")
-    folder = root / m["papers"]
-    if not folder.is_dir():
-        _die(f"{folder} is not a folder")
+    folder = root / m["papers"] if m.get("papers") else None
     for acct in m.get("accounts") or []:
         for k in ("email", "password", "dataset"):
             if not acct.get(k):
                 _die(f"an account is missing `{k}`")
         with httpx.Client(base_url=base, timeout=httpx.Timeout(600.0, connect=30.0)) as c:
-            seed(c, acct, spec, folder, m.get("produced_by"), args.dry_run)
+            seed(c, acct, spec, folder, root, m.get("produced_by"), args.dry_run)
 
 
 if __name__ == "__main__":
