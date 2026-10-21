@@ -51,8 +51,7 @@ function setupDrop() {
   const sch = $("#schema");
   sch.onchange = () => { $("#schemaCustom").hidden = sch.value !== "__custom__"; };
   sch.addEventListener("change", () => { sch.dataset.user = "1"; });       // a real click, not autoSchema()
-  loadDatasets();
-  loadPresets();
+  loadPresets().then(loadDatasets);          // the dropdown must hold the presets before ?dataset= picks one
 }
 
 // Populate the "Load into" dropdown with the user's datasets ("New dataset" stays first).
@@ -67,6 +66,14 @@ async function loadDatasets() {
     const o = document.createElement("option");
     o.value = d.id; o.textContent = d.title || "untitled";
     sel.appendChild(o);
+  }
+  // ?dataset=<id> ("Add papers → Import results" on a dataset page): load into that dataset,
+  // reviewed as its own preset
+  const want = new URLSearchParams(location.search).get("dataset");
+  const target = want && mine.find((d) => d.id === want);
+  if (target) {
+    sel.value = target.id; sel.onchange();
+    if (target.schema_id) { autoSchema(target.schema_id, `the preset of “${target.title || "this dataset"}”`); $("#schema").dataset.user = "1"; }
   }
 }
 

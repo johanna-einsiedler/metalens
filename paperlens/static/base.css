@@ -161,6 +161,15 @@ a.doctabs-label:hover { color: var(--accent); }
 .doctab-add { justify-content: center; margin-top: 8px; border-style: dashed; color: var(--accent);
   text-decoration: none; font-weight: 600; }
 .doctab-add:hover { background: var(--accent-wash); border-color: var(--accent); text-decoration: none; }
+/* "＋ Add papers": a small menu — extract with a model, or import results made elsewhere */
+details.addmenu { position: relative; display: inline-block; }
+.addmenu > summary { list-style: none; cursor: pointer; display: inline-flex; }
+.addmenu > summary::-webkit-details-marker { display: none; }
+.addmenu-pop { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 270px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 6px; font-size: 13px; }
+.addmenu-pop a { display: block; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--text); text-decoration: none; }
+.addmenu-pop a:hover { background: var(--accent-wash); text-decoration: none; }
+.addmenu-pop a .muted { display: block; font-size: 12px; font-weight: 400; }
 
 /* raw JSON view */
 .rawjson { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px;
