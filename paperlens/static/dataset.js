@@ -1,6 +1,7 @@
 // Dataset overview (?id=…) — recipe + computed stats + papers. Owner actions:
 // add papers (reusing the recipe), review, publish/unpublish, export, delete.
 import { api } from "/static/api.js";
+import { addPapersMenu } from "/static/addpapers.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 import { renderGrid } from "/static/gridview.js";
 
@@ -65,7 +66,7 @@ function render() {
     </div>
 
     ${OWNER ? `<div class="ds-actions">
-      <a class="btn btn-primary btn-sm" href="/extract?dataset=${esc(id)}">＋ Add papers</a>
+      ${addPapersMenu(id, r.mode === "import", "btn btn-primary btn-sm")}
       <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
       <button class="btn btn-ghost btn-sm" id="ds-rel-btn" hidden title="freeze the dataset as it is now; published dashboards pin a release">Create release</button>
       ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}

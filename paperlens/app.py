@@ -711,7 +711,11 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     # A dataset on an "import" preset was not extracted here: say so, and say what did make it,
     # rather than showing an empty recipe that reads as a missing record.
     rec = ov.get("recipe") or {}
-    spec = presets.load_all().get((rec.get("schema_id") or "").partition("@")[0])
+    sid = rec.get("schema_id") or ""
+    spec = presets.load_all().get(sid.partition("@")[0])
+    if not spec and sid:                       # a personal preset, or one no longer bundled: the schema row remembers
+        fd = (records.get_schema(db, sid) or {}).get("field_defs")
+        spec = fd.get("spec") if isinstance(fd, dict) and isinstance(fd.get("spec"), dict) else None
     if spec:
         rec["mode"] = (spec.get("meta") or {}).get("mode")
         rec["source_url"] = (spec.get("meta") or {}).get("source_url")

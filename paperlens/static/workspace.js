@@ -8,6 +8,7 @@
 // their old grammar + data (VM.legacy) and keep the data-driven behaviours that existed
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
+import { addPapersMenu } from "/static/addpapers.js";
 import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, esc, formatKey, stripRowIds } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
@@ -16,7 +17,7 @@ import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, e
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows } from "/static/spec.js";
 
 const $ = (s, el = document) => el.querySelector(s);
-let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", FOCUS_REC = null;
+let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
 let CHAIN_OFF = false;                                   // a chain-layout preset, but the reviewer wants the field view
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
@@ -98,7 +99,7 @@ async function init() {
   try {
     if (PROJECT) {
       DOCS = (await api.documents({ dataset: PROJECT })).documents || [];
-      try { PROJECT_TITLE = (await api.dataset(PROJECT)).title || ""; } catch { /* */ }
+      try { const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
     } else if (docsParam) {
       const want = new Set(docsParam.split(",").filter(Boolean));
       DOCS = ((await api.documents({})).documents || []).filter((d) => want.has(d.document_id));
@@ -234,9 +235,8 @@ function renderDocTabs() {
     : `<span class="doctabs-label">${esc(PROJECT_TITLE)}</span>`;
   // Add-papers entry point: from a dataset's review, jump back to the extract page in
   // add-papers mode (drag-drop first, this dataset's recipe reused) to add more.
-  const addBtn = PROJECT
-    ? `<a class="doctab doctab-add" href="/extract?dataset=${esc(PROJECT)}" title="Add more papers to this dataset">＋ Add papers</a>`
-    : "";
+  const importOnly = PROJECT_MODE === "import" || !!(DATA && DATA.spec && DATA.spec.meta && DATA.spec.meta.mode === "import");
+  const addBtn = PROJECT ? addPapersMenu(PROJECT, importOnly, "doctab doctab-add") : "";
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}" data-id="${d.document_id}" title="${esc(nm)}">`
