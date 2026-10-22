@@ -683,14 +683,16 @@ def _upgraded_field_defs(field_defs: dict | None, core_key: str | None, core_sha
                          records: list[dict], *, conn=None, schema_id: str | None = None) -> dict | None:
     """``field_defs`` with a ``spec`` in it, whatever generation the row is from. For a
     format-2 row, the live preset's ``display`` block is overlaid when its data contract
-    still hashes the same (a tab relabel reaches old documents; a field change does not).
+    still hashes the same (a tab relabel reaches old documents; a field change does not) —
+    for a personal preset as much as for a built-in one, so a coder's own copy can change how
+    its papers are reviewed without a re-import.
     A legacy row missing grammar its preset does carry (typed controls added after the row
     was minted) borrows it from the preset — the row itself is never rewritten."""
     from . import presets, presets_legacy, preset_spec   # lazy: records <-> presets cycle
     if isinstance(field_defs, dict) and field_defs.get("format") == 2 and field_defs.get("spec"):
         spec = field_defs["spec"]
         try:
-            live = presets.get(spec.get("id"))
+            live = presets.get(spec.get("id"), conn)
         except Exception:                      # a broken file must never take the viewer down
             live = None
         if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == field_defs.get("hash"):
@@ -804,6 +806,13 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
         raise ValueError(f"status must be one of {_VALID_STATUS}")
     eid = _new_id()
     with conn.transaction():
+        # Lock the record FIRST. The event insert below takes a key-share lock on the record
+        # row (its foreign key); a second save on the same record arriving at the same time
+        # takes the same lock, and when both then ask for the row lock they wait on each
+        # other — Postgres reports a deadlock and one save fails. Locking up front makes
+        # concurrent saves on one record queue instead.
+        if conn.execute("SELECT 1 FROM record WHERE id = %s::uuid FOR UPDATE", (record_id,)).fetchone() is None:
+            raise ValueError("Record not found.")
         conn.execute(
             """INSERT INTO verification_event
                  (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)

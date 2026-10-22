@@ -726,9 +726,14 @@ function renderRecordCard(panel, rec) {
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
-    // the verdict comes last: a coder reaches it after every field, not before
-    + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
-    + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">✓ verify</button>`
+    // the verdict comes last: a coder reaches it after every field, not before. In a blind criteria
+    // layout the calls ARE the review: the paper counts as reviewed once every criterion is set, so
+    // there is nothing to verify — "all true" sets every criterion in one click (the paper is included)
+    + (blindCriteria()
+        ? `<div class="verify verify-foot"><span class="verify-lead muted">Every criterion met?</span>`
+          + `<button class="vbtn ok" data-action="alltrue" title="set every criterion to true — the paper is included — and mark it reviewed">✓ All true</button>`
+        : `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
+          + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">✓ verify</button>`)
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag</button></div>`
     + `<div class="histbody" hidden></div>`;
   wireCard(card, rec);
@@ -951,17 +956,40 @@ function wireCard(card, rec) {
   wireConfBadges(card);
   if (VM.legacy) linkValueCells(card, recordEvidence(rec));
   else linkCells(card, rec);
-  card.querySelectorAll(".vbtn").forEach((b) =>
+  card.querySelectorAll(".vbtn[data-status]").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+  const at = card.querySelector('.vbtn[data-action="alltrue"]');
+  if (at) at.onclick = () => allTrue(card, rec);
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   const rv = criteriaSpec();
   const blindCalls = rv && rv.blind ? new Set((rv.criteria || []).map((c) => c.call)) : null;
   wireControls(card, (path, val) => {
     const saved = saveFieldEdit(rec, card, path, val, curVal(rec, path));
-    if (blindCalls && blindCalls.has(path)) saved.then(() => rerenderCard(card, rec));   // the model's side appears once the call is made
+    if (blindCalls && blindCalls.has(path)) saved.then(() => {
+      const fresh = rerenderCard(card, rec);              // the model's side appears once the call is made
+      if (allCalled(rec, rv) && rec.verification_status !== "verified") sendVerify(fresh, rec, "verified");   // the last call completes the review
+    });
     return saved;
   }, true);
   wireTableRows(card, rec);
+}
+
+// A blind criteria layout: the coder calls every criterion without seeing the model's answer.
+function blindCriteria() { const rv = criteriaSpec(); return !!(rv && rv.blind); }
+function allCalled(rec, rv) {
+  const fv = rec.field_values || {};
+  return (rv.criteria || []).every((c) => fv[c.call] != null && fv[c.call] !== "");
+}
+// "All true": every criterion set to true — the inclusion verdict in one click — then the paper
+// is marked reviewed. Each call goes through the same save as a hand-picked one, so the audit trail
+// shows four corrections, not one bulk edit.
+async function allTrue(card, rec) {
+  const rv = criteriaSpec(); if (!rv) return;
+  card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = true));
+  for (const c of (rv.criteria || []).filter((c) => curVal(rec, c.call) !== true))
+    await saveFieldEdit(rec, card, c.call, true, curVal(rec, c.call));     // one after another: the history reads in criterion order
+  const fresh = rerenderCard(card, rec);
+  await sendVerify(fresh, rec, "verified");
 }
 
 // Re-render one card in place after a structural edit (a table row added or removed),

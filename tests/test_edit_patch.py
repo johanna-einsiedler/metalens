@@ -122,3 +122,39 @@ def test_only_the_owner_patches() -> None:
     assert r.status_code == 403
     assert records.get_record(conn, rec["id"])["field_values"]["n"] == 312
     conn.close()
+
+
+def test_concurrent_cell_edits_on_one_record_queue_instead_of_deadlocking() -> None:
+    """Every save inserts a verification event (a key-share lock on the record, through its
+    foreign key) and then takes the row lock to apply the patch. Two saves arriving together
+    used to wait on each other — Postgres killed one with a deadlock — which an "all true"
+    click (four cells at once) or two quick edits hit. The row is locked first now, so the
+    saves queue: all of them land, none fails."""
+    _skip()
+    from concurrent.futures import ThreadPoolExecutor
+    conn = records.connect(); records.init_db(conn)
+    sess = "patch-race-" + uuid.uuid4().hex[:6]
+    rid = _record(conn, sess)["id"]
+    conn.close()
+
+    def edit(i: int) -> None:
+        c = records.connect()
+        try:
+            records.verify_record(c, rid, status="corrected",
+                                  diff=[{"field_path": f"rows[{i % 3}].es", "original_value": None, "final_value": i}],
+                                  patch=[{"field_path": f"rows[{i % 3}].es", "value": i}])
+            c.commit()
+        finally:
+            c.close()
+
+    n = 24
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(edit, range(n)))                       # raises if any save failed
+    conn = records.connect()
+    try:
+        events = conn.execute("SELECT count(*) FROM verification_event WHERE record_id = %s::uuid AND status = 'corrected'",
+                              (rid,)).fetchone()[0]
+        fv = conn.execute("SELECT field_values FROM record WHERE id = %s::uuid", (rid,)).fetchone()[0]
+    finally:
+        conn.close()
+    assert events >= n and all(isinstance(r["es"], int) for r in fv["rows"])   # every save recorded, every cell holds one of the writes
