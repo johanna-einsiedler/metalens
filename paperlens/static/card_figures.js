@@ -79,7 +79,42 @@ function claimChain() {
   </ol>`;
 }
 
-const FIGURES = { "claim-chain": claimChain };
+// The review panel on one real page: the card with the model's values on the left, the page of
+// the PDF with the located quotes on the right; the selected value and its highlight share the
+// accent. Grydeland et al. (2012), BMC Public Health 12:1053 — CC BY 2.0 — page 6, Table 2; the
+// values are the model's unverified extraction of that paper from the evaluation.
+const RP_PAGE = "/static/cards/grydeland2012-p6.jpg";
+const RP_HL = {   // [left, top, width, height] in % of the page, as the locator placed them
+  es143: [[9.52, 28.7, 13.94, 1.01], [30.77, 28.7, 2.15, 1.01]],
+  es099: [[9.52, 32.23, 8.71, 1.01], [30.77, 32.23, 2.15, 1.01]],
+  n:     [[9.52, 11.28, 38.12, 1.13]],
+};
+const hl = (boxes, cls) => boxes.map(([x, y, w, h]) => `<span class="rp-hl ${cls}" style="left:${x}%;top:${y}%;width:${w}%;height:${h}%"></span>`).join("");
+const cell = (v, cls = "") => `<td class="${cls}">${v}</td>`;
+function reviewPanelDirect() {
+  return `<div class="rp" role="group" aria-label="The review panel: the extracted values of one sample next to the page they were read from">
+    <div class="rp-card">
+      <div class="rp-title">HEIA study: Norwegian 11-year-old adolescents <span class="rp-status">unverified</span><span class="rp-tool">↻ history</span></div>
+      <table class="rp-meta"><tbody>
+        <tr><th>Country</th><td>Norway</td><th>Year</th><td>2012</td></tr>
+        <tr><th>% female</th><td class="rp-cite" title="p. 5 · “Girls (% (n)) 50 (555)”">50 <small>p. 5</small></td><th>Mean age</th><td class="rp-cite" title="p. 5 · “Age (years) 11.2 (0.3)”">11.2 <small>p. 5</small></td></tr>
+      </tbody></table>
+      <div class="rp-k">Effect sizes <span class="rp-conf">high</span></div>
+      <table class="rp-rows"><thead><tr><th>var1</th><th>var2</th><th>es</th><th>type</th><th>n</th></tr></thead><tbody>
+        <tr>${cell("bm")}${cell("pa")}${cell("0.99 <small>p. 6</small>", "rp-cite")}${cell("or")}${cell("1103 <small>p. 6</small>", "rp-cite")}</tr>
+        <tr class="rp-selrow">${cell("bm")}${cell("vg")}${cell("1.43 <small>p. 6</small>", "rp-cite rp-sel")}${cell("or")}${cell("1103 <small>p. 6</small>", "rp-cite")}</tr>
+      </tbody></table>
+      <p class="rp-note">bm = overweight/obese (IOTF cut-offs, measured BMI) · vg = hours per day of computer or electronic games · pa = accelerometer-measured MVPA</p>
+      <div class="rp-foot"><span class="muted">Checked every field?</span><span class="rp-btn">✓ verify</span><span class="rp-btn">⚑ flag</span></div>
+    </div>
+    <div class="rp-page"><span class="rp-pg">p. 6</span>
+      <img src="${RP_PAGE}" alt="Page 6 of Grydeland et al. (2012): Table 2, factors associated with being overweight or obese" loading="lazy">
+      ${hl(RP_HL.es143, "rp-hl-sel")}${hl(RP_HL.es099, "")}${hl(RP_HL.n, "")}
+    </div>
+  </div>`;
+}
+
+const FIGURES = { "claim-chain": claimChain, "review-panel-direct": reviewPanelDirect };
 
 export function mountFigures(root) {
   root.querySelectorAll(".md-figure[data-figure]").forEach((el) => {
