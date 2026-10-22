@@ -999,8 +999,9 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .cf-elab.mute { fill: var(--text-muted); }
 @media (max-width: 640px) { .cf-step { grid-template-columns: minmax(0, 1fr); gap: 4px; } .cf-h { padding-top: 2px; } }
 /* the review-panel figure: a record card beside the page it was read from (card_figures.js) */
-.rp { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(300px, 1.6fr); gap: 12px; align-items: start; }
-.rp-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 9px 11px; font-size: 12.5px; min-width: 0; }
+.rp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.pc-use { margin: 10px 0 0; }
+.rp-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 9px 11px; font-size: 12.5px; min-width: 0; max-width: 640px; }
 .rp-title { font-weight: 600; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 7px; }
 .rp-status { font-size: 10.5px; font-weight: 600; border: 1px solid var(--border); border-radius: 9px; padding: 0 7px; color: var(--text-muted); }
 .rp-tool { margin-left: auto; font-size: 11px; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); padding: 1px 6px; }
@@ -1022,4 +1023,3 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .rp-pg { position: absolute; bottom: 6px; right: 6px; font: 600 10.5px/1 var(--font-mono); background: var(--accent); color: var(--on-accent, #fff); padding: 3px 6px; border-radius: 3px; z-index: 2; }
 .rp-hl { position: absolute; background: rgba(255, 213, 0, .35); border-radius: 2px; }
 .rp-hl-sel { background: color-mix(in srgb, var(--accent) 35%, transparent); box-shadow: 0 0 0 1.5px var(--accent); }
-@media (max-width: 640px) { .rp { grid-template-columns: minmax(0, 1fr); } }
