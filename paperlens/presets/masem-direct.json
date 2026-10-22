@@ -16,16 +16,16 @@
     "keywords": ["meta-analysis", "MASEM", "correlations", "effect sizes", "reliability", "psychology"],
     "license": "CC-BY-4.0",
     "evaluated_with": [
-      {"model": "gpt-5.5-2026-04-23", "mode": "extraction", "note": "the validation study of the preprint"}
+      {"model": "gpt-5.6-sol", "mode": "extraction", "note": "the four use cases and the verification study of Schroeders, Gnambs & Einsiedler (2026); September 2026"}
     ],
     "related": [
-      {"kind": "paper", "title": "MASEMiner – AI-assisted data extraction for meta-analytic structural equation modeling (preprint, not peer-reviewed)", "doi": "10.31234/osf.io/dceqs_v1", "role": "describes and validates this preset"},
-      {"kind": "supplement", "title": "Prompts and JSON outputs of the validation study (OSF)", "url": "https://osf.io/ec4ug"},
+      {"kind": "paper", "title": "MASEMiner – AI-assisted data extraction for meta-analytic structural equation modeling (earlier version as a preprint)", "doi": "10.31234/osf.io/dceqs_v1", "role": "describes and validates this preset"},
+      {"kind": "supplement", "title": "Evaluation materials: prompts, codebooks, reference databases, MASEMiner exports and analysis scripts (Harvard Dataverse; DOI to be added on publication)"},
       {"kind": "repository", "title": "Metalens engine", "url": "https://github.com/johanna-einsiedler/metalens"},
       {"kind": "repository", "title": "MASEMiner distribution (local install)", "url": "https://github.com/johanna-einsiedler/maseminer"},
       {"kind": "website", "title": "Hosted MASEMiner", "url": "https://metalens.tech/maseminer"},
       {"kind": "preset", "title": "MASEMiner — indirect information", "id": "masem-indirect"},
-      {"kind": "funding", "title": "Deutsche Forschungsgemeinschaft (DFG), project 546292646, Priority Programme SPP 2317 META-REP"}
+      {"kind": "funding", "title": "Deutsche Forschungsgemeinschaft (DFG), project 546292646, Priority Programme SPP 2317 META-REP; University of Copenhagen Lighthouse grant \"Scaling Scientific Synthesis\" (129339)"}
     ]
   },
   "card": {

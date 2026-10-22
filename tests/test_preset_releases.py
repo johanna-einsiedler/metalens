@@ -177,7 +177,7 @@ def test_api_cards_releases_and_the_catalogue_filter(monkeypatch) -> None:
     assert card["id"] == "masem-direct" and card["fields_doc"]["schema_id"] == card["schema_id"] and card["viewer"]["is_admin"] is False
     assert "zenodo" not in card and card["prompt"] and card["card_md"].startswith("## Introduction")
     assert "zenodo" not in c.get("/api/presets/cards").json()          # the moderator's facts stay off the public list
-    assert any(m["verification"] and m["model"].startswith("gpt-5.5") and m["mode"] == "extraction" for m in card["models"])
+    assert any(m["verification"] and m["model"].startswith("gpt-5.6") and m["mode"] == "extraction" for m in card["models"])
     assert c.get("/presets").status_code == 200 and "pr-tiles" in c.get("/presets").text
     assert c.get("/preset?id=masem-direct").status_code == 200
     # releases are a moderator's act
