@@ -83,11 +83,11 @@ function claimChain() {
 // the PDF with the located quotes on the right; the selected value and its highlight share the
 // accent. Grydeland et al. (2012), BMC Public Health 12:1053 — CC BY 2.0 — page 6, Table 2; the
 // values are the model's unverified extraction of that paper from the evaluation.
-const RP_PAGE = "/static/cards/grydeland2012-p6.jpg";
-const RP_HL = {   // [left, top, width, height] in % of the page, as the locator placed them
-  es143: [[9.52, 28.7, 13.94, 1.01], [30.77, 28.7, 2.15, 1.01]],
-  es099: [[9.52, 32.23, 8.71, 1.01], [30.77, 32.23, 2.15, 1.01]],
-  n:     [[9.52, 11.28, 38.12, 1.13]],
+const RP_PAGE = "/static/cards/grydeland2012-p6-table2.jpg";   // Table 2, cropped from page 6 so it stays readable
+const RP_HL = {   // [left, top, width, height] in % of the crop, from the rects the locator placed on the page
+  es143: [[2.35, 58.22, 16.21, 3.25], [27.06, 58.22, 2.5, 3.25]],
+  es099: [[2.35, 69.56, 10.13, 3.25], [27.06, 69.56, 2.5, 3.25]],
+  n:     [[2.35, 2.24, 44.33, 3.63]],
 };
 const hl = (boxes, cls) => boxes.map(([x, y, w, h]) => `<span class="rp-hl ${cls}" style="left:${x}%;top:${y}%;width:${w}%;height:${h}%"></span>`).join("");
 const cell = (v, cls = "") => `<td class="${cls}">${v}</td>`;
@@ -107,8 +107,8 @@ function reviewPanelDirect() {
       <p class="rp-note">bm = overweight/obese (IOTF cut-offs, measured BMI) · vg = hours per day of computer or electronic games · pa = accelerometer-measured MVPA</p>
       <div class="rp-foot"><span class="muted">Checked every field?</span><span class="rp-btn">✓ verify</span><span class="rp-btn">⚑ flag</span></div>
     </div>
-    <div class="rp-page"><span class="rp-pg">p. 6</span>
-      <img src="${RP_PAGE}" alt="Page 6 of Grydeland et al. (2012): Table 2, factors associated with being overweight or obese" loading="lazy">
+    <div class="rp-page"><span class="rp-pg">p. 6 · Table 2</span>
+      <img src="${RP_PAGE}" alt="Table 2 of Grydeland et al. (2012), page 6: factors associated with being overweight or obese" loading="lazy">
       ${hl(RP_HL.es143, "rp-hl-sel")}${hl(RP_HL.es099, "")}${hl(RP_HL.n, "")}
     </div>
   </div>`;

@@ -18,9 +18,9 @@ The template adds the same four MASEMiner requirements as the direct-information
 
 ## Verification
 
-The preset was developed on one factor-analytic meta-analysis and validated on a second, ten randomly drawn papers each; very long full texts were excluded from the development set to keep costs down. Agreement with the reference database — the published human coding, re-checked against the primary publications — is reported as sensitivity, precision and Jaccard index, with the counts of omissions, over-extractions and wrong values behind them (definitions as on the direct-information card; a wrong value counts as both a miss and a false positive). The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after a person verified it in the interface (mean of two coders).
+The preset was developed on one factor-analytic meta-analysis and validated on a second that the authors did not use while developing the prompt; ten randomly drawn papers were used from each, very long full texts excluded from the development set to keep costs down. The model's output was compared against a reference database — the values coded in the published meta-analysis, re-checked against the primary publications for the study. Table 1 shows the results for the development set, Table 2 for the validation set; the metrics (sensitivity, precision, Jaccard index, omissions, over-extractions, wrong values) are defined on the [direct-information card](/preset?id=masem-direct). A wrong value counts twice, as a false negative and as a false positive, so it lowers sensitivity and precision alike. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after the coders of the verification study had reviewed and corrected it in the review screen, averaged over those coders.
 
-**Development set** — Toronto Alexithymia Scale (TAS-20), Schroeders et al. (2022), k = 10 papers.
+**Table 1 · Development set** — Toronto Alexithymia Scale (TAS-20), Schroeders et al. (2022), k = 10 papers.
 
 | Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -34,7 +34,7 @@ The preset was developed on one factor-analytic meta-analysis and validated on a
 | EFA / CFA | 14 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
 | Number of factors | 14 | 1.00 (.93) | 1.00 (.93) | 1.00 (.88) | 0 (0) | 0 (0) | 0 (1) |
 
-**Validation set** — Need for Cognition Scale (NCS-18), Schroeders et al. (2024), k = 10 papers.
+**Table 2 · Validation set** — Need for Cognition Scale (NCS-18), Schroeders et al. (2024), k = 10 papers.
 
 | Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -52,7 +52,14 @@ The preset was developed on one factor-analytic meta-analysis and validated on a
 
 In the development set all 980 loadings were recovered, with a single wrong value — a typographical error of the source table, reproduced. Six factor correlations from two publications were not extracted because the model took the reported values for correlations between subscale sum scores, which the prompt excludes by rule; that distinction is the hard part for a person too. In the validation set every deviation traces to two publications: for one the model extracted only two factors of a three-factor solution (the 18 omitted loadings, the two omitted correlations and the wrong number of factors); in the other, three items went to a neighbouring factor and one loading had the wrong sign (the seven wrong values). Across the four use cases, misassignments to a wrong factor concerned 6 of 2,397 target values. Publications with cleanly typeset tables were extracted without error.
 
-In the verification study, four student coders trained in meta-analytic coding worked every use case twice: two verified the MASEMiner output in this interface — correcting, deleting and adding values — and two coded the same papers conventionally into a coding sheet. Verification changed the accuracy only marginally (the values in parentheses): coders added omitted values and corrected descriptive information, but rarely deleted surplus effect sizes, and wrong values that need the source table were corrected only in part. The MASEMiner workflow took 69–201 minutes per use case including 6–36 minutes of automated extraction (11.1 minutes per publication on average), against 131–306 minutes for conventional coding (19.3 minutes): a saving of 42 % over the four use cases, from 27 % (TAS-20) to 58 % (NCS-18). Conventional coding by the same assistants was not uniformly more accurate — fewer surplus effect sizes, but more wrong values for most targets.
+**Table 3 · Coders with and without MASEMiner** — the verification study: four student coders trained in meta-analytic coding; in each use case some coded the papers conventionally into a coding sheet, the others reviewed and corrected the MASEMiner output in the review screen. Time is the mean per publication; the MASEMiner time includes the automated extraction. Accuracy is for the factor loadings, against the reference database.
+
+| Use case | Conventional coding | MASEMiner + review | Time saved | Loadings, conventional (SEN / PRE) | Loadings, MASEMiner + review (SEN / PRE) |
+|:--|--:|--:|--:|--:|--:|
+| TAS-20 | 13.1 min | 9.5 min (0.8 extraction) | 27 % | .99 / .99 | .98 / .99 |
+| NCS-18 | 16.3 min | 6.9 min (0.6 extraction) | 58 % | .97 / .79 | .97 / 1.00 |
+
+Reviewing the model's output took a quarter to a half less time than coding by hand, at comparable accuracy; for the NCS-18 it was also more precise, because coders working by hand transcribed loadings the reference database does not carry. Over all four use cases of the study the saving was 42 %.
 
 The figures below are read live from the public datasets built with this preset on this server, as coders verify them.
 

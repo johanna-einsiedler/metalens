@@ -12,23 +12,32 @@ The user supplies the **canonical variable labels**, i.e. the constructs the met
 
 If a paper reports on multiple samples, each sample is treated as an analytically distinct group of participants — an independent cohort, a subgroup, a wave — and linked to its own effect sizes and its own metadata. For every effect size the model also records the sample size it was computed on, the reliability of each measure in that sample (alpha preferred, then omega, ICC, kappa), and the instrument names.
 
-Two optional parameters refine the task for a particular meta-analysis: **eligibility rules** replace the default sentence "Extract ONLY these canonical variables", for instance to restrict pairs to those involving a focal construct, and **mapping guidance** adds a paragraph on typical informants, instruments and things to ignore. The parameters and the rendered prompt are shown below.
+Two optional parameters refine the task for a particular meta-analysis: **eligibility rules** replace the default rule that only the canonical variables are extracted, for instance to restrict pairs to those involving a focal construct, and **mapping guidance** adds a paragraph on typical informants, instruments and things to ignore. The parameters and the rendered prompt are shown below.
 
 ## Validation interface
 
-Every extracted value is checked against the paper in one screen. The left panel lists the papers of the dataset; the centre shows the extracted values of one sample — the effect sizes as rows, the sample characteristics above them, every cell editable; the right panel shows the page of the PDF the value was read from. A click on a value scrolls the page to its quotation and highlights it, so a coder confirms or corrects each number against the source without leaving the screen. Edits are recorded as human corrections with the original value, the person and the time; a sample is marked verified or flagged at the end of its card, and the dataset's badge counts how much of it a person has checked.
+Every extracted value is checked against the paper in one screen. The left panel lists the papers of the dataset; the centre shows the extracted values of one sample — the effect sizes as rows, the sample characteristics above them, every cell editable; the right panel shows the page of the PDF the value was read from. A click on a value scrolls the page to its quotation and highlights it, so a coder confirms or corrects each number against the source without leaving the screen. Edits are recorded as human corrections with the original value, the person and the time; a sample is marked verified or flagged at the end of its card, and the dataset's badge counts how much of it a person has checked. [Use this preset](/extract?preset=masem-direct) opens the extraction page with it selected.
 
 ```figure review-panel-direct
-The review panel on one page of Grydeland et al. (2012): the extracted effect sizes of the HEIA sample on the left, Table 2 of the paper on the right with the quoted cells highlighted; the selected odds ratio, 1.43, and its row in the table share the accent.
+The review panel on Grydeland et al. (2012): the extracted effect sizes of the HEIA sample on the left, Table 2 of the paper on the right with the quoted cells highlighted; the selected odds ratio, 1.43, and its row in the table share the accent.
 ```
 
-Page 6 of Grydeland, M., Bergh, I. H., Bjelland, M., et al. (2012). Correlates of weight status among Norwegian 11-year-olds: The HEIA study. *BMC Public Health, 12*, 1053 ([doi:10.1186/1471-2458-12-1053](https://doi.org/10.1186/1471-2458-12-1053)), an open-access article under the Creative Commons Attribution licence (CC BY 2.0). The values are the model's unverified extraction of this paper from the validation study.
+Table 2 on page 6 of Grydeland, M., Bergh, I. H., Bjelland, M., et al. (2012). Correlates of weight status among Norwegian 11-year-olds: The HEIA study. *BMC Public Health, 12*, 1053 ([doi:10.1186/1471-2458-12-1053](https://doi.org/10.1186/1471-2458-12-1053)), an open-access article under the Creative Commons Attribution licence (CC BY 2.0). The values are the model's unverified extraction of this paper from the validation study.
 
 ## Verification
 
-The preset was developed on one meta-analysis and validated on a second, unseen one, ten randomly drawn papers each. The model's output was compared value by value with a reference database — the values coded in the published meta-analysis, re-checked against the primary publications for the study. **Sensitivity** (SEN = TP / (TP + FN)) is the share of reference values the model recovered; **precision** (PRE = TP / (TP + FP)) the share of model values that were correct; the **Jaccard index** (JAC = TP / (TP + FN + FP)) combines both. Three kinds of error are counted: omissions (OMIT — a reference value the model did not report), over-extractions (OVER — a value for which no reference value exists, such as a correlation for a pair or a sample the meta-analysis did not target) and wrong values (WRONG — a reference value reported with a different number). A wrong value counts twice, as a miss and as a false positive, because it is the error a reviewer is least likely to notice. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after a person verified it in the interface (mean of two coders).
+The preset was developed on one meta-analysis and validated on a second that the authors did not use while developing the prompt; ten randomly drawn papers were used from each. The model's output was compared against a reference database — the values coded in the published meta-analysis, re-checked against the primary publications for the study. Table 1 shows the results for the development set, Table 2 for the validation set. We report:
 
-**Development set** — Gnambs (2013), self- and other-rated Big Five personality traits, k = 10 papers.
+- **Sensitivity** (SEN = TP / (TP + FN)): the share of reference values the model recovered.
+- **Precision** (PRE = TP / (TP + FP)): the share of the model's values that were correct.
+- **Jaccard index** (JAC = TP / (TP + FN + FP)): sensitivity and precision in one number.
+- **Omissions** (OMIT): a reference value the model did not report.
+- **Over-extractions** (OVER): a value for which no reference value exists, such as a correlation for a pair or a sample the meta-analysis did not target.
+- **Wrong values** (WRONG): a reference value reported with a different number.
+
+A wrong value counts twice — as a false negative, because the reference value was not recovered, and as a false positive, because a wrong number was returned (FN = OMIT + WRONG, FP = OVER + WRONG). It therefore lowers sensitivity and precision alike and enters the Jaccard denominator twice. This is deliberate: an omission or a surplus row is easy for a reviewer to spot, a wrong number is not. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after the coders of the verification study had reviewed and corrected it in this review screen — the screen shown above — averaged over those coders.
+
+**Table 1 · Development set** — Gnambs (2013), self- and other-rated Big Five personality traits, k = 10 papers.
 
 | Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -39,7 +48,7 @@ The preset was developed on one meta-analysis and validated on a second, unseen 
 | Country | 12 | .75 (.92) | .90 (.92) | .69 (.85) | 2 (0) | 0 (0) | 1 (1) |
 | % female | 11 | .27 (.41) | .75 (.70) | .25 (.35) | 7 (5) | 0 (0.5) | 1 (1.5) |
 
-**Validation set** — Marker et al. (2022), video gaming and body mass, k = 10 papers.
+**Table 2 · Validation set** — Marker et al. (2022), video gaming and body mass, k = 10 papers.
 
 | Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
 |:--|--:|--:|--:|--:|--:|--:|--:|
@@ -54,7 +63,14 @@ The preset was developed on one meta-analysis and validated on a second, unseen 
 
 Every target effect size was recovered in both sets, without a single wrong value. Precision is modest because the model also returns correlations the meta-analysis did not target: 285 in the development set, mostly correlations among informant ratings or among self-ratings and almost all from four publications; in the validation set, 12 of the 15 over-extractions come from one publication. These rows are visible as extra entries in the review screen and are deleted there; they are also the reason the eligibility-rules parameter exists. Every surplus effect size carries a surplus sample size, which is where the sample-size precision goes. Reliabilities and sample sizes were otherwise recovered almost completely, the omissions confined to one publication each. Descriptive information was less complete — the percentage of females in particular — mostly because the reference database and the model computed on different bases: the sex ratio before or after exclusions, a country read from the authors' affiliations, a percentage computed from frequencies where the model took the printed value.
 
-In the verification study, four student coders trained in meta-analytic coding worked every use case twice: two verified the MASEMiner output in this interface — correcting, deleting and adding values — and two coded the same papers conventionally into a coding sheet. Verification changed the accuracy only marginally (the values in parentheses): coders added omitted values and corrected descriptive information, but rarely deleted surplus effect sizes, and wrong values that need the source table were corrected only in part. The MASEMiner workflow took 69–201 minutes per use case including 6–36 minutes of automated extraction (11.1 minutes per publication on average), against 131–306 minutes for conventional coding (19.3 minutes): a saving of 42 % over the four use cases, from 27 % (TAS-20) to 58 % (NCS-18). Conventional coding by the same assistants was not uniformly more accurate — fewer surplus effect sizes, but more wrong values for most targets.
+**Table 3 · Coders with and without MASEMiner** — the verification study: four student coders trained in meta-analytic coding; in each use case some coded the papers conventionally into a coding sheet, the others reviewed and corrected the MASEMiner output in this screen. Time is the mean per publication; the MASEMiner time includes the automated extraction. Accuracy is for the effect sizes, against the reference database.
+
+| Use case | Conventional coding | MASEMiner + review | Time saved | Effect sizes, conventional (SEN / PRE) | Effect sizes, MASEMiner + review (SEN / PRE) |
+|:--|--:|--:|--:|--:|--:|
+| Self–other correlations | 30.6 min | 20.1 min (3.6 extraction) | 34 % | .99 / .65 | 1.00 / .54 |
+| Video gaming and body mass | 17.2 min | 7.9 min (1.9 extraction) | 54 % | .91 / .91 | 1.00 / .69 |
+
+Reviewing the model's output took a third to a half of the time of coding by hand, at comparable accuracy: the reviewed output recovers every effect size (coding by hand missed some), while its precision stays where the model left it — the coders rarely deleted the surplus correlations, and wrong values that needed the source table were corrected only in part. Over all four use cases of the study the saving was 42 % (27 % for the TAS-20, 58 % for the NCS-18).
 
 The figures below are read live from the public datasets built with this preset on this server, as coders verify them.
 

@@ -177,7 +177,7 @@ def test_card_files_follow_the_pattern() -> None:
             assert all(len(r) == len(t[0]) for r in t), (pid, t[0])
         if pid.startswith("masem-"):
             intros[pid] = sections["Introduction"].strip()
-            assert len(_tables(sections["Verification"])) == 2, pid   # development and validation set
+            assert len(_tables(sections["Verification"])) >= 2, pid   # development and validation set (+ the coder comparison)
     # one shared opening paragraph (what MASEM is); the second names the preset's own half
     assert intros["masem-direct"].split("\n\n")[0] == intros["masem-indirect"].split("\n\n")[0]
 
