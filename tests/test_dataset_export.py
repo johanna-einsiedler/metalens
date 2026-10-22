@@ -72,6 +72,8 @@ def test_records_are_grouped_under_their_paper_with_ids() -> None:
     assert paper["paper"]["doi"] == "10.1037/abc.0000123"
     assert paper["paper"]["year"] == 2022
     assert len(paper["records"]) == 2
+    # the declared paper-level fields travel with the paper, not with its records
+    assert paper["paper_metadata"]["title"] == "A meta-analysis of remote-work productivity"
 
     r = paper["records"][0]
     assert r["record_id"] and r["entry_index"] == 0            # the id that was missing

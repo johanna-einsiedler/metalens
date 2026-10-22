@@ -1763,6 +1763,9 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     the file unusable for anything but eyeballing the numbers. Grouping by paper puts the
     attribution back and gives every row its record id.
 
+    Each paper also carries ``paper_metadata``: the declared paper-level fields with any
+    corrections applied, which the records (one per entry) do not contain.
+
     Screened papers (attempted, zero records) are included with an empty ``records`` list
     and ``screened: true``. They are part of the dataset — ``stats.n_papers`` counts them —
     so omitting them would leave the file contradicting its own stats block, and would lose
@@ -1778,7 +1781,7 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
         """SELECT ed.id, ed.filename, p.title, p.doi, p.year, p.journal, p.authors,
                   ed.prompt_sha256, ed.params, ed.prompt,
                   r.id, r.entry_index, r.verification_status, r.field_values, r.extraction,
-                  COALESCE(r.screened_empty, false)
+                  COALESCE(r.screened_empty, false), ed.paper_metadata_raw
            FROM record r
            JOIN extraction_document ed ON ed.id = r.document_id
            LEFT JOIN paper p ON p.id = r.paper_id
@@ -1789,13 +1792,17 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
 
     papers: dict[str, dict] = {}
     for (doc_id, fn, title, doi, year, journal, authors, psha, params, ptext,
-         rid, ei, vs, fv, extraction, screened) in rows:
+         rid, ei, vs, fv, extraction, screened, pm_raw) in rows:
         if psha == EMPTY_PROMPT_SHA256:
             psha = None                                    # an older import: no prompt ran
         entry = papers.setdefault(str(doc_id), {
             "document_id": str(doc_id), "filename": fn,
             "paper": {"title": title, "doi": doi, "year": year,
                       "journal": journal, "authors": authors},
+            # the declared paper-level fields as corrected (paper_metadata.<name>): the
+            # records carry only the entries, so without this a coder's edits to a
+            # study-level field never leave the app
+            "paper_metadata": pm_raw if isinstance(pm_raw, dict) else None,
             # what produced this paper's records; the prompt text is spelled out here only when it
             # is not the recipe's (a dataset whose papers ran with different prompts)
             "provenance": {"model": (extraction or {}).get("model"), "prompt_sha256": psha, "params": params,
