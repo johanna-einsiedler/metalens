@@ -4,7 +4,7 @@ Meta-analytic structural equation modelling (MASEM) pools correlation matrices f
 
 The two presets correspond to the two ways a primary study can carry MASEM-relevant information. The **direct-information** preset — this one — extracts effect sizes the paper reports as such: correlations in a matrix or in the text, and related bivariate statistics. The **indirect-information** preset extracts the measurement model — item-level factor loadings and factor correlations — from which a correlation matrix among subscales can be reconstructed. Both also extract sample characteristics (sample size, percentage female, mean age, country, language) and the reliabilities of the measures, each with an evidence link into the PDF.
 
-MASEMiner was developed and validated by Ulrich Schroeders, Timo Gnambs and Johanna Einsiedler; the study is described in a preprint ([Schroeders, Gnambs & Einsiedler, 2026](https://doi.org/10.31234/osf.io/dceqs_v1), not yet peer-reviewed). The prompts and the raw model outputs of the validation are on the [OSF](https://osf.io/ec4ug).
+MASEMiner was developed and validated by Ulrich Schroeders, Timo Gnambs and Johanna Einsiedler. The study — four use cases against human-coded reference databases, plus a verification study with four coders — is described in Schroeders, Gnambs and Einsiedler (2026); an earlier version is available as a [preprint](https://doi.org/10.31234/osf.io/dceqs_v1). All materials of the evaluation (prompts, codebooks, the reference databases, the MASEMiner JSON exports and the analysis scripts) are deposited at Harvard Dataverse; the DOI is added here on publication.
 
 ## How it extracts
 
@@ -18,39 +18,43 @@ The template adds the same four MASEMiner requirements as the direct-information
 
 ## Verification
 
-The preset was developed on one factor-analytic meta-analysis and validated on a second. Agreement with the published human coding is reported as sensitivity, precision and Jaccard index (definitions as on the direct-information card; wrong values count as both a miss and a false positive). The model was GPT-5.5 (`gpt-5.5-2026-04-23`). Figures after correcting mistakes found in the human coding, with the original in parentheses.
+The preset was developed on one factor-analytic meta-analysis and validated on a second, ten randomly drawn papers each; very long full texts were excluded from the development set to keep costs down. Agreement with the reference database — the published human coding, re-checked against the primary publications — is reported as sensitivity, precision and Jaccard index, with the counts of omissions, over-extractions and wrong values behind them (definitions as on the direct-information card; a wrong value counts as both a miss and a false positive). The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after a person verified it in the interface (mean of two coders).
 
-**Development set** — Toronto Alexithymia Scale (TAS-20), Schroeders et al. (2022), k = 20 papers.
+**Development set** — Toronto Alexithymia Scale (TAS-20), Schroeders et al. (2022), k = 10 papers.
 
-| Target | n | SEN | PRE | JAC |
-|:--|--:|--:|--:|--:|
-| Factor loadings | 2020 | 1.00 (.98) | 1.00 (.98) | 1.00 (.96) |
-| Factor correlations | 127 | .93 | .95 | .89 |
-| Mean age | 30 | 1.00 | 1.00 | 1.00 |
-| Country | 30 | .97 | 1.00 | .97 |
-| Language | 30 | 1.00 | 1.00 | 1.00 |
-| Sample size | 30 | 1.00 (.93) | 1.00 (.93) | 1.00 (.88) |
-| % female | 30 | .90 | .96 | .87 |
-| EFA / CFA | 30 | 1.00 | 1.00 | 1.00 |
-| Number of factors | 30 | 1.00 | 1.00 | 1.00 |
+| Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| Factor loadings | 980 | 1.00 (.98) | 1.00 (.99) | 1.00 (.97) | 0 (10) | 0 (0) | 1 (8) |
+| Factor correlations | 66 | .91 (.88) | 1.00 (.99) | .91 (.87) | 6 (7.5) | 0 (0) | 0 (0.5) |
+| Mean age | 12 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Country | 14 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Language | 14 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Sample size | 14 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| % female | 14 | .86 (.93) | 1.00 (1.00) | .86 (.93) | 2 (1) | 0 (0) | 0 (0) |
+| EFA / CFA | 14 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Number of factors | 14 | 1.00 (.93) | 1.00 (.93) | 1.00 (.88) | 0 (0) | 0 (0) | 0 (1) |
 
 **Validation set** — Need for Cognition Scale (NCS-18), Schroeders et al. (2024), k = 10 papers.
 
-| Target | n | SEN | PRE | JAC |
-|:--|--:|--:|--:|--:|
-| Factor loadings | 324 | 1.00 (.99) | 1.00 (.99) | .99 |
-| Factor correlations | 11 | 1.00 (.91) | 1.00 (.91) | 1.00 (.83) |
-| Mean age | 11 | 1.00 | 1.00 | 1.00 |
-| Country | 11 | .91 | 1.00 | .91 |
-| Language | 11 | .91 | 1.00 | .91 |
-| Sample size | 11 | 1.00 | 1.00 | 1.00 |
-| % female | 11 | 1.00 (.88) | 1.00 (.88) | 1.00 (.78) |
-| EFA / CFA | 11 | 1.00 | 1.00 | 1.00 |
-| Number of factors | 11 | 1.00 | 1.00 | 1.00 |
+| Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| Factor loadings | 324 | .92 (.97) | .98 (1.00) | .90 (.97) | 18 (9) | 0 (0) | 7 (1) |
+| Factor correlations | 11 | .82 (.86) | 1.00 (1.00) | .82 (.86) | 2 (1.5) | 0 (0) | 0 (0) |
+| Mean age | 6 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Country | 11 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Language | 11 | .91 (.91) | 1.00 (1.00) | .91 (.91) | 1 (1) | 0 (0) | 0 (0) |
+| Sample size | 11 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| % female | 8 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| EFA / CFA | 11 | 1.00 (1.00) | 1.00 (1.00) | 1.00 (1.00) | 0 (0) | 0 (0) | 0 (0) |
+| Number of factors | 11 | .91 (.95) | .91 (.95) | .83 (.92) | 0 (0) | 0 (0) | 1 (0.5) |
 
-Loadings — more than two thousand cells in the development set — were transcribed essentially without error once the human coding was corrected. The residual disagreements are concentrated in the factor correlations of the development set, where papers report observed subscale correlations next to latent ones and the choice between them is the hard part for a person too. Country and language misses are papers that state neither and leave them to be inferred from affiliations.
+*n* is the number of reference values; EFA / CFA is whether the analysis was exploratory or confirmatory.
 
-Two of the four student-coder datasets being built on this platform use this preset (TAS-20 and NCS-18, ten papers each, blind and tool-assisted). The figures below are read live from those datasets as they are verified.
+In the development set all 980 loadings were recovered, with a single wrong value — a typographical error of the source table, reproduced. Six factor correlations from two publications were not extracted because the model took the reported values for correlations between subscale sum scores, which the prompt excludes by rule; that distinction is the hard part for a person too. In the validation set every deviation traces to two publications: for one the model extracted only two factors of a three-factor solution (the 18 omitted loadings, the two omitted correlations and the wrong number of factors); in the other, three items went to a neighbouring factor and one loading had the wrong sign (the seven wrong values). Across the four use cases, misassignments to a wrong factor concerned 6 of 2,397 target values. Publications with cleanly typeset tables were extracted without error.
+
+In the verification study, four student coders trained in meta-analytic coding worked every use case twice: two verified the MASEMiner output in this interface — correcting, deleting and adding values — and two coded the same papers conventionally into a coding sheet. Verification changed the accuracy only marginally (the values in parentheses): coders added omitted values and corrected descriptive information, but rarely deleted surplus effect sizes, and wrong values that need the source table were corrected only in part. The MASEMiner workflow took 69–201 minutes per use case including 6–36 minutes of automated extraction (11.1 minutes per publication on average), against 131–306 minutes for conventional coding (19.3 minutes): a saving of 42 % over the four use cases, from 27 % (TAS-20) to 58 % (NCS-18). Conventional coding by the same assistants was not uniformly more accurate — fewer surplus effect sizes, but more wrong values for most targets.
+
+The figures below are read live from the public datasets built with this preset on this server, as coders verify them.
 
 ## Limitations
 
@@ -58,14 +62,16 @@ The decision rules favour ordinary first-order solutions. A meta-analysis that t
 
 Validation used scales with a stable item set. Scales with many short forms, or papers that analyse an item subset, exercise the item-alignment rules harder than the two studies did.
 
-As for the direct-information preset: a single model at validation time, a human coding that itself contained mistakes, and the risk that a reviewer accepts a complete-looking loading table without checking the column assignment.
+Very long full texts were excluded from the TAS-20 development set, so the figures do not cover dissertations or reports with extensive supplementary material, where context limits may bite.
+
+As for the direct-information preset: a single model at validation time (GPT-5.6, September 2026), a reference coding that is one human coding re-checked against the papers, and the risk that a reviewer accepts a complete-looking loading table without checking the column assignment — the verification study found wrong values that needed the source table corrected only in part.
 
 ## Related work
 
-- Schroeders, U., Gnambs, T., & Einsiedler, J. (2026). *MASEMiner – AI-assisted data extraction for meta-analytic structural equation modeling.* PsyArXiv. [doi:10.31234/osf.io/dceqs_v1](https://doi.org/10.31234/osf.io/dceqs_v1) — preprint, not peer-reviewed.
-- Supplement: [osf.io/ec4ug](https://osf.io/ec4ug). Source code: [github.com/johanna-einsiedler/metalens](https://github.com/johanna-einsiedler/metalens).
-- Schroeders, U., et al. (2022). The development set: TAS-20 factor structure (meta-analysis). [DOI to add]
-- Schroeders, U., et al. (2024). The validation set: NCS-18 factor structure (meta-analysis). [DOI to add]
-- Schroeders, U., Einsiedler, J., & Gnambs, T. (2026). *Factor structure and symptom profiles of the Montgomery–Åsberg Depression Rating Scale (MADRS): A meta-analytic mean and covariance structure analysis.* PsyArXiv. [doi:10.31234/osf.io/am3qp_v2](https://doi.org/10.31234/osf.io/am3qp_v2)
+- Schroeders, U., Gnambs, T., & Einsiedler, J. (2026). *MASEMiner – AI-assisted data extraction for meta-analytic structural equation modeling.* Earlier version as a preprint: [doi:10.31234/osf.io/dceqs_v1](https://doi.org/10.31234/osf.io/dceqs_v1).
+- Evaluation materials — prompts, codebooks, human-coded reference databases, MASEMiner exports (JSON) and analysis scripts: Harvard Dataverse, DOI to be added on publication. Source code: [github.com/johanna-einsiedler/metalens](https://github.com/johanna-einsiedler/metalens).
+- Schroeders, U., Kubera, F., & Gnambs, T. (2022). The structure of the Toronto Alexithymia Scale (TAS-20): A meta-analytic confirmatory factor analysis. *Assessment, 29*(8), 1806–1823. [doi:10.1177/10731911211033894](https://doi.org/10.1177/10731911211033894) — the development set.
+- Schroeders, U., Morgenstern, M., Jankowsky, K., & Gnambs, T. (2024). Short-scale construction using meta-analytic ant colony optimization: A demonstration with the Need for Cognition Scale. *European Journal of Psychological Assessment, 40*(5), 376–395. [doi:10.1027/1015-5759/a000818](https://doi.org/10.1027/1015-5759/a000818) — the validation set.
+- Gnambs, T., & Staufenbiel, T. (2016). Parameter accuracy in meta-analyses of factor structures. *Research Synthesis Methods, 7*(2), 168–186. [doi:10.1002/jrsm.1190](https://doi.org/10.1002/jrsm.1190) — when a loading matrix can stand in for the correlation matrix.
 - Companion preset: [MASEMiner — direct information](/preset?id=masem-direct).
-- Funding: DFG project 546292646, SPP 2317 META-REP.
+- Funding: Deutsche Forschungsgemeinschaft (DFG), project 546292646, Priority Programme SPP 2317 META-REP; University of Copenhagen Lighthouse grant "Scaling Scientific Synthesis" (129339).
