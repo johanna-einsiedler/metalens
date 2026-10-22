@@ -440,6 +440,8 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                   count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
                   count(*) FILTER (WHERE r.verification_status = 'verified'
                                      AND NOT COALESCE(r.screened_empty, false)) AS n_verified,
+                  count(*) FILTER (WHERE r.verification_status = 'flagged'
+                                     AND NOT COALESCE(r.screened_empty, false)) AS n_flagged,
                   bool_or(COALESCE(r.screened_empty, false)) AS screened
            FROM extraction_document d
            LEFT JOIN paper p ON p.id = d.paper_id
@@ -463,8 +465,8 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
         {"document_id": str(did), "paper_id": str(pid) if pid else None,
          "schema_id": sid, "created_at": ca.isoformat() if ca else None,
          "filename": fn, "title": title, "doi": doi,
-         "n_records": n, "n_verified": nv, "screened": bool(sc)}
-        for (did, pid, sid, ca, fn, title, doi, n, nv, sc) in rows
+         "n_records": n, "n_verified": nv, "n_flagged": nf, "screened": bool(sc)}
+        for (did, pid, sid, ca, fn, title, doi, n, nv, nf, sc) in rows
     ]
 
 

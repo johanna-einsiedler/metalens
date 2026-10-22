@@ -68,6 +68,11 @@ def test_extract_with_dataset_id_assigns_to_it(monkeypatch) -> None:
     assert n >= 1                                   # the new records are in the dataset
     docs = records.list_documents(conn, session_id=sess, dataset_id=ds["id"])
     assert any(d["document_id"] == doc_id for d in docs)   # shows under the dataset view
+    # the sidebar shades a paper by these counts: orange while any entry is flagged, green once all are verified
+    rid = conn.execute("SELECT id FROM record WHERE document_id=%s::uuid LIMIT 1", (doc_id,)).fetchone()[0]
+    records.verify_record(conn, str(rid), status="flagged"); conn.commit()
+    row = next(d for d in records.list_documents(conn, session_id=sess, dataset_id=ds["id"]) if d["document_id"] == doc_id)
+    assert (row["n_flagged"], row["n_verified"]) == (1, 0)
 
 
 def test_dataset_never_holds_same_paper_twice(monkeypatch) -> None:
