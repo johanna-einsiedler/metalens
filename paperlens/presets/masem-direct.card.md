@@ -16,7 +16,7 @@ Two optional parameters refine the task for a particular meta-analysis: **eligib
 
 ## Validation interface
 
-Every extracted value is checked against the paper in one screen. The left panel lists the papers of the dataset; the centre shows the extracted values of one sample — the effect sizes as rows, the sample characteristics above them, every cell editable; the right panel shows the page of the PDF the value was read from. A click on a value scrolls the page to its quotation and highlights it, so a coder confirms or corrects each number against the source without leaving the screen. Edits are recorded as human corrections with the original value, the person and the time; a sample is marked verified or flagged at the end of its card, and the dataset's badge counts how much of it a person has checked. [Use this preset](/extract?preset=masem-direct) opens the extraction page with it selected.
+Every extracted value is checked against the paper in one screen. The left panel lists the papers of the dataset; the centre shows the extracted values of one sample — the effect sizes as rows, the sample characteristics above them, every cell editable; the right panel shows the page of the PDF the value was read from. A click on a value scrolls the page to its quotation and highlights it, so a coder confirms or corrects each number against the source without leaving the screen. Edits are recorded as human corrections with the original value, the person and the time; a sample is marked verified or flagged at the end of its card, and the dataset's badge counts how much of it a person has checked.
 
 ```figure review-panel-direct
 The review panel on Grydeland et al. (2012): the extracted effect sizes of the HEIA sample on the left, Table 2 of the paper on the right with the quoted cells highlighted; the selected odds ratio, 1.43, and its row in the table share the accent.
@@ -26,7 +26,7 @@ Table 2 on page 6 of Grydeland, M., Bergh, I. H., Bjelland, M., et al. (2012). C
 
 ## Verification
 
-The preset was developed on one meta-analysis and validated on a second that the authors did not use while developing the prompt; ten randomly drawn papers were used from each. The model's output was compared against a reference database — the values coded in the published meta-analysis, re-checked against the primary publications for the study. Table 1 shows the results for the development set, Table 2 for the validation set. We report:
+The preset was developed on one meta-analysis and validated on a second that the authors did not use while developing the prompt; ten randomly drawn papers were used from each. The model's output was compared against a gold-standard database: the values coded in the published meta-analysis, re-checked against the primary publications for the study. Further, we conducted an additional validation study where, for each dataset, (1) two coders recorded the values from the PDFs only and (2) two coders were presented with the validation interface and tasked to verify the extractions. Table 1 and Table 2 compare the model-only extractions with those corrected by the coders through MASEMiner; Table 3 compares the coders' performance with and without MASEMiner. We report:
 
 - **Sensitivity** (SEN = TP / (TP + FN)): the share of reference values the model recovered.
 - **Precision** (PRE = TP / (TP + FP)): the share of the model's values that were correct.
@@ -35,7 +35,7 @@ The preset was developed on one meta-analysis and validated on a second that the
 - **Over-extractions** (OVER): a value for which no reference value exists, such as a correlation for a pair or a sample the meta-analysis did not target.
 - **Wrong values** (WRONG): a reference value reported with a different number.
 
-A wrong value counts twice — as a false negative, because the reference value was not recovered, and as a false positive, because a wrong number was returned (FN = OMIT + WRONG, FP = OVER + WRONG). It therefore lowers sensitivity and precision alike and enters the Jaccard denominator twice. This is deliberate: an omission or a surplus row is easy for a reviewer to spot, a wrong number is not. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after the coders of the verification study had reviewed and corrected it in this review screen — the screen shown above — averaged over those coders.
+A wrong value counts double for precision, recall and the Jaccard index: it is recorded both as a false negative, because the reference value was not recovered, and as a false positive, because a wrong number was returned (FN = OMIT + WRONG, FP = OVER + WRONG). This is a deliberate choice, since an omission or a surplus row in this particular setup is easy to spot for a reviewer, a wrong number is not. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after the coders of the verification study had reviewed and corrected it in this review screen, averaged over those coders.
 
 **Table 1 · Development set** — Gnambs (2013), self- and other-rated Big Five personality traits, k = 10 papers.
 
@@ -61,7 +61,7 @@ A wrong value counts twice — as a false negative, because the reference value 
 
 *n* is the number of reference values; sample sizes are those attached to each effect size. Reliabilities were not coded in the reference database of the video-gaming meta-analysis.
 
-Every target effect size was recovered in both sets, without a single wrong value. Precision is modest because the model also returns correlations the meta-analysis did not target: 285 in the development set, mostly correlations among informant ratings or among self-ratings and almost all from four publications; in the validation set, 12 of the 15 over-extractions come from one publication. These rows are visible as extra entries in the review screen and are deleted there; they are also the reason the eligibility-rules parameter exists. Every surplus effect size carries a surplus sample size, which is where the sample-size precision goes. Reliabilities and sample sizes were otherwise recovered almost completely, the omissions confined to one publication each. Descriptive information was less complete — the percentage of females in particular — mostly because the reference database and the model computed on different bases: the sex ratio before or after exclusions, a country read from the authors' affiliations, a percentage computed from frequencies where the model took the printed value.
+Every target effect size was recovered in both sets, without a single wrong value. Precision is modest because the model also returns correlations the meta-analysis did not target: 285 in the development set, mostly correlations among informant ratings or among self-ratings and almost all from four publications; in the validation set, 12 of the 15 over-extractions come from one publication. These rows are visible as extra entries in the review screen and are deleted there; they are also the reason the eligibility-rules parameter exists. Reliabilities and sample sizes were otherwise recovered almost completely; the omissions were confined to one publication each. Descriptive information was less complete, the percentage of females in particular, mostly because the reference database and the model computed on different bases, e.g. the sex ratio before or after exclusions.
 
 **Table 3 · Coders with and without MASEMiner** — the verification study: four student coders trained in meta-analytic coding; in each use case some coded the papers conventionally into a coding sheet, the others reviewed and corrected the MASEMiner output in this screen. Time is the mean per publication; the MASEMiner time includes the automated extraction. Accuracy is for the effect sizes, against the reference database.
 
@@ -70,19 +70,15 @@ Every target effect size was recovered in both sets, without a single wrong valu
 | Self–other correlations | 30.6 min | 20.1 min (3.6 extraction) | 34 % | .99 / .65 | 1.00 / .54 |
 | Video gaming and body mass | 17.2 min | 7.9 min (1.9 extraction) | 54 % | .91 / .91 | 1.00 / .69 |
 
-Reviewing the model's output took a third to a half of the time of coding by hand, at comparable accuracy: the reviewed output recovers every effect size (coding by hand missed some), while its precision stays where the model left it — the coders rarely deleted the surplus correlations, and wrong values that needed the source table were corrected only in part. Over all four use cases of the study the saving was 42 % (27 % for the TAS-20, 58 % for the NCS-18).
+Reviewing the model's output took a third to a half of the time of coding by hand, at comparable accuracy. The reviewed output recovers every effect size (coding by hand missed some), while its precision stays where the model left it — the coders rarely deleted the surplus correlations, and wrong values that needed the source table were corrected only in part.
 
 The figures below are read live from the public datasets built with this preset on this server, as coders verify them.
 
 ## Limitations
 
-The prompt is generic. A meta-analysis with unusual eligibility rules — only longitudinal correlations, only specific informant pairs — needs the rules written into the eligibility and guidance parameters, and the first few papers should be checked with that in mind.
+The prompt is fairly generic and might not work well for a MASEM with unusual eligibility rules, e.g. only longitudinal correlations or only specific informant pairs.
 
-The evaluation compares the model with one reference coding per meta-analysis: the published human coding, re-checked against the papers. A fair share of the remaining disagreements is contradictory or ambiguous information in the primary studies themselves — a percentage reported on two bases, a country stated nowhere.
-
-Precision for effect sizes is bounded by over-extraction, not by wrong numbers: the values the model reports are, in these samples, the printed ones. A coder who accepts the output without reading the paper will nonetheless keep rows that do not belong. The verification study bears this out: coders rarely deleted surplus effect sizes, and the few wrong values that required consulting the source table were corrected only in part. The review screen makes deleting a row cheap, but automation bias is real.
-
-One model was tested — the most recent OpenAI model at the time of validation — and the study deliberately did not benchmark models, whose behaviour changes with updates. Metalens runs any provider's model with this preset; figures for another model exist only once people have verified a dataset extracted with it. The schema can be extended to further statistics (means, standard deviations) and study characteristics (education, assessment mode); none of those has been evaluated.
+One model was tested — the most recent OpenAI model at the time of validation. The schema can be extended to further statistics (means, standard deviations) and study characteristics (education, assessment mode); however, none of those has been evaluated.
 
 ## Related work
 

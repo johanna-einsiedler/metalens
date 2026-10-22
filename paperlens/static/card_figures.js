@@ -83,7 +83,7 @@ function claimChain() {
 // the PDF with the located quotes on the right; the selected value and its highlight share the
 // accent. Grydeland et al. (2012), BMC Public Health 12:1053 — CC BY 2.0 — page 6, Table 2; the
 // values are the model's unverified extraction of that paper from the evaluation.
-const RP_PAGE = "/static/cards/grydeland2012-p6-table2.jpg";   // Table 2, cropped from page 6 so it stays readable
+const RP_PAGE = "/static/cards/grydeland2012-p6-table2.png";   // Table 2, cropped from page 6 at 260 dpi so it reads at any width
 const RP_HL = {   // [left, top, width, height] in % of the crop, from the rects the locator placed on the page
   es143: [[2.35, 58.22, 16.21, 3.25], [27.06, 58.22, 2.5, 3.25]],
   es099: [[2.35, 69.56, 10.13, 3.25], [27.06, 69.56, 2.5, 3.25]],
