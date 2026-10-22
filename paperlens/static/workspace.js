@@ -597,8 +597,12 @@ function renderPanel() {
     + (PROJECT   // already a dataset: nothing to save, so this simply opens its overview (audit report, dashboards, export, publishing)
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
         : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
-    + `<button class="btn btn-ghost" id="dljson">⬇ JSON</button>`
-    + `<button class="btn btn-ghost" id="dlcsv">⬇ CSV</button>`
+    + `<button class="btn btn-ghost" id="dljson" title="this paper">⬇ JSON</button>`
+    + `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`
+    // the whole dataset from here, so a coder never has to leave the review to take the work away
+    + (PROJECT ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
+        + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
+        + `<a href="#" data-dl="json-reviewed">Reviewed records only · JSON</a><a href="#" data-dl="csv-reviewed">Reviewed records only · CSV</a></div></details>` : "")
     + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
@@ -801,6 +805,7 @@ function wirePanelHead() {
   const ct = $("#chaintoggle"); if (ct) ct.onclick = () => { CHAIN_OFF = !CHAIN_OFF; renderPanel(); };
   const dj = $("#dljson"); if (dj) dj.onclick = downloadJSON;
   const dc = $("#dlcsv"); if (dc) dc.onclick = downloadCSV;
+  document.querySelectorAll("#dsdl [data-dl]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); $("#dsdl").open = false; downloadDataset(a.dataset.dl); }));
   const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
   syncJobWait();
   $("#addfinding").onclick = doAddFinding;
@@ -1963,10 +1968,51 @@ function downloadCSV() {
     flat.corrected_fields = (r.corrections || []).map((c) => c.field_path).join("; ");
     return flat;
   });
+  download(`${baseName()}.csv`, toCSV(rows), "text/csv");
+}
+function toCSV(rows) {
   const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
   const q = (v) => { if (v == null) return ""; const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\n");
-  download(`${baseName()}.csv`, csv, "text/csv");
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\n");
+}
+
+// The whole dataset as one file: the dataset export (every paper with its records and their
+// review status), optionally cut to the records a person has reviewed (verified or flagged).
+// The CSV has the same rows as the per-paper CSV — one per entry / sub-entry / table row with the
+// paper's metadata repeated — when the dataset is on this paper's schema; otherwise one row per record.
+const REVIEWED = new Set(["verified", "flagged"]);
+async function downloadDataset(kind) {
+  let out;
+  try { out = await api.datasetExport(PROJECT); }
+  catch (e) { alert("export failed: " + e.message); return; }
+  const reviewed = kind.endsWith("reviewed");
+  const papers = (out.papers || []).map((p) => ({ ...p, records: (p.records || []).filter((r) => !reviewed || REVIEWED.has(r.verification_status)) }))
+    .filter((p) => !reviewed || p.records.length);
+  const name = `${(out.slug || "dataset").replace(/[^a-z0-9-]+/gi, "_")}${reviewed ? "-reviewed" : ""}`;
+  if (kind.startsWith("json")) {
+    download(`${name}.json`, JSON.stringify({ ...out, ...(reviewed ? { filter: "reviewed records only (verified or flagged)" } : {}), papers }, null, 2), "application/json");
+    return;
+  }
+  const sameSchema = !VM.legacy && out.recipe && out.recipe.schema_id === DATA.schema_id;
+  const rows = [];
+  for (const p of papers) {
+    const pm = p.paper || {};
+    const head = { "paper.title": pm.title, "paper.doi": pm.doi, "paper.year": pm.year, "paper.journal": pm.journal,
+                   "paper.authors": Array.isArray(pm.authors) ? pm.authors.join("; ") : pm.authors, filename: p.filename };
+    const recs = p.records.map((r) => ({ id: r.record_id, entry_index: r.entry_index, field_values: r.values || {},
+                                          verification_status: r.verification_status, corrections: [] }));
+    if (sameSchema) {
+      for (const row of gridRows(VM, recs)) {
+        const flat = { ...head, record_id: row.rec.id, entry: row.idx };
+        gridColumns(VM).forEach((c) => (flat[c.key] = csvCell(row.values[c.key])));
+        flat.verification_status = row.rec.verification_status || "";
+        rows.push(flat);
+      }
+    } else {
+      for (const r of recs) rows.push({ ...head, record_id: r.id, entry: String(r.entry_index), ...flattenRecord(r.field_values), verification_status: r.verification_status || "" });
+    }
+  }
+  download(`${name}.csv`, toCSV(rows), "text/csv");
 }
 
 init();
