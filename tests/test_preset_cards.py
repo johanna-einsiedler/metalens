@@ -178,7 +178,8 @@ def test_card_files_follow_the_pattern() -> None:
         if pid.startswith("masem-"):
             intros[pid] = sections["Introduction"].strip()
             assert len(_tables(sections["Verification"])) == 2, pid   # development and validation set
-    assert intros["masem-direct"] == intros["masem-indirect"]         # one shared introduction
+    # one shared opening paragraph (what MASEM is); the second names the preset's own half
+    assert intros["masem-direct"].split("\n\n")[0] == intros["masem-indirect"].split("\n\n")[0]
 
 
 def _walk(doc: dict):
@@ -277,7 +278,7 @@ def test_the_deposited_card_has_no_page_only_links_and_the_readme_names_its_sect
     files = preset_bundle.build(spec, rel, doi="10.5281/zenodo.1", card_url="https://metalens.tech/preset?id=masem-direct")
     card, readme = files["card.md"].decode(), files["README.md"].decode()
     assert "#to-be-published" not in card and "study data (to be published)" in card
-    assert "the card: Introduction, How it extracts, Verification" in readme and "limitations" not in readme
+    assert "the card: Introduction, How it extracts, Validation interface, Verification" in readme and "limitations" not in readme
 
 
 def test_inline_evidence_is_a_display_switch_outside_the_schema_id() -> None:

@@ -61,7 +61,8 @@ const md = (text) => (text && text.trim() ? `<div class="md">${renderMarkdown(te
 function render() {
   const c = CARD;
   const { sections, order } = sectionsOf(c.card_md);
-  const known = new Set(["introduction", "how-it-extracts", "verification", "limitations", "changelog", "related-work"]);
+  const known = new Set(["introduction", "how-it-extracts", "validation-interface", "verification", "limitations", "changelog", "related-work"]);
+  const iface = sections["validation-interface"];      // the review panel on a real page — a card may show one
   const extra = order.filter((k) => !known.has(k));
   const latest = c.latest;
   const badges = [
@@ -81,7 +82,7 @@ function render() {
   ].filter(Boolean).join("");
   const relatedMd = (sections["related-work"] || {}).body || "";
   const relatedHtml = md(relatedMd) + relatedRest(c, relatedMd);
-  const toc = [["introduction", "Introduction"], ["how", "How it extracts"], ["fields", "Fields"], ["verification", "Verification"],
+  const toc = [["introduction", "Introduction"], ["how", "How it extracts"], ...(iface ? [["interface", "Validation interface"]] : []), ["fields", "Fields"], ["verification", "Verification"],
                ["versions", "Versions and citation"], ["used-by", "Used by"], ["models", "Models"], ...(relatedHtml ? [["related", "Related work"]] : [])]
     .map(([a, t]) => `<a href="#${a}">${t}</a>`).join("");
 
@@ -93,6 +94,7 @@ function render() {
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="how"><h2>How it extracts</h2>${md((sections["how-it-extracts"] || {}).body)}${howGenerated(c)}</section>
+    ${iface ? `<section id="interface"><h2>${esc(iface.title)}</h2>${md(iface.body)}</section>` : ""}
     <section id="fields"><h2>Fields</h2><p class="muted" style="margin:0 0 8px">Generated from the declaration (<code>${esc(c.schema_id)}</code>): every value this preset extracts, with its type, whether it is required, the evidence policy and the confidence group.</p>${renderFieldDocs(c.fields_doc)}${schemaFold(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>

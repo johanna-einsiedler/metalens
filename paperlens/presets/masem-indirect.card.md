@@ -1,10 +1,10 @@
 ## Introduction
 
-Meta-analytic structural equation modelling (MASEM) pools correlation matrices from many primary studies and fits a structural model to the pooled matrix. The coding step is the expensive part: for every study, the relevant correlations, the reliabilities of the measures and the characteristics of the sample have to be found in a PDF and typed into a table, and then checked by a second person. MASEMiner is a pair of presets for Metalens that do the first pass with a language model and leave the checking to a person, with every value shown next to the passage it was read from.
+Meta-analytic structural equation modelling (MASEM) pools correlation matrices from many primary studies and fits a structural model to the pooled matrix. The inputs are the relevant correlations, the reliabilities of the measures and the characteristics of the sample of a set of primary studies.
 
-The two presets correspond to the two ways a primary study can carry MASEM-relevant information. The **direct-information** preset — this one — extracts effect sizes the paper reports as such: correlations in a matrix or in the text, and related bivariate statistics. The **indirect-information** preset extracts the measurement model — item-level factor loadings and factor correlations — from which a correlation matrix among subscales can be reconstructed. Both also extract sample characteristics (sample size, percentage female, mean age, country, language) and the reliabilities of the measures, each with an evidence link into the PDF.
+This preset focuses on indirect information and extracts the measurement model — item-level factor loadings and factor correlations — from which a correlation matrix among subscales can be reconstructed. For directly reported effect sizes (correlations in a matrix or in the text), [a separate preset](/preset?id=masem-direct) exists.
 
-MASEMiner was developed and validated by Ulrich Schroeders, Timo Gnambs and Johanna Einsiedler. The study — four use cases against human-coded reference databases, plus a verification study with four coders — is described in Schroeders, Gnambs and Einsiedler (2026); an earlier version is available as a [preprint](https://doi.org/10.31234/osf.io/dceqs_v1). All materials of the evaluation (prompts, codebooks, the reference databases, the MASEMiner JSON exports and the analysis scripts) are deposited at Harvard Dataverse; the DOI is added here on publication.
+Both presets also extract sample characteristics (sample size, percentage female, mean age, country, language) and the reliabilities of the measures, each with an evidence link into the PDF.
 
 ## How it extracts
 
