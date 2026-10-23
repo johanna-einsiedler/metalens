@@ -2153,6 +2153,7 @@ def _publish_dataset(db, dataset_id: str, who: Principal, target: str, release: 
     records.set_publish_target(db, dataset_id, catalogue=(target != "github"))
     if target == "metalens":
         records.set_dataset_visibility(db, dataset_id, "public")
+        records.set_publish_status(db, dataset_id, "published")    # the catalogue lists published datasets only
         records.promote_dataset_preset(db, dataset_id, who)
         return {"queued": False, "publish_status": "published", "target": target}
     already = (records.get_dataset(db, dataset_id) or {}).get("publish_status") == "published"

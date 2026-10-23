@@ -287,7 +287,7 @@ function renderSync(sync, list) {
   const at = (n) => (n == null ? "—" : `v${n}`);
   const cells = [[`Zenodo`, sync.zenodo == null ? "no DOI" : at(sync.zenodo), sync.behind.includes("zenodo")],
                  [`GitHub`, sync.github == null ? "not published" : at(sync.github) + (sync.pending ? " (pull request open)" : ""), sync.behind.includes("github")],
-                 [`Catalogue`, sync.catalogue ? "listed" : "not listed", sync.behind.includes("catalogue")]];
+                 [`Catalogue`, sync.pending && sync.catalogue ? "listed when the pull request is merged" : sync.catalogue ? "listed" : "not listed", sync.behind.includes("catalogue")]];
   host.innerHTML = `<span class="ds-sync${sync.in_sync ? "" : " off"}">${cells.map(([k, v, lag]) => `<span${lag ? ' class="lag"' : ""}><b>${k}</b> ${esc(v)}</span>`).join(" · ")}</span>`
     + (!sync.in_sync && OWNER && !ANON ? ` <button type="button" class="btn btn-ghost btn-sm" id="ds-sync-go" title="bring every copy to release v${sync.latest}${sync.zenodo != null && sync.behind.includes("zenodo") ? ": a new version on Zenodo (new DOI), then the GitHub copy and the catalogue" : ": the GitHub copy and the catalogue"}">Sync to v${sync.latest}</button>` : "")
     // on GitHub but not in the catalogue (published as "GitHub only"): one click lists it

@@ -70,6 +70,15 @@ def test_publish_targets_and_paper_coverage(monkeypatch) -> None:
     assert c.post(f"/api/datasets/{here['id']}/publish", json={"target": "github"}, headers=h).status_code == 400
     assert c.post(f"/api/datasets/{here['id']}/publish", json={"target": "nowhere"}, headers=h).status_code == 422
 
+    # a dataset unlisted before it was ever published carries status 'draft'; the catalogue
+    # publish must still make it 'published' — the catalogue lists published datasets only
+    again = _setup(conn, sess)
+    records.set_dataset_visibility(conn, again["id"], "private"); conn.commit()
+    assert records.get_dataset(conn, again["id"])["publish_status"] == "draft"
+    assert c.post(f"/api/datasets/{again['id']}/publish", json={"target": "metalens"}, headers=h).status_code == 200
+    assert records.get_dataset(conn, again["id"])["publish_status"] == "published"
+    assert again["id"] in {x["id"] for x in c.get("/api/datasets/public").json()["datasets"]}
+
     # the included papers travel with the export and the README; the coverage lookup finds them
     mat = exporter.materialize_dataset(conn, both["id"])
     papers = mat["metadata"]["papers"]
