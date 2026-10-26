@@ -719,12 +719,17 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # as cause → effect with a sign, its quotes, and the child results that carry it
         # "criteria" reads each entry as a list of yes/no calls — one row per criterion with the call, the
         # model's probability and, under it, the reasoning and the quotes for and against
+        # "evidence" draws the reader's numbered items first — passages and tables, one row each of an
+        # entry TABLE field — and under each item the cells it bears on: a coder reads a quote, then
+        # labels what it supports. Evidence rows name their item in `source` ("item 7 (table)").
         rv = display.get("review")
         if rv is not None:
-            if not isinstance(rv, dict) or rv.get("layout") not in ("chain", "criteria"):
-                E("$.display.review must be an object with layout 'chain' or 'criteria'")
+            if not isinstance(rv, dict) or rv.get("layout") not in ("chain", "criteria", "evidence"):
+                E("$.display.review must be an object with layout 'chain', 'criteria' or 'evidence'")
             elif rv["layout"] == "criteria":
                 _validate_criteria_review(rv, spec, E)
+            elif rv["layout"] == "evidence":
+                _validate_evidence_review(rv, spec, E, W)
             else:
                 enames = {f.get("name") for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
                 kids = {c.get("key"): {f.get("name") for f in (c.get("fields") or []) if isinstance(f, dict)}
@@ -1853,6 +1858,38 @@ def _value_paths(obj: dict, spec: dict) -> list[str]:
 
 
 # ── the schema row ────────────────────────────────────────────────────────────
+
+EVIDENCE_ITEM_COLUMNS = {"n": ("integer",), "page": ("integer",), "kind": ("enum", "string"),
+                         "text": ("text", "string"), "bears_on": ("list",)}
+
+
+def _validate_evidence_review(rv: dict, spec: dict, E, W) -> None:
+    """display.review.layout "evidence": ``items`` names the entry TABLE field holding the reader's
+    items, one row each with ``n`` (its number), ``page``, ``kind`` (passage | table), ``text`` (the
+    passage verbatim, or a table as markdown) and ``bears_on`` (the fields it supports); ``note``
+    is optional. ``paper_fields`` narrows the study fields offered when no item bears on them.
+    Rows, not a text block: the workspace reads them without parsing, a coder can edit them, and
+    the text column is flagged verbatim so public copies cut it to a quotation."""
+    efields = {f.get("name"): f for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+    pnames = {f.get("name") for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
+    for k in sorted(set(rv) - {"layout", "items", "paper_fields"}):
+        E(f"$.display.review: unknown key {k!r} (an evidence review takes items and paper_fields)")
+    items = efields.get(rv.get("items"))
+    if items is None or items.get("type") != "table":
+        E("$.display.review.items must name the entry table field that holds the reader's items (one row per item)")
+    else:
+        cols = {c.get("name"): c for c in (items.get("columns") or []) if isinstance(c, dict)}
+        for name, types in EVIDENCE_ITEM_COLUMNS.items():
+            if name not in cols:
+                E(f"$.display.review.items: the table {rv['items']!r} needs a column {name!r} ({' or '.join(types)})")
+            elif cols[name].get("type") not in types:
+                E(f"$.display.review.items: column {name!r} of {rv['items']!r} must be {' or '.join(types)}, not {cols[name].get('type')!r}")
+        if "text" in cols and cols["text"].get("verbatim") is not True:
+            W(f"$.display.review.items: column 'text' of {rv['items']!r} holds passages of the paper; flag it verbatim so public copies cut it")
+    pf = rv.get("paper_fields")
+    if pf is not None and (not isinstance(pf, list) or any(n not in pnames for n in pf)):
+        E("$.display.review.paper_fields must list paper fields (those offered when no item bears on them)")
+
 
 def _validate_criteria_review(rv: dict, spec: dict, E) -> None:
     """display.review.layout "criteria": ``criteria`` lists, per criterion, the entry field holding

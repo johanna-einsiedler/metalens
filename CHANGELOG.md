@@ -113,6 +113,12 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (`paperlens/retention.py`); a durable free-trial counter and a per-network daily cap.
 - Import page: re-importing a paper into its dataset replaces the old copy; datasets can
   remove duplicate papers; the citable dataset download can be re-imported.
+- Review layout `evidence` (`display.review: {layout: "evidence", items: <entry text field>,
+  paper_fields?}`): a paper is reviewed evidence first — the reader's numbered items
+  (passages and tables) in order, each with a jump into the PDF and, beneath it, the study
+  and entry cells it bears on and the sub-entry fields it names; what no item bears on
+  follows, so nothing is hidden. Evidence rows name their item in `source` ("item 7
+  (table) → result: mean"). The cells, saves and verification are the generic card's.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

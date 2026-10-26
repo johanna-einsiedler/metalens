@@ -104,6 +104,12 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("tab ref to paper field", lambda d: d["display"]["tabs"][0]["fields"].append("design"), "not an entry field"),
     ("grid_rows unknown", lambda d: d["display"].__setitem__("grid_rows", "zzz"), "grid_rows"),
     ("reserved entries key", lambda d: d["entries"].__setitem__("key", "evidence"), "reserved"),
+    ("review layout unknown", lambda d: d["display"].__setitem__("review", {"layout": "tree"}), "review"),
+    ("evidence review without items", lambda d: d["display"].__setitem__("review", {"layout": "evidence"}), "items"),
+    ("evidence review items not a table", lambda d: d["display"].__setitem__("review", {"layout": "evidence", "items": "sample_id"}), "table field"),
+    ("evidence review items table lacks a column", lambda d: d["display"].__setitem__("review", {"layout": "evidence", "items": "matrix"}), "needs a column"),
+    ("evidence review unknown key", lambda d: (_with_items(d), d["display"].__setitem__("review", {"layout": "evidence", "items": "items", "edge": {}})), "unknown key"),
+    ("evidence review paper_fields unknown", lambda d: (_with_items(d), d["display"].__setitem__("review", {"layout": "evidence", "items": "items", "paper_fields": ["zzz"]})), "paper_fields"),
 ])
 def test_validation_rejects(label, mutate, needle) -> None:
     errs = _errors(mutate)
@@ -333,4 +339,35 @@ def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
     assert any("quotes must be" in e for e in broken(lambda rv: rv.update(quotes="random")))
     assert ps.validate(ps.normalize({**_criteria_spec(), "display": {**_criteria_spec()["display"], "review": {**_criteria_spec()["display"]["review"], "quotes": "mixed"}}}))[0] == []
     assert any("at least one criterion" in e for e in broken(lambda rv: rv.update(criteria=[])))
-    assert any("'chain' or 'criteria'" in e for e in broken(lambda rv: rv.update(layout="grid")))
+    assert any("'chain', 'criteria' or 'evidence'" in e for e in broken(lambda rv: rv.update(layout="grid")))
+ITEMS_TABLE = {"name": "items", "type": "table", "evidence": "none", "columns": [
+    {"name": "n", "type": "integer"}, {"name": "page", "type": "integer"},
+    {"name": "kind", "type": "enum", "options": ["passage", "table"]},
+    {"name": "text", "type": "text", "verbatim": True}, {"name": "note", "type": "string"},
+    {"name": "bears_on", "type": "list"}]}
+
+
+def _with_items(d):
+    d["entries"]["fields"].append(copy.deepcopy(ITEMS_TABLE))
+
+
+def test_evidence_review_layout_is_accepted() -> None:
+    """display.review {layout: evidence}: the reader's items — one row each of an entry table —
+    are drawn first, the cells each bears on beneath; paper_fields narrows what is offered when
+    no item bears on a study field. A text column not flagged verbatim is a warning, since it
+    holds passages of the paper that public copies must cut."""
+    doc = copy.deepcopy(GOOD); _with_items(doc)
+    doc["display"]["review"] = {"layout": "evidence", "items": "items", "paper_fields": ["design"]}
+    spec = ps.normalize(doc)
+    errs, warns = ps.validate(spec)
+    assert errs == [] and not any("verbatim" in w for w in warns)
+    assert spec["display"]["review"] == {"layout": "evidence", "items": "items", "paper_fields": ["design"]}
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize({**copy.deepcopy(doc), "display": {"tabs": doc["display"]["tabs"]}}))   # the layout never re-versions a dataset
+    loose = copy.deepcopy(doc); loose["entries"]["fields"][-1]["columns"][3].pop("verbatim")
+    assert any("verbatim" in w for w in ps.validate(ps.normalize(loose))[1])
+    wrong = copy.deepcopy(doc); wrong["entries"]["fields"][-1]["columns"][0]["type"] = "string"
+    try:
+        errs = ps.validate(ps.normalize(wrong))[0]        # normalize validates too and raises
+    except ps.SpecError as e:
+        errs = e.errors
+    assert any("column 'n'" in e for e in errs)
