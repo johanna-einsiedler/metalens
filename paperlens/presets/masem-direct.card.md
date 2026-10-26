@@ -37,6 +37,8 @@ The preset was developed on one meta-analysis and validated on a second that the
 
 A wrong value counts double for precision, recall and the Jaccard index: it is recorded both as a false negative, because the reference value was not recovered, and as a false positive, because a wrong number was returned (FN = OMIT + WRONG, FP = OVER + WRONG). This is a deliberate choice, since an omission or a surplus row in this particular setup is easy to spot for a reviewer, a wrong number is not. The model was GPT-5.6 (`gpt-5.6-sol`, OpenAI, September 2026). The tables give the unverified model output; in parentheses, the output after the coders of the verification study had reviewed and corrected it in this review screen, averaged over those coders.
 
+The validation runs used the prompt as rendered by the earlier MASEMiner application on 25 September 2026: its template of 7 June 2026 with the variable definitions and, for the self-other set, the eligibility rules pasted into the prompt text (the exact texts are part of the evaluation materials). This preset's prompt is that text with four changes: the eligibility rules and the mapping guidance are parameters instead of edits to the text; evidence is required for every non-null sample metadata value, with rules for values obtained by inference; every evidence field must carry its `samples[i]` prefix; and the paper metadata include the journal. The extracted fields and the schema id are the same.
+
 **Table 1 · Development set** — Gnambs (2013), self- and other-rated Big Five personality traits, k = 10 papers.
 
 | Target | n | SEN | PRE | JAC | OMIT | OVER | WRONG |
