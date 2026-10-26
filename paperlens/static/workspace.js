@@ -9,16 +9,17 @@
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, esc, formatKey, stripRowIds } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
-import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, entryNeeds,
-         undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath } from "/static/spec.js";
+import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
+         undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
-let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence), but the reviewer wants the field view
+let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
+let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -503,7 +504,8 @@ function renderPaperPanel(panel) {
   wireStudyIdentity(box);
   const pf = box.querySelector(".paper-fields");
   if (pf) {
-    wireControls(pf, savePaperField, true);
+    wireControls(pf, savePaperPath, true);
+    wirePaperTableRows(pf, () => renderPanel());
     wireConfBadges(pf);
     linkPaperCells(pf);
   }
@@ -548,6 +550,33 @@ function savePaperField(path, value) {
   return api.updatePaper(DATA.document_id, { fields: { [path]: value } })
     .then((r) => { if (r && r.paper_metadata) DATA.paper_metadata = r.paper_metadata; })
     .catch((e) => alert("save failed: " + e.message));
+}
+
+// A cell inside a paper-level TABLE ("statements[2].text"): the API takes declared field names,
+// so the whole table goes, with the cell set on the page's copy.
+function savePaperPath(path, value) {
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)(.*)$/.exec(String(path));
+  if (!m || !m[2]) return savePaperField(path, value);
+  const pm = JSON.parse(JSON.stringify(DATA.paper_metadata || {}));
+  setByPath(pm, path, value);
+  return savePaperField(m[1], pm[m[1]]);
+}
+// ＋ row / ✕ on a paper-level table: the table is saved whole, then the view redrawn.
+function wirePaperTableRows(box, rerender) {
+  box.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
+    const name = b.dataset.path;
+    const pm = DATA.paper_metadata || {};
+    const rows = Array.isArray(pm[name]) ? JSON.parse(JSON.stringify(pm[name])) : [];
+    rows.push(JSON.parse(b.dataset.blank || "{}"));
+    await savePaperField(name, rows); rerender();
+  }));
+  box.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = async () => {
+    const name = b.dataset.path, i = Number(b.dataset.row);
+    const pm = DATA.paper_metadata || {};
+    if (!Array.isArray(pm[name]) || !(i in pm[name])) return;
+    if (!confirm("Remove this row? The change is logged.")) return;
+    await savePaperField(name, pm[name].filter((_, k) => k !== i)); rerender();
+  }));
 }
 
 // A study-constant edit writes to EVERY record (one call) + syncs in-memory records/CONSTANT.
@@ -597,7 +626,7 @@ function renderPanel() {
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
     + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code> ${triage}</span>`
     + `<span class="dlbtns">`
-    + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? (chainSpec() ? "the claims as cause → effect chains with their quotes and results" : "the evidence items, each with the fields it bears on") : "every field, editable"}">${CHAIN_OFF ? (chainSpec() ? "⛓ Chain" : "❝ Evidence") : "▤ Fields"}</button>` : "")
+    + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
@@ -633,6 +662,8 @@ function renderPanel() {
     wirePanelHead();
     return;
   }
+  // the staged layout draws a paper with no entries too: a blind coding starts from the evidence
+  if (stagesSpec() && !CHAIN_OFF && !GRID) { renderStagesPanel(panel, stagesSpec()); wirePanelHead(); renderDocTabs(); return; }
   if (!DATA.records.length) {           // 0-record doc: clear empty state + hand-entry button
     renderPaperPanel(panel);            // paper info above the empty state
     const box = document.createElement("div");
@@ -985,10 +1016,12 @@ function rerenderCard(card, rec) {
   return fresh;
 }
 
-// ＋ row / ✕ on a typed table (factor loadings, correlations, …): the paper may report a
-// row the model missed — a whole factor, say — and a coder must be able to put it in.
-// Both go through the verify layer as corrections, like every other edit.
-function wireTableRows(card, rec) {
+// ＋ row / ✕ on a typed table (factor loadings, correlations, …) and on a sub-entry list (an
+// arm, a result): the paper may report a row the model missed — a whole factor, say — and a
+// coder must be able to put it in. Both go through the verify layer as corrections, like every
+// other edit. `rerender` redraws the view after the save: the card itself by default, the whole
+// panel for a layout whose cells are not inside a record card.
+function wireTableRows(card, rec, rerender = () => rerenderCard(card, rec)) {
   card.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path;
     if (!rec.field_values) rec.field_values = {};
@@ -999,9 +1032,9 @@ function wireTableRows(card, rec) {
     try {
       await saveWholeRecord(rec, [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }]);
       maybeOfferRepublish();
-      const fresh = rerenderCard(card, rec);
+      rerender();
       // inside a quoted attribute selector the brackets are literal — no escaping
-      const first = fresh.querySelector(`[data-path^="${path}[${rows.length - 1}]."]`);
+      const first = document.querySelector(`#panelbody [data-rid="${rec.id}"] [data-path^="${path}[${rows.length - 1}]."]`);
       if (first && first.focus) first.focus();
     } catch (e) { alert("add failed: " + e.message); }
   }));
@@ -1019,7 +1052,7 @@ function wireTableRows(card, rec) {
     live.splice(i, 1);
     try {
       await saveWholeRecord(rec, [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }]);
-      maybeOfferRepublish(); rerenderCard(card, rec);
+      maybeOfferRepublish(); rerender();
     } catch (e) { live.splice(i, 0, row); alert("remove failed: " + e.message); }
   }));
 }
@@ -1100,8 +1133,10 @@ function mountKeys() {
     const t = e.target;
     if (t && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
     const chain = chainSpec() && !CHAIN_OFF && !GRID && !RAW;
+    const staged = stagesSpec() && !CHAIN_OFF && !GRID && !RAW;
     const card = (chain && document.querySelector(".chain-card.cur[data-rid]")) || document.querySelector(".record[data-rid]");
-    if (chain && (e.key === "j" || e.key === "]" || e.key === "k" || e.key === "[")) { chainStep(e.key === "j" || e.key === "]" ? 1 : -1); e.preventDefault(); }
+    if (staged && (e.key === "]" || e.key === "[")) { stageStep(e.key === "]" ? 1 : -1); e.preventDefault(); }
+    else if (chain && (e.key === "j" || e.key === "]" || e.key === "k" || e.key === "[")) { chainStep(e.key === "j" || e.key === "]" ? 1 : -1); e.preventDefault(); }
     else if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
@@ -1111,7 +1146,7 @@ function mountKeys() {
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
       const h = document.createElement("div"); h.className = "kbd-help";
-      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab · <kbd>?</kbd> close`
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage" : ""} · <kbd>?</kbd> close`
         + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
       document.body.appendChild(h);
       $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
@@ -1560,7 +1595,39 @@ function evidenceSpec() {
   const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
   return rv && rv.layout === "evidence" ? rv : null;
 }
-function reviewSpec() { return chainSpec() || evidenceSpec(); }
+function stagesSpec() {
+  const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
+  return rv && rv.layout === "stages" ? rv : null;
+}
+function reviewSpec() { return chainSpec() || evidenceSpec() || stagesSpec(); }
+function reviewToggleLabel() { return chainSpec() ? "⛓ Chain" : stagesSpec() ? "☰ Stages" : "❝ Evidence"; }
+function reviewToggleTitle() {
+  return chainSpec() ? "the claims as cause → effect chains with their quotes and results"
+    : stagesSpec() ? "the paper coded stage by stage, the evidence of each stage first"
+    : "the evidence items, each with the fields it bears on";
+}
+
+// The head of a review layout: previous / next paper, the title, the review progress, and the
+// model's ratings of the paper-level groups (design, sample …).
+function renderReviewHead(panel) {
+  const pr = docProgress();
+  const i = DOCS.findIndex((d) => d.document_id === DOCID);
+  const pm = DATA.paper_metadata || {};
+  const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
+  const head = document.createElement("div"); head.className = "chain-head";
+  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
+    + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
+    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
+    + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
+  head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
+  panel.appendChild(head);
+  const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper" && (DATA.paper_confidence || {})[g.id]);
+  if (pgroups.length) {
+    const gh = document.createElement("div"); gh.className = "group-head evi-pgroups";
+    gh.innerHTML = pgroups.map((g) => renderConfBadge(g.id, g, DATA.paper_confidence[g.id], VM.levels)).join("");
+    panel.appendChild(gh); wireConfBadges(gh);
+  }
+}
 
 const EVI_SRC = /^item\s+(\d+)\s*\((\w+)[^)]*\)\s*(?:→\s*(.*))?$/;
 // The evidence rows grouped by item, in item order: {n, kind, page, ids, snippet, paper: [field],
@@ -1590,6 +1657,10 @@ function evidenceGroups() {
     if (rel && /^[A-Za-z_][A-Za-z0-9_]*$/.test(rel)) {
       if (!g.entry.has(rec.id)) g.entry.set(rec.id, []);
       if (!g.entry.get(rec.id).includes(rel)) g.entry.get(rec.id).push(rel);
+    } else if (rel) {                      // "arms[1].n_arm": that row's cell, drawn under the item
+      const p = parseRel(VM, rel);
+      if (p.childKey && p.field && !g.lower.some((x) => x.name === p.field && x.recId === rec.id && x.childIndex === p.childIndex))
+        g.lower.push({ level: p.childKey, name: p.field, recId: rec.id, childIndex: p.childIndex });
     }
     for (const part of (m[3] || "").split(/,\s*/)) {
       const lm = /^(\w+):\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(part.trim());
@@ -1676,7 +1747,46 @@ function eviEntryBlock(rec, names, kids) {
   return html + `</div>`;
 }
 
-function renderEviItem(g, parsed, recs) {
+// The reader's items: the rows of the items table on each record (entry level) or on the paper.
+// n → item; owner n → the record, or null for a paper-level item (it belongs to no entry).
+function reviewItems(rv) {
+  const parsed = new Map(), owner = new Map();
+  const recs = (DATA.records || []).slice().sort((a, b) => a.entry_index - b.entry_index);
+  for (const rec of recs) for (const [n, it] of itemsFromRows((rec.field_values || {})[rv.items])) if (!parsed.has(n)) { parsed.set(n, it); owner.set(n, rec); }
+  for (const [n, it] of itemsFromRows((DATA.paper_metadata || {})[rv.items])) if (!parsed.has(n)) { parsed.set(n, it); owner.set(n, null); }
+  return { parsed, owner, recs };
+}
+
+// The evidence groups and the items table joined: an item the table lists but no evidence row
+// cites (its quote was not found, say) still shows, and the row's own bears_on places the item's
+// cells even where no evidence row was located. A paper-level item bears on every record's entry
+// and sub-entry fields. g.names holds everything the item bears on, whatever the level.
+function mergedItems(rv) {
+  const { parsed, owner, recs } = reviewItems(rv);
+  const groups = evidenceGroups();
+  for (const [n, it] of parsed) if (!groups.some((g) => g.n === n)) groups.push({ n, kind: it.kind, page: +it.page || null, ids: [], snippet: it.text || "", paper: [], entry: new Map(), lower: [] });
+  const pnames = new Set(VM.paper.fields.map((f) => f.name)), enames = new Set(VM.entries.fields.map((f) => f.name));
+  for (const g of groups) {
+    g.names = new Set([...g.paper, ...[...g.entry.values()].flat(), ...g.lower.map((x) => x.name)]);
+    const it = parsed.get(g.n); if (!it) continue;
+    const rec = owner.get(g.n);
+    const targets = rec ? [rec] : recs;
+    for (const name of it.bearsOn) {
+      g.names.add(name);
+      if (pnames.has(name)) { if (!g.paper.includes(name)) g.paper.push(name); continue; }
+      for (const r of targets) {
+        if (enames.has(name)) { if (!g.entry.has(r.id)) g.entry.set(r.id, []); if (!g.entry.get(r.id).includes(name)) g.entry.get(r.id).push(name); }
+        else if (!g.lower.some((x) => x.name === name && x.recId === r.id && x.childIndex == null)) g.lower.push({ level: "", name, recId: r.id, childIndex: null });
+      }
+    }
+  }
+  groups.sort((a, b) => a.n - b.n);
+  return { groups, parsed, recs };
+}
+
+// One item: its head (number, kind, page jump, note), its body (the quote, or the table), and
+// the cells it bears on — the default block, or the `cells` html a layout passes (null: none).
+function renderEviItem(g, parsed, recs, cells) {
   const it = parsed || {};
   const kind = g.kind || it.kind || "passage";
   const sec = document.createElement("section");
@@ -1684,11 +1794,13 @@ function renderEviItem(g, parsed, recs) {
   const body = kind === "table"
     ? `<div class="evi-body evi-tbl">${eviTableHtml(it.lines || [], g.snippet)}</div>`
     : `<div class="evi-body">“${esc(it.text || g.snippet)}”</div>`;
-  let cells = g.paper.length ? eviPaperBlock(g.paper) : "";
-  for (const rec of recs) cells += eviEntryBlock(rec, g.entry.get(rec.id) || [], eviChildren(g.lower.filter((x) => x.recId === rec.id)));
+  if (cells === undefined) {
+    cells = g.paper.length ? eviPaperBlock(g.paper) : "";
+    for (const rec of recs) cells += eviEntryBlock(rec, g.entry.get(rec.id) || [], eviChildren(g.lower.filter((x) => x.recId === rec.id)));
+  }
   sec.innerHTML = `<div class="evi-head"><span class="evi-id">item ${g.n}</span><span class="tag">${esc(kind)}</span>${eviCite(g)}`
     + (it.note ? `<span class="evi-note muted">${esc(it.note)}</span>` : "") + `</div>` + body
-    + (cells ? `<div class="evi-cells">${cells}</div>` : `<div class="evi-cells muted evi-nothing">bears on no field in particular</div>`);
+    + (cells === null ? "" : cells ? `<div class="evi-cells">${cells}</div>` : `<div class="evi-cells muted evi-nothing">bears on no field in particular</div>`);
   return sec;
 }
 
@@ -1697,7 +1809,7 @@ function renderEviItem(g, parsed, recs) {
 function renderEviRest(rv, groups, recs) {
   const seenPaper = new Set(groups.flatMap((g) => g.paper));
   const allowed = Array.isArray(rv.paper_fields) ? new Set(rv.paper_fields) : null;
-  const paperRest = VM.paper.fields.filter((f) => !seenPaper.has(f.name) && (!allowed || allowed.has(f.name))).map((f) => f.name);
+  const paperRest = VM.paper.fields.filter((f) => f.name !== rv.items && !seenPaper.has(f.name) && (!allowed || allowed.has(f.name))).map((f) => f.name);
   let cells = paperRest.length ? eviPaperBlock(paperRest) : "";
   for (const rec of recs) {
     const seen = new Set(groups.flatMap((g) => g.entry.get(rec.id) || []));
@@ -1713,7 +1825,8 @@ function renderEviRest(rv, groups, recs) {
 }
 
 // One strip per entry: its title, review status, the model's ratings, verify / flag, history.
-function renderEviStrip(panel, rec) {
+function renderEviStrip(panel, rec) { panel.appendChild(eviStripEl(rec)); }
+function eviStripEl(rec) {
   const card = document.createElement("div");
   card.className = "record evi-rec"; card.dataset.rid = rec.id;
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
@@ -1731,46 +1844,13 @@ function renderEviStrip(panel, rec) {
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   wireConfBadges(card);
-  panel.appendChild(card);
+  return card;
 }
 
 function renderEvidencePanel(panel, rv) {
-  const pr = docProgress();
-  const i = DOCS.findIndex((d) => d.document_id === DOCID);
-  const pm = DATA.paper_metadata || {};
-  const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
-  const head = document.createElement("div"); head.className = "chain-head";
-  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
-    + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
-    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
-    + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
-  head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
-  panel.appendChild(head);
-  // the model's ratings of the paper-level groups (design, sample …)
-  const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper" && (DATA.paper_confidence || {})[g.id]);
-  if (pgroups.length) {
-    const gh = document.createElement("div"); gh.className = "group-head evi-pgroups";
-    gh.innerHTML = pgroups.map((g) => renderConfBadge(g.id, g, DATA.paper_confidence[g.id], VM.levels)).join("");
-    panel.appendChild(gh); wireConfBadges(gh);
-  }
-  const recs = (DATA.records || []).slice().sort((a, b) => a.entry_index - b.entry_index);
+  renderReviewHead(panel);
+  const { groups, parsed, recs } = mergedItems(rv);
   for (const rec of recs) renderEviStrip(panel, rec);
-  const groups = evidenceGroups();
-  const parsed = new Map(), owner = new Map();
-  for (const rec of recs) for (const [n, it] of itemsFromRows((rec.field_values || {})[rv.items])) if (!parsed.has(n)) { parsed.set(n, it); owner.set(n, rec); }
-  // an item the table lists but no evidence row cites (its quote was not found, say) still shows
-  for (const [n, it] of parsed) if (!groups.some((g) => g.n === n)) groups.push({ n, kind: it.kind, page: +it.page || null, ids: [], snippet: it.text || "", paper: [], entry: new Map(), lower: [] });
-  // the row's own bears_on list places the item's cells even where no evidence row was located
-  const pnames = new Set(VM.paper.fields.map((f) => f.name)), enames = new Set(VM.entries.fields.map((f) => f.name));
-  for (const g of groups) {
-    const it = parsed.get(g.n), rec = owner.get(g.n); if (!it || !rec) continue;
-    for (const name of it.bearsOn) {
-      if (pnames.has(name)) { if (!g.paper.includes(name)) g.paper.push(name); }
-      else if (enames.has(name)) { if (!g.entry.has(rec.id)) g.entry.set(rec.id, []); if (!g.entry.get(rec.id).includes(name)) g.entry.get(rec.id).push(name); }
-      else if (!g.lower.some((x) => x.name === name && x.recId === rec.id)) g.lower.push({ level: "", name, recId: rec.id });
-    }
-  }
-  groups.sort((a, b) => a.n - b.n);
   for (const g of groups) panel.appendChild(renderEviItem(g, parsed.get(g.n), recs));
   if (!groups.length) panel.insertAdjacentHTML("beforeend", `<p class="muted">No evidence items on this paper.</p>`);
   panel.appendChild(renderEviRest(rv, groups, recs));
@@ -1792,8 +1872,7 @@ function eviSync(scope, path, val) {
       if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
       else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
     } else if (cell.classList.contains("rv-multi")) {
-      const vals = new Set((Array.isArray(val) ? val : []).map(String));
-      cell.querySelectorAll('input[type="checkbox"]').forEach((cb) => (cb.checked = vals.has(cb.value)));
+      multiSetValues(cell, val);
     }
   });
 }
@@ -1801,7 +1880,8 @@ function eviSync(scope, path, val) {
 function wireEvidencePanel(panel, recs) {
   const byId = new Map(recs.map((r) => [r.id, r]));
   panel.querySelectorAll(".evi-paper").forEach((box) => {
-    wireControls(box, (p, v) => { eviSync(".evi-paper", p, v); return savePaperField(p, v); }, true);
+    wireControls(box, (p, v) => { eviSync(".evi-paper", p, v); return savePaperPath(p, v); }, true);
+    wirePaperTableRows(box, rerenderKeep);
     linkPaperCells(box);
   });
   panel.querySelectorAll(".evi-entry[data-rid]").forEach((box) => {
@@ -1816,6 +1896,218 @@ function wireEvidencePanel(panel, recs) {
     b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
     b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
   });
+}
+
+// ── the staged layout: the paper coded stage by stage, the evidence of each stage first ─────────
+// Declared by display.review (layout "stages"): `items` names the reader's items table (on the
+// entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
+// paper fields, entry fields, or one child's fields. A stage shows its instruction, the items
+// whose bears_on meets its fields (the cells they bear on beneath, restricted to the stage), the
+// rest of the items folded, then the stage's cells: the paper fields; every entry with "＋ add";
+// or each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
+// copy_from_sibling, "same as <the reference row>". Saves and verification are the generic card's.
+function stageLevel(st) {
+  if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
+  if (st.fields) return { scope: "entry", names: new Set(st.fields), child: null };
+  return { scope: "child", names: new Set(st.child_fields || []), child: VM.entries.children.find((c) => c.key === st.child) || null };
+}
+function fieldLabel(name) {
+  const info = VM.fieldIndex.get(name);
+  return info && info.field ? info.field.label || formatKey(name) : name;
+}
+const stageLetter = (i) => String.fromCharCode(97 + (i % 26));
+
+// The cells of an item, restricted to the stage: the study fields it bears on; each entry's
+// fields; or the rows of the child it names (those rows, those fields — or the names, when the
+// rows do not exist yet).
+function stageItemCells(g, L, recs) {
+  if (L.scope === "paper") return eviPaperBlock(g.paper.filter((n) => L.names.has(n)));
+  let html = "";
+  for (const rec of recs) {
+    if (L.scope === "entry") { html += eviEntryBlock(rec, (g.entry.get(rec.id) || []).filter((n) => L.names.has(n)), new Map()); continue; }
+    if (!L.child) continue;
+    const mine = g.lower.filter((x) => x.recId === rec.id && L.names.has(x.name));
+    if (!mine.length) continue;
+    const only = new Set(mine.filter((x) => x.childIndex !== null && x.childIndex !== undefined).map((x) => x.childIndex));
+    const show = new Set(mine.map((x) => x.name));
+    const rows = (rec.field_values || {})[L.child.key];
+    html += `<div class="evi-entry" data-rid="${esc(rec.id)}"><div class="evi-sub">${esc(entryTitle(VM, rec, rec.entry_index))}</div>`
+      + (only.size && Array.isArray(rows) && rows.length
+          ? renderChild(L.child, rows, { editable: true, only, show })
+          : `<div class="evi-lower muted">bears on <b>${esc(L.child.label || L.child.key)}</b>: ${[...show].map((n) => esc(fieldLabel(n))).join(", ")}</div>`)
+      + `</div>`;
+  }
+  return html;
+}
+
+function addEntryButton() {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "stg-addtask chain-addres";
+  b.textContent = `＋ add ${VM.entries.label.toLowerCase()}`;
+  b.title = `a new ${VM.entries.label.toLowerCase()}, blank, every cell editable`;
+  return b;
+}
+
+// The copy actions of a child stage: "copy <children> from <another entry>" and, where the stage
+// declares copy_from_sibling, one "same as <reference>" button per row that is not the reference.
+function stageCopyControls(st, L, rec, recs) {
+  const key = L.child.key, label = (L.child.label || key).toLowerCase();
+  const rows = (rec.field_values || {})[key];
+  const others = recs.filter((r) => r !== rec && Array.isArray((r.field_values || {})[key]) && r.field_values[key].length);
+  let html = "";
+  if (others.length) html += `<label class="muted">copy ${esc(label)}s from <select class="stg-copyfrom" data-rid="${esc(rec.id)}" title="a deep copy of that ${esc(VM.entries.label.toLowerCase())}'s ${esc(label)}s, replacing these">`
+    + `<option value="">…</option>${others.map((r) => `<option value="${esc(r.id)}">${esc(entryTitle(VM, r, r.entry_index))} (${r.field_values[key].length})</option>`).join("")}</select></label>`;
+  const cs = st.copy_from_sibling;
+  if (cs && Array.isArray(rows)) {
+    const ref = rows.findIndex((r) => r && r[cs.when] === true);
+    if (ref >= 0) {
+      const refTitle = childTitle(L.child, rows[ref], ref);
+      html += rows.map((r, j) => j === ref || !r ? "" : `<button type="button" class="stg-same" data-rid="${esc(rec.id)}" data-row="${j}" title="copy ${esc(cs.fields.map(fieldLabel).join(", "))} from ${esc(refTitle)}">${esc(childTitle(L.child, r, j))}: same as ${esc(refTitle)}</button>`).join("");
+    }
+  }
+  return html ? `<div class="stg-copy">${html}</div>` : "";
+}
+
+// The stage's own cells: the paper fields; or, per entry, a strip (title, status, verify / flag,
+// history, delete) with the stage's entry fields, or with the child's rows and the copy actions.
+function stageCellsBlock(st, L, recs) {
+  const box = document.createElement("div"); box.className = "stg-cells";
+  const unit = VM.entries.label.toLowerCase();
+  if (L.scope === "paper") { box.innerHTML = eviPaperBlock([...L.names]); return box; }
+  if (!recs.length) {
+    box.innerHTML = `<div class="stg-empty muted">${L.scope === "entry" ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`;
+    if (L.scope === "entry") box.appendChild(addEntryButton());
+    return box;
+  }
+  for (const rec of recs) {
+    const card = eviStripEl(rec); card.classList.add("evi-entry", "stg-entry");
+    const fv = rec.field_values || {};
+    if (L.scope === "entry") {
+      const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
+      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
+    } else if (L.child) {
+      const rows = fv[L.child.key];
+      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(L.child.key)}">`
+        + `<div class="rv-key" data-path="${esc(L.child.key)}" title="${esc(L.child.help || "")}">${esc(L.child.label || formatKey(L.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
+        + `<div class="rv-val rv-nested">${renderChild(L.child, rows, { editable: true, show: L.names })}</div></div></div>`
+        + stageCopyControls(st, L, rec, recs));
+    }
+    box.appendChild(card);
+  }
+  if (L.scope === "entry") box.appendChild(addEntryButton());
+  return box;
+}
+
+function renderStagesPanel(panel, rv) {
+  const stages = rv.stages || [];
+  STAGE = Math.max(0, Math.min(STAGE, stages.length - 1));
+  const st = stages[STAGE] || {}, L = stageLevel(st);
+  const unit = VM.entries.label.toLowerCase();
+  renderReviewHead(panel);
+  const pr = docProgress();
+  const confirmed = DATA._sentinel && DATA._sentinel.verification_status === "verified";
+  const bar = document.createElement("div"); bar.className = "stg-bar";
+  bar.innerHTML = `<button type="button" class="chain-nav stg-prev" title="previous stage ([)"${STAGE > 0 ? "" : " disabled"}>‹</button>`
+    + stages.map((s, i) => `<button type="button" class="stg-tab${i === STAGE ? " active" : ""}" data-i="${i}" title="${esc(s.help || "")}"><span class="stg-k">${stageLetter(i)}</span> ${esc(s.label || s.id)}</button>`).join("")
+    + `<button type="button" class="chain-nav stg-next" title="next stage (])"${STAGE < stages.length - 1 ? "" : " disabled"}>›</button>`
+    + `<span class="stg-prog muted">${pr.total ? (pr.done ? `✓ every ${esc(unit)} verified` : `${pr.reviewed} / ${pr.total} ${esc(unit)}s verified`) : `no ${esc(unit)} yet`}</span>`
+    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="mark every unreviewed ${esc(unit)} verified — the paper is done when all are">✓ verify all ${esc(unit)}s</button>` : "")
+    + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(unit)}s</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(unit)}s here</button>`) : "");
+  panel.appendChild(bar);
+  if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }
+  const { groups, parsed, recs } = mergedItems(rv);
+  const inStage = groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
+  const rest = groups.filter((g) => !inStage.includes(g));
+  const items = document.createElement("div"); items.className = "stg-items";
+  for (const g of inStage) {
+    const cells = stageItemCells(g, L, recs)
+      || `<div class="evi-lower muted">bears on: ${[...g.names].filter((n) => L.names.has(n)).map((n) => esc(fieldLabel(n))).join(", ")}</div>`;
+    items.appendChild(renderEviItem(g, parsed.get(g.n), recs, cells));
+  }
+  if (!inStage.length) items.innerHTML = `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`;
+  panel.appendChild(items);
+  if (rest.length) {
+    const det = document.createElement("details"); det.className = "stg-other";
+    det.innerHTML = `<summary>other evidence (${rest.length})</summary>`;
+    for (const g of rest) det.appendChild(renderEviItem(g, parsed.get(g.n), recs, null));
+    panel.appendChild(det);
+  }
+  panel.appendChild(stageCellsBlock(st, L, recs));
+  wireEvidencePanel(panel, recs);
+  wireStagePanel(panel, recs, st, L);
+  setContextEvidence(inStage.flatMap((g) => g.ids));
+}
+
+// Redraw the panel after a structural edit, keeping the scroll position.
+function rerenderKeep() {
+  const tops = ["#panel", "#panelbody"].map((s) => [$(s), $(s) ? $(s).scrollTop : 0]);
+  renderPanel();
+  for (const [el, top] of tops) if (el) el.scrollTop = top;
+}
+function stageStep(dir) {
+  const n = ((stagesSpec() || {}).stages || []).length;
+  STAGE = Math.max(0, Math.min(n - 1, STAGE + dir));
+  renderPanel();
+  for (const s of ["#panel", "#panelbody"]) if ($(s)) $(s).scrollTop = 0;
+}
+
+async function verifyAll(btn) {
+  btn.disabled = true;
+  try {
+    for (const rec of DATA.records || []) {
+      if (rec.verification_status === "verified" || rec.verification_status === "flagged") continue;
+      await api.verify(rec.id, { status: "verified" });
+      rec.verification_status = "verified";
+    }
+    maybeOfferRepublish(); refreshNavState(); rerenderKeep();
+  } catch (e) { btn.disabled = false; alert("verify failed: " + e.message); }
+}
+
+function wireStagePanel(panel, recs, st, L) {
+  const byId = new Map(recs.map((r) => [r.id, r]));
+  panel.querySelectorAll(".stg-tab").forEach((b) => (b.onclick = () => stageStep(+b.dataset.i - STAGE)));
+  const prev = panel.querySelector(".stg-prev"), next = panel.querySelector(".stg-next");
+  if (prev) prev.onclick = () => stageStep(-1);
+  if (next) next.onclick = () => stageStep(1);
+  panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = doAddFinding));
+  const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
+  const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
+  panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
+    const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep);
+  });
+  panel.querySelectorAll(".stg-copyfrom").forEach((sel) => (sel.onchange = async () => {
+    const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value); sel.value = "";
+    if (!rec || !src || !L.child) return;
+    const key = L.child.key, label = (L.child.label || key).toLowerCase();
+    const have = Array.isArray((rec.field_values || {})[key]) ? rec.field_values[key].length : 0;
+    if (have && !confirm(`Replace the ${have} ${label}${have === 1 ? "" : "s"} of ${entryTitle(VM, rec, rec.entry_index)} with a copy of those of ${entryTitle(VM, src, src.entry_index)}? The change is logged.`)) return;
+    const was = JSON.parse(JSON.stringify((rec.field_values || {})[key] || []));
+    const copy = stripRowIds(JSON.parse(JSON.stringify(src.field_values[key])));
+    if (!rec.field_values) rec.field_values = {};
+    rec.field_values[key] = copy;
+    try {
+      await saveWholeRecord(rec, [{ field_path: key, original_value: `(${have} ${label}${have === 1 ? "" : "s"})`, final_value: `(${copy.length} ${label}${copy.length === 1 ? "" : "s"} copied from ${entryTitle(VM, src, src.entry_index)})` }]);
+      maybeOfferRepublish(); rerenderKeep();
+    } catch (e) { rec.field_values[key] = was; alert("copy failed: " + e.message); }
+  }));
+  panel.querySelectorAll(".stg-same").forEach((b) => (b.onclick = async () => {
+    const rec = byId.get(b.dataset.rid), j = Number(b.dataset.row), cs = st.copy_from_sibling;
+    if (!rec || !cs || !L.child) return;
+    const rows = (rec.field_values || {})[L.child.key] || [];
+    const ref = rows.find((r) => r && r[cs.when] === true), row = rows[j];
+    if (!ref || !row) return;
+    const diff = [], was = {};
+    for (const f of cs.fields) {
+      const from = ref[f] === undefined ? null : ref[f], to = row[f] === undefined ? null : row[f];
+      if (JSON.stringify(from) === JSON.stringify(to)) continue;
+      was[f] = row[f];
+      diff.push({ field_path: `${L.child.key}[${j}].${f}`, original_value: to, final_value: from });
+      row[f] = JSON.parse(JSON.stringify(from));
+    }
+    if (!diff.length) return;
+    try { await saveWholeRecord(rec, diff); maybeOfferRepublish(); rerenderKeep(); }
+    catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert("copy failed: " + e.message); }
+  }));
 }
 
 // The sub-entries (arms, results …) are added and edited on the generic tabs: switch to the
@@ -1979,12 +2271,49 @@ function wireControls(container, onSave, textToo) {
   });
   container.querySelectorAll(".rv-multi").forEach((mbox) => {
     const path = mbox.dataset.path;
-    mbox.querySelectorAll('input[type="checkbox"]').forEach((cb) => (cb.onchange = () => {
-      mbox.classList.add("rv-edited");
-      const vals = [...mbox.querySelectorAll('input[type="checkbox"]:checked')].map((x) => x.value);
-      onSave(path, vals);
-    }));
+    const commit = () => { mbox.classList.add("rv-edited"); onSave(path, multiValues(mbox)); };
+    // one listener on the box: a chip added later (a typed term, a synced twin) is covered too
+    mbox.addEventListener("change", (e) => {
+      const cb = e.target;
+      if (!cb || cb.type !== "checkbox") return;
+      if (cb.dataset.free && !cb.checked) cb.closest(".rv-chk").remove();   // an unticked term leaves the list
+      commit();
+    });
+    const other = mbox.querySelector(".rv-multi-other");
+    if (other) {
+      const add = () => {
+        const term = other.value.trim(); other.value = "";
+        if (!term) return;
+        const box = [...mbox.querySelectorAll('input[type="checkbox"]')].find((cb) => cb.value === term);
+        if (box) { if (!box.checked) { box.checked = true; commit(); } return; }   // a declared code typed out: tick it
+        other.insertAdjacentHTML("beforebegin", freeChip(term));
+        commit();
+      };
+      other.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+      other.addEventListener("blur", add);
+    }
   });
+}
+
+// A multi control's value: the ticked boxes in order — declared codes and the paper's own terms
+// in one list. Setting a value ticks the declared boxes, drops the chips of terms no longer
+// listed and adds a chip for every term that has no box, so twins of one cell agree.
+function multiValues(mbox) {
+  return [...mbox.querySelectorAll('input[type="checkbox"]:checked')].map((x) => x.value);
+}
+function multiSetValues(mbox, val) {
+  const vals = (Array.isArray(val) ? val : []).map(String);
+  mbox.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    if (cb.dataset.free) { if (vals.includes(cb.value)) cb.checked = true; else cb.closest(".rv-chk").remove(); }
+    else cb.checked = vals.includes(cb.value);
+  });
+  const have = new Set([...mbox.querySelectorAll('input[type="checkbox"]')].map((cb) => cb.value));
+  const anchor = mbox.querySelector(".rv-multi-other");
+  for (const x of vals) {
+    if (have.has(x)) continue;
+    if (anchor) anchor.insertAdjacentHTML("beforebegin", freeChip(x)); else mbox.insertAdjacentHTML("beforeend", freeChip(x));
+    have.add(x);
+  }
 }
 
 // A page-REFERENCE field (page / evidence_page / *_page) holds a page number, not a value

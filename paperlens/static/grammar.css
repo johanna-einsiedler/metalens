@@ -57,6 +57,9 @@
 .rv-multi { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .rv-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
 .rv-chk input { width: auto; margin: 0; }
+/* a multi value outside the declared options (the paper's own term): a chip the coder can untick */
+.rv-chk.rv-free { border: 1px dashed var(--border); border-radius: 999px; padding: 0 7px; }
+.rv-multi .rv-multi-other { font-size: 12px; padding: 1px 6px; min-width: 110px; flex: 0 1 140px; }
 
 /* confidence badges */
 .confidence-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
@@ -297,6 +300,10 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
              font-size: 11px; padding: 0 2px; opacity: 0; transition: opacity .12s; }
 tr:hover .rv-rowdel { opacity: .75; }
 .rv-rowdel:hover { color: #b3261e; opacity: 1; }
+/* the same two buttons on a sub-entry (an arm, a result): a card's ✕ sits at the end of its head line */
+.rv-childcards .rv-tableadd, .rv-child + .rv-tableadd { margin: 2px 0 6px; }
+.rc-head .rv-rowdel { opacity: .5; margin-left: auto; }
+.rv-card:hover .rv-rowdel { opacity: .85; }
 
 /* display.inline_evidence: a field's note and quotes under it */
 .rv-inline { margin: -2px 0 10px; padding: 4px 0 2px 10px; border-left: 2px solid var(--border); }
@@ -360,3 +367,27 @@ tr:hover .rv-rowdel { opacity: .75; }
 .evi-rec { padding: 8px 12px; } .evi-rec .rectitle { margin-bottom: 4px; } .evi-rec .verify { margin-bottom: 4px; }
 .evi-rest { border-style: dashed; }
 .evi-pgroups { margin: 0 0 8px; }
+/* the staged layout: a stage bar, the stage's instruction, its items, the rest folded, its cells */
+.stg-bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0 0 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.stg-tab { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 999px; padding: 2px 10px 2px 6px; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.stg-tab:hover { color: var(--accent); border-color: var(--accent-3); }
+.stg-tab.active { color: var(--text); border-color: var(--accent); background: var(--accent-wash); font-weight: 600; }
+.stg-k { font: 700 10.5px ui-monospace, Menlo, monospace; text-transform: uppercase; background: var(--bg); border-radius: 999px; padding: 0 5px; color: var(--text-muted); }
+.stg-tab.active .stg-k { background: var(--accent); color: #fff; }
+.stg-prog { font-size: 12px; margin-left: auto; }
+.stg-help { font-size: 13px; line-height: 1.5; padding: 8px 12px; margin: 0 0 10px; border-left: 3px solid var(--accent); background: var(--accent-wash); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.stg-help p { margin: 0 0 6px; } .stg-help p:last-child { margin: 0; }
+.stg-items .evi-item:last-child { margin-bottom: 10px; }
+.stg-noitems { font-size: 12.5px; margin: 0 0 10px; }
+.stg-other { margin: 0 0 12px; border: 1px dashed var(--border); border-radius: var(--radius); padding: 4px 12px; }
+.stg-other > summary { cursor: pointer; color: var(--text-muted); font-size: 12.5px; padding: 4px 0; }
+.stg-other .evi-item { margin: 6px 0; }
+.stg-cells { border-top: 2px solid var(--border); padding-top: 10px; }
+.stg-entry { margin-bottom: 10px; }
+.stg-fields { margin-top: 4px; }
+.stg-empty { font-size: 12.5px; margin: 0 0 8px; }
+.stg-addtask { display: block; margin: 4px 0 10px; }
+.stg-copy { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 2px; font-size: 12px; }
+.stg-copyfrom { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.stg-same { border: 1px dashed var(--border); background: none; color: var(--text-muted); border-radius: var(--radius-sm); padding: 1px 8px; cursor: pointer; font-size: 11.5px; }
+.stg-same:hover { color: var(--accent); border-color: var(--accent-3); background: var(--accent-wash); }

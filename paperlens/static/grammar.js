@@ -61,10 +61,11 @@ function renderControl(v, path, ft) {
   const options = ft.options || [];
   if (ft.type === "multiselect") {
     const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
+    const known = options.map(String);
     const boxes = options.map((o) =>
       `<label class="rv-chk"><input type="checkbox" value="${esc(o)}"${cur.includes(String(o)) ? " checked" : ""}/>${esc(o)}</label>`
     ).join("");
-    return `<span class="rv-multi" data-path="${esc(path)}">${boxes}</span>`;
+    return `<span class="rv-multi${ft.allow_other ? " rv-multi-open" : ""}" data-path="${esc(path)}">${boxes}${multiFree(cur, known, !!ft.allow_other)}</span>`;
   }
   const val = (v == null) ? "" : String(v);
   const known = options.map(String);
@@ -77,6 +78,18 @@ function renderControl(v, path, ft) {
     ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>`
     : "";
   return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select">${optionsHtml}</select>${other}</span>`;
+}
+
+// The tail of a multi control. A stored value outside the declared options — the paper's own
+// term — is drawn as a checked chip the coder can untick, so it is never dropped unseen; with
+// `allow_other` an input follows where a new term is typed (Enter adds it).
+export function freeChip(x) {
+  return `<label class="rv-chk rv-free" title="the paper's own term"><input type="checkbox" value="${esc(x)}" checked data-free="1"/>${esc(x)}</label>`;
+}
+function multiFree(cur, known, open) {
+  const chips = cur.filter((x) => !known.includes(x)).map(freeChip).join("");
+  const input = open ? `<input class="rv-other rv-multi-other" type="text" placeholder="other…" title="a term of the paper's own — Enter adds it to the list"/>` : "";
+  return chips + input;
 }
 
 function renderObj(obj, path, opts) {
@@ -196,9 +209,10 @@ function renderTypedValue(f, v, path, opts) {
   }
   if (t === "multi" && editable && (Array.isArray(f.options) ? f.options.length : false)) {
     const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
-    const boxes = _opts(f).map((o) =>
+    const options = _opts(f);
+    const boxes = options.map((o) =>
       `<label class="rv-chk"><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
-    return `<span class="rv-multi" data-path="${esc(path)}">${boxes}</span>`;
+    return `<span class="rv-multi${f.allow_other ? " rv-multi-open" : ""}" data-path="${esc(path)}">${boxes}${multiFree(cur, options.map((o) => String(o.value)), !!f.allow_other)}</span>`;
   }
   if (t === "boolean" && editable) {
     const val = v === true ? "true" : v === false ? "false" : "";
@@ -237,7 +251,7 @@ function renderTypedTable(f, v, path, opts) {
   // factor (or any other row) the model missed, and it needs somewhere to go
   const addBtn = opts.editable && cols.length
     ? `<button type="button" class="rv-addrow" data-path="${esc(path)}" title="add a row — logged as a correction"`
-      + ` data-blank="${esc(JSON.stringify(Object.fromEntries(cols.map((c) => [c.name, null]))))}">＋ row</button>`
+      + ` data-blank="${esc(JSON.stringify(blankRow(cols)))}">＋ row</button>`
     : "";
   if (v && typeof v === "object" && !Array.isArray(v) && !Array.isArray(v._table)) {
     const rows = Object.entries(v).map(([k, x]) =>
@@ -278,35 +292,54 @@ export function renderFields(defs, obj, basePath, opts) {
   return `<div class="rv-obj">${rows}</div>`;
 }
 
+// A blank row of declared fields, typed like a seeded entry: [] for tables, multi and lists,
+// null for everything else — so every cell is immediately editable.
+export function blankRow(defs) {
+  return Object.fromEntries((defs || []).map((f) => [f.name, f.type === "table" || f.type === "multi" || f.type === "list" ? [] : null]));
+}
+
 // A sub-entry array: a typed table (one row per element, row-citation cell first) or one
 // card per element with its title. Paths keep the child index so evidence + edits bind.
+// Editable, it carries "＋ <label>" and a "✕" per row (wired like a typed table's rows, saved as a
+// correction of the whole record). `opts.show` (a Set of field names) draws only those fields;
+// `opts.only` (a Set of row indices) draws only those rows — paths keep the real index — and
+// then neither button, since the rows are being shown under a piece of evidence, not managed.
 export function renderChild(child, rows, opts) {
   const key = child.key;
+  const label = child.label || formatKey(key);
+  const manage = !!opts.editable && !opts.only;
+  const addBtn = manage
+    ? `<div class="rv-tableadd"><button type="button" class="rv-addrow" data-path="${esc(key)}" title="add ${esc(label.toLowerCase())} — logged as a correction"`
+      + ` data-blank="${esc(JSON.stringify(blankRow(child.fields)))}">＋ ${esc(label)}</button></div>`
+    : "";
+  const del = (k) => manage ? `<button type="button" class="rv-rowdel" data-path="${esc(key)}" data-row="${k}" title="remove this ${esc(label.toLowerCase())} — logged as a correction">✕</button>` : "";
   const list = Array.isArray(rows) ? rows : (rows && Array.isArray(rows._table) ? rows._table : null);
-  if (list === null || list === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>`;
-  if (!list.length) return `<span class="rv-null">none</span>`;
-  const defs = child.fields || [];
+  if (list === null || list === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>${addBtn}`;
+  if (!list.length) return `<span class="rv-null">none</span>${addBtn}`;
+  const defs = (child.fields || []).filter((f) => !opts.show || opts.show.has(f.name));
+  const picked = list.map((r, k) => [r, k]).filter(([, k]) => !opts.only || opts.only.has(k));
   if ((child.layout || "table") === "table") {
-    const names = defs.map((f) => f.name);
-    const extra = [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
+    const names = (child.fields || []).map((f) => f.name);
+    const extra = opts.show ? [] : [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
     const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
-      + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("");
-    const body = list.map((r, k) => {
+      + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("") + (manage ? `<th class="rv-rowdel-h"></th>` : "");
+    const body = picked.map(([r, k]) => {
       const base = `${key}[${k}]`;
       const cells = defs.map((f) => `<td${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${renderTypedValue(f, r ? r[f.name] : undefined, `${base}.${f.name}`, opts)}</td>`).join("")
-        + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("");
+        + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("")
+        + (manage ? `<td class="rv-rowdel-c">${del(k)}</td>` : "");
       return `<tr class="rv-childrow" data-rowpath="${esc(base)}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;
     }).join("");
     return `<div class="rv-tablewrap rv-child" data-child="${esc(key)}"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
-      + `<tbody>${body}</tbody></table></div>`;
+      + `<tbody>${body}</tbody></table></div>${addBtn}`;
   }
-  return `<div class="rv-child rv-childcards" data-child="${esc(key)}">` + list.map((r, k) => {
+  return `<div class="rv-child rv-childcards" data-child="${esc(key)}">` + picked.map(([r, k]) => {
     const base = `${key}[${k}]`;
     const title = (child.title || "").replace(/\{(#|[A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) =>
-      n === "#" ? String(k + 1) : (r && r[n] != null && typeof r[n] !== "object" ? String(r[n]) : "")).trim() || `${child.label || key} ${k + 1}`;
+      n === "#" ? String(k + 1) : (r && r[n] != null && typeof r[n] !== "object" ? String(r[n]) : "")).trim() || `${label} ${k + 1}`;
     return `<div class="rv-card rv-childrow" data-rowpath="${esc(base)}"><div class="rc-head"><span class="rv-rowcite" data-rowpath="${esc(base)}"></span>`
-      + `<span class="rc-h">${esc(title)}</span><span class="rc-conf" data-rowpath="${esc(base)}"></span></div>${renderFields(defs, r, base, opts)}</div>`;
-  }).join("") + `</div>`;
+      + `<span class="rc-h">${esc(title)}</span><span class="rc-conf" data-rowpath="${esc(base)}"></span>${del(k)}</div>${renderFields(defs, r, base, opts)}</div>`;
+  }).join("") + `</div>${addBtn}`;
 }
 
 // A confidence badge for one group: level + a click-to-open notes line. The notes are what
