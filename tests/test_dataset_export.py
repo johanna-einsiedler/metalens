@@ -72,6 +72,8 @@ def test_records_are_grouped_under_their_paper_with_ids() -> None:
     assert paper["paper"]["doi"] == "10.1037/abc.0000123"
     assert paper["paper"]["year"] == 2022
     assert len(paper["records"]) == 2
+    # the declared paper-level fields travel with the paper, not with its records
+    assert paper["paper_metadata"]["title"] == "A meta-analysis of remote-work productivity"
 
     r = paper["records"][0]
     assert r["record_id"] and r["entry_index"] == 0            # the id that was missing
@@ -152,3 +154,58 @@ def test_export_is_private_to_the_owner() -> None:
     r = _client("exp-stranger").get(f"/api/datasets/{ds['id']}/export",
                                     headers={"X-Session-Id": "exp-stranger"})
     assert r.status_code == 404
+
+
+def test_export_carries_the_prompt_and_each_papers_provenance() -> None:
+    """A dataset saved from the workspace records no prompt; its documents do. The export's recipe
+    takes the prompt the documents share, every paper names its model, prompt hash and parameters,
+    and when papers ran with different prompts each paper spells its own out. Imports carry none."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import hashlib, json, tempfile
+    import fitz
+    from paperlens import extract, storage
+    conn = records.connect(); records.init_db(conn)
+    sess = f"sess-exp-{uuid.uuid4().hex[:6]}"
+    ds = records.create_dataset(conn, title="Export P", schema_id=None, session_id=sess)   # no prompt on the row
+
+    def fake(pdf, prompt, *, model="", api_key="", base_url=None, use_text=False):
+        body = fixtures.FORESTPLOT_JSON if isinstance(fixtures.FORESTPLOT_JSON, str) else json.dumps(fixtures.FORESTPLOT_JSON)
+        return extract.LLMResult(text=body, finish_reason="stop", usage={"prompt": 1, "completion": 1}, resolved_model="fake-1")
+
+    def pdf(text):
+        d = fitz.open(); d.new_page().insert_text((72, 90), text); b = d.tobytes(); d.close(); return b
+
+    with tempfile.TemporaryDirectory() as tmp:
+        store = storage.LocalObjectStore(root=tmp)
+        run = lambda text, prompt: extract.run_extraction(conn, pdf(text), prompt=prompt, model="fake", api_key="",
+                                                            session_id=sess, params={"k": 1}, complete=fake, store=store)
+        a, b = run("paper a", "ask A"), run("paper b", "ask A")
+        for doc in (a, b):
+            records.assign_document_to_dataset(conn, ds["id"], doc["document_id"])
+        conn.commit()
+        sha = hashlib.sha256(b"ask A").hexdigest()
+        assert records.document_view(conn, a["document_id"])["prompt"] == "ask A"
+        out = records.dataset_export(conn, ds["id"])
+        assert out["recipe"]["prompt"] == "ask A" and out["recipe"]["prompt_sha256"] == sha
+        assert [p["provenance"] for p in out["papers"]] == [{"model": "fake", "prompt_sha256": sha, "params": {"k": 1}}] * 2
+
+        c = run("paper c", "ask C")
+        records.assign_document_to_dataset(conn, ds["id"], c["document_id"])
+        imp = records.persist(conn, ingest(fixtures.FORESTPLOT_JSON), schema_id=None, source_job_id="imp", session_id=sess)
+        conn.execute("UPDATE record SET dataset_id = %s::uuid WHERE document_id = %s::uuid", (ds["id"], imp)); conn.commit()
+        out = records.dataset_export(conn, ds["id"])
+        assert out["recipe"]["prompt"] is None and out["recipe"]["prompt_sha256"] is None      # no single prompt
+        by = {p["document_id"]: p["provenance"] for p in out["papers"]}
+        assert by[a["document_id"]]["prompt"] == "ask A" and by[c["document_id"]]["prompt"] == "ask C"
+        assert by[imp] == {"model": None, "prompt_sha256": None, "params": None}
+        # an import through the extraction path (a PDF with results made elsewhere) has no prompt
+        # and therefore no hash — not the hash of the empty string
+        pdfimp = extract.run_extraction(conn, pdf("paper d"), prompt="", model="", api_key="", session_id=sess, complete=fake, store=store)
+        records.assign_document_to_dataset(conn, ds["id"], pdfimp["document_id"]); conn.commit()
+        v = records.document_view(conn, pdfimp["document_id"])
+        assert v["prompt"] is None and v["prompt_sha256"] is None and v["records"][0]["extraction"]["prompt_sha256"] is None
+        assert {p["document_id"]: p["provenance"]["prompt_sha256"] for p in records.dataset_export(conn, ds["id"])["papers"]}[pdfimp["document_id"]] is None
+        r = _client(sess).get(f"/api/datasets/{ds['id']}/export", headers={"X-Session-Id": sess}).json()
+        assert r["recipe"]["prompt_sha256"] is None and len(r["papers"]) == 5
+
