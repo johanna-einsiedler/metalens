@@ -115,6 +115,36 @@ def test_confirm_screened_no_records() -> None:
     assert ov1["credibility"]["audited"] == 0                          # sentinel excluded from credibility
 
 
+def test_adding_a_record_retires_the_sentinel() -> None:
+    """A blind coding starts from a paper imported with no entries: in its dataset it is kept as
+    "screened — no records". The coder's first "+ add" turns it into a paper WITH records, so the
+    sentinel goes in the same step (and comes back when the last record is deleted)."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres available")
+    conn = records.connect(); records.init_db(conn)
+    with tempfile.TemporaryDirectory() as d:
+        out = extract.run_extraction(conn, _make_pdf(), prompt="x", model="gpt-4o", api_key="",
+                                     schema_id="human-ai-collab@v1", session_id="sess-add",
+                                     complete=_empty, store=storage.LocalObjectStore(root=d))
+        conn.commit()
+    doc_id = out["document_id"]
+    ds = records.create_dataset(conn, title="Add DS", schema_id="human-ai-collab@v1", session_id="sess-add")
+    records.assign_document_to_dataset(conn, ds["id"], doc_id)          # mints the sentinel
+    conn.commit()
+    rec = records.add_record(conn, doc_id, field_values={"task": "write"}, session_id="sess-add")
+    conn.commit()
+    assert rec["dataset_id"] == ds["id"] and rec["entry_index"] == 0     # inherits the dataset; the first real entry
+    rows = records.document_view(conn, doc_id)["records"]
+    assert [r for r in rows if r["screened_empty"]] == [] and len(rows) == 1
+    mine = next(d for d in records.list_documents(conn, dataset_id=ds["id"], session_id="sess-add") if str(d["document_id"]) == doc_id)
+    assert mine["n_records"] == 1 and not mine["screened"]
+    ov = records.dataset_overview(conn, ds["id"])["stats"]
+    assert ov["n_records"] == 1 and ov["n_screened"] == 0
+    records.delete_record(conn, rec["id"]); conn.commit()
+    rows = records.document_view(conn, doc_id)["records"]
+    assert len(rows) == 1 and rows[0]["screened_empty"]                   # the sentinel is back
+
+
 def _make_pdf_pages(n):
     import fitz
     d = fitz.open()

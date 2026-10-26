@@ -2336,7 +2336,10 @@ def add_record(conn: psycopg.Connection, document_id: str, *,
                field_values: dict | None = None, session_id: str | None = None,
                owner_user_id: str | None = None) -> dict:
     """Add a manual record/finding to a document. Inherits paper_id + schema_id from
-    the document and dataset_id from a sibling record; entry_index = max + 1."""
+    the document and dataset_id from a sibling record (the "screened — no records" sentinel
+    counts as one); entry_index = max + 1 over the real records. A paper kept in its dataset as
+    screened gets its first real record here, so the sentinel retires in the same transaction
+    (``delete_record`` mints it again when the last real record goes)."""
     doc = conn.execute(
         "SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
         (document_id,)).fetchone()
@@ -2348,10 +2351,14 @@ def add_record(conn: psycopg.Connection, document_id: str, *,
         (document_id,)).fetchone()
     dataset_id = sib[0] if sib else None
     next_ei = conn.execute(
-        "SELECT coalesce(max(entry_index), -1) + 1 FROM record WHERE document_id = %s::uuid",
+        "SELECT coalesce(max(entry_index), -1) + 1 FROM record WHERE document_id = %s::uuid "
+        "AND NOT COALESCE(screened_empty, false)",
         (document_id,)).fetchone()[0]
     rid = _new_id()
     with conn.transaction():
+        conn.execute(
+            "DELETE FROM record WHERE document_id = %s::uuid AND COALESCE(screened_empty, false)",
+            (document_id,))
         conn.execute(
             """INSERT INTO record
                  (id, document_id, paper_id, dataset_id, schema_id, entry_index,
