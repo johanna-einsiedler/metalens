@@ -2003,6 +2003,7 @@ function renderStagesPanel(panel, rv) {
   STAGE = Math.max(0, Math.min(STAGE, stages.length - 1));
   const st = stages[STAGE] || {}, L = stageLevel(st);
   const unit = VM.entries.label.toLowerCase();
+  const units = unit.endsWith("s") ? unit : `${unit}s`;      // a label given in the plural ("Tasks") stays as it is
   renderReviewHead(panel);
   const pr = docProgress();
   const confirmed = DATA._sentinel && DATA._sentinel.verification_status === "verified";
@@ -2010,9 +2011,9 @@ function renderStagesPanel(panel, rv) {
   bar.innerHTML = `<button type="button" class="chain-nav stg-prev" title="previous stage ([)"${STAGE > 0 ? "" : " disabled"}>‹</button>`
     + stages.map((s, i) => `<button type="button" class="stg-tab${i === STAGE ? " active" : ""}" data-i="${i}" title="${esc(s.help || "")}"><span class="stg-k">${stageLetter(i)}</span> ${esc(s.label || s.id)}</button>`).join("")
     + `<button type="button" class="chain-nav stg-next" title="next stage (])"${STAGE < stages.length - 1 ? "" : " disabled"}>›</button>`
-    + `<span class="stg-prog muted">${pr.total ? (pr.done ? `✓ every ${esc(unit)} verified` : `${pr.reviewed} / ${pr.total} ${esc(unit)}s verified`) : `no ${esc(unit)} yet`}</span>`
-    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="mark every unreviewed ${esc(unit)} verified — the paper is done when all are">✓ verify all ${esc(unit)}s</button>` : "")
-    + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(unit)}s</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(unit)}s here</button>`) : "");
+    + `<span class="stg-prog muted">${pr.total ? (pr.done ? `✓ every ${esc(unit)} verified` : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
+    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="mark every unreviewed ${esc(unit)} verified — the paper is done when all are">✓ verify all ${esc(units)}</button>` : "")
+    + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(units)}</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(units)} here</button>`) : "");
   panel.appendChild(bar);
   if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }
   const { groups, parsed, recs } = mergedItems(rv);
