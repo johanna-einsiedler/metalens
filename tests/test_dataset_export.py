@@ -205,5 +205,5 @@ def test_export_carries_the_prompt_and_each_papers_provenance() -> None:
         assert v["prompt"] is None and v["prompt_sha256"] is None and v["records"][0]["extraction"]["prompt_sha256"] is None
         assert {p["document_id"]: p["provenance"]["prompt_sha256"] for p in records.dataset_export(conn, ds["id"])["papers"]}[pdfimp["document_id"]] is None
         r = _client(sess).get(f"/api/datasets/{ds['id']}/export", headers={"X-Session-Id": sess}).json()
-        assert r["recipe"]["prompt_sha256"] is None and len(r["papers"]) == 4
+        assert r["recipe"]["prompt_sha256"] is None and len(r["papers"]) == 5
 
