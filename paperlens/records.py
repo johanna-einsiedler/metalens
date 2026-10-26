@@ -138,9 +138,11 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             session_id: str | None = None, owner_user_id: str | None = None,
             extraction: dict | None = None, filename: str | None = None,
             pdf_sha256: str | None = None, prompt_sha256: str | None = None,
-            params: dict | None = None, issues: list | None = None) -> str:
+            params: dict | None = None, issues: list | None = None,
+            prompt: str | None = None) -> str:
     """Persist a full ingest result in one transaction. Returns document id.
-    ``prompt_sha256`` / ``params`` record exactly what the extraction ran with."""
+    ``prompt_sha256`` / ``params`` record exactly what the extraction ran with; ``prompt`` is
+    that text itself, so an export can carry it (None for imports)."""
     with conn.transaction():
         if schema_id:
             upsert_schema(conn, schema_id)
@@ -151,14 +153,14 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             """INSERT INTO extraction_document
                  (id, paper_id, schema_id, source_job_id, core_key, core_shape,
                   had_top_evidence, top_extras, paper_metadata_raw, owner_user_id,
-                  session_id, filename, pdf_sha256, prompt_sha256, params, issues)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s)""",
+                  session_id, filename, pdf_sha256, prompt_sha256, params, issues, prompt)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s)""",
             (doc_id, paper_id, schema_id, source_job_id, res.core_key, res.core_shape,
              res.had_top_evidence, Json(res.top_extras),
              Json(res.paper_metadata_raw) if res.paper_metadata_raw is not None else None,
              owner_user_id, session_id, filename, pdf_sha256, prompt_sha256,
              Json(params) if params is not None else None,
-             Json(issues) if issues is not None else None),
+             Json(issues) if issues is not None else None, prompt),
         )
 
         # records, keeping entry_index -> record_id
@@ -546,12 +548,12 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     from . import storage
     doc = conn.execute(
         "SELECT paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, "
-        "params, issues FROM extraction_document WHERE id = %s",
+        "params, issues, prompt_sha256, prompt FROM extraction_document WHERE id = %s",
         (document_id,),
     ).fetchone()
     if doc is None:
         return None
-    paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, params, issues = doc
+    paper_id, schema_id, filename, paper_metadata_raw, core_key, core_shape, params, issues, prompt_sha256, prompt = doc
 
     paper = None
     if paper_id:
@@ -672,7 +674,8 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             "schema_id": schema_id, "filename": filename, "paper": paper,
             "paper_metadata": paper_metadata_raw if isinstance(paper_metadata_raw, dict) else None,
             "field_defs": field_defs, "spec": (field_defs or {}).get("spec"),
-            "params": params, "issues": issues or [],
+            "params": params, "prompt_sha256": prompt_sha256, "prompt": prompt,   # what it was asked, verbatim
+            "issues": issues or [],
             "pages": pages, "records": records_out,
             "evidence": evidence_out,
             "paper_confidence": conf["paper"],          # paper-scope groups
@@ -1649,6 +1652,30 @@ def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> 
     return get_dataset(conn, dataset_id) or {}
 
 
+def dataset_recipe(conn: psycopg.Connection, dataset_id: str, d: dict) -> dict:
+    """What the dataset was made with: schema, model, prompt. The dataset row carries the prompt
+    only when the dataset was created from the extract page; one saved later from the workspace,
+    and every dataset made before the text was kept per document, has none. The documents know:
+    when every document in the dataset ran with the same prompt, that prompt and its hash stand in.
+    Mixed prompts leave the text out of the recipe, and the export names each paper's own."""
+    recipe = {"model": d.get("model"), "prompt": d.get("prompt"), "schema_id": d.get("schema_id"),
+              "prompt_sha256": None}
+    rows = conn.execute(
+        """SELECT DISTINCT ed.prompt_sha256, ed.prompt FROM record r
+           JOIN extraction_document ed ON ed.id = r.document_id
+           WHERE r.dataset_id = %s::uuid AND ed.prompt_sha256 IS NOT NULL""", (dataset_id,)).fetchall()
+    shas = {sha for sha, _ in rows}
+    if len(shas) == 1:
+        recipe["prompt_sha256"] = shas.pop()
+        texts = {text for _, text in rows if text}
+        if recipe["prompt"] is None and len(texts) == 1:
+            recipe["prompt"] = texts.pop()
+    elif not shas and recipe["prompt"]:
+        import hashlib
+        recipe["prompt_sha256"] = hashlib.sha256(recipe["prompt"].encode("utf-8")).hexdigest()
+    return recipe
+
+
 def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     """One computed payload for the dataset overview page: recipe (model/prompt/schema),
     on-the-fly stats, the credibility badge, and the papers (documents) list. Reuses
@@ -1706,7 +1733,7 @@ def dataset_overview(conn: psycopg.Connection, dataset_id: str) -> dict | None:
 
     return {
         **d,
-        "recipe": {"model": d["model"], "prompt": d["prompt"], "schema_id": d["schema_id"]},
+        "recipe": dataset_recipe(conn, dataset_id, d),
         "stats": {
             "n_papers": n_papers, "n_records": n_records, "n_verified": n_verified,
             "n_screened": n_screened,          # papers attempted that yielded 0 records
@@ -1739,10 +1766,13 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     d = get_dataset(conn, dataset_id)
     if d is None:
         return None
+    ov = dataset_overview(conn, dataset_id) or {}
+    recipe = ov.get("recipe") or {}
 
     rows = conn.execute(
         """SELECT ed.id, ed.filename, p.title, p.doi, p.year, p.journal, p.authors,
-                  r.id, r.entry_index, r.verification_status, r.field_values,
+                  ed.prompt_sha256, ed.params, ed.prompt,
+                  r.id, r.entry_index, r.verification_status, r.field_values, r.extraction,
                   COALESCE(r.screened_empty, false)
            FROM record r
            JOIN extraction_document ed ON ed.id = r.document_id
@@ -1753,12 +1783,16 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     ).fetchall()
 
     papers: dict[str, dict] = {}
-    for (doc_id, fn, title, doi, year, journal, authors,
-         rid, ei, vs, fv, screened) in rows:
+    for (doc_id, fn, title, doi, year, journal, authors, psha, params, ptext,
+         rid, ei, vs, fv, extraction, screened) in rows:
         entry = papers.setdefault(str(doc_id), {
             "document_id": str(doc_id), "filename": fn,
             "paper": {"title": title, "doi": doi, "year": year,
                       "journal": journal, "authors": authors},
+            # what produced this paper's records; the prompt text is spelled out here only when it
+            # is not the recipe's (a dataset whose papers ran with different prompts)
+            "provenance": {"model": (extraction or {}).get("model"), "prompt_sha256": psha, "params": params,
+                           **({"prompt": ptext} if ptext and psha != recipe.get("prompt_sha256") else {})},
             "screened": False, "records": [],
         })
         if screened:
@@ -1769,7 +1803,6 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "verification_status": vs, "values": fv,
         })
 
-    ov = dataset_overview(conn, dataset_id) or {}
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],
         "visibility": d["visibility"], "cite_as": d["cite_as"],

@@ -371,6 +371,9 @@ CREATE INDEX IF NOT EXISTS confidence_record_idx ON field_confidence(record_id);
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS prompt_sha256 text;
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS params        jsonb;
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS issues        jsonb;
+-- The prompt TEXT as sent: the hash above identifies it, the text is what a reader of an export
+-- needs. NULL for imported documents and for runs made before the text was kept.
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS prompt        text;
 
 -- Paper-level field edits (declared paper fields) log an event against the document.
 ALTER TABLE verification_event ADD COLUMN IF NOT EXISTS document_id uuid

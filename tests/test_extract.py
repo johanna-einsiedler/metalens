@@ -241,6 +241,7 @@ def test_run_with_a_spec_records_confidence_and_issues() -> None:
     assert rec["confidence"]["metadata"] == {"level": "low", "notes": "age inferred"}
     assert "confidence" not in rec["field_values"]
     assert rec["extraction"]["prompt_sha256"] and rec["extraction"]["prompt_edited"] is False
+    assert view["prompt"] == run.prompt and view["prompt_sha256"] == rec["extraction"]["prompt_sha256"]   # the text as sent travels with the document
     # MASEMiner writes its own evidence rules (frozen prompt): no generated coverage rule,
     # so an uncited value is not an issue here — see test_preset_spec for the generated case
     assert not any(i["code"] == "uncited_value" for i in view["issues"])

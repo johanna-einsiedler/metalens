@@ -147,7 +147,7 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     doc_id = records.persist(conn, res, schema_id=schema_id, session_id=session_id,
                              owner_user_id=owner_user_id, source_job_id=source_job_id,
                              extraction=extraction, filename=filename, pdf_sha256=sha,
-                             prompt_sha256=prompt_sha256, params=params, issues=issues)
+                             prompt_sha256=prompt_sha256, prompt=prompt, params=params, issues=issues)
     paper_id = conn.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)).fetchone()[0]
     # End the implicit read transaction opened by the SELECT above, so attach_rects'

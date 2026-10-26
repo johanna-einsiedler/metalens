@@ -932,7 +932,7 @@ async function doSave() {
     // record the recipe (schema/preset + model + the exact prompt) so re-opening the
     // dataset can add papers with the same preset without re-choosing it.
     const model = (DATA.records || []).map((r) => r.extraction && r.extraction.model).find(Boolean) || null;
-    const recipe = { schema_id: DATA.schema_id || null, model };
+    const recipe = { schema_id: DATA.schema_id || null, model, prompt: DATA.prompt || null };
     // no dialog here: the papers are bundled and the overview opens; naming and keeping it happen there
     const base = ids.length > 1 ? `${ids.length} papers` : ((DATA.paper && DATA.paper.title) || (DATA.filename || "").replace(/\.pdf$/i, ""));
     const ds = await saveToWorkspace(ids, { defaultName: base, recipe, silent: true });
@@ -1933,8 +1933,16 @@ function download(name, text, type) {
 }
 function baseName() { return (DATA.schema_id || "records").replace(/[^a-z0-9]+/gi, "_"); }
 function downloadJSON() {
+  const ex = (DATA.records || []).map((r) => r.extraction).find(Boolean) || {};
   const out = {
-    schema_id: DATA.schema_id, paper: DATA.paper, paper_metadata: DATA.paper_metadata,
+    exported_at: new Date().toISOString(), document_id: DATA.document_id, filename: DATA.filename,
+    schema_id: DATA.schema_id,
+    // what produced it: the model, the exact prompt (its hash identifies it; the text is what a
+    // reader needs — null for imported documents) and the preset parameters it was rendered with
+    recipe: { model: ex.model || null, resolved_model: ex.resolved_model || null,
+              prompt_sha256: DATA.prompt_sha256 || ex.prompt_sha256 || null, prompt_edited: ex.prompt_edited ?? null,
+              params: DATA.params || null, prompt: DATA.prompt || null },
+    paper: DATA.paper, paper_metadata: DATA.paper_metadata,
     records: DATA.records.map((r) => stripRowIds(r.field_values)),
     // the model's self-assessment per entry, and provenance parallel to records[]: review
     // status + any human corrections (original→final, who, when) so a consumer can tell
