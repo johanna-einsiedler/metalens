@@ -668,6 +668,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     # time, never written back.
     field_defs = _upgraded_field_defs(field_defs, core_key, core_shape, records_out,
                                       conn=conn, schema_id=schema_id)
+    # The review screen renders from the declaration, not from the preset's card: the card prose
+    # (now carrying the validation prompts, tens of kilobytes) stays on the card page.
+    if isinstance(field_defs, dict) and isinstance(field_defs.get("spec"), dict) and "card" in field_defs["spec"]:
+        field_defs = {**field_defs, "spec": {k: v for k, v in field_defs["spec"].items() if k != "card"}}
     return {"document_id": document_id, "paper_id": str(paper_id) if paper_id else None,
             "schema_id": schema_id, "filename": filename, "paper": paper,
             "paper_metadata": paper_metadata_raw if isinstance(paper_metadata_raw, dict) else None,

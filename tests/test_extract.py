@@ -237,6 +237,7 @@ def test_run_with_a_spec_records_confidence_and_issues() -> None:
     assert out["schema_id"] == run.schema_id and out["n_records"] == 1
     view = records.document_view(conn, out["document_id"])
     assert view["spec"]["entries"]["key"] == "samples" and view["field_defs"]["format"] == 2
+    assert "card" not in view["spec"] and "card" not in view["field_defs"]["spec"]   # the card prose stays on the card page
     rec = view["records"][0]
     assert rec["confidence"]["metadata"] == {"level": "low", "notes": "age inferred"}
     assert "confidence" not in rec["field_values"]
