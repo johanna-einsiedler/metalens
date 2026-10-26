@@ -14,11 +14,11 @@ import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, se
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, worstLevel, isLow, entryNeeds,
-         undeclared, seedEntry, orderedEntries, gridColumns, gridRows } from "/static/spec.js";
+         undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath } from "/static/spec.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
-let CHAIN_OFF = false;                                   // a chain-layout preset, but the reviewer wants the field view
+let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence), but the reviewer wants the field view
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -597,7 +597,7 @@ function renderPanel() {
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
     + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code> ${triage}</span>`
     + `<span class="dlbtns">`
-    + (chainSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? "the claims as cause → effect chains with their quotes and results" : "every field, editable"}">${CHAIN_OFF ? "⛓ Chain" : "▤ Fields"}</button>` : "")
+    + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? (chainSpec() ? "the claims as cause → effect chains with their quotes and results" : "the evidence items, each with the fields it bears on") : "every field, editable"}">${CHAIN_OFF ? (chainSpec() ? "⛓ Chain" : "❝ Evidence") : "▤ Fields"}</button>` : "")
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
@@ -662,6 +662,7 @@ function renderPanel() {
   }
   if (GRID) { renderPaperPanel(panel); renderGridInto(panel); wirePanelHead(); return; }
   if (chainSpec() && !CHAIN_OFF) { renderChainPanel(panel, chainSpec()); wirePanelHead(); renderDocTabs(); return; }
+  if (evidenceSpec() && !CHAIN_OFF) { renderEvidencePanel(panel, evidenceSpec()); wirePanelHead(); renderDocTabs(); return; }
   const recs = DATA.records;
   if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
     const paperTab = paperPanelHasContent();
@@ -1544,6 +1545,291 @@ function wireChainNote(card, rec) {
   };
   box.querySelector(".chain-reason").onchange = save;
   box.querySelector(".chain-notein").onchange = save;
+}
+
+// ── the evidence layout: the reader's items first, the cells each bears on beneath ────────────
+// Declared by display.review (layout "evidence"): `items` names the entry TABLE field that holds
+// the reader's numbered items — one row each: n, page, kind (passage | table), text (the passage,
+// or a table as markdown), note, bears_on (the fields it supports) — and every evidence row whose
+// source starts "item N (kind)" belongs to item N. Drawn per paper: a status strip per entry
+// (verify / flag, history), then the items in order — the quote or the table, a jump into the
+// PDF, the study and entry cells the item bears on, the arm and result fields it names — then
+// everything no item bears on, so nothing is hidden. The cells are the generic card's cells
+// (same paths, same save and verification), arranged by evidence.
+function evidenceSpec() {
+  const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
+  return rv && rv.layout === "evidence" ? rv : null;
+}
+function reviewSpec() { return chainSpec() || evidenceSpec(); }
+
+const EVI_SRC = /^item\s+(\d+)\s*\((\w+)[^)]*\)\s*(?:→\s*(.*))?$/;
+// The evidence rows grouped by item, in item order: {n, kind, page, ids, snippet, paper: [field],
+// entry: Map(record id → [field]), lower: [{level, name, recId}] (arm / result fields the item
+// names — those have no cell on the entry, they live on the sub-entry tabs)}.
+function evidenceGroups() {
+  const groups = new Map();
+  const key = VM.entries.key;
+  const byIndex = new Map((DATA.records || []).map((r) => [r.entry_index, r]));
+  (DATA.evidence || []).forEach((ev, i) => {
+    const m = EVI_SRC.exec(String(ev.source || "").trim());
+    if (!m) return;
+    const n = +m[1];
+    if (!groups.has(n)) groups.set(n, { n, kind: m[2], page: ev.page || null, ids: [], snippet: ev.snippet || "", paper: [], entry: new Map(), lower: [] });
+    const g = groups.get(n);
+    g.ids.push(i);
+    if (!g.page && ev.page) g.page = ev.page;
+    const fp = String(ev.field_path || "");
+    const pm = /^paper_metadata\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(fp);
+    if (pm) { if (!g.paper.includes(pm[1])) g.paper.push(pm[1]); return; }
+    const rp = relPath(VM, fp);
+    let rec = ev.record_id ? (DATA.records || []).find((r) => r.id === ev.record_id) : null;
+    if (!rec && rp && rp.key === key && byIndex.has(rp.entryIndex)) rec = byIndex.get(rp.entryIndex);
+    if (!rec && ev.entry_index != null && byIndex.has(ev.entry_index)) rec = byIndex.get(ev.entry_index);
+    if (!rec) return;
+    const rel = rp ? rp.rel : "";
+    if (rel && /^[A-Za-z_][A-Za-z0-9_]*$/.test(rel)) {
+      if (!g.entry.has(rec.id)) g.entry.set(rec.id, []);
+      if (!g.entry.get(rec.id).includes(rel)) g.entry.get(rec.id).push(rel);
+    }
+    for (const part of (m[3] || "").split(/,\s*/)) {
+      const lm = /^(\w+):\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(part.trim());
+      if (lm && !g.lower.some((x) => x.level === lm[1] && x.name === lm[2] && x.recId === rec.id)) g.lower.push({ level: lm[1], name: lm[2], recId: rec.id });
+    }
+  });
+  return [...groups.values()].sort((a, b) => a.n - b.n);
+}
+
+// The items table's rows as a map n → item; a table item's text is its markdown, kept as lines.
+function itemsFromRows(rows) {
+  const out = new Map();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || r.n === null || r.n === undefined || r.n === "") continue;
+    const n = +r.n; if (!Number.isFinite(n)) continue;
+    const kind = r.kind === "table" ? "table" : "passage";
+    const text = r.text === null || r.text === undefined ? "" : String(r.text);
+    out.set(n, { n, page: r.page === null || r.page === undefined ? "" : String(r.page), kind, note: r.note ? String(r.note) : "",
+                 text: kind === "table" ? "" : text.trim().replace(/^[“"]/, "").replace(/[”"]$/, ""),
+                 lines: kind === "table" ? text.split("\n") : [],
+                 bearsOn: Array.isArray(r.bears_on) ? r.bears_on.map(String) : [] });
+  }
+  return out;
+}
+
+// A table item's markdown (caption, header, rows) as an HTML table.
+function eviTableHtml(lines, fallbackCaption) {
+  let cap = "", headed = false; const rows = [];
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (/^\*\*.+\*\*$/.test(t)) cap = t.slice(2, -2);
+    else if (/^\|.*\|$/.test(t)) {
+      if (/^\|[\s:|-]+\|$/.test(t)) { headed = rows.length === 1; continue; }
+      rows.push(t.slice(1, -1).split("|").map((c) => c.trim()));
+    }
+  }
+  const capHtml = cap || fallbackCaption ? `<div class="evi-cap">${esc(cap || fallbackCaption)}</div>` : "";
+  if (!rows.length) return capHtml || `<span class="muted">table body not available</span>`;
+  const head = headed ? rows.shift() : null;
+  return capHtml + `<div class="evi-tablewrap"><table class="evi-table">`
+    + (head ? `<thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>` : "")
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+
+function eviCite(g) {
+  const page = g.page || (g.ids.length ? DATA.evidence[g.ids[0]].page : null);
+  if (!g.ids.length) return `<span class="ev-cite ev-none" title="not located in the PDF">p. ${esc(String(page || "?"))}</span>`;
+  return `<button type="button" class="ev-cite" data-eids="${g.ids.join(",")}" data-page="${page || 1}" title="${esc(g.snippet)}">p. ${esc(String(page || "?"))}</button>`;
+}
+
+// the arm / result fields an item names, by the sub-entry they belong to
+function eviChildren(lower) {
+  const out = new Map();
+  for (const x of lower) {
+    const ch = VM.entries.children.find((c) => (c.fields || []).some((f) => f.name === x.name));
+    const k = ch ? ch.key : x.level;
+    if (!out.has(k)) out.set(k, { child: ch || null, labels: [] });
+    const f = ch ? ch.fields.find((y) => y.name === x.name) : null;
+    const label = f ? f.label || formatKey(x.name) : x.name;
+    if (!out.get(k).labels.includes(label)) out.get(k).labels.push(label);
+  }
+  return out;
+}
+
+function eviPaperBlock(names) {
+  const defs = VM.paper.fields.filter((f) => names.includes(f.name));
+  if (!defs.length) return "";
+  return `<div class="evi-paper paper-fields"><div class="evi-sub">Study</div><div class="rv-root">${renderFields(defs, DATA.paper_metadata || {}, "", { editable: true })}</div></div>`;
+}
+
+function eviEntryBlock(rec, names, kids) {
+  const defs = VM.entries.fields.filter((f) => names.includes(f.name));
+  if (!defs.length && !kids.size) return "";
+  let html = `<div class="evi-entry" data-rid="${esc(rec.id)}"><div class="evi-sub">${esc(entryTitle(VM, rec, rec.entry_index))}</div>`;
+  if (defs.length) html += `<div class="rv-root">${renderFields(defs, rec.field_values || {}, "", { editable: true })}</div>`;
+  for (const [k, { child, labels }] of kids) {
+    const label = child ? child.label || k : k;
+    const rows = child && Array.isArray((rec.field_values || {})[k]) ? rec.field_values[k].length : null;
+    html += `<div class="evi-lower muted">` + (labels.length ? `bears on <b>${esc(label)}</b>: ${labels.map(esc).join(", ")}` : `<b>${esc(label)}</b>`)
+      + (rows !== null ? ` <span class="tag">${rows} so far</span>` : "")
+      + (child ? ` <button type="button" class="evi-go" data-child="${esc(k)}" title="${esc(label)} are added and edited on the fields view">open ${esc(label)} ↗</button>` : "")
+      + `</div>`;
+  }
+  return html + `</div>`;
+}
+
+function renderEviItem(g, parsed, recs) {
+  const it = parsed || {};
+  const kind = g.kind || it.kind || "passage";
+  const sec = document.createElement("section");
+  sec.className = `evi-item evi-${esc(kind)}`; sec.dataset.item = String(g.n);
+  const body = kind === "table"
+    ? `<div class="evi-body evi-tbl">${eviTableHtml(it.lines || [], g.snippet)}</div>`
+    : `<div class="evi-body">“${esc(it.text || g.snippet)}”</div>`;
+  let cells = g.paper.length ? eviPaperBlock(g.paper) : "";
+  for (const rec of recs) cells += eviEntryBlock(rec, g.entry.get(rec.id) || [], eviChildren(g.lower.filter((x) => x.recId === rec.id)));
+  sec.innerHTML = `<div class="evi-head"><span class="evi-id">item ${g.n}</span><span class="tag">${esc(kind)}</span>${eviCite(g)}`
+    + (it.note ? `<span class="evi-note muted">${esc(it.note)}</span>` : "") + `</div>` + body
+    + (cells ? `<div class="evi-cells">${cells}</div>` : `<div class="evi-cells muted evi-nothing">bears on no field in particular</div>`);
+  return sec;
+}
+
+// What no item bears on: the remaining study fields (all of them, or the preset's
+// paper_fields), each entry's remaining fields, and its sub-entries (arms, results …).
+function renderEviRest(rv, groups, recs) {
+  const seenPaper = new Set(groups.flatMap((g) => g.paper));
+  const allowed = Array.isArray(rv.paper_fields) ? new Set(rv.paper_fields) : null;
+  const paperRest = VM.paper.fields.filter((f) => !seenPaper.has(f.name) && (!allowed || allowed.has(f.name))).map((f) => f.name);
+  let cells = paperRest.length ? eviPaperBlock(paperRest) : "";
+  for (const rec of recs) {
+    const seen = new Set(groups.flatMap((g) => g.entry.get(rec.id) || []));
+    const rest = VM.entries.fields.filter((f) => f.name !== rv.items && !seen.has(f.name)).map((f) => f.name);
+    const kids = new Map(VM.entries.children.map((c) => [c.key, { child: c, labels: [] }]));
+    cells += eviEntryBlock(rec, rest, kids);
+  }
+  const sec = document.createElement("section");
+  sec.className = "evi-item evi-rest";
+  sec.innerHTML = `<div class="evi-head"><span class="evi-id">no item bears on these</span><span class="muted" style="font-size:12px">judge them from the PDF, or leave them empty</span></div>`
+    + (cells ? `<div class="evi-cells">${cells}</div>` : "");
+  return sec;
+}
+
+// One strip per entry: its title, review status, the model's ratings, verify / flag, history.
+function renderEviStrip(panel, rec) {
+  const card = document.createElement("div");
+  card.className = "record evi-rec"; card.dataset.rid = rec.id;
+  const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+  const groups = Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
+  card.innerHTML = `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
+    + `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`
+    + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+    + `<button class="histbtn" title="change history">↻ history</button>`
+    + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
+    + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
+    + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
+    + (groups.length ? `<div class="group-head">${groups.map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("")}</div>` : "")
+    + `<div class="histbody" hidden></div>`;
+  card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
+  card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
+  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+  wireConfBadges(card);
+  panel.appendChild(card);
+}
+
+function renderEvidencePanel(panel, rv) {
+  const pr = docProgress();
+  const i = DOCS.findIndex((d) => d.document_id === DOCID);
+  const pm = DATA.paper_metadata || {};
+  const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
+  const head = document.createElement("div"); head.className = "chain-head";
+  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
+    + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
+    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
+    + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
+  head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
+  panel.appendChild(head);
+  // the model's ratings of the paper-level groups (design, sample …)
+  const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper" && (DATA.paper_confidence || {})[g.id]);
+  if (pgroups.length) {
+    const gh = document.createElement("div"); gh.className = "group-head evi-pgroups";
+    gh.innerHTML = pgroups.map((g) => renderConfBadge(g.id, g, DATA.paper_confidence[g.id], VM.levels)).join("");
+    panel.appendChild(gh); wireConfBadges(gh);
+  }
+  const recs = (DATA.records || []).slice().sort((a, b) => a.entry_index - b.entry_index);
+  for (const rec of recs) renderEviStrip(panel, rec);
+  const groups = evidenceGroups();
+  const parsed = new Map(), owner = new Map();
+  for (const rec of recs) for (const [n, it] of itemsFromRows((rec.field_values || {})[rv.items])) if (!parsed.has(n)) { parsed.set(n, it); owner.set(n, rec); }
+  // an item the table lists but no evidence row cites (its quote was not found, say) still shows
+  for (const [n, it] of parsed) if (!groups.some((g) => g.n === n)) groups.push({ n, kind: it.kind, page: +it.page || null, ids: [], snippet: it.text || "", paper: [], entry: new Map(), lower: [] });
+  // the row's own bears_on list places the item's cells even where no evidence row was located
+  const pnames = new Set(VM.paper.fields.map((f) => f.name)), enames = new Set(VM.entries.fields.map((f) => f.name));
+  for (const g of groups) {
+    const it = parsed.get(g.n), rec = owner.get(g.n); if (!it || !rec) continue;
+    for (const name of it.bearsOn) {
+      if (pnames.has(name)) { if (!g.paper.includes(name)) g.paper.push(name); }
+      else if (enames.has(name)) { if (!g.entry.has(rec.id)) g.entry.set(rec.id, []); if (!g.entry.get(rec.id).includes(name)) g.entry.get(rec.id).push(name); }
+      else if (!g.lower.some((x) => x.name === name && x.recId === rec.id)) g.lower.push({ level: "", name, recId: rec.id });
+    }
+  }
+  groups.sort((a, b) => a.n - b.n);
+  for (const g of groups) panel.appendChild(renderEviItem(g, parsed.get(g.n), recs));
+  if (!groups.length) panel.insertAdjacentHTML("beforeend", `<p class="muted">No evidence items on this paper.</p>`);
+  panel.appendChild(renderEviRest(rv, groups, recs));
+  wireEvidencePanel(panel, recs);
+  setContextEvidence(null);
+}
+
+// A field several items bear on is drawn under each of them: after an edit the twins follow.
+function eviSync(scope, path, val) {
+  const sel = `#panelbody ${scope} [data-path="${CSS.escape(path)}"]`;
+  document.querySelectorAll(sel).forEach((cell) => {
+    if (cell.classList.contains("rv-editable")) {
+      const txt = val === null || val === undefined ? "" : String(val);
+      if (cell.textContent !== txt) cell.textContent = txt;
+      cell.dataset.orig = txt; cell.classList.toggle("rv-empty", txt.trim() === "");
+    } else if (cell.classList.contains("rv-selwrap")) {
+      const s = cell.querySelector("select"), other = cell.querySelector(".rv-other");
+      const sv = val === null || val === undefined ? "" : String(val);
+      if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
+      else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
+    } else if (cell.classList.contains("rv-multi")) {
+      const vals = new Set((Array.isArray(val) ? val : []).map(String));
+      cell.querySelectorAll('input[type="checkbox"]').forEach((cb) => (cb.checked = vals.has(cb.value)));
+    }
+  });
+}
+
+function wireEvidencePanel(panel, recs) {
+  const byId = new Map(recs.map((r) => [r.id, r]));
+  panel.querySelectorAll(".evi-paper").forEach((box) => {
+    wireControls(box, (p, v) => { eviSync(".evi-paper", p, v); return savePaperField(p, v); }, true);
+    linkPaperCells(box);
+  });
+  panel.querySelectorAll(".evi-entry[data-rid]").forEach((box) => {
+    const rec = byId.get(box.dataset.rid); if (!rec) return;
+    const scope = `.evi-entry[data-rid="${rec.id}"]`;
+    wireControls(box, (p, v) => { const was = curVal(rec, p); eviSync(scope, p, v); return saveFieldEdit(rec, null, p, v, was); }, true);
+    linkCells(box, rec);
+    box.querySelectorAll(".evi-go").forEach((b) => (b.onclick = () => eviOpenFields(rec, b.dataset.child)));
+  });
+  panel.querySelectorAll(".evi-head .ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map(Number);
+    b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
+  });
+}
+
+// The sub-entries (arms, results …) are added and edited on the generic tabs: switch to the
+// fields view of this entry and open the tab that holds the sub-entry.
+function eviOpenFields(rec, childKey) {
+  CHAIN_OFF = true;
+  const idx = (DATA.records || []).indexOf(rec);
+  if ((DATA.records || []).length > 1 && idx >= 0) PANEL_SEL = idx;
+  renderPanel();
+  const card = document.querySelector(`.record[data-rid="${rec.id}"]`); if (!card) return;
+  const ti = VM.tabs.findIndex((t) => t.fields.includes(childKey));
+  const tabs = card.querySelectorAll(".subtab");
+  if (ti >= 0 && tabs[ti]) tabs[ti].click();
+  card.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 // ── change history (verification events, across sessions) ────────────────────
