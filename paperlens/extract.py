@@ -137,7 +137,9 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
             issues = None
     # the exact prompt is provenance: a preset can change wording without re-versioning
     # its schema, so each document remembers what it was actually asked
-    prompt_sha256 = hashlib.sha256((prompt or "").encode("utf-8")).hexdigest()
+    # an import comes through here with no prompt: it ran elsewhere, so it has no hash either
+    # (a hash of the empty string would read as "a prompt" to every export and matcher)
+    prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest() if prompt else None
     extraction = {"model": model, "resolved_model": llm.resolved_model,
                   "finish_reason": llm.finish_reason, "usage": llm.usage,
                   "n_pages": len(page_images), "prompt_sha256": prompt_sha256,
@@ -147,7 +149,7 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     doc_id = records.persist(conn, res, schema_id=schema_id, session_id=session_id,
                              owner_user_id=owner_user_id, source_job_id=source_job_id,
                              extraction=extraction, filename=filename, pdf_sha256=sha,
-                             prompt_sha256=prompt_sha256, prompt=prompt, params=params, issues=issues)
+                             prompt_sha256=prompt_sha256, prompt=prompt or None, params=params, issues=issues)
     paper_id = conn.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)).fetchone()[0]
     # End the implicit read transaction opened by the SELECT above, so attach_rects'

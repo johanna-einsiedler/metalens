@@ -1652,6 +1652,10 @@ def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> 
     return get_dataset(conn, dataset_id) or {}
 
 
+# what imports stored as their "prompt hash" before an empty prompt meant no hash: sha256("")
+EMPTY_PROMPT_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
 def dataset_recipe(conn: psycopg.Connection, dataset_id: str, d: dict) -> dict:
     """What the dataset was made with: schema, model, prompt. The dataset row carries the prompt
     only when the dataset was created from the extract page; one saved later from the workspace,
@@ -1663,7 +1667,8 @@ def dataset_recipe(conn: psycopg.Connection, dataset_id: str, d: dict) -> dict:
     rows = conn.execute(
         """SELECT DISTINCT ed.prompt_sha256, ed.prompt FROM record r
            JOIN extraction_document ed ON ed.id = r.document_id
-           WHERE r.dataset_id = %s::uuid AND ed.prompt_sha256 IS NOT NULL""", (dataset_id,)).fetchall()
+           WHERE r.dataset_id = %s::uuid AND ed.prompt_sha256 IS NOT NULL
+             AND ed.prompt_sha256 <> %s""", (dataset_id, EMPTY_PROMPT_SHA256)).fetchall()
     shas = {sha for sha, _ in rows}
     if len(shas) == 1:
         recipe["prompt_sha256"] = shas.pop()
@@ -1785,6 +1790,8 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     papers: dict[str, dict] = {}
     for (doc_id, fn, title, doi, year, journal, authors, psha, params, ptext,
          rid, ei, vs, fv, extraction, screened) in rows:
+        if psha == EMPTY_PROMPT_SHA256:
+            psha = None                                    # an older import: no prompt ran
         entry = papers.setdefault(str(doc_id), {
             "document_id": str(doc_id), "filename": fn,
             "paper": {"title": title, "doi": doi, "year": year,

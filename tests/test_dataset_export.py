@@ -197,6 +197,13 @@ def test_export_carries_the_prompt_and_each_papers_provenance() -> None:
         by = {p["document_id"]: p["provenance"] for p in out["papers"]}
         assert by[a["document_id"]]["prompt"] == "ask A" and by[c["document_id"]]["prompt"] == "ask C"
         assert by[imp] == {"model": None, "prompt_sha256": None, "params": None}
+        # an import through the extraction path (a PDF with results made elsewhere) has no prompt
+        # and therefore no hash — not the hash of the empty string
+        pdfimp = extract.run_extraction(conn, pdf("paper d"), prompt="", model="", api_key="", session_id=sess, complete=fake, store=store)
+        records.assign_document_to_dataset(conn, ds["id"], pdfimp["document_id"]); conn.commit()
+        v = records.document_view(conn, pdfimp["document_id"])
+        assert v["prompt"] is None and v["prompt_sha256"] is None and v["records"][0]["extraction"]["prompt_sha256"] is None
+        assert {p["document_id"]: p["provenance"]["prompt_sha256"] for p in records.dataset_export(conn, ds["id"])["papers"]}[pdfimp["document_id"]] is None
         r = _client(sess).get(f"/api/datasets/{ds['id']}/export", headers={"X-Session-Id": sess}).json()
         assert r["recipe"]["prompt_sha256"] is None and len(r["papers"]) == 4
 
