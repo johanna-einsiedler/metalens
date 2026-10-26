@@ -67,11 +67,14 @@ def healthz() -> dict:
 @app.middleware("http")
 async def _canonical_host(request, call_next):
     """``www.`` → the bare host, permanently. Fly serves whatever hostname points at it, so
-    without this both spellings would answer and split links, sessions and search results."""
+    without this both spellings would answer and split links, sessions and search results.
+    ``paper.`` is the address the earlier application answered on; the MASEMiner manuscript
+    cites it, so it lands on the same page of this one."""
     host = (request.headers.get("host") or "").split(":")[0]
-    if host.startswith("www.") and request.method in ("GET", "HEAD"):
+    alias = next((a for a in ("www.", "paper.") if host.startswith(a)), None)
+    if alias and request.method in ("GET", "HEAD"):
         scheme = request.headers.get("x-forwarded-proto") or request.url.scheme   # behind Fly's proxy
-        return Response(status_code=301, headers={"Location": str(request.url.replace(scheme=scheme, netloc=host[4:]))})
+        return Response(status_code=301, headers={"Location": str(request.url.replace(scheme=scheme, netloc=host[len(alias):]))})
     return await call_next(request)
 
 
