@@ -119,6 +119,21 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   and entry cells it bears on and the sub-entry fields it names; what no item bears on
   follows, so nothing is hidden. Evidence rows name their item in `source` ("item 7
   (table) → result: mean"). The cells, saves and verification are the generic card's.
+- Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
+  paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
+  stages (a→g, `]`/`[`), each opening with its instruction, then the reader's items that bear on
+  the stage's fields (page jump, PDF highlight, the cells beneath, the rest folded), then the
+  stage's cells: paper fields; every entry with "＋ add"; or each entry's arms / results with
+  "＋", "✕", "copy … from <entry>" and "same as <the reference row>". The items table may sit on
+  the paper, so a blind import with no entries opens on the stages and the coder adds the first
+  entry; adding an entry retires the "screened — no records" sentinel. Verification stays per
+  entry; "verify all" finishes a paper. The Fields view remains the escape hatch.
+- `allow_other` on `multi` fields and table columns: the widget takes a term of the paper's own
+  after the declared boxes (Enter adds it), stores codes and terms in one list, draws a stored
+  off-list value as a removable chip (never dropped unseen), and the validator no longer flags
+  such values.
+- The generic card adds and removes sub-entries (an arm, a result: "＋", "✕"), logged as
+  corrections like a table row; a cell inside a paper-level table is saved with its table.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,
