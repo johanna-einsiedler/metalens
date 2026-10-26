@@ -166,6 +166,9 @@ def test_www_redirects_to_the_bare_host_and_the_gate_is_opt_in(monkeypatch) -> N
     c = TestClient(app)
     r = c.get("/healthz", headers={"host": "www.metalens.tech", "x-forwarded-proto": "https"}, follow_redirects=False)
     assert r.status_code == 301 and r.headers["location"] == "https://metalens.tech/healthz"
+    # the earlier application's address, cited in the MASEMiner manuscript, keeps its path
+    r = c.get("/maseminer", headers={"host": "paper.metalens.tech", "x-forwarded-proto": "https"}, follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "https://metalens.tech/maseminer"
     assert c.get("/healthz", headers={"host": "metalens.tech"}).status_code == 200
     monkeypatch.setenv("PAPERLENS_BASIC_PASSWORD", "shared")
     assert c.get("/", headers={"host": "metalens.tech"}).status_code == 401
