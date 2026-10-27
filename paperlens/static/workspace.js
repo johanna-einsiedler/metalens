@@ -797,7 +797,7 @@ function renderPanel() {
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
         : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
     + `<button class="btn btn-ghost" id="dljson" title="this paper">⬇ JSON</button>`
-    + `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`
+    + (stagesOpen() ? "" : `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`)   // the staged head stays short
     // the whole dataset from here, so a coder never has to leave the review to take the work away
     + (PROJECT ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
         + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
@@ -1798,10 +1798,11 @@ function renderReviewHead(panel) {
   const pm = DATA.paper_metadata || {};
   const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
   const head = document.createElement("div"); head.className = "chain-head";
-  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
+  const staged = stagesOpen();                             // the stages: the sidebar switches papers, the stage bar counts
+  head.innerHTML = (staged ? "" : `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`)
     + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
-    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
-    + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
+    + (staged ? "" : `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
+      + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`);
   head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
   panel.appendChild(head);
   const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper" && (DATA.paper_confidence || {})[g.id]);
@@ -2206,10 +2207,14 @@ function stageShowItem() {
     pages.querySelectorAll("img.pageimg").forEach((img) => { if (!img.complete) img.addEventListener("load", () => setTimeout(go, 60), { once: true }); });
   }
 }
+// A stage's level: the paper's fields; the entry's fields (with, on a stage that also names a
+// child, that child's rows under each entry); or one child's rows. `names` is every field the
+// stage shows — what the items' bears_on is matched against.
 function stageLevel(st) {
   if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
-  if (st.fields) return { scope: "entry", names: new Set(st.fields), child: null };
-  return { scope: "child", names: new Set(st.child_fields || []), child: VM.entries.children.find((c) => c.key === st.child) || null };
+  const child = st.child ? VM.entries.children.find((c) => c.key === st.child) || null : null;
+  if (st.fields) return { scope: "entry", names: new Set([...st.fields, ...(child ? st.child_fields || [] : [])]), child };
+  return { scope: "child", names: new Set(st.child_fields || []), child };
 }
 function fieldLabel(name) {
   const info = VM.fieldIndex.get(name);
@@ -2228,8 +2233,11 @@ function autoIdValue(ai, siblings) {
   }
   return null;
 }
+// A stage's auto ids: one object, or a list of them (one per level) on a stage with the entry's
+// fields and a child's; each is matched to its level by the field it names.
+function stageAutoIds(st) { return (Array.isArray(st.auto_id) ? st.auto_id : st.auto_id ? [st.auto_id] : []).filter((a) => a && a.field); }
 function stageEntryAutoId(st) {
-  const ai = st.auto_id; if (!ai || !ai.field) return null;
+  const ai = stageAutoIds(st).find((a) => VM.entries.fields.some((f) => f.name === a.field)); if (!ai) return null;
   const v = autoIdValue(ai, (DATA.records || []).map((r) => (r.field_values || {})[ai.field]));
   return v === null ? null : { [ai.field]: v };
 }
@@ -2280,7 +2288,8 @@ function stageCellsBlock(st, L, recs) {
     if (L.scope === "entry") {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
-    } else if (L.child) {
+    }
+    if (L.child) {                                          // a child stage, or the child's rows under each entry's cells
       const rows = fv[L.child.key];
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(L.child.key)}">`
         + `<div class="rv-key" data-path="${esc(L.child.key)}" title="${esc(L.child.help || "")}">${esc(L.child.label || formatKey(L.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
@@ -2411,8 +2420,8 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
   updateStageFoot();
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
-  const ai = st.auto_id;
-  const fill = ai && ai.field && L.child ? (path, rows) => (path === L.child.key ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null) : null;
+  const ai = L.child ? stageAutoIds(st).find((a) => (L.child.fields || []).some((f) => f.name === a.field)) : null;
+  const fill = ai ? (path, rows) => (path === L.child.key ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null) : null;
   panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
     const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep, fill);
   });

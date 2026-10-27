@@ -473,6 +473,8 @@ def _stage_errors(mutate) -> list[str]:
     ("unknown review key", lambda rv: rv.update(paper_fields=["design"]), "unknown key 'paper_fields'"),
     ("items not a table", lambda rv: rv.update(items="design"), "table field of the entry or the paper"),
     ("two levels", lambda rv: rv["stages"][0].update(fields=["n"]), "ONE level"),
+    ("paper fields with a child", lambda rv: rv["stages"][0].update(child="records", child_fields=["es"]), "ONE level"),
+    ("auto_id list on a plain entry stage", lambda rv: rv["stages"][1].update(auto_id=[{"field": "sample_id", "next": "S{n}"}]), "a list of them only on a stage with the entry's fields and a child's"),
     ("child without child_fields", lambda rv: rv["stages"][2].pop("child_fields"), "ONE level"),
     ("unknown stage key", lambda rv: rv["stages"][0].update(fields_of="x"), "unknown key 'fields_of'"),
     ("paper field unknown", lambda rv: rv["stages"][0].update(paper_fields=["zzz"]), "'zzz' is not a paper field"),
@@ -500,6 +502,28 @@ def test_stages_review_rejects(label, mutate, needle) -> None:
     errs = _stage_errors(mutate)
     assert errs, f"{label}: expected an error"
     assert any(needle in e for e in errs), f"{label}: {errs}"
+
+
+def test_stages_review_entry_stage_may_carry_a_child() -> None:
+    """A stage may name the entry's fields together with one child's (each entry's cells, then its
+    rows): its auto_id is then a list, one per level, copy_from_sibling applies to the rows, and a
+    field of neither level in auto_id is rejected."""
+    doc = _stages_doc()
+    rv = doc["display"]["review"]
+    rv["stages"][1:3] = [{"id": "samples", "label": "Samples and effects", "help": "Each sample with its rows.",
+                          "fields": ["sample_id", "n", "matrix"], "child": "records", "child_fields": ["var1", "is_ref", "row_id"],
+                          "auto_id": [{"field": "sample_id", "next": "S{n}"}, {"field": "row_id", "first": "C", "next": "T{n}"}],
+                          "copy_from_sibling": {"when": "is_ref", "fields": ["var1"]}}]
+    spec = ps.normalize(doc)
+    errs, warns = ps.validate(spec)
+    assert errs == [] and warns == [], (errs, warns)
+    assert spec["display"]["review"]["stages"][1]["auto_id"][1] == {"field": "row_id", "first": "C", "next": "T{n}"}
+    bad = copy.deepcopy(doc); bad["display"]["review"]["stages"][1]["auto_id"] = [{"field": "es", "next": "E{n}"}]
+    try:
+        errs = ps.validate(ps.normalize(bad))[0]
+    except ps.SpecError as e:
+        errs = e.errors
+    assert any("auto_id.field must name a string field of the entry or a string field of 'records'" in e for e in errs), errs
 
 
 # ── option definitions: {value, label, help} ──────────────────────────────────────────────────────

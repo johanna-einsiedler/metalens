@@ -1967,14 +1967,16 @@ def _validate_evidence_review(rv: dict, spec: dict, E, W) -> None:
 def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     """display.review.layout "stages": ``items`` names the reader's items table (see
     ``_items_table``) and ``stages`` the ordered stages a coder works through. Each stage is
-    ``{id, label, help, …}`` naming the fields of ONE level — ``paper_fields``, ``fields`` (of the
-    entry) or ``child`` + ``child_fields`` (of that child) — and, on a child stage, may carry
-    ``copy_from_sibling: {when, fields}``: a row's button copies the listed fields from the sibling
-    row whose boolean ``when`` field is true (the reference arm's sample, say). An entry or child
-    stage may carry ``auto_id: {field, first?, next}``: what "add" writes into ``field`` (a string
-    field of that level) — ``first`` when no sibling has a value there, else ``next`` with ``{n}``
-    the smallest number not yet used (``{"field": "arm_id", "first": "C", "next": "T{n}"}`` gives
-    C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
+    ``{id, label, help, …}`` naming the fields of one level — ``paper_fields``, ``fields`` (of the
+    entry) or ``child`` + ``child_fields`` (of that child) — or the entry's ``fields`` together
+    with one child's ``child`` + ``child_fields`` (each entry's cells, then its rows under them).
+    A stage with a child may carry ``copy_from_sibling: {when, fields}``: a row's button copies the
+    listed fields from the sibling row whose boolean ``when`` field is true (the reference arm's
+    sample, say). An entry or child stage may carry ``auto_id: {field, first?, next}`` — a list of
+    them, one per level, on a stage with the entry's fields and a child's — what "add" writes into
+    ``field`` (a string field of that level): ``first`` when no sibling has a value there, else
+    ``next`` with ``{n}`` the smallest number not yet used (``{"field": "arm_id", "first": "C",
+    "next": "T{n}"}`` gives C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
     bears_on meets its fields as one bare list (page and quote) with a cursor over them, then its
     cells (once), then a "next" button — and the PDF column, collapsed to a strip until opened
     (two fifths of the window by default), follows the cursor to the current item's page while
@@ -2013,48 +2015,60 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
         if not (isinstance(st.get("help"), str) and st["help"].strip()):
             W(f"{at}: no help — the coder gets no instruction at the top of the stage")
         levels = [k for k in ("paper_fields", "fields", "child") if st.get(k) is not None]
-        if len(levels) != 1 or (st.get("child") is None) != (st.get("child_fields") is None):
-            E(f"{at} must name fields of ONE level: paper_fields, fields (the entry) or child + child_fields")
+        both = levels == ["fields", "child"]                       # the entry's cells, then one child's rows
+        if (len(levels) != 1 and not both) or (st.get("child") is None) != (st.get("child_fields") is None):
+            E(f"{at} must name fields of ONE level (paper_fields; fields, the entry; child + child_fields), or the entry's fields together with one child's")
             continue
-        level = levels[0]
+        level = "child" if both else levels[0]                     # where the rows, auto ids and copies live
         ck = st.get("child")
-        if level == "child" and ck not in kids:
+        if ck is not None and ck not in kids:
             E(f"{at}.child must name a child of the entries")
             continue
-        names = st["child_fields"] if level == "child" else st[level]
-        known = kids[ck] if level == "child" else (pfields if level == "paper_fields" else efields)
-        what = f"a field of {ck!r}" if level == "child" else ("a paper field" if level == "paper_fields" else "an entry field")
-        key = "child_fields" if level == "child" else level
-        if not isinstance(names, list) or not names:
-            E(f"{at}.{key} must be a non-empty list of field names")
+        parts = []                                                  # (key, names, known, what) per level named
+        if level == "paper_fields":
+            parts.append(("paper_fields", st["paper_fields"], pfields, "a paper field"))
+        if st.get("fields") is not None:
+            parts.append(("fields", st["fields"], efields, "an entry field"))
+        if ck is not None:
+            parts.append(("child_fields", st["child_fields"], kids[ck], f"a field of {ck!r}"))
+        ok = True
+        for key, names, known, what in parts:
+            if not isinstance(names, list) or not names:
+                E(f"{at}.{key} must be a non-empty list of field names"); ok = False
+                continue
+            for n in names:
+                if n not in known:
+                    E(f"{at}.{key}: {n!r} is not {what}")
+                elif n == rv.get("items"):
+                    E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
+                else:
+                    covered.add(n)
+        if not ok:
             continue
-        for n in names:
-            if n not in known:
-                E(f"{at}.{key}: {n!r} is not {what}")
-            elif n == rv.get("items"):
-                E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
-            else:
-                covered.add(n)
         ai = st.get("auto_id")
         if ai is not None:
+            homes = ([(efields, "a string field of the entry")] if st.get("fields") is not None else []) \
+                + ([(kids[ck], f"a string field of {ck!r}")] if ck is not None else [])
             if level == "paper_fields":
                 E(f"{at}.auto_id only applies to an entry or child stage")
-            elif not isinstance(ai, dict):
-                E(f"{at}.auto_id must be an object {{field, first?, next}}")
+            elif not isinstance(ai, (dict, list)) or (isinstance(ai, list) and not both):
+                E(f"{at}.auto_id must be an object {{field, first?, next}}" + (" — a list of them only on a stage with the entry's fields and a child's" if isinstance(ai, list) else ""))
             else:
-                for k in sorted(set(ai) - _ALLOWED_KEYS["auto_id"]):
-                    E(f"{at}.auto_id: unknown key {k!r}")
-                where = f"a string field of {ck!r}" if level == "child" else "a string field of the entry"
-                if (known.get(ai.get("field")) or {}).get("type") != "string":
-                    E(f"{at}.auto_id.field must name {where}")
-                if not isinstance(ai.get("next"), str) or "{n}" not in ai["next"]:
-                    E(f"{at}.auto_id.next must be a string containing {{n}}")
-                if "first" in ai and not isinstance(ai["first"], str):
-                    E(f"{at}.auto_id.first must be a string")
+                for a in (ai if isinstance(ai, list) else [ai]):
+                    if not isinstance(a, dict):
+                        E(f"{at}.auto_id must be an object {{field, first?, next}} (or a list of them)"); continue
+                    for k in sorted(set(a) - _ALLOWED_KEYS["auto_id"]):
+                        E(f"{at}.auto_id: unknown key {k!r}")
+                    if not any((known.get(a.get("field")) or {}).get("type") == "string" for known, _ in homes):
+                        E(f"{at}.auto_id.field must name " + " or ".join(w for _, w in homes))
+                    if not isinstance(a.get("next"), str) or "{n}" not in a["next"]:
+                        E(f"{at}.auto_id.next must be a string containing {{n}}")
+                    if "first" in a and not isinstance(a["first"], str):
+                        E(f"{at}.auto_id.first must be a string")
         cs = st.get("copy_from_sibling")
         if cs is not None:
-            if level != "child":
-                E(f"{at}.copy_from_sibling only applies to a child stage")
+            if ck is None:
+                E(f"{at}.copy_from_sibling only applies to a child stage (one with child + child_fields)")
             elif (not isinstance(cs, dict) or set(cs) - _ALLOWED_KEYS["copy"]
                   or (kids[ck].get(cs.get("when")) or {}).get("type") != "boolean"
                   or not isinstance(cs.get("fields"), list) or not cs["fields"]

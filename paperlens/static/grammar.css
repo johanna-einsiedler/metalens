@@ -430,7 +430,7 @@ tr:hover .rv-rowdel { opacity: .75; }
   border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer; }
 .stg-evidence > .evi-item:last-of-type { border-bottom: 0; }
 .stg-evidence > .evi-item .evi-head { margin-bottom: 3px; gap: 6px; }
-.stg-evidence > .evi-item .evi-body { margin: 0; }
+.stg-evidence > .evi-item .evi-body { margin: 0; font-size: 12.5px; line-height: 1.45; }
 .stg-evidence > .evi-item .evi-note { flex-basis: auto; }
 .stg-evidence > .evi-item:hover { border-left-color: var(--accent-3); }
 .stg-evidence > .evi-item.cur { border-left-color: var(--accent); background: var(--accent-wash); }

@@ -134,7 +134,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   open at the coder's zoom, scrolled so the current item's highlight starts just under its top
   edge (`→`/`←` or "◀ item k of n ▶" at the top of the pane; the cursor moves whether or not
   the pane is open). A stage's `auto_id: {field, first?, next}` fills the id of
-  an added entry or row ("C", then "T1", "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
+  an added entry or row ("C", then "T1", "T2" …). A stage may name the entry's fields together
+  with one child's (`fields` + `child` + `child_fields`): each entry's cells, then its rows under
+  them, `auto_id` a list with one per level (the tasks with their arms). The staged head shows the
+  paper's title alone (the sidebar switches papers, the stage bar counts) and no CSV button; the
+  evidence list is set a size smaller. The items table may sit on the paper, so a blind import with no entries opens on the
   stages and the coder adds the first entry; adding an entry retires the "screened — no records"
   sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the
   two-column one, unchanged (the panel and the PDF).
