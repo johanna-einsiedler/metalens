@@ -479,7 +479,7 @@ def _stage_errors(mutate) -> list[str]:
     ("paper field unknown", lambda rv: rv["stages"][0].update(paper_fields=["zzz"]), "'zzz' is not a paper field"),
     ("entry field unknown", lambda rv: rv["stages"][1].update(fields=["zzz"]), "'zzz' is not an entry field"),
     ("entry field on a paper stage", lambda rv: rv["stages"][0].update(paper_fields=["n"]), "'n' is not a paper field"),
-    ("child unknown", lambda rv: rv["stages"][2].update(child="zzz"), "child must name a child"),
+    ("child unknown", lambda rv: rv["stages"][2].update(child="zzz"), "children[0] must be"),
     ("child field unknown", lambda rv: rv["stages"][2].update(child_fields=["n"]), "'n' is not a field of 'records'"),
     ("empty field list", lambda rv: rv["stages"][1].update(fields=[]), "non-empty list"),
     ("items as a cell", lambda rv: rv["stages"][1].update(fields=["items"]), "drawn as evidence, not as a cell"),
@@ -545,8 +545,9 @@ def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
     # a lookup: one more value from another paper table, by the accepted row's key
     doc["paper"]["fields"].append({"name": "model_map", "type": "table", "columns": [{"name": "rid", "type": "string"}, {"name": "mine", "type": "string"}]})
     rv["stages"][3]["accept_rows"]["lookup"] = {"table": "model_map", "key_column": "rid", "take_column": "mine", "into_field": "var1"}
+    rv["stages"][3]["paper_fields"].append("model_map")
     errs, warns = ps.validate(ps.normalize(doc))
-    assert errs == [], errs
+    assert errs == [] and warns == [], (errs, warns)
     for label, bad_lk in [("table unknown", {"table": "zzz", "key_column": "rid", "take_column": "mine", "into_field": "var1"}),
                           ("key not in from", {"table": "model_map", "key_column": "mine", "take_column": "mine", "into_field": "var1"}),
                           ("into_field unknown", {"table": "model_map", "key_column": "rid", "take_column": "mine", "into_field": "zzz"})]:
@@ -557,6 +558,39 @@ def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
             errs = e.errors
         assert any("accept_rows.lookup needs" in e for e in errs), (label, errs)
     rv["stages"][3]["accept_rows"].pop("lookup")
+    # the general form: children [{key, fields}], a lookup list with $entry, group_by, and match columns fed by the units
+    doc2 = copy.deepcopy(doc); rv2 = doc2["display"]["review"]
+    doc2["paper"]["fields"].append({"name": "model_units", "type": "table", "columns": [
+        {"name": "rid", "type": "string"}, {"name": "mine_s", "type": "string"}, {"name": "mine_r", "type": "string"}]})
+    rv2["stages"][2] = {"id": "effects", "label": "Effects", "help": "One row per effect.", "children": [{"key": "records", "fields": ["var1", "is_ref", "row_id"]}],
+                       "auto_id": {"field": "row_id", "first": "C", "next": "T{n}"},
+                       "copy_from_sibling": {"child": "records", "when": "is_ref", "fields": ["var1"]}}
+    rv2["stages"][3]["accept_rows"].update(group_by="sample_id", lookup=[
+        {"table": "model_units", "key_column": "rid", "take_column": "mine_r", "into_field": "var1"},
+        {"table": "model_units", "key_column": "rid", "take_column": "mine_s", "into_field": "$entry"}])
+    rv2["stages"][3]["paper_fields"].remove("model_map"); rv2["stages"][3]["paper_fields"].append("model_map")
+    rv2["stages"].insert(3, {"id": "match", "label": "Match", "help": "Yours against the model's.", "paper_fields": ["model_units"],
+                            "match": {"table": "model_units", "columns": {"mine_s": {"from": "entry", "value": "sample_id", "label": "n"},
+                                                                          "mine_r": {"from": "records", "value": "row_id", "label": "var1", "skip_when": "is_ref"}}}})
+    spec = ps.normalize(doc2)
+    errs, warns = ps.validate(spec)
+    assert errs == [] and warns == [], (errs, warns)
+    for label, mutate, needle in [
+        ("match column unknown", lambda r: r["stages"][3]["match"]["columns"].update(zzz={"from": "entry", "value": "sample_id", "label": "n"}), "match.columns.zzz"),
+        ("match from unknown", lambda r: r["stages"][3]["match"]["columns"]["mine_r"].update({"from": "zzz"}), "match.columns.mine_r"),
+        ("match skip_when not boolean", lambda r: r["stages"][3]["match"]["columns"]["mine_r"].update(skip_when="var1"), "match.columns.mine_r"),
+        ("match table not of the stage", lambda r: r["stages"][3].update(paper_fields=["design"]), "match needs table"),
+        ("group_by unknown", lambda r: r["stages"][4]["accept_rows"].update(group_by="zzz"), "accept_rows needs from"),
+        ("children child unknown", lambda r: r["stages"][2].update(children=[{"key": "zzz", "fields": ["var1"]}]), "children[0] must be"),
+        ("children twice", lambda r: r["stages"][2].update(children=[{"key": "records", "fields": ["var1"]}, {"key": "records", "fields": ["es"]}]), "children[1] must be"),
+        ("copy child not of the stage", lambda r: r["stages"][2]["copy_from_sibling"].update(child="zzz"), "copy_from_sibling needs"),
+    ]:
+        bad = copy.deepcopy(doc2); mutate(bad["display"]["review"])
+        try:
+            errs = ps.validate(ps.normalize(bad))[0]
+        except ps.SpecError as e:
+            errs = e.errors
+        assert any(needle in e for e in errs), (label, errs)
     for label, bad_ar, needle in [
         ("from not a table", dict(rv["stages"][3]["accept_rows"], **{"from": "design"}), "accept_rows needs from"),
         ("id_field not a string field", dict(rv["stages"][3]["accept_rows"], id_field="es"), "accept_rows needs from"),

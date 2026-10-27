@@ -2216,11 +2216,20 @@ function stageShowItem() {
 // each entry — any of them, alone or together. `names` is every field the stage shows (what the
 // items' bears_on is matched against); `scope` is where "add" acts: the entry when it has entry
 // fields, else the child, else the paper. `accept` is the stage's accept_rows rule.
+// What a stage shows, in order: the paper's fields; each entry's fields; the rows of each child
+// it names under each entry — any of them, alone or together. `names` is every field the stage
+// shows (what the items' bears_on is matched against); `scope` is where "add" acts: the entry
+// when it has entry fields, else a child, else the paper. `accept` and `match` are the stage's
+// rules; `kidOf(key)` finds a child block by its key.
 function stageLevel(st) {
-  const child = st.child ? VM.entries.children.find((c) => c.key === st.child) || null : null;
+  const specs = st.children || (st.child ? [{ key: st.child, fields: st.child_fields || [] }] : []);
+  const kids = specs.map((k) => ({ child: VM.entries.children.find((c) => c.key === k.key) || null, names: new Set(k.fields || []) })).filter((k) => k.child);
   const paper = st.paper_fields || null, entry = st.fields || null;
-  const names = new Set([...(paper || []), ...(entry || []), ...(child ? st.child_fields || [] : [])]);
-  return { scope: entry ? "entry" : child ? "child" : "paper", names, child, paper, entry, accept: st.accept_rows || null };
+  const names = new Set([...(paper || []), ...(entry || []), ...kids.flatMap((k) => [...k.names])]);
+  const accept = st.accept_rows || null;
+  const kidOf = (key) => kids.find((k) => k.child.key === key) || null;
+  const main = (accept && kidOf(accept.child)) || kids[0] || null;
+  return { scope: entry ? "entry" : kids.length ? "child" : "paper", names, kids, child: main ? main.child : null, paper, entry, accept, match: st.match || null, kidOf };
 }
 function fieldLabel(name) {
   const info = VM.fieldIndex.get(name);
@@ -2258,19 +2267,22 @@ function addEntryButton() {
 
 // The copy actions of a child stage: "copy <children> from <another entry>" and, where the stage
 // declares copy_from_sibling, one "same as <reference>" button per row that is not the reference.
-function stageCopyControls(st, L, rec, recs) {
-  const key = L.child.key, label = (L.child.label || key).toLowerCase();
+// The copy actions of a child block: "copy <children> from <another entry>" and, where the stage's
+// copy_from_sibling names this child, one "same as <reference>" button per row that is not the reference.
+function stageCopyControls(st, L, rec, recs, kid) {
+  const child = kid.child, key = child.key, label = (child.label || key).toLowerCase();
   const rows = (rec.field_values || {})[key];
   const others = recs.filter((r) => r !== rec && Array.isArray((r.field_values || {})[key]) && r.field_values[key].length);
   let html = "";
-  if (others.length) html += `<label class="muted">copy ${esc(label)}s from <select class="stg-copyfrom" data-rid="${esc(rec.id)}" title="a deep copy of that ${esc(VM.entries.label.toLowerCase())}'s ${esc(label)}s, replacing these">`
+  if (others.length) html += `<label class="muted">copy ${esc(label)}s from <select class="stg-copyfrom" data-rid="${esc(rec.id)}" data-child="${esc(key)}" title="a deep copy of that ${esc(VM.entries.label.toLowerCase())}'s ${esc(label)}s, replacing these">`
     + `<option value="">…</option>${others.map((r) => `<option value="${esc(r.id)}">${esc(entryTitle(VM, r, r.entry_index))} (${r.field_values[key].length})</option>`).join("")}</select></label>`;
   const cs = st.copy_from_sibling;
-  if (cs && Array.isArray(rows)) {
+  const csKey = cs ? (cs.child || (L.kids.length === 1 ? L.kids[0].child.key : null)) : null;
+  if (cs && csKey === key && Array.isArray(rows)) {
     const ref = rows.findIndex((r) => r && r[cs.when] === true);
     if (ref >= 0) {
-      const refTitle = childTitle(L.child, rows[ref], ref);
-      html += rows.map((r, j) => j === ref || !r ? "" : `<button type="button" class="stg-same" data-rid="${esc(rec.id)}" data-row="${j}" title="copy ${esc(cs.fields.map(fieldLabel).join(", "))} from ${esc(refTitle)}">${esc(childTitle(L.child, r, j))}: same as ${esc(refTitle)}</button>`).join("");
+      const refTitle = childTitle(child, rows[ref], ref);
+      html += rows.map((r, j) => j === ref || !r ? "" : `<button type="button" class="stg-same" data-rid="${esc(rec.id)}" data-child="${esc(key)}" data-row="${j}" title="copy ${esc(cs.fields.map(fieldLabel).join(", "))} from ${esc(refTitle)}">${esc(childTitle(child, r, j))}: same as ${esc(refTitle)}</button>`).join("");
     }
   }
   return html ? `<div class="stg-copy">${html}</div>` : "";
@@ -2284,9 +2296,10 @@ function stageCellsBlock(st, L, recs) {
   const unit = VM.entries.label.toLowerCase();
   if (L.paper) {                                           // the paper's cells first
     box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper));
-    if (L.accept && L.child) acceptButtons(box, L);
+    if (L.match) matchBlocks(box, L, recs);
+    if (L.accept && L.kidOf(L.accept.child)) acceptButtons(box, L);
   }
-  if (!L.entry && !L.child) return box;
+  if (!L.entry && !L.kids.length) return box;
   if (!recs.length) {
     box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.entry ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
     if (L.entry) box.appendChild(addEntryButton());
@@ -2299,12 +2312,12 @@ function stageCellsBlock(st, L, recs) {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
     }
-    if (L.child) {                                          // a child stage, or the child's rows under each entry's cells
-      const rows = fv[L.child.key];
-      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(L.child.key)}">`
-        + `<div class="rv-key" data-path="${esc(L.child.key)}" title="${esc(L.child.help || "")}">${esc(L.child.label || formatKey(L.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
-        + `<div class="rv-val rv-nested">${renderChild(L.child, rows, { editable: true, show: L.names })}</div></div></div>`
-        + stageCopyControls(st, L, rec, recs));
+    for (const kid of L.kids) {                              // each child's rows under the entry's cells
+      const rows = fv[kid.child.key];
+      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(kid.child.key)}">`
+        + `<div class="rv-key" data-path="${esc(kid.child.key)}" title="${esc(kid.child.help || "")}">${esc(kid.child.label || formatKey(kid.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
+        + `<div class="rv-val rv-nested">${renderChild(kid.child, rows, { editable: true, show: kid.names })}</div></div></div>`
+        + stageCopyControls(st, L, rec, recs, kid));
     }
     box.appendChild(card);
   }
@@ -2312,16 +2325,90 @@ function stageCellsBlock(st, L, recs) {
   return box;
 }
 
+// match: the coder's units (the entries and the children the rule names) listed over the model's
+// table, each matching column turned into a select fed by those units (saved like any enum cell),
+// and under the table the units no row points to — the model's misses.
+function unitOptions(recs, spec) {
+  const out = [];
+  for (const r of recs) {
+    const fv = r.field_values || {};
+    if (spec.from === "entry") {
+      if (fv[spec.value] != null && fv[spec.value] !== "") out.push({ value: String(fv[spec.value]), label: `${fv[spec.value]} · ${fv[spec.label] ?? ""}`.trim() });
+    } else {
+      for (const x of (Array.isArray(fv[spec.from]) ? fv[spec.from] : [])) {
+        if (!x || x[spec.value] == null || x[spec.value] === "") continue;
+        if (spec.skip_when && x[spec.skip_when] === true) continue;          // the reference arm is nobody's match
+        out.push({ value: String(x[spec.value]), label: `${x[spec.value]} · ${x[spec.label] ?? ""}`.trim() });
+      }
+    }
+  }
+  return out;
+}
+function matchBlocks(box, L, recs) {
+  const mt = L.match, pm = DATA.paper_metadata || {}, rows = Array.isArray(pm[mt.table]) ? pm[mt.table] : [];
+  const decl = box.querySelector(`.evi-paper .rv-decl[data-field="${mt.table}"]`); if (!decl) return;
+  const kidSpecs = Object.values(mt.columns).filter((sp) => sp.from !== "entry");
+  const lines = recs.map((r) => {
+    const fv = r.field_values || {};
+    const parts = kidSpecs.map((sp) => {
+      const ch = VM.entries.children.find((c) => c.key === sp.from) || {}, xs = (Array.isArray(fv[sp.from]) ? fv[sp.from] : []).filter(Boolean);
+      return `${esc((ch.label || sp.from).toLowerCase())}s: ${xs.length ? xs.map((x) => `<b>${esc(String(x[sp.value] ?? "?"))}</b> ${esc(String(x[sp.label] ?? ""))}`).join("; ") : "<i>none yet</i>"}`;
+    });
+    return `<li><b>${esc(entryTitle(VM, r, r.entry_index))}</b> — ${parts.join(" — ")}</li>`;
+  });
+  decl.insertAdjacentHTML("beforebegin", `<div class="stg-units"><div class="evi-sub">Your units</div>${lines.length ? `<ul>${lines.join("")}</ul>` : `<p class="muted">None yet — define them first.</p>`}</div>`);
+  for (const [col, sp] of Object.entries(mt.columns)) {
+    const opts = unitOptions(recs, sp);
+    decl.querySelectorAll("table.rv-typed tbody tr[data-row]").forEach((tr) => {
+      const i = Number(tr.dataset.row), path = `${mt.table}[${i}].${col}`;
+      const cell = tr.querySelector(`[data-path="${path}"]`); if (!cell) return;
+      const cur = rows[i] ? rows[i][col] : null;
+      cell.outerHTML = `<span class="rv-selwrap stg-match" data-path="${esc(path)}" data-col="${esc(col)}"><select class="rv-select"><option value=""${cur == null || cur === "" ? " selected" : ""}>—</option>`
+        + opts.map((o) => `<option value="${esc(o.value)}"${String(cur) === o.value ? " selected" : ""}>${esc(o.label)}</option>`).join("") + `</select></span>`;
+    });
+  }
+  const miss = document.createElement("div"); miss.className = "stg-misses";
+  decl.insertAdjacentElement("afterend", miss);
+  const render = () => {
+    const out = [];
+    for (const [col, sp] of Object.entries(mt.columns)) {
+      if (sp.from === "entry") continue;
+      const used = new Set([...decl.querySelectorAll(`.stg-match[data-col="${col}"] select`)].map((x) => x.value).filter(Boolean));
+      const ch = VM.entries.children.find((c) => c.key === sp.from) || {};
+      const left = unitOptions(recs, sp).filter((o) => !used.has(o.value));
+      if (left.length) out.push(`<li>${esc((ch.label || sp.from).toLowerCase())}s no row points to: ${left.map((o) => esc(o.label)).join("; ")}</li>`);
+    }
+    miss.innerHTML = `<div class="evi-sub">Not matched by the model</div>` + (out.length ? `<ul>${out.join("")}</ul>` : `<p class="muted">every unit of yours has a row</p>`);
+  };
+  render();
+  decl.addEventListener("change", (e) => { if (e.target.closest(".stg-match")) render(); });
+}
+
 // accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row".
+// accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row". With
+// group_by, a header opens each group (an estimand) naming the unit of the coder's it was matched
+// to, from the lookup table; a group whose match says drop is struck through.
 function acceptButtons(box, L) {
-  const ar = L.accept, rows = (DATA.paper_metadata || {})[ar.from];
+  const ar = L.accept, rows = (DATA.paper_metadata || {})[ar.from], kid = L.kidOf(ar.child);
   const table = box.querySelector(`.evi-paper .rv-decl[data-field="${ar.from}"] table.rv-typed`);
-  if (!table || !Array.isArray(rows)) return;
+  if (!table || !Array.isArray(rows) || !kid) return;
   const head = table.querySelector("thead tr th");                // the button sits at the row's start, next to the citation cell
   if (head) head.insertAdjacentHTML("afterend", `<th class="stg-accept-h"></th>`);
-  const label = (L.child.label || L.child.key).toLowerCase();
+  const label = (kid.child.label || kid.child.key).toLowerCase();
+  const ncols = table.querySelectorAll("thead th").length;
+  const lks = Array.isArray(ar.lookup) ? ar.lookup : ar.lookup ? [ar.lookup] : [];
+  const ltab = lks.length ? (DATA.paper_metadata || {})[lks[0].table] : null;
+  let last = null;
   table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
-    const i = Number(tr.dataset.row), done = !!rows[i] && rows[i][ar.verdict_column] === ar.accepted;
+    const i = Number(tr.dataset.row), row = rows[i] || {}, done = row[ar.verdict_column] === ar.accepted;
+    if (ar.group_by && row[ar.group_by] != null && String(row[ar.group_by]) !== last) {
+      last = String(row[ar.group_by]);
+      const m = Array.isArray(ltab) ? ltab.find((r) => r && String(r[lks[0].key_column]) === last) : null;
+      const unit = m ? lks.map((l) => m[l.take_column]).filter((v) => v != null && v !== "") : [];
+      const verdict = m && m.match != null && m.match !== "" ? String(m.match) : "";
+      tr.insertAdjacentHTML("beforebegin", `<tr class="stg-group${/drop/.test(verdict) ? " dropped" : ""}"><td colspan="${ncols}"><b>${esc(last)}</b>`
+        + (unit.length ? ` → yours: ${esc(unit.join(" · "))}` : ` → not matched to a unit of yours yet`) + (verdict ? ` <span class="muted">(${esc(verdict)})</span>` : "") + `</td></tr>`);
+    }
     const cite = tr.querySelector("td"); if (!cite) return;
     cite.insertAdjacentHTML("afterend", `<td class="stg-accept-c"><button type="button" class="stg-accept${done ? " done" : ""}" data-row="${i}"${done ? " disabled" : ""}`
       + ` title="${done ? "accepted into a row" : esc(`accept: a new ${label} row with these values, this row marked ${ar.accepted}`)}">${done ? "✓ row" : "＋ row"}</button></td>`);
@@ -2331,12 +2418,23 @@ function acceptButtons(box, L) {
 // The model's table row becomes a child row of the entry its task column names (the only
 // entry, or one the coder picks): same-named columns copied, the row's id written into the
 // child's id field, the table row's verdict set — logged like any added row.
+// The model's table row becomes a child row of the entry its task column (or a $entry lookup)
+// names — the only entry, or one the coder picks: same-named columns copied, the lookups' values
+// added, the row's id written into the child's id field, the table row's verdict set.
 async function acceptRow(L, recs, i) {
-  const ar = L.accept, child = L.child, pm = DATA.paper_metadata || {};
+  const ar = L.accept, kid = L.kidOf(ar.child), pm = DATA.paper_metadata || {};
   const rows = Array.isArray(pm[ar.from]) ? pm[ar.from] : [], src = rows[i];
-  if (!src || !child) return;
-  const unit = VM.entries.label.toLowerCase();
-  const want = ar.task_column ? src[ar.task_column] : null;
+  if (!src || !kid) return;
+  const child = kid.child, unit = VM.entries.label.toLowerCase();
+  const lks = Array.isArray(ar.lookup) ? ar.lookup : ar.lookup ? [ar.lookup] : [];
+  const extra = {}; let entryWant = null;
+  for (const lk of lks) {
+    const hit = (Array.isArray(pm[lk.table]) ? pm[lk.table] : []).find((r) => r && r[lk.key_column] != null && String(r[lk.key_column]) === String(src[lk.key_column]));
+    const v = hit ? hit[lk.take_column] : null;
+    if (v == null || v === "") continue;
+    if (lk.into_field === "$entry") entryWant = v; else extra[lk.into_field] = v;
+  }
+  const want = entryWant != null ? entryWant : ar.task_column ? src[ar.task_column] : null;
   let rec = want != null && VM.entries.id_field
     ? recs.find((r) => String(((r.field_values || {})[VM.entries.id_field]) ?? "") === String(want)) || null : null;
   if (!rec && recs.length === 1) rec = recs[0];
@@ -2350,12 +2448,8 @@ async function acceptRow(L, recs, i) {
   for (const f of child.fields) {
     if (f.name !== ar.id_field && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
   }
+  Object.assign(row, extra);
   row[ar.id_field] = src[ar.id_column] == null ? null : String(src[ar.id_column]);
-  const lk = ar.lookup;                                     // one more value from another table, by the row's key
-  if (lk) {
-    const hit = (Array.isArray(pm[lk.table]) ? pm[lk.table] : []).find((r) => r && r[lk.key_column] != null && String(r[lk.key_column]) === String(src[lk.key_column]));
-    if (hit && hit[lk.take_column] != null && hit[lk.take_column] !== "") row[lk.into_field] = hit[lk.take_column];
-  }
   if (!rec.field_values) rec.field_values = {};
   if (!Array.isArray(rec.field_values[child.key])) rec.field_values[child.key] = [];
   const list = rec.field_values[child.key];
@@ -2487,15 +2581,17 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
   updateStageFoot();
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
-  const ai = L.child ? stageAutoIds(st).find((a) => (L.child.fields || []).some((f) => f.name === a.field)) : null;
-  const fill = ai ? (path, rows) => (path === L.child.key ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null) : null;
+  const fill = L.kids.length ? (path, rows) => {                   // the stage's auto id for the child the row is added to
+    const kid = L.kidOf(path), ai = kid ? stageAutoIds(st).find((a) => (kid.child.fields || []).some((f) => f.name === a.field)) : null;
+    return ai ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null;
+  } : null;
   panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
     const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep, fill);
   });
   panel.querySelectorAll(".stg-copyfrom").forEach((sel) => (sel.onchange = async () => {
-    const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value); sel.value = "";
-    if (!rec || !src || !L.child) return;
-    const key = L.child.key, label = (L.child.label || key).toLowerCase();
+    const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value), kid = L.kidOf(sel.dataset.child); sel.value = "";
+    if (!rec || !src || !kid) return;
+    const key = kid.child.key, label = (kid.child.label || key).toLowerCase();
     const have = Array.isArray((rec.field_values || {})[key]) ? rec.field_values[key].length : 0;
     if (have && !confirm(`Replace the ${have} ${label}${have === 1 ? "" : "s"} of ${entryTitle(VM, rec, rec.entry_index)} with a copy of those of ${entryTitle(VM, src, src.entry_index)}? The change is logged.`)) return;
     const was = JSON.parse(JSON.stringify((rec.field_values || {})[key] || []));
@@ -2508,9 +2604,9 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
     } catch (e) { rec.field_values[key] = was; alert("copy failed: " + e.message); }
   }));
   panel.querySelectorAll(".stg-same").forEach((b) => (b.onclick = async () => {
-    const rec = byId.get(b.dataset.rid), j = Number(b.dataset.row), cs = st.copy_from_sibling;
-    if (!rec || !cs || !L.child) return;
-    const rows = (rec.field_values || {})[L.child.key] || [];
+    const rec = byId.get(b.dataset.rid), j = Number(b.dataset.row), cs = st.copy_from_sibling, kid = L.kidOf(b.dataset.child);
+    if (!rec || !cs || !kid) return;
+    const rows = (rec.field_values || {})[kid.child.key] || [];
     const ref = rows.find((r) => r && r[cs.when] === true), row = rows[j];
     if (!ref || !row) return;
     const diff = [], was = {};
@@ -2518,7 +2614,7 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
       const from = ref[f] === undefined ? null : ref[f], to = row[f] === undefined ? null : row[f];
       if (JSON.stringify(from) === JSON.stringify(to)) continue;
       was[f] = row[f];
-      diff.push({ field_path: `${L.child.key}[${j}].${f}`, original_value: to, final_value: from });
+      diff.push({ field_path: `${kid.child.key}[${j}].${f}`, original_value: to, final_value: from });
       row[f] = JSON.parse(JSON.stringify(from));
     }
     if (!diff.length) return;

@@ -144,7 +144,14 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   writes the row's id into the child's id field and sets the row's verdict to `accepted` — the
   model's estimates verified into the coder's rows, never retyped; its optional `lookup: {table,
   key_column, take_column, into_field}` carries one more value over from another paper table by
-  the row's key (the coder's outcome id from the alignment table). `display.review.verify:
+  the row's key (the coder's outcome id from the alignment table); a list of lookups is taken in
+  turn, and one with `into_field: "$entry"` picks the entry the row goes under; `group_by` names a
+  column whose runs open with a header naming the group and the coder's unit it was matched to. A
+  stage names several children as `children: [{key, fields}]` (the arms and the outcomes under each
+  task), `copy_from_sibling` then naming its child; `match: {table, columns: {column: {from, value,
+  label}}}` turns the named columns of the paper table into selects fed by the paper's own units (the
+  entries, or a child's rows), lists the coder's units over the table and the units no row points to
+  under it. `display.review.verify:
   "paper"` drops the per-entry status, verify and flag (the coder built the entries) for one
   "✓ done with this paper"; the tables in a stage's fields block are set tight. The staged head shows the
   paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and

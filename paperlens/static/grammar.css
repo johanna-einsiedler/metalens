@@ -469,6 +469,12 @@ body.stg-pdf-closed .stg-pdf-strip { display: flex; align-items: center; gap: 10
 .stg-cells .rv-typed select { font-size: 11.5px; padding: 0 2px; }
 .stg-cells .rv-typed .rv-opt-help { display: none; }
 .stg-cells .rv-typed .rv-selwrap { white-space: nowrap; }
+.stg-units, .stg-misses { margin: 0 0 8px; font-size: 12px; }
+.stg-units ul, .stg-misses ul { margin: 2px 0 4px 18px; padding: 0; }
+.stg-units li, .stg-misses li { margin: 1px 0; }
+.stg-match select { max-width: 220px; }
+tr.stg-group td { background: var(--bg); font-size: 11.5px; padding: 3px 6px; border-top: 2px solid var(--border); }
+tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-through; }
 .stg-accept { border: 1px solid var(--border); background: var(--surface); color: var(--accent); border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; padding: 1px 6px; white-space: nowrap; }
 .stg-accept:hover { background: var(--accent-wash); border-color: var(--accent); }
 .stg-accept.done { color: var(--success); border-color: var(--success); cursor: default; }
