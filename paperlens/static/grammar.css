@@ -442,15 +442,22 @@ tr:hover .rv-rowdel { opacity: .75; }
 .stg-evidence .evi-item.evi-bare.evi-passage .evi-head { flex: 0 0 auto; margin: 3px 0 0; }
 .stg-evidence .evi-item.evi-bare.evi-passage .evi-body { flex: 1 1 auto; min-width: 0; }
 /* the PDF column collapsed to a strip at the right edge: the icon opens it; "item k of n" stacked */
-body.stg-pdf-closed #splitter { display: none; }
-body.stg-pdf-closed #panel { width: auto !important; flex: 1 1 auto; }
-body.stg-pdf-closed #pagespane { flex: 0 0 36px; width: 36px; min-width: 36px; border-left: 1px solid var(--border); background: var(--surface); }
-body.stg-pdf-closed #pagespane > :not(.stg-pdf-strip) { display: none; }
+/* the right column of a stages preset: the stage's EVIDENCE in the upper pane, the PDF in the
+   lower one, a draggable bar between them */
+.stg-evpane, .hsplitter { display: none; }
+body.stg-split .stg-evpane { display: block; flex: 0 0 var(--evpane-h, 50%); min-height: 60px; overflow: auto; padding: 8px 16px 10px; background: var(--surface); }
+body.stg-split .hsplitter { display: block; flex: 0 0 6px; cursor: row-resize; background: var(--bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.hsplitter:hover, .hsplitter.drag { background: var(--accent-3); }
+/* the PDF collapsed: a strip along the foot of the column, the evidence taking the rest */
+body.stg-pdf-closed .hsplitter { display: none; }
+body.stg-pdf-closed .stg-evpane { flex: 1 1 auto; }
+body.stg-pdf-closed #pdfpane { flex: 0 0 34px; border-top: 1px solid var(--border); background: var(--surface); }
+body.stg-pdf-closed #pdfpane > :not(.stg-pdf-strip) { display: none; }
 .stg-pdf-strip { display: none; }
-body.stg-pdf-closed .stg-pdf-strip { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0; height: 100%; }
+body.stg-pdf-closed .stg-pdf-strip { display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 100%; }
 .stg-pdf-open { border: 0; background: none; cursor: pointer; color: var(--text-muted); padding: 4px; border-radius: 6px; line-height: 0; }
 .stg-pdf-open:hover { color: var(--accent); background: var(--accent-wash); }
-.stg-pdf-k { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
+.stg-pdf-k { font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
 #pagespane .stg-pane-nav .stg-pdf-close { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
 /* the foot of a stage: previous item, and next item / next stage / done */
 .stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }

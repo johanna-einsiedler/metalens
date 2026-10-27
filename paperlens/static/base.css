@@ -101,6 +101,7 @@ table.tbl th { background: var(--bg); font-weight: 600; }
 /* ── workspace two-column (PDF | records) ─────────────────────────────── */
 main.split { display: flex; height: calc(100vh - 53px); }
 .pagespane { flex: 1; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.pdfpane { flex: 1 1 auto; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .pages { flex: 1; min-width: 0; overflow: auto; padding: 16px; background: var(--bg); }
 /* the review panel can be dragged as wide as the window allows; the PDF pane then scrolls
    sideways and can be zoomed instead of shrinking into an unreadable strip */

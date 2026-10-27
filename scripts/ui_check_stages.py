@@ -5,17 +5,19 @@
                                        [--zero-doc <document id imported with no entries>] [--shots DIR]
 
 Opens the workspace on a document imported under a preset with the staged layout and checks the
-two columns: the stage panel on the left (three fifths of the window) with the stage bar and the
-instruction, then the EVIDENCE list (the stage's items in order as bare entries — page tag and
-quote — the current one marked, the rest folded at the end), then the FIELDS block (the stage's
-cells, once), then "◂ · next ▸" (next item, else "next stage ▸", else "done"); the PDF column on
-the right collapsed to a strip by default (its icon opens it at two fifths, "▸" collapses it, a
-page tag opens it; the state is kept per browser) with its "◀ item k of n ▶" control; `→` / `←` move the marker and the column, which puts the highlight's top just
-under its edge at the coder's zoom (no automatic scale); `]` / `[` move the stage; a study cell
-edit is saved; a free term typed into an open multi field becomes a chip and survives a reload;
-"＋ add" on the entry stage adds an entry at once with its auto id (T1, T2 …); "＋" on a child
-stage adds a row with its auto id (C, then T1 …); "same as <reference>" and "copy … from" copy;
-the Fields button shows the generic cards and drops the control; the page logs no script error.
+three panes: the stage panel on the left with the stage bar and the instruction, then the FIELDS
+block (the stage's cells, once), then "◂ · next ▸" (next item, else "next stage ▸", else "done");
+the right column (half the window) with the EVIDENCE list in its upper pane (the stage's items in
+order as bare entries — page tag and quote — the current one marked, the rest folded at the end)
+and the PDF in its lower pane, open by default (half the column, the bar between them drags; "▸"
+collapses it to a strip along the column's foot, the icon there opens it, a page tag opens it; the
+state is kept per browser) with its "◀ item k of n ▶" control; `→` / `←` move the marker and the
+pane, which puts the highlight's top just under its edge at the coder's zoom (no automatic
+scale); `]` / `[` move the stage; a study cell edit is saved; a free term typed into an open multi
+field becomes a chip and survives a reload; "＋ add" on the entry stage adds an entry at once with
+its auto id (T1, T2 …); "＋" on a child stage adds a row with its auto id (C, then T1 …); "same as
+<reference>" and "copy … from" copy; the Fields button shows the generic cards and drops the
+control and the panes; the page logs no script error.
 With --zero-doc, a paper imported with no entries opens on the stages and the first entry is
 created from there. With --shots, screenshots of the entry and the results stage of --doc and of
 the entry stage of --zero-doc. Needs the system python with playwright installed; prints a
@@ -79,41 +81,55 @@ def main() -> int:
         else:
             print("  n/a  stage instruction: the preset gives this stage no help text")
         check(letter() == "a", "the first stage is active and lettered a")
-        # the PDF column: collapsed to a strip in a fresh browser, opened by its icon at two fifths
+        # the three panes: the stage panel on the left, the evidence pane over the PDF pane on the right
         vw = 1400
         closed = lambda: page.evaluate("() => document.body.classList.contains('stg-pdf-closed')")
-        gb = page.locator("#pagespane").bounding_box()
-        check(closed() and gb and 30 <= gb["width"] <= 44 and gb["x"] + gb["width"] >= vw - 2, f"a fresh browser starts with the PDF column collapsed to a strip at the right edge ({gb and round(gb['width'])}px)")
-        check(page.locator("#pagespane .stg-pdf-strip .stg-pdf-open svg").count() == 1 and not page.locator("#pages").is_visible() and not page.locator("#pdfzoom").is_visible(), "the strip shows the PDF icon and nothing else of the column")
+        box = lambda sel: page.locator(sel).bounding_box()
+        pb0, cb, eb, db = box("#panel"), box("#pagespane"), box("#evpane"), box("#pdfpane")
+        check(page.evaluate("() => document.body.classList.contains('stg-split')") and not closed(), "a fresh browser starts with the PDF pane open under the evidence pane")
+        check(cb and pb0 and 0.45 * vw <= cb["width"] <= 0.55 * vw and cb["x"] >= pb0["x"] + pb0["width"] - 1, f"the right column takes half the window ({cb and round(cb['width'])}px), the stage panel the left ({pb0 and round(pb0['width'])}px)")
+        check(eb and db and cb and eb["y"] < db["y"] and eb["y"] + eb["height"] <= db["y"] + 8 and 0.4 * cb["height"] <= eb["height"] <= 0.6 * cb["height"] and abs(eb["x"] - db["x"]) < 2, f"the evidence pane sits over the PDF pane, half the column ({eb and round(eb['height'])} of {cb and round(cb['height'])}px)")
+        check(page.locator("#evpane .stg-evidence").count() == 1 and page.locator("#panel .stg-evidence").count() == 0 and page.locator("#panel .stg-cells").count() == 1, "the stage's evidence list is in the upper pane, the fields block in the panel")
+        check(page.locator("#pdfpane #pages").is_visible() and page.locator("#pdfpane #pdfzoom").is_visible(), "the lower pane shows the pages with the zoom control")
+        nav = page.locator("#pdfpane .stg-pane-nav")
+        check(nav.count() == 1 and db and nav.bounding_box()["y"] < db["y"] + 120 and page.locator("#pdfpane .stg-pane-nav .stg-pdf-close").is_visible(), "the item control sits at the top of the PDF pane, with its collapse button")
+        page.locator("#pdfpane .stg-pane-nav .stg-pdf-close").click(); page.wait_for_timeout(400)
+        db2, eb2 = box("#pdfpane"), box("#evpane")
+        check(closed() and db2 and cb and db2["height"] <= 44 and db2["y"] + db2["height"] >= cb["y"] + cb["height"] - 2 and eb2 and eb and eb2["height"] > eb["height"], f"▸ collapses the PDF to a strip along the column's foot ({db2 and round(db2['height'])}px), the evidence taking the rest")
+        check(page.locator("#pdfpane .stg-pdf-strip .stg-pdf-open svg").count() == 1 and not page.locator("#pages").is_visible() and not page.locator("#pdfzoom").is_visible(), "the strip shows the PDF icon and nothing else of the pane")
         strip_k = lambda: page.locator(".stg-pdf-strip .stg-pdf-k").text_content().strip()
         check(strip_k().startswith("item 1 of"), f"the strip says '{strip_k()}'")
-        pb0 = page.locator("#panel").bounding_box()
-        check(pb0 and pb0["x"] + pb0["width"] >= vw - 44, "the stage panel takes the rest of the window")
-        # the cursor moves while the column is collapsed, without opening it
+        # the cursor moves while the pane is collapsed, without opening it
         page.keyboard.press("ArrowRight"); page.wait_for_timeout(300)
-        check(closed() and page.locator(".stg-evidence > .evi-item.cur").evaluate_all("els => els.map(e => e.dataset.i)") == ["1"] and strip_k().startswith("item 2 of"), "→ moves the cursor while collapsed, the column stays shut")
+        check(closed() and page.locator(".stg-evidence > .evi-item.cur").evaluate_all("els => els.map(e => e.dataset.i)") == ["1"] and strip_k().startswith("item 2 of"), "→ moves the cursor while collapsed, the pane stays shut")
         page.keyboard.press("ArrowLeft"); page.wait_for_timeout(300)
         page.locator(".stg-pdf-strip .stg-pdf-open").click(); page.wait_for_timeout(600)
-        pb = page.locator("#panel").bounding_box(); gb = page.locator("#pagespane").bounding_box()
-        check(not closed() and pb and gb and gb["x"] >= pb["x"] + pb["width"] - 1 and 0.35 * vw <= gb["width"] <= 0.45 * vw and gb["height"] > 0.8 * 947, f"the icon opens the column at two fifths ({gb and round(gb['width'])}px), the stage panel left ({pb and round(pb['width'])}px)")
-        check(page.locator("#pagespane .stg-pane-nav").count() == 1 and page.locator("#pagespane .stg-pane-nav").bounding_box()["y"] < 120 and page.locator("#pagespane .stg-pane-nav .stg-pdf-close").is_visible(), "the item control sits at the top of the open column, with its collapse button")
-        page.locator("#pagespane .stg-pane-nav .stg-pdf-close").click(); page.wait_for_timeout(400)
+        db3 = box("#pdfpane")
+        check(not closed() and db3 and db and abs(db3["height"] - db["height"]) < 4 and page.locator("#pages").is_visible(), "the icon opens the pane again at its height")
+        page.locator("#pdfpane .stg-pane-nav .stg-pdf-close").click(); page.wait_for_timeout(400)
         check(closed(), "▸ collapses it again")
-        # a page tag in the list opens the column on that item
+        # a page tag in the list opens the pane on that item
         tags = page.locator(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]")
         if tags.count() >= 2:
             tag_i = tags.nth(1).evaluate("e => e.closest('.evi-item').dataset.i")
             tags.nth(1).click(); page.wait_for_timeout(900)
-            check(not closed() and page.locator(".stg-evidence > .evi-item.cur").evaluate_all("els => els.map(e => e.dataset.i)") == [tag_i], f"a page tag opens the column and makes its item current (item {int(tag_i) + 1})")
+            check(not closed() and page.locator(".stg-evidence > .evi-item.cur").evaluate_all("els => els.map(e => e.dataset.i)") == [tag_i], f"a page tag opens the pane and makes its item current (item {int(tag_i) + 1})")
             page.keyboard.press("ArrowLeft"); page.wait_for_timeout(300)
         else:
             page.locator(".stg-pdf-strip .stg-pdf-open").click(); page.wait_for_timeout(600)
         page.reload(); page.wait_for_selector(".stg-bar", timeout=30000); page.wait_for_timeout(600)
         check(not closed(), "the open state survives a reload")
-        check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the column")
-        # EVIDENCE as a plain list before FIELDS, nothing under the items
+        check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the pane")
+        # the bar between the panes drags the evidence pane's height
+        hb, eb = box("#hsplitter"), box("#evpane")
+        if hb and eb:
+            page.mouse.move(hb["x"] + hb["width"] / 2, hb["y"] + hb["height"] / 2); page.mouse.down()
+            page.mouse.move(hb["x"] + hb["width"] / 2, hb["y"] - 120, steps=6); page.mouse.up(); page.wait_for_timeout(200)
+            eb4 = box("#evpane")
+            check(eb4 and eb4["height"] < eb["height"] - 60, f"dragging the bar up shrinks the evidence pane ({round(eb['height'])} → {eb4 and round(eb4['height'])}px)")
+            page.evaluate("() => { localStorage.removeItem('metalens_evpane_h'); document.querySelector('#pagespane').style.removeProperty('--evpane-h'); }")
+        # EVIDENCE as a plain list, nothing under the items
         check(page.locator(".stg-cells").count() == 1 and page.locator(".stg-evidence").count() == 1, "one evidence list and one fields block")
-        check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the evidence list comes before the fields block")
         check(page.locator(".stg-evidence .evi-cells").count() == 0, "no cells under the items")
         check(page.evaluate("() => { const it = document.querySelector('.stg-evidence > .evi-item'); if (!it) return false; const cs = getComputedStyle(it); return cs.borderTopWidth === '0px' && cs.borderRightWidth === '0px' && parseFloat(cs.borderBottomWidth) >= 1 && !!it.querySelector('.evi-head .ev-cite') && !!it.querySelector('.evi-body'); }"), "each item is a bare entry: the page tag and the quote, parted by a rule")
         check(page.evaluate("() => { const it = document.querySelector('.stg-evidence > .evi-item.evi-passage'); if (!it) return true; const h = it.querySelector('.evi-head').getBoundingClientRect(), b = it.querySelector('.evi-body').getBoundingClientRect(); return b.left >= h.right - 1 && Math.abs(b.top - h.top) < 12; }"), "a passage's page tag hangs at the left of its quote, on the same line")
@@ -349,7 +365,7 @@ def main() -> int:
         if first.count():
             first.first.click(); page.wait_for_selector(".record:not(.evi-rec)", timeout=10000)
         check(page.locator(".record:not(.evi-rec)").count() >= 1, "Fields returns to the generic cards")
-        check(page.locator("#pagespane .stg-pane-nav").count() == 0 and page.locator("#pagespane .stg-pdf-strip").count() == 0 and not page.evaluate("() => document.body.classList.contains('stg-pdf-closed')") and page.locator("#pages").is_visible(), "and the item control and the strip are gone, the column open as always")
+        check(page.locator("#pagespane .stg-pane-nav").count() == 0 and page.locator("#pagespane .stg-pdf-strip").count() == 0 and not page.evaluate("() => document.body.classList.contains('stg-pdf-closed') || document.body.classList.contains('stg-split')") and page.locator("#pages").is_visible() and not page.locator("#evpane").is_visible(), "and the item control, the strip and the evidence pane are gone, the PDF column open as always")
         check(page.locator(".record:not(.evi-rec) .rv-child + .rv-tableadd .rv-addrow, .record:not(.evi-rec) .rv-childcards .rv-addrow").count() >= 1, "the generic card offers ＋ on sub-entries")
         if a.zero_doc:
             open_doc(a.zero_doc)
@@ -357,16 +373,17 @@ def main() -> int:
             check(page.locator(".stg-evidence > .evi-item").count() >= 1, "its paper-level items are drawn")
             page.evaluate("() => localStorage.removeItem('metalens_stage_pdf')")
             open_doc(a.zero_doc, entry_i)
-            check(page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "with no stored state the column is collapsed")
+            check(not page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "with no stored state the pane is open")
             if a.shots:
-                page.wait_for_timeout(600); page.screenshot(path=os.path.join(a.shots, "zero_tasks_closed.png"), full_page=False)
-            page.locator(".stg-pdf-strip .stg-pdf-open").click(); page.wait_for_timeout(1200)
-            check(not page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "the icon opens it")
+                page.wait_for_timeout(600); page.screenshot(path=os.path.join(a.shots, "zero_tasks_open.png"), full_page=False)
+            page.locator("#pdfpane .stg-pane-nav .stg-pdf-close").click(); page.wait_for_timeout(300)
+            check(page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "▸ collapses it")
             if a.shots:
-                page.screenshot(path=os.path.join(a.shots, "zero_tasks_open.png"), full_page=False)
-            page.locator("#pagespane .stg-pane-nav .stg-pdf-close").click(); page.wait_for_timeout(300)
+                page.screenshot(path=os.path.join(a.shots, "zero_tasks_closed.png"), full_page=False)
             page.reload(); page.wait_for_selector(".stg-bar", timeout=30000); page.wait_for_timeout(500)
             check(page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "a collapse survives a reload too")
+            page.locator(".stg-pdf-strip .stg-pdf-open").click(); page.wait_for_timeout(600)
+            check(not page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"), "the icon opens it again")
             open_doc(a.zero_doc, entry_i)
             add = page.locator(".stg-addtask")
             check(add.count() == 1, "the entry stage offers '＋ add' on an empty paper")

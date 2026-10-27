@@ -34,9 +34,9 @@ let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
 // Drag the splitter to resize the entries panel; width persists across sessions — one width
-// for the generic view, one for a stages preset, whose default gives the PDF column two fifths
-// of the window and the stage panel the rest.
-function panelWidthKey() { return stagesOpen() ? "metalens_panel_w_stages" : "metalens_panel_w"; }
+// for the generic view, one for a stages preset, whose default gives the right column (the
+// evidence over the PDF) half the window and the stage panel the rest.
+function panelWidthKey() { return stagesOpen() ? "metalens_panel_w_split" : "metalens_panel_w"; }
 let PANEL_MODE = null;
 function applyPanelWidth() {
   const panel = $("#panel"); if (!panel) return;
@@ -47,7 +47,7 @@ function applyPanelWidth() {
   if (saved) { panel.style.width = saved + "px"; return; }
   if (!stagesOpen()) { panel.style.width = ""; return; }           // the stylesheet's default
   const main = panel.parentElement, side = $("#doctabs");
-  const pdf = Math.round(window.innerWidth * 0.4);
+  const pdf = Math.round(window.innerWidth * 0.5);
   const w = main.getBoundingClientRect().width - (side && side.offsetParent ? side.getBoundingClientRect().width : 0) - 6 - pdf;
   panel.style.width = Math.max(300, Math.round(w)) + "px";
 }
@@ -70,6 +70,28 @@ function mountSplitter() {
     if (!dragging) return;
     dragging = false; sp.classList.remove("drag"); document.body.style.userSelect = "";
     localStorage.setItem(panelWidthKey(), String(parseInt(panel.style.width, 10) || 480));
+  });
+}
+
+// Drag the bar between the evidence pane and the PDF pane of a stages preset; the evidence
+// pane's height persists across sessions (default: half the column).
+function mountHSplitter() {
+  const sp = $("#hsplitter"), col = $("#pagespane");
+  if (!sp || !col) return;
+  const saved = parseInt(localStorage.getItem("metalens_evpane_h") || "", 10);
+  if (saved) col.style.setProperty("--evpane-h", saved + "px");
+  let dragging = false;
+  sp.addEventListener("mousedown", (e) => { dragging = true; sp.classList.add("drag"); document.body.style.userSelect = "none"; e.preventDefault(); });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const cb = col.getBoundingClientRect();
+    const h = Math.max(60, Math.min(cb.height - 120, e.clientY - cb.top));   // a readable strip of the PDF stays
+    col.style.setProperty("--evpane-h", h + "px");
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false; sp.classList.remove("drag"); document.body.style.userSelect = "";
+    localStorage.setItem("metalens_evpane_h", String(parseInt(col.style.getPropertyValue("--evpane-h"), 10) || 400));
   });
 }
 
@@ -211,6 +233,7 @@ function mountTips() {
 
 async function init() {
   mountSplitter();
+  mountHSplitter();
   mountMarking();
   mountTips();
   mountPdfZoom();
@@ -2065,26 +2088,27 @@ function wireEvidencePanel(panel, recs) {
 // ── the staged layout: the paper coded stage by stage, the evidence first, the PDF beside ───────
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
-// paper fields, entry fields, or one child's fields. The workspace keeps its two columns: the
-// stage panel on the left scrolls as one — the stage bar and its instruction, then EVIDENCE (one
-// plain list of the items whose bears_on meets the stage's fields, the current one marked, the
-// rest folded at the end), then FIELDS (the stage's cells, once: the study cells; every entry as
-// a card with the stage's fields and "＋ add"; or each entry's sub-entries with "＋", "✕", "copy
-// … from <entry>" and, where the stage declares copy_from_sibling, "same as <the reference row>")
-// — and the PDF column on the right follows the cursor: at the scale the coder set, scrolled so
-// the current item's highlight starts just under the column's top edge (an item with no located
-// rectangle: the top of its page). ← → and the column's "◀ item k of n ▶" move the cursor, which
+// paper fields, entry fields, or one child's fields. Three panes: the stage panel on the left
+// holds what the coder fills in — the stage bar and its instruction, then FIELDS (the stage's
+// cells, once: the study cells; every entry as a card with the stage's fields and "＋ add"; or
+// each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
+// copy_from_sibling, "same as <the reference row>") and the foot's next button; the right column
+// shows EVIDENCE in its upper pane (one plain list of the items whose bears_on meets the stage's
+// fields, the current one marked, the rest folded at the end, then the coder's marks) and the
+// PDF in its lower pane, which follows the cursor: at the scale the coder set, scrolled so the
+// current item's highlight starts just under the pane's top edge (an item with no located
+// rectangle: the top of its page). ← → and the pane's "◀ item k of n ▶" move the cursor, which
 // stops at the ends and starts on the first item when a stage opens. A stage's auto_id fills the
 // id of an added entry or row (first, then next with the smallest unused number). Saves and
 // verification are the generic card's; the Fields view is the generic card view.
 function stagesOpen() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
 
-// The item control at the top of the PDF column while a stage is open; gone otherwise.
-// The PDF column of a stages preset is collapsed by default to a strip at the right edge — the
-// icon opens it (at the stages width), "▸" at the top of the open column or the icon again
-// collapses it; the choice is kept per browser. The cursor moves either way; the column follows
-// it only while open, and anchors the current item when it opens.
-function stagePdfOpen() { try { return localStorage.getItem("metalens_stage_pdf") === "open"; } catch { return false; } }
+// The item control at the top of the PDF pane while a stage is open; gone otherwise. The PDF
+// pane sits under the evidence pane in the right column, open by default; "▸" at its top
+// collapses it to a strip along the column's foot (the evidence takes the column), the icon on
+// the strip opens it again; the choice is kept per browser. The cursor moves either way; the
+// pane follows it only while open, and anchors the current item when it opens.
+function stagePdfOpen() { try { return localStorage.getItem("metalens_stage_pdf") !== "closed"; } catch { return true; } }
 function togglePdf(open, anchor = true) {
   try { localStorage.setItem("metalens_stage_pdf", open ? "open" : "closed"); } catch { /* */ }
   document.body.classList.toggle("stg-pdf-closed", stagesOpen() && !open);
@@ -2093,20 +2117,21 @@ function togglePdf(open, anchor = true) {
 }
 const PDF_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>`;
 function setStageControl(on) {
-  const pane = $("#pagespane"); if (!pane) return;
+  const pane = $("#pdfpane") || $("#pagespane"); if (!pane) return;
+  document.body.classList.toggle("stg-split", on);          // the right column: evidence over the PDF
   let nav = pane.querySelector(".stg-pane-nav"), strip = pane.querySelector(".stg-pdf-strip");
   if (on) {
     if (!nav) {
       nav = document.createElement("div"); nav.className = "stg-pane-nav";
       nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`
         + `<button type="button" data-act="mark" class="stg-mark${MARKING ? " on" : ""}" title="mark sentences: click a sentence in the PDF to keep it with the paper (h)">✎ mark</button>`
-        + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF column (← → still move the cursor)">▸</button>`;
+        + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF pane (← → still move the cursor)">▸</button>`;
       nav.querySelectorAll("button").forEach((b) => (b.onclick = () => (b.dataset.act === "close" ? togglePdf(false) : b.dataset.act === "mark" ? setMarking(!MARKING) : stageCursor(STAGE_CUR + Number(b.dataset.d)))));
       pane.appendChild(nav);
     }
     if (!strip) {
       strip = document.createElement("div"); strip.className = "stg-pdf-strip";
-      strip.innerHTML = `<button type="button" class="stg-pdf-open" title="open the PDF column on the current item">${PDF_ICON}</button><span class="stg-pdf-k">—</span>`;
+      strip.innerHTML = `<button type="button" class="stg-pdf-open" title="open the PDF pane on the current item">${PDF_ICON}</button><span class="stg-pdf-k">—</span>`;
       strip.querySelector("button").onclick = () => togglePdf(true);
       pane.appendChild(strip);
     }
@@ -2115,6 +2140,7 @@ function setStageControl(on) {
     if (nav) nav.remove();
     if (strip) strip.remove();
     document.body.classList.remove("stg-pdf-closed");
+    const ev = $("#evpane"); if (ev) ev.innerHTML = "";
     STAGE_SHOWN = "";
   }
 }
@@ -2293,7 +2319,7 @@ function renderStagesPanel(panel, rv) {
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
   STAGE_ITEMS = inStage;
   STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
-  // EVIDENCE, then FIELDS
+  // EVIDENCE in the right column's upper pane, FIELDS in the panel
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
   evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
   inStage.forEach((g, i) => {
@@ -2312,13 +2338,16 @@ function renderStagesPanel(panel, rv) {
   const marks = document.createElement("div"); marks.className = "stg-marks";   // the coder's own marks, per paper
   marks.innerHTML = marksBlockHtml(); wireMarksBlock(marks);
   evbox.appendChild(marks);
-  panel.appendChild(evbox);
+  const evhost = $("#evpane") || panel;                     // the panel itself on a page without the pane
+  if (evhost !== panel) evhost.innerHTML = "";
+  evhost.appendChild(evbox);
   panel.appendChild(stageCellsBlock(st, L, recs));
   const foot = document.createElement("div"); foot.className = "stg-foot";
   foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous item (←)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
   panel.appendChild(foot);
   wireEvidencePanel(panel, recs);
-  wireStagePanel(panel, recs, st, L);
+  if (evhost !== panel) wireEvidencePanel(evbox, recs);
+  wireStagePanel(panel, recs, st, L, evbox);
   evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
     const g = inStage[Number(el.dataset.i)];
     el.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable]")) return; stageCursor(Number(el.dataset.i)); });
@@ -2330,7 +2359,7 @@ function renderStagesPanel(panel, rv) {
 
 // Redraw the panel after a structural edit, keeping the scroll position.
 function rerenderKeep() {
-  const tops = ["#panel", "#panelbody"].map((s) => [$(s), $(s) ? $(s).scrollTop : 0]);
+  const tops = ["#panel", "#panelbody", "#evpane"].map((s) => [$(s), $(s) ? $(s).scrollTop : 0]);
   renderPanel();
   for (const [el, top] of tops) if (el) el.scrollTop = top;
 }
@@ -2353,7 +2382,7 @@ async function verifyAll(btn) {
   } catch (e) { btn.disabled = false; alert("verify failed: " + e.message); }
 }
 
-function wireStagePanel(panel, recs, st, L) {
+function wireStagePanel(panel, recs, st, L, evbox = panel) {
   const byId = new Map(recs.map((r) => [r.id, r]));
   panel.querySelectorAll(".stg-tab").forEach((b) => (b.onclick = () => stageStep(+b.dataset.i - STAGE)));
   const prev = panel.querySelector(".stg-prev"), next = panel.querySelector(".stg-next");
@@ -2370,12 +2399,12 @@ function wireStagePanel(panel, recs, st, L) {
   if (pv) pv.onclick = () => stageCursor(STAGE_CUR - 1);
   // a page tag in the list: that item becomes current and the column opens on it if collapsed;
   // a tag in the "other evidence" fold opens the column and jumps as the generic tag does
-  panel.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
+  evbox.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     if (!stagePdfOpen()) togglePdf(true, false);
     STAGE_SHOWN = ""; stageCursor(Number(b.closest(".evi-item").dataset.i));
   }));
-  panel.querySelectorAll(".stg-evidence .stg-other .ev-cite[data-eids]").forEach((b) => {
+  evbox.querySelectorAll(".stg-evidence .stg-other .ev-cite[data-eids]").forEach((b) => {
     const jump = b.onclick;
     b.onclick = (e) => { if (!stagePdfOpen()) togglePdf(true, false); if (jump) jump(e); };
   });
