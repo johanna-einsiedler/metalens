@@ -137,7 +137,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   an added entry or row ("C", then "T1", "T2" …). A stage may name the entry's fields together
   with one child's (`fields` + `child` + `child_fields`): each entry's cells, then its rows under
   them, `auto_id` a list with one per level (the tasks with their arms). The staged head shows the
-  paper's title alone (the sidebar switches papers, the stage bar counts) and no CSV button; the
+  paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and
+  JSON only — no Fields or Grid toggle, no ＋ entry (the stage adds), no CSV; the paper strip at
+  the left narrows to one PDF icon per paper (its name on hover, the count in the corner); the
   evidence list is set a size smaller. The items table may sit on the paper, so a blind import with no entries opens on the
   stages and the coder adds the first entry; adding an entry retires the "screened — no records"
   sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the

@@ -135,6 +135,14 @@ a.doctabs-label:hover { color: var(--accent); }
 .doctab.active.reviewed { color: var(--success); } .doctab.active.flagged { color: var(--flag); }
 .doctab.reviewed .dt-n, .doctab.flagged .dt-n { background: var(--surface); }
 .doctab .dt-n { font-size: 11px; background: var(--bg); border-radius: 8px; padding: 0 6px; }
+.dt-ico { display: none; line-height: 0; color: var(--text-muted); }
+.doctab.active .dt-ico { color: var(--accent); }
+/* a staged preset: the strip narrows to one PDF icon per paper (its name on hover, the count in the corner) */
+.docsidebar.slim { flex: 0 0 48px; width: 48px; padding: 10px 6px; overflow-x: hidden; }
+.docsidebar.slim .doctabs-label, .docsidebar.slim .doctab-add, .docsidebar.slim .docsub, .docsidebar.slim .dt-name { display: none; }
+.docsidebar.slim .dt-ico { display: block; }
+.docsidebar.slim .doctab { justify-content: center; position: relative; padding: 7px 0; }
+.docsidebar.slim .doctab .dt-n { position: absolute; right: 1px; top: 1px; font-size: 9px; line-height: 13px; padding: 0 4px; }
 /* the open paper's parts: Paper + one line per entry, under its tab */
 .docsub { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 8px 10px; padding-left: 8px; border-left: 2px solid var(--border); }
 .docsub-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0; background: none;

@@ -357,16 +357,11 @@ def main() -> int:
             if res_i >= 0:
                 open_doc(a.doc, res_i); page.wait_for_timeout(900)
                 page.screenshot(path=os.path.join(a.shots, "results.png"), full_page=False)
-        # the Fields view: the two-column window again
+        # the head of a staged paper: no Fields or Grid toggle, no ＋ entry, no CSV, no paper arrows; the strip is icons
         open_doc(a.doc)
-        page.click("#chaintoggle")
-        page.wait_for_selector(".rnav-tab, .record:not(.evi-rec)", timeout=10000)
-        first = page.locator('.rnav-tab[data-sel]:not([data-sel="paper"])')
-        if first.count():
-            first.first.click(); page.wait_for_selector(".record:not(.evi-rec)", timeout=10000)
-        check(page.locator(".record:not(.evi-rec)").count() >= 1, "Fields returns to the generic cards")
-        check(page.locator("#pagespane .stg-pane-nav").count() == 0 and page.locator("#pagespane .stg-pdf-strip").count() == 0 and not page.evaluate("() => document.body.classList.contains('stg-pdf-closed') || document.body.classList.contains('stg-split')") and page.locator("#pages").is_visible() and not page.locator("#evpane").is_visible(), "and the item control, the strip and the evidence pane are gone, the PDF column open as always")
-        check(page.locator(".record:not(.evi-rec) .rv-child + .rv-tableadd .rv-addrow, .record:not(.evi-rec) .rv-childcards .rv-addrow").count() >= 1, "the generic card offers ＋ on sub-entries")
+        check(page.locator("#chaintoggle, #gridtoggle, #addfinding, #dlcsv, .chain-head .chain-nav").count() == 0 and page.locator("#rawtoggle, #dljson").count() == 2, "the staged head keeps Raw, Save and JSON only, no view toggles, ＋ entry, CSV or paper arrows")
+        sb = page.locator("#doctabs").bounding_box()
+        check(sb and sb["width"] <= 56 and page.locator("#doctabs .doctab .dt-ico svg").count() >= 1 and not page.locator("#doctabs .dt-name").first.is_visible(), f"the paper strip is a column of PDF icons ({sb and round(sb['width'])}px)")
         if a.zero_doc:
             open_doc(a.zero_doc)
             check(page.locator(".empty-records").count() == 0 and page.locator(".stg-evidence").count() == 1, "a paper with no entries opens on the stages")

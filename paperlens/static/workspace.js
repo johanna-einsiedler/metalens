@@ -47,6 +47,7 @@ function applyPanelWidth() {
   if (saved) { panel.style.width = saved + "px"; return; }
   if (!stagesOpen()) { panel.style.width = ""; return; }           // the stylesheet's default
   const main = panel.parentElement, side = $("#doctabs");
+  if (side) side.classList.toggle("slim", !!stagesSpec());   // measured as the strip will be drawn
   const pdf = Math.round(window.innerWidth * 0.5);
   const w = main.getBoundingClientRect().width - (side && side.offsetParent ? side.getBoundingClientRect().width : 0) - 6 - pdf;
   panel.style.width = Math.max(300, Math.round(w)) + "px";
@@ -398,7 +399,7 @@ function renderDocTabs() {
     const nm = d.filename || d.title || "untitled";
     const shade = docShade(d);
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
-      + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`
+      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${d.n_records}</span></button>`
       + (d.document_id === DOCID ? docSubList() : "");     // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
@@ -413,6 +414,7 @@ function renderDocTabs() {
     : `<span class="doctab jobpend">⏳ extracting…`
       + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
+  strip.classList.toggle("slim", !!stagesSpec());          // a staged preset: a narrow strip of PDF icons, the name on hover
   syncJobWait();
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
   strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
@@ -789,20 +791,21 @@ function renderPanel() {
         ? ` <span class="muted schema-live" title="this paper was imported under ${esc(DATA.schema_id)}; the preset file is now ${esc(DATA.field_defs.live_schema_id)} — another contract, so its fields and layout do not reach this paper until it is imported again">preset file now ${esc(DATA.field_defs.live_label || DATA.field_defs.live_schema_id)}</span>` : "")
     + ` ${triage}</span>`
     + `<span class="dlbtns">`
-    + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
-    + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
+    // a staged preset keeps its head short: no view toggles, no grid, no ＋ entry (the stage adds), no CSV
+    + (reviewSpec() && !GRID && !RAW && !stagesSpec() ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`)
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
     + (PROJECT   // already a dataset: nothing to save, so this simply opens its overview (audit report, dashboards, export, publishing)
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
         : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
     + `<button class="btn btn-ghost" id="dljson" title="this paper">⬇ JSON</button>`
-    + (stagesOpen() ? "" : `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`)   // the staged head stays short
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`)
     // the whole dataset from here, so a coder never has to leave the review to take the work away
     + (PROJECT ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
         + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
         + `<a href="#" data-dl="json-reviewed">Reviewed records only · JSON</a><a href="#" data-dl="csv-reviewed">Reviewed records only · CSV</a></div></details>` : "")
-    + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`)
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
@@ -1012,7 +1015,7 @@ function wirePanelHead() {
   document.querySelectorAll("#dsdl [data-dl]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); $("#dsdl").open = false; downloadDataset(a.dataset.dl); }));
   const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
   syncJobWait();
-  $("#addfinding").onclick = doAddFinding;
+  const af = $("#addfinding"); if (af) af.onclick = doAddFinding;
   $("#deldoc").onclick = doDelete;
   $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
   const g = $("#gridtoggle"); if (g) g.onclick = () => { GRID = !GRID; renderPanel(); };
