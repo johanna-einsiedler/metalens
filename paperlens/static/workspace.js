@@ -32,12 +32,28 @@ let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | 
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
-// Drag the splitter to resize the entries panel; width persists across sessions.
+// Drag the splitter to resize the entries panel; width persists across sessions — one width
+// for the generic view, one for a stages preset, whose default gives the PDF column two fifths
+// of the window and the stage panel the rest.
+function panelWidthKey() { return stagesOpen() ? "metalens_panel_w_stages" : "metalens_panel_w"; }
+let PANEL_MODE = null;
+function applyPanelWidth() {
+  const panel = $("#panel"); if (!panel) return;
+  const mode = panelWidthKey();
+  if (mode === PANEL_MODE) return;
+  PANEL_MODE = mode;
+  const saved = parseInt(localStorage.getItem(mode) || "", 10);
+  if (saved) { panel.style.width = saved + "px"; return; }
+  if (!stagesOpen()) { panel.style.width = ""; return; }           // the stylesheet's default
+  const main = panel.parentElement, side = $("#doctabs");
+  const pdf = Math.round(window.innerWidth * 0.4);
+  const w = main.getBoundingClientRect().width - (side && side.offsetParent ? side.getBoundingClientRect().width : 0) - 6 - pdf;
+  panel.style.width = Math.max(300, Math.round(w)) + "px";
+}
 function mountSplitter() {
   const sp = $("#splitter"), panel = $("#panel");
   if (!sp || !panel) return;
-  const saved = parseInt(localStorage.getItem("metalens_panel_w") || "", 10);
-  if (saved) panel.style.width = saved + "px";
+  applyPanelWidth();
   let dragging = false;
   sp.addEventListener("mousedown", (e) => {
     dragging = true; sp.classList.add("drag"); document.body.style.userSelect = "none"; e.preventDefault();
@@ -52,7 +68,7 @@ function mountSplitter() {
   window.addEventListener("mouseup", () => {
     if (!dragging) return;
     dragging = false; sp.classList.remove("drag"); document.body.style.userSelect = "";
-    localStorage.setItem("metalens_panel_w", String(parseInt(panel.style.width, 10) || 480));
+    localStorage.setItem(panelWidthKey(), String(parseInt(panel.style.width, 10) || 480));
   });
 }
 
@@ -622,6 +638,7 @@ function docProgress() {
 function renderPanel() {
   computeConstant();
   setStageControl(stagesOpen());
+  applyPanelWidth();
   const panel = $("#panelbody");
   const pr = docProgress();
   const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
@@ -1797,11 +1814,11 @@ function mergedItems(rv) {
 
 // One item: its head (number, kind, page jump, note), its body (the quote, or the table), and
 // the cells it bears on — the default block, or the `cells` html a layout passes (null: none).
-function renderEviItem(g, parsed, recs, cells) {
+function renderEviItem(g, parsed, recs, cells, { bare = false } = {}) {
   const it = parsed || {};
   const kind = g.kind || it.kind || "passage";
   const sec = document.createElement("section");
-  sec.className = `evi-item evi-${esc(kind)}`; sec.dataset.item = String(g.n);
+  sec.className = `evi-item evi-${esc(kind)}${bare ? " evi-bare" : ""}`; sec.dataset.item = String(g.n);
   const body = kind === "table"
     ? `<div class="evi-body evi-tbl">${eviTableHtml(it.lines || [], g.snippet)}</div>`
     : `<div class="evi-body">“${esc(it.text || g.snippet)}”</div>`;
@@ -1809,8 +1826,11 @@ function renderEviItem(g, parsed, recs, cells) {
     cells = g.paper.length ? eviPaperBlock(g.paper) : "";
     for (const rec of recs) cells += eviEntryBlock(rec, g.entry.get(rec.id) || [], eviChildren(g.lower.filter((x) => x.recId === rec.id)));
   }
-  sec.innerHTML = `<div class="evi-head"><span class="evi-id">item ${g.n}</span><span class="tag">${esc(kind)}</span>${eviCite(g)}`
-    + (it.note ? `<span class="evi-note muted">${esc(it.note)}</span>` : "") + `</div>` + body
+  // bare: the page tag and the quote only (the staged layout's list); else number, kind and note too
+  const head = bare ? `<div class="evi-head">${eviCite(g)}</div>`
+    : `<div class="evi-head"><span class="evi-id">item ${g.n}</span><span class="tag">${esc(kind)}</span>${eviCite(g)}`
+      + (it.note ? `<span class="evi-note muted">${esc(it.note)}</span>` : "") + `</div>`;
+  sec.innerHTML = head + body
     + (cells === null ? "" : cells ? `<div class="evi-cells">${cells}</div>` : `<div class="evi-cells muted evi-nothing">bears on no field in particular</div>`);
   return sec;
 }
@@ -1950,10 +1970,26 @@ function stageCursor(i) {
   if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   stageShowItem();
 }
+// The button at the foot of the stage panel: the next item while there is one, else the next
+// stage, else "done" (the last stage, last item: it only scrolls back to the top).
+function stageFootState() {
+  const n = STAGE_ITEMS.length, last = ((stagesSpec() || {}).stages || []).length - 1;
+  if (n && STAGE_CUR < n - 1) return "item";
+  return STAGE < last ? "stage" : "done";
+}
+function updateStageFoot() {
+  const b = document.querySelector(".stg-foot .stg-next"), p = document.querySelector(".stg-foot .stg-foot-prev");
+  if (!b) return;
+  const st = stageFootState();
+  b.textContent = st === "item" ? "next ▸" : st === "stage" ? "next stage ▸" : "done";
+  b.title = st === "item" ? "the next item of this stage (→)" : st === "stage" ? "the next stage (])" : "the last item of the last stage";
+  if (p) p.disabled = !STAGE_ITEMS.length || STAGE_CUR <= 0;
+}
 function stageShowItem() {
   const k = document.querySelector(".stg-pane-nav .stg-pane-k");
   if (k) k.textContent = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
   document.querySelectorAll(".stg-pane-nav button").forEach((b) => (b.disabled = !STAGE_ITEMS.length || (b.dataset.d === "-1" ? STAGE_CUR <= 0 : STAGE_CUR >= STAGE_ITEMS.length - 1)));
+  updateStageFoot();
   STAGE_SHOWN = `${STAGE_KEY}|${STAGE_CUR}`;
   const g = STAGE_ITEMS[STAGE_CUR]; if (!g) return;
   const page = g.page || (g.ids.length ? (DATA.evidence[g.ids[0]] || {}).page : null);
@@ -2101,7 +2137,7 @@ function renderStagesPanel(panel, rv) {
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
   evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
   inStage.forEach((g, i) => {
-    const el = renderEviItem(g, parsed.get(g.n), recs, null);
+    const el = renderEviItem(g, parsed.get(g.n), recs, null, { bare: true });
     el.dataset.i = String(i); if (i === STAGE_CUR) el.classList.add("cur");
     el.title = "click: show in the PDF (→ / ← move on)";
     evbox.appendChild(el);
@@ -2110,11 +2146,14 @@ function renderStagesPanel(panel, rv) {
   if (rest.length) {
     const det = document.createElement("details"); det.className = "stg-other";
     det.innerHTML = `<summary>other evidence (${rest.length})</summary>`;
-    for (const g of rest) det.appendChild(renderEviItem(g, parsed.get(g.n), recs, null));
+    for (const g of rest) det.appendChild(renderEviItem(g, parsed.get(g.n), recs, null, { bare: true }));
     evbox.appendChild(det);
   }
   panel.appendChild(evbox);
   panel.appendChild(stageCellsBlock(st, L, recs));
+  const foot = document.createElement("div"); foot.className = "stg-foot";
+  foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous item (←)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
+  panel.appendChild(foot);
   wireEvidencePanel(panel, recs);
   wireStagePanel(panel, recs, st, L);
   evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
@@ -2158,6 +2197,15 @@ function wireStagePanel(panel, recs, st, L) {
   if (prev) prev.onclick = () => stageStep(-1);
   if (next) next.onclick = () => stageStep(1);
   panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = () => doAddFinding(stageEntryAutoId(st))));
+  const nx = panel.querySelector(".stg-foot .stg-next"), pv = panel.querySelector(".stg-foot .stg-foot-prev");
+  if (nx) nx.onclick = () => {
+    const fs = stageFootState();
+    if (fs === "item") stageCursor(STAGE_CUR + 1);
+    else if (fs === "stage") stageStep(1);
+    else for (const sel of ["#panel", "#panelbody"]) if ($(sel)) $(sel).scrollTo({ top: 0, behavior: "smooth" });
+  };
+  if (pv) pv.onclick = () => stageCursor(STAGE_CUR - 1);
+  updateStageFoot();
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
   const ai = st.auto_id;

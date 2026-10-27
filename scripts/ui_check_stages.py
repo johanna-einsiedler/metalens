@@ -5,10 +5,11 @@
                                        [--zero-doc <document id imported with no entries>] [--shots DIR]
 
 Opens the workspace on a document imported under a preset with the staged layout and checks the
-two columns: the stage panel on the left with the stage bar and the instruction, then the EVIDENCE
-list (the stage's items in order as plain entries, the current one marked, the rest folded at the
-end), then the FIELDS block (the stage's cells, once); the PDF column on the right with its "◀ item
-k of n ▶" control; `→` / `←` move the marker and the column, which puts the highlight's top just
+two columns: the stage panel on the left (three fifths of the window) with the stage bar and the
+instruction, then the EVIDENCE list (the stage's items in order as bare entries — page tag and
+quote — the current one marked, the rest folded at the end), then the FIELDS block (the stage's
+cells, once), then "◂ · next ▸" (next item, else "next stage ▸", else "done"); the PDF column on
+the right (two fifths) with its "◀ item k of n ▶" control; `→` / `←` move the marker and the column, which puts the highlight's top just
 under its edge at the coder's zoom (no automatic scale); `]` / `[` move the stage; a study cell
 edit is saved; a free term typed into an open multi field becomes a chip and survives a reload;
 "＋ add" on the entry stage adds an entry at once with its auto id (T1, T2 …); "＋" on a child
@@ -77,14 +78,16 @@ def main() -> int:
         vw = 1400
         pb = page.locator("#panel").bounding_box(); gb = page.locator("#pagespane").bounding_box()
         check(not page.evaluate("() => document.body.classList.contains('stg-stack')") and page.locator("#pagespane .stg-paneh").count() == 0, "no stacked mode left")
-        check(pb and gb and pb["width"] < 0.6 * vw and gb["x"] >= pb["x"] + pb["width"] - 1 and gb["height"] > 0.8 * 947, f"the stage panel sits left ({pb and round(pb['width'])}px) and the PDF column right")
+        check(pb and gb and gb["x"] >= pb["x"] + pb["width"] - 1 and 0.35 * vw <= gb["width"] <= 0.45 * vw and gb["height"] > 0.8 * 947, f"the stage panel sits left ({pb and round(pb['width'])}px) and the PDF column right at two fifths ({gb and round(gb['width'])}px)")
         check(page.locator("#pagespane .stg-pane-nav").count() == 1 and page.locator("#pagespane .stg-pane-nav").bounding_box()["y"] < 120, "the item control sits at the top of the PDF column")
         check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the column")
         # EVIDENCE as a plain list before FIELDS, nothing under the items
         check(page.locator(".stg-cells").count() == 1 and page.locator(".stg-evidence").count() == 1, "one evidence list and one fields block")
         check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the evidence list comes before the fields block")
         check(page.locator(".stg-evidence .evi-cells").count() == 0, "no cells under the items")
-        check(page.evaluate("() => { const it = document.querySelector('.stg-evidence > .evi-item'); if (!it) return false; const cs = getComputedStyle(it); return cs.borderTopWidth === '0px' && cs.borderRightWidth === '0px' && parseFloat(cs.borderBottomWidth) >= 1 && !!it.querySelector('.evi-head .evi-id') && !!it.querySelector('.evi-head .ev-cite') && !!it.querySelector('.evi-body'); }"), "each item is a compact entry: number and page on a line, the quote below, parted by a rule")
+        check(page.evaluate("() => { const it = document.querySelector('.stg-evidence > .evi-item'); if (!it) return false; const cs = getComputedStyle(it); return cs.borderTopWidth === '0px' && cs.borderRightWidth === '0px' && parseFloat(cs.borderBottomWidth) >= 1 && !!it.querySelector('.evi-head .ev-cite') && !!it.querySelector('.evi-body'); }"), "each item is a bare entry: the page tag, then the quote, parted by a rule")
+        check(page.locator(".stg-evidence .evi-item .evi-id, .stg-evidence .evi-item .tag, .stg-evidence .evi-item .evi-note").count() == 0, "no item number, kind tag or note in the list")
+
         check(page.evaluate("() => { const o = document.querySelector('.stg-evidence .stg-other'); return !o || o === document.querySelector('.stg-evidence').lastElementChild; }"), "the 'other evidence' fold closes the list")
         all_items = page.locator(".evi-item").count()
         in_stage = page.locator(".stg-evidence > .evi-item")
@@ -92,6 +95,9 @@ def main() -> int:
         check(0 < n_in <= all_items, f"items in the stage: {n_in} of {all_items}")
         nums = [int(x) for x in in_stage.evaluate_all("els => els.map(e => e.dataset.item)")]
         check(nums == sorted(nums), "the stage's items in order")
+        foot = page.locator(".stg-foot .stg-next")
+        check(foot.count() == 1 and page.evaluate("() => { const f = document.querySelector('.stg-foot'), c = document.querySelector('.stg-cells'); return !!(f && c && (c.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the next button sits below the fields block")
+        check(foot.inner_text().strip() == ("next ▸" if n_in >= 2 else "next stage ▸"), f"it reads '{foot.inner_text().strip()}'")
         check(page.locator(".stg-evidence .stg-other").count() == 1 or n_in == all_items, "the other items are folded under the box")
         check(page.locator(".stg-evidence > .evi-item .ev-cite[data-eids]").count() >= 1, "page jumps on located items")
         # the cursor and the pane
@@ -133,6 +139,16 @@ def main() -> int:
                 page.keyboard.press("ArrowRight")
             page.wait_for_timeout(400)
             check(cur_index() == [str(n_in - 1)], "the cursor stops at the last item")
+            check(foot.inner_text().strip() == "next stage ▸", "on the last item the button reads 'next stage ▸'")
+            foot.click(); page.wait_for_timeout(500)
+            check(letter() == "b" and cur_index() in (["0"], []), "and moves to the next stage, its cursor on the first item")
+            page.keyboard.press("["); page.wait_for_timeout(500)             # back to the first stage, cursor on its first item
+            foot = page.locator(".stg-foot .stg-next")
+            if n_in >= 2:
+                foot.click(); page.wait_for_timeout(500)
+                check(cur_index() == ["1"], "'next ▸' moves to the next item")
+                page.locator(".stg-foot .stg-foot-prev").click(); page.wait_for_timeout(400)
+                check(cur_index() == ["0"], "'◂' moves back")
         if a.shots:
             page.screenshot(path=os.path.join(a.shots, "stage_a.png"), full_page=False)
             page.locator(".stg-tab").nth(max(1, tab_index("task|entry|sample"))).click(); page.wait_for_timeout(900)

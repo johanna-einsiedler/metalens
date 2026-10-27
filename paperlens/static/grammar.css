@@ -412,3 +412,7 @@ tr:hover .rv-rowdel { opacity: .75; }
 .stg-evidence > .evi-item:hover { border-left-color: var(--accent-3); }
 .stg-evidence > .evi-item.cur { border-left-color: var(--accent); background: var(--accent-wash); }
 .stg-evidence .stg-other { margin: 6px 0 0; }
+.evi-item.evi-bare .evi-head { margin-bottom: 2px; }
+/* the foot of a stage: previous item, and next item / next stage / done */
+.stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }
+.stg-foot .stg-next { font-weight: 600; }
