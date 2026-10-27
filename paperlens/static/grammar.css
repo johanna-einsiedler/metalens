@@ -100,6 +100,20 @@ rect.hl.hot { fill: var(--highlight-focus); stroke: none; }
 rect.hl.flash { fill: var(--highlight-focus); stroke: none;
   animation: hl-pulse .5s ease 0s 3; }
 @keyframes hl-pulse { 50% { fill: var(--green-focus); stroke: var(--green-stroke); } }
+/* the coder's own marks: violet, apart from the model's evidence and the current item */
+rect.cm { fill: rgba(126, 87, 194, .26); stroke: none; pointer-events: auto; cursor: pointer; }
+rect.cm.hot, rect.cm.sel { fill: rgba(126, 87, 194, .5); }
+body.stg-marking #pages img.pageimg { cursor: crosshair; }
+body.stg-marking #pages { box-shadow: inset 0 0 0 2px rgba(126, 87, 194, .55); }
+#pagespane .stg-pane-nav .stg-mark { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0; }
+#pagespane .stg-pane-nav .stg-mark.on { color: #7e57c2; background: rgba(126, 87, 194, .12); }
+/* "Your marks": the coder's sentences in the stage panel, page tag and text, ✕ on hover */
+.stg-marks { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 6px; }
+.stg-marks .stg-mark { position: relative; cursor: pointer; padding-right: 26px; }
+.stg-marks .stg-mark-del { position: absolute; right: 2px; top: 4px; border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
+.stg-marks .stg-mark:hover .stg-mark-del { opacity: .8; }
+.stg-marks .stg-mark-del:hover { color: #b3261e; opacity: 1; }
+.stg-nomarks { font-size: 12.5px; margin: 0; }
 
 /* an extracted value that has linked evidence — hover previews, click jumps */
 .rv-linked { cursor: pointer; border-bottom: 1px dotted var(--accent-3); }

@@ -165,6 +165,19 @@ ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS row_rid text;
 ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS context jsonb;
 
 -- ── tables reserved for later phases (created now so FKs/queries are stable) ──
+-- a coder's own marks on a paper: sentences kept with the document, tied to no cell
+CREATE TABLE IF NOT EXISTS coder_highlight (
+    id          uuid PRIMARY KEY,
+    document_id uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
+    page        integer NOT NULL,
+    text        text NOT NULL,
+    rects       jsonb NOT NULL,                       -- [[x, y, w, h], …] in the viewer's image pixels
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    created_by  text,                                 -- the user id, or the anonymous session
+    note        text
+);
+CREATE INDEX IF NOT EXISTS coder_highlight_doc_idx ON coder_highlight(document_id);
+
 CREATE TABLE IF NOT EXISTS dataset (
     id            uuid PRIMARY KEY,
     slug          text UNIQUE,

@@ -139,6 +139,10 @@ export const api = {
   record: (id) => req(`/api/records/${id}`),
   recordsProvenance: (ids) => req(`/api/records/provenance`, json({ ids })),
   deleteRecord: (id) => req(`/api/records/${id}`, { method: "DELETE" }),
+  // the coder's own marks on a paper
+  highlights: (docId) => req(`/api/documents/${docId}/highlights`),
+  addHighlight: (docId, body) => req(`/api/documents/${docId}/highlights`, json(body)),
+  deleteHighlight: (id) => req(`/api/highlights/${id}`, { method: "DELETE" }),
   addRecord: (docId, body) => req(`/api/documents/${docId}/records`, json(body)),
   documents: (f) => req(`/api/documents${qs(f)}`),
   myPapers: () => req(`/api/papers/mine`),

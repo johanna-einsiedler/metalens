@@ -136,6 +136,25 @@ function scrollToRect(rectEl, page) {
   scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
 }
 
+// The coder's own marks: one rect per line of each marked sentence, painted apart from the
+// model's evidence (class "cm"), clickable so a mark can be removed in marking mode.
+export function paintMarks(marks) {
+  document.querySelectorAll("rect.cm").forEach((r) => r.remove());
+  for (const m of marks || []) {
+    const wrap = document.getElementById(`page-${m.page}`);
+    const svg = wrap && wrap.querySelector("svg.overlay");
+    if (!svg) continue;
+    for (const [x, y, w, h] of m.rects || []) {
+      const r = document.createElementNS(SVGNS, "rect");
+      r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h);
+      r.setAttribute("class", "cm"); r.dataset.mid = m.id;
+      const t = document.createElementNS(SVGNS, "title"); t.textContent = m.text || ""; r.appendChild(t);
+      svg.appendChild(r);
+    }
+  }
+}
+export const markRects = (id) => [...document.querySelectorAll(`rect.cm[data-mid="${id}"]`)];
+
 // hover preview — light up the rect(s) for an evidence id without scrolling
 export function showEvidence(eid) {
   (Array.isArray(eid) ? eid : [eid]).forEach((id) =>

@@ -10,7 +10,7 @@
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
 import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle } from "/static/grammar.js";
-import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
+import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
@@ -21,6 +21,7 @@ let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = n
 let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
 let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
 let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "", STAGE_GO = 0;   // its cursor over the stage's items, per paper and stage
+let MARKING = false;                                     // the coder's highlighter: a click on a page marks the sentence under it
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -100,8 +101,85 @@ function mountPdfZoom() {
   apply();
 }
 
+// ── the coder's highlighter ────────────────────────────────────────────────────
+// "Mark only, no cell link": in marking mode (the ✎ control, or h) a click on a page sends its
+// point to the server, which answers with the sentence under it; the mark is painted apart from
+// the model's evidence, listed under "Your marks" in the stage panel, kept with the paper and
+// exported. A click on a mark in marking mode removes it. Outside marking mode clicks do what
+// they always did.
+function setMarking(on) {
+  MARKING = !!on;
+  document.body.classList.toggle("stg-marking", MARKING);
+  document.querySelectorAll(".stg-pane-nav .stg-mark").forEach((b) => { b.classList.toggle("on", MARKING); b.title = MARKING ? "marking: click a sentence to keep it, a mark to remove it (h stops)" : "mark sentences: click a sentence in the PDF to keep it with the paper (h)"; });
+}
+function mountMarking() {
+  const pages = $("#pages"); if (!pages) return;
+  pages.addEventListener("click", (e) => {
+    if (!MARKING || !DATA) return;
+    const cm = e.target.closest ? e.target.closest("rect.cm") : null;
+    if (cm) { e.preventDefault(); removeMark(cm.dataset.mid); return; }
+    const img = e.target.closest ? e.target.closest("img.pageimg") : null;
+    if (!img || !img.naturalWidth) return;
+    const wrap = img.closest(".page"), page = Number(String(wrap && wrap.id).replace("page-", ""));
+    const r = img.getBoundingClientRect();
+    addMark(page, (e.clientX - r.left) / r.width * img.naturalWidth, (e.clientY - r.top) / r.height * img.naturalHeight);
+  });
+}
+async function addMark(page, x, y) {
+  try {
+    const { highlight } = await api.addHighlight(DATA.document_id, { page, x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 });
+    if (!highlight) return;
+    DATA.highlights = [...(DATA.highlights || []), highlight];
+    paintMarks(DATA.highlights); markRects(highlight.id).forEach((el) => el.classList.add("sel"));
+    renderMarksBlock();
+  } catch (e) { if (!/No text/.test(e.message)) alert("mark failed: " + e.message); }
+}
+async function removeMark(id) {
+  try {
+    await api.deleteHighlight(id);
+    DATA.highlights = (DATA.highlights || []).filter((h) => h.id !== id);
+    paintMarks(DATA.highlights); renderMarksBlock();
+  } catch (e) { alert("remove failed: " + e.message); }
+}
+function marksBlockHtml() {
+  const ms = (DATA.highlights || []).slice().sort((a, b) => (a.page - b.page) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  return `<div class="evi-sub stg-head">Your marks · ${ms.length}</div>`
+    + (ms.length ? ms.map((m) => `<div class="stg-mark evi-item evi-bare evi-passage" data-mid="${esc(m.id)}" title="click: show in the PDF">`
+        + `<div class="evi-head"><button type="button" class="ev-cite" data-page="${m.page}">p. ${m.page}</button></div><div class="evi-body">“${esc(m.text)}”</div>`
+        + `<button type="button" class="stg-mark-del" title="remove this mark">✕</button></div>`).join("")
+      : `<p class="muted stg-nomarks">None yet — press <b>✎ mark</b> (or <kbd>h</kbd>) and click a sentence in the PDF.</p>`);
+}
+function renderMarksBlock() {
+  const box = document.querySelector(".stg-marks"); if (!box) return;
+  box.innerHTML = marksBlockHtml(); wireMarksBlock(box);
+}
+function wireMarksBlock(box) {
+  box.querySelectorAll(".stg-mark[data-mid]").forEach((el) => {
+    const id = el.dataset.mid;
+    el.addEventListener("click", (e) => { if (e.target.closest(".stg-mark-del")) return; jumpToMark(id); });
+    el.querySelector(".stg-mark-del").onclick = (e) => { e.stopPropagation(); removeMark(id); };
+    el.addEventListener("mouseenter", () => markRects(id).forEach((r) => r.classList.add("hot")));
+    el.addEventListener("mouseleave", () => markRects(id).forEach((r) => r.classList.remove("hot")));
+  });
+}
+function jumpToMark(id) {
+  const m = (DATA.highlights || []).find((h) => h.id === id); if (!m) return;
+  if (stagesOpen() && !stagePdfOpen()) togglePdf(true, false);
+  const pages = $("#pages"); if (!pages) return;
+  requestAnimationFrame(() => {
+    document.querySelectorAll("rect.cm.sel").forEach((x) => x.classList.remove("sel"));
+    const rs = markRects(id); rs.forEach((x) => x.classList.add("sel"));
+    const pb = pages.getBoundingClientRect();
+    const r = rs.slice().sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+    if (!r) { const wrap = document.getElementById(`page-${m.page}`); if (wrap) pages.scrollTo({ top: Math.max(0, pages.scrollTop + (wrap.getBoundingClientRect().top - pb.top) - 8), behavior: "smooth" }); return; }
+    const rb = r.getBoundingClientRect();
+    pages.scrollTo({ top: Math.max(0, pages.scrollTop + (rb.top - pb.top) - 24), left: Math.max(0, pages.scrollLeft + (rb.left - pb.left) - pages.clientWidth / 2 + rb.width / 2), behavior: "smooth" });
+  });
+}
+
 async function init() {
   mountSplitter();
+  mountMarking();
   mountPdfZoom();
   mountKeys();
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
@@ -369,6 +447,7 @@ async function load(docId) {
   EV = indexEvidence(DATA, VM);
   if (!localStorage.getItem("metalens_triage") && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
   renderPages($("#pages"), DATA.pages, DATA.evidence);
+  paintMarks(DATA.highlights || []);
   renderPanel();
   if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
   if (chainSpec()) loadChainAux(docId);
@@ -1168,13 +1247,14 @@ function mountKeys() {
     else if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
+    else if (e.key === "h") { setMarking(!MARKING); e.preventDefault(); }
     else if (e.key === "v" && card) { const b = card.querySelector('.vbtn[data-status="verified"]'); if (b) b.click(); }
     else if (e.key === "f" && card) { const b = card.querySelector('.vbtn[data-status="flagged"]'); if (b) b.click(); }
     else if (/^[1-9]$/.test(e.key) && card) { const b = card.querySelectorAll(".subtab")[+e.key - 1]; if (b) b.click(); }
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
       const h = document.createElement("div"); h.className = "kbd-help";
-      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>?</kbd> close`
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>h</kbd> mark sentences · <kbd>?</kbd> close`
         + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
       document.body.appendChild(h);
       $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
@@ -1967,8 +2047,9 @@ function setStageControl(on) {
     if (!nav) {
       nav = document.createElement("div"); nav.className = "stg-pane-nav";
       nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`
+        + `<button type="button" data-act="mark" class="stg-mark${MARKING ? " on" : ""}" title="mark sentences: click a sentence in the PDF to keep it with the paper (h)">✎ mark</button>`
         + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF column (← → still move the cursor)">▸</button>`;
-      nav.querySelectorAll("button").forEach((b) => (b.onclick = () => (b.dataset.act === "close" ? togglePdf(false) : stageCursor(STAGE_CUR + Number(b.dataset.d)))));
+      nav.querySelectorAll("button").forEach((b) => (b.onclick = () => (b.dataset.act === "close" ? togglePdf(false) : b.dataset.act === "mark" ? setMarking(!MARKING) : stageCursor(STAGE_CUR + Number(b.dataset.d)))));
       pane.appendChild(nav);
     }
     if (!strip) {
@@ -2176,6 +2257,9 @@ function renderStagesPanel(panel, rv) {
     for (const g of rest) det.appendChild(renderEviItem(g, parsed.get(g.n), recs, null, { bare: true }));
     evbox.appendChild(det);
   }
+  const marks = document.createElement("div"); marks.className = "stg-marks";   // the coder's own marks, per paper
+  marks.innerHTML = marksBlockHtml(); wireMarksBlock(marks);
+  evbox.appendChild(marks);
   panel.appendChild(evbox);
   panel.appendChild(stageCellsBlock(st, L, recs));
   const foot = document.createElement("div"); foot.className = "stg-foot";
@@ -2746,6 +2830,7 @@ function downloadJSON() {
       corrections: r.corrections || [],
     })),
     evidence: DATA.evidence,
+    highlights: DATA.highlights || [],                 // the coder's own marks: page, sentence, rectangles
   };
   download(`${baseName()}.json`, JSON.stringify(out, null, 2), "application/json");
 }

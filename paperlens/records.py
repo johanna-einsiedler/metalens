@@ -678,6 +678,7 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             "issues": issues or [],
             "pages": pages, "records": records_out,
             "evidence": evidence_out,
+            "highlights": list_highlights(conn, document_id),   # the coder's own marks
             "paper_confidence": conf["paper"],          # paper-scope groups
             "document_confidence": conf["top"]}         # legacy root-level blocks
 
@@ -773,6 +774,52 @@ def document_confidence(conn: psycopg.Connection, document_id: str) -> dict:
 # verified — editing a value is a correction, not an affirmation, so it must not inflate the
 # verified count. It records an event + updates field_values but leaves verification_status.
 _VALID_STATUS = ("verified", "flagged", "unverified", "corrected", "noted")
+
+
+# ── the coder's marks ──────────────────────────────────────────────────────────
+
+def _highlight_row(row) -> dict:
+    hid, doc_id, page, text, rects, created, by, note = row
+    return {"id": str(hid), "document_id": str(doc_id), "page": page, "text": text, "rects": rects,
+            "created_at": created.isoformat() if created else None, "created_by": by, "note": note}
+
+
+def add_highlight(conn: psycopg.Connection, document_id: str, *, page: int, text: str, rects: list,
+                  created_by: str | None = None, note: str | None = None) -> dict:
+    """Keep a sentence the coder marked on a page of the document."""
+    hid = _new_id()
+    with conn.transaction():
+        conn.execute(
+            """INSERT INTO coder_highlight (id, document_id, page, text, rects, created_by, note)
+               VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
+            (hid, document_id, int(page), text, Json(rects), created_by, note))
+    return get_highlight(conn, hid)
+
+
+def get_highlight(conn: psycopg.Connection, highlight_id: str) -> dict | None:
+    if not _is_uuid(highlight_id):
+        return None
+    row = conn.execute(
+        "SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight WHERE id = %s::uuid",
+        (highlight_id,)).fetchone()
+    return _highlight_row(row) if row else None
+
+
+def list_highlights(conn: psycopg.Connection, document_id: str) -> list[dict]:
+    if not _is_uuid(document_id):
+        return []
+    rows = conn.execute(
+        """SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight
+           WHERE document_id = %s::uuid ORDER BY page, created_at""", (document_id,)).fetchall()
+    return [_highlight_row(r) for r in rows]
+
+
+def delete_highlight(conn: psycopg.Connection, highlight_id: str) -> dict:
+    if not _is_uuid(highlight_id):
+        return {"deleted": 0}
+    with conn.transaction():
+        cur = conn.execute("DELETE FROM coder_highlight WHERE id = %s::uuid", (highlight_id,))
+    return {"deleted": cur.rowcount}
 
 
 def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
@@ -1816,6 +1863,17 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "record_id": str(rid), "entry_index": ei,
             "verification_status": vs, "values": fv,
         })
+    # the coder's own marks on each paper, tied to no record
+    for p in papers.values():
+        p["highlights"] = []
+    if papers:
+        for row in conn.execute(
+            """SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight
+               WHERE document_id = ANY(%s::uuid[]) ORDER BY document_id, page, created_at""",
+            (list(papers),),
+        ).fetchall():
+            h = _highlight_row(row)
+            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("page", "text", "rects", "created_at", "created_by", "note")})
 
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],

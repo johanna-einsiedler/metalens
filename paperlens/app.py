@@ -557,6 +557,55 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     return {"rects": rects, "found": bool(rects), "page": found_page}
 
 
+# ── the coder's marks: sentences kept with the paper, tied to no cell ─────────────────────────
+
+class HighlightBody(BaseModel):
+    page: int                   # 1-indexed
+    x: float                    # the click, in the page image's pixels (the viewer's coordinates)
+    y: float
+    note: str | None = None
+
+
+@app.get("/api/documents/{document_id}/highlights")
+def list_highlights(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner-only: the coder's marks on this paper, in page order."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"highlights": records.list_highlights(db, document_id)}
+
+
+@app.post("/api/documents/{document_id}/highlights")
+def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
+                  who: Principal = Depends(principal)) -> dict:
+    """Owner-only: mark the sentence under a click. The server finds the word at the point in
+    the page's text layer and expands it to its sentence (``paperlens.marks``); the mark is
+    stored with its text and one rectangle per line and returned. 404 when no word is there."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    store = storage.get_store()
+    key = storage.pdf_key(document_id)
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
+    from . import marks
+    hit = marks.mark_at(store.get(key), body.page, body.x, body.y)
+    if hit is None:
+        raise HTTPException(status_code=404, detail="No text at that point.")
+    h = records.add_highlight(db, document_id, page=hit["page"], text=hit["text"], rects=hit["rects"],
+                              created_by=who.user_id or who.session_id, note=body.note)
+    return {"highlight": h}
+
+
+@app.delete("/api/highlights/{highlight_id}")
+def delete_highlight(highlight_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Remove one of the coder's marks — the paper's owner only."""
+    h = records.get_highlight(db, highlight_id)
+    if h is None:
+        raise HTTPException(status_code=404, detail="Mark not found.")
+    if not records.is_document_owner(db, h["document_id"], who):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    return records.delete_highlight(db, highlight_id)
+
+
 @app.get("/api/documents/{document_id}/raw")
 def document_raw_response(document_id: str, db=Depends(get_db),
                           who: Principal = Depends(principal)) -> Response:

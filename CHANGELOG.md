@@ -142,6 +142,16 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   such values.
 - The generic card adds and removes sub-entries (an arm, a result: "＋", "✕"), logged as
   corrections like a table row; a cell inside a paper-level table is saved with its table.
+- A coder's highlighter, "mark only, no cell link": in marking mode (`✎ mark` at the top of the
+  PDF column, or `h`) a click on a page marks the sentence under it — the server finds the word
+  at the point in the page's text layer and expands it to its sentence (boundaries at `. ! ?`
+  before a capital or a digit, abbreviations spared; the paragraph, or the clicked line of a
+  long one, when there is none) — painted violet apart from the model's evidence, listed under
+  "Your marks" at the end of the stage's evidence list (page and sentence, click to jump, ✕ to
+  remove; a click on a mark in marking mode removes it too), kept with the document
+  (`coder_highlight`: `GET`/`POST /api/documents/{id}/highlights`, `DELETE /api/highlights/{id}`,
+  the paper's owner only) and exported: `highlights` per paper in the dataset export and in the
+  workspace's JSON download (not yet in release files).
 - Definitions on hover: an option of an enum or multi field (or table column) may carry `help`
   (`{value, label, help}`) — the review shows it as the title of the checkbox label, of each
   `<option>` and of the select itself (the chosen option's definition, else the field's help);

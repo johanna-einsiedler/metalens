@@ -73,7 +73,11 @@ def main() -> int:
         tabs = page.locator(".stg-tab")
         n_stages = tabs.count()
         check(n_stages >= 3, f"stage bar with {n_stages} stages")
-        check(page.locator(".stg-help").count() == 1, "the stage opens with its instruction")
+        has_help = page.evaluate("() => { const t = document.querySelector('.stg-tab.active'); return !!(t && t.title); }")
+        if has_help:
+            check(page.locator(".stg-help").count() == 1, "the stage opens with its instruction")
+        else:
+            print("  n/a  stage instruction: the preset gives this stage no help text")
         check(letter() == "a", "the first stage is active and lettered a")
         # the PDF column: collapsed to a strip in a fresh browser, opened by its icon at two fifths
         vw = 1400
@@ -116,7 +120,7 @@ def main() -> int:
         check(page.evaluate("() => { const it = document.querySelector('.stg-evidence .evi-item.evi-table'); if (!it) return true; const h = it.querySelector('.evi-head').getBoundingClientRect(), b = it.querySelector('.evi-body').getBoundingClientRect(); return b.top >= h.bottom - 1; }"), "a table item keeps its tag above the table")
         check(page.locator(".stg-evidence .evi-item .evi-id, .stg-evidence .evi-item .tag, .stg-evidence .evi-item .evi-note").count() == 0, "no item number, kind tag or note in the list")
 
-        check(page.evaluate("() => { const o = document.querySelector('.stg-evidence .stg-other'); return !o || o === document.querySelector('.stg-evidence').lastElementChild; }"), "the 'other evidence' fold closes the list")
+        check(page.evaluate("() => { const o = document.querySelector('.stg-evidence .stg-other'), m = document.querySelector('.stg-evidence .stg-marks'); return !!m && m === document.querySelector('.stg-evidence').lastElementChild && (!o || o.nextElementSibling === m); }"), "the 'other evidence' fold closes the list, the coder's marks block after it")
         all_items = page.locator(".evi-item").count()
         in_stage = page.locator(".stg-evidence > .evi-item")
         n_in = in_stage.count()
@@ -216,6 +220,47 @@ def main() -> int:
             page.wait_for_timeout(900)
             open_doc(a.doc)
             check(page.locator(f'.rv-multi[data-path="{mpath}"] .rv-chk.rv-free input[value="own term of the paper"]').count() == 1, "the term is a chip after a reload")
+        # the coder's highlighter: mark a sentence, keep it across a reload, remove it with a click
+        marks_n = lambda: page.locator(".stg-marks .stg-mark").count()
+        n0 = marks_n()
+        if page.evaluate("() => document.body.classList.contains('stg-pdf-closed')"):
+            page.locator(".stg-pdf-strip .stg-pdf-open").click(); page.wait_for_timeout(600)
+        page.locator("#pagespane .stg-pane-nav .stg-mark").click(); page.wait_for_timeout(200)
+        check(page.evaluate("() => document.body.classList.contains('stg-marking')") and page.locator("#pagespane .stg-pane-nav .stg-mark.on").count() == 1, "✎ turns marking mode on")
+        # the current item's highlight is on screen (anchored) and a known sentence; click a point of
+        # it that the page image answers (the column's floating control may cover its left end)
+        def free_point(selector, want):
+            boxes = page.locator(selector).evaluate_all("els => els.map(e => { const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })")
+            for (x, y, w, h) in boxes:
+                for f in (0.9, 0.75, 0.6, 0.45, 0.3, 0.15):
+                    px, py = x + w * f, y + h / 2
+                    if page.evaluate("([x, y, sel]) => { const e = document.elementFromPoint(x, y); return !!(e && e.matches && e.matches(sel)); }", [px, py, want]):
+                        return px, py
+            return None
+        settled()                                                   # the column anchors once the page images have landed
+        cur_ids = page.locator(".stg-evidence > .evi-item.cur .ev-cite[data-eids]").first.get_attribute("data-eids").split(",")
+        pt = free_point(", ".join(f"rect.hl[data-eids~='{i}']" for i in cur_ids), "img.pageimg")
+        check(pt is not None, "a point of the current item's sentence is free of the column's controls")
+        if pt:
+            page.mouse.click(*pt); page.wait_for_timeout(1200)
+        check(marks_n() == n0 + 1 and page.locator("rect.cm").count() >= 1, f"a click on a sentence marks it ({marks_n()} mark, painted)")
+        mark_page = page.locator(".stg-marks .stg-mark .ev-cite").last.inner_text().strip()
+        mark_text = page.locator(".stg-marks .stg-mark .evi-body").last.inner_text().strip()
+        want_page = "p. " + str(page.evaluate("() => { const r = document.querySelector('rect.hl[data-eids]'); return r.closest('.page').id.replace('page-', ''); }"))
+        check(mark_page == want_page and len(mark_text) > 10, f"the block shows it with its page ({mark_page}: {mark_text[:50]}…)")
+        view = page.request.get(f"{a.url}/api/documents/{a.doc}/view", headers={"X-Session-Id": a.session}).json()
+        check(any(h["text"].strip("“”") == mark_text.strip("“”") for h in view.get("highlights", [])), "the document view (the JSON download's source) carries the mark")
+        page.reload(); page.wait_for_selector(".stg-bar", timeout=30000); page.wait_for_timeout(600)
+        check(marks_n() == n0 + 1 and page.locator("rect.cm").count() >= 1, "the mark survives a reload")
+        page.keyboard.press("h"); page.wait_for_timeout(200)
+        check(page.evaluate("() => document.body.classList.contains('stg-marking')"), "h turns marking mode on")
+        pt = free_point("rect.cm", "rect.cm")
+        check(pt is not None, "the mark is on screen and clickable")
+        if pt:
+            page.mouse.click(*pt); page.wait_for_timeout(1000)
+        check(marks_n() == n0 and page.locator("rect.cm").count() == 0, "a second click on the mark removes it")
+        page.keyboard.press("h"); page.wait_for_timeout(200)
+        check(not page.evaluate("() => document.body.classList.contains('stg-marking')"), "h turns it off again")
         # keys move the stage; the cursor restarts on the first item
         page.keyboard.press("]"); page.wait_for_timeout(500)
         check(letter() == "b", "] opens the next stage")
