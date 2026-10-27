@@ -413,6 +413,22 @@ tr:hover .rv-rowdel { opacity: .75; }
 .stg-evidence > .evi-item.cur { border-left-color: var(--accent); background: var(--accent-wash); }
 .stg-evidence .stg-other { margin: 6px 0 0; }
 .evi-item.evi-bare .evi-head { margin-bottom: 2px; }
+/* a bare passage: the page tag hangs at the left of the quote, which wraps beside it; a table
+   keeps its tag above */
+.stg-evidence .evi-item.evi-bare.evi-passage { display: flex; align-items: flex-start; gap: 10px; }
+.stg-evidence .evi-item.evi-bare.evi-passage .evi-head { flex: 0 0 auto; margin: 3px 0 0; }
+.stg-evidence .evi-item.evi-bare.evi-passage .evi-body { flex: 1 1 auto; min-width: 0; }
+/* the PDF column collapsed to a strip at the right edge: the icon opens it; "item k of n" stacked */
+body.stg-pdf-closed #splitter { display: none; }
+body.stg-pdf-closed #panel { width: auto !important; flex: 1 1 auto; }
+body.stg-pdf-closed #pagespane { flex: 0 0 36px; width: 36px; min-width: 36px; border-left: 1px solid var(--border); background: var(--surface); }
+body.stg-pdf-closed #pagespane > :not(.stg-pdf-strip) { display: none; }
+.stg-pdf-strip { display: none; }
+body.stg-pdf-closed .stg-pdf-strip { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0; height: 100%; }
+.stg-pdf-open { border: 0; background: none; cursor: pointer; color: var(--text-muted); padding: 4px; border-radius: 6px; line-height: 0; }
+.stg-pdf-open:hover { color: var(--accent); background: var(--accent-wash); }
+.stg-pdf-k { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
+#pagespane .stg-pane-nav .stg-pdf-close { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
 /* the foot of a stage: previous item, and next item / next stage / done */
 .stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }
 .stg-foot .stg-next { font-weight: 600; }

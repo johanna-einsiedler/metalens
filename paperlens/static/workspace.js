@@ -1947,16 +1947,41 @@ function wireEvidencePanel(panel, recs) {
 function stagesOpen() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
 
 // The item control at the top of the PDF column while a stage is open; gone otherwise.
+// The PDF column of a stages preset is collapsed by default to a strip at the right edge — the
+// icon opens it (at the stages width), "▸" at the top of the open column or the icon again
+// collapses it; the choice is kept per browser. The cursor moves either way; the column follows
+// it only while open, and anchors the current item when it opens.
+function stagePdfOpen() { try { return localStorage.getItem("metalens_stage_pdf") === "open"; } catch { return false; } }
+function togglePdf(open, anchor = true) {
+  try { localStorage.setItem("metalens_stage_pdf", open ? "open" : "closed"); } catch { /* */ }
+  document.body.classList.toggle("stg-pdf-closed", stagesOpen() && !open);
+  STAGE_SHOWN = "";
+  if (open && anchor) stageShowItem();
+}
+const PDF_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>`;
 function setStageControl(on) {
   const pane = $("#pagespane"); if (!pane) return;
-  let nav = pane.querySelector(".stg-pane-nav");
-  if (on && !nav) {
-    nav = document.createElement("div"); nav.className = "stg-pane-nav";
-    nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`;
-    nav.querySelectorAll("button").forEach((b) => (b.onclick = () => stageCursor(STAGE_CUR + Number(b.dataset.d))));
-    pane.appendChild(nav);
-  } else if (!on && nav) {
-    nav.remove(); STAGE_SHOWN = "";
+  let nav = pane.querySelector(".stg-pane-nav"), strip = pane.querySelector(".stg-pdf-strip");
+  if (on) {
+    if (!nav) {
+      nav = document.createElement("div"); nav.className = "stg-pane-nav";
+      nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`
+        + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF column (← → still move the cursor)">▸</button>`;
+      nav.querySelectorAll("button").forEach((b) => (b.onclick = () => (b.dataset.act === "close" ? togglePdf(false) : stageCursor(STAGE_CUR + Number(b.dataset.d)))));
+      pane.appendChild(nav);
+    }
+    if (!strip) {
+      strip = document.createElement("div"); strip.className = "stg-pdf-strip";
+      strip.innerHTML = `<button type="button" class="stg-pdf-open" title="open the PDF column on the current item">${PDF_ICON}</button><span class="stg-pdf-k">—</span>`;
+      strip.querySelector("button").onclick = () => togglePdf(true);
+      pane.appendChild(strip);
+    }
+    document.body.classList.toggle("stg-pdf-closed", !stagePdfOpen());
+  } else {
+    if (nav) nav.remove();
+    if (strip) strip.remove();
+    document.body.classList.remove("stg-pdf-closed");
+    STAGE_SHOWN = "";
   }
 }
 
@@ -1986,10 +2011,11 @@ function updateStageFoot() {
   if (p) p.disabled = !STAGE_ITEMS.length || STAGE_CUR <= 0;
 }
 function stageShowItem() {
-  const k = document.querySelector(".stg-pane-nav .stg-pane-k");
-  if (k) k.textContent = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
-  document.querySelectorAll(".stg-pane-nav button").forEach((b) => (b.disabled = !STAGE_ITEMS.length || (b.dataset.d === "-1" ? STAGE_CUR <= 0 : STAGE_CUR >= STAGE_ITEMS.length - 1)));
+  const where = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
+  document.querySelectorAll(".stg-pane-nav .stg-pane-k, .stg-pdf-strip .stg-pdf-k").forEach((k) => (k.textContent = where));
+  document.querySelectorAll(".stg-pane-nav button[data-d]").forEach((b) => (b.disabled = !STAGE_ITEMS.length || (b.dataset.d === "-1" ? STAGE_CUR <= 0 : STAGE_CUR >= STAGE_ITEMS.length - 1)));
   updateStageFoot();
+  if (!stagePdfOpen()) { STAGE_SHOWN = ""; return; }      // collapsed: the cursor moved, the column will anchor when opened
   STAGE_SHOWN = `${STAGE_KEY}|${STAGE_CUR}`;
   const g = STAGE_ITEMS[STAGE_CUR]; if (!g) return;
   const page = g.page || (g.ids.length ? (DATA.evidence[g.ids[0]] || {}).page : null);
@@ -2205,6 +2231,17 @@ function wireStagePanel(panel, recs, st, L) {
     else for (const sel of ["#panel", "#panelbody"]) if ($(sel)) $(sel).scrollTo({ top: 0, behavior: "smooth" });
   };
   if (pv) pv.onclick = () => stageCursor(STAGE_CUR - 1);
+  // a page tag in the list: that item becomes current and the column opens on it if collapsed;
+  // a tag in the "other evidence" fold opens the column and jumps as the generic tag does
+  panel.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    if (!stagePdfOpen()) togglePdf(true, false);
+    STAGE_SHOWN = ""; stageCursor(Number(b.closest(".evi-item").dataset.i));
+  }));
+  panel.querySelectorAll(".stg-evidence .stg-other .ev-cite[data-eids]").forEach((b) => {
+    const jump = b.onclick;
+    b.onclick = (e) => { if (!stagePdfOpen()) togglePdf(true, false); if (jump) jump(e); };
+  });
   updateStageFoot();
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);

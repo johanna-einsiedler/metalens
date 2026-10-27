@@ -122,15 +122,17 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
   paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
   stages (a→g, `]`/`[`) in the left panel — the stage's instruction, then the reader's items that
-  bear on the stage's fields as one bare list (page tag and quote, or the table) with a cursor
-  over them (the rest folded at the end), then its cells (paper fields; every entry as a card
-  with "＋ add"; or each entry's arms / results with "＋", "✕", "copy … from <entry>" and "same
-  as <the reference row>"), then "◂ · next ▸", which becomes "next stage ▸" on the stage's last
-  item and "done" on the last stage — while the PDF column (two fifths of the window by default,
-  the splitter still drags) follows the cursor at the coder's zoom, scrolled so the current
-  item's highlight starts just under its top edge (`→`/`←` or "◀ item k of n ▶" at the top of
-  the column). A stage's `auto_id: {field, first?, next}` fills the id of an added entry or row
-  ("C", then "T1", "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
+  bear on the stage's fields as one bare list (the page tag hanging at the left of the quote, or
+  above a table) with a cursor over them (the rest folded at the end), then its cells (paper
+  fields; every entry as a card with "＋ add"; or each entry's arms / results with "＋", "✕",
+  "copy … from <entry>" and "same as <the reference row>"), then "◂ · next ▸", which becomes
+  "next stage ▸" on the stage's last item and "done" on the last stage — while the PDF column,
+  collapsed by default to a strip at the right edge (the icon opens it at two fifths of the
+  window or the dragged width, "▸" collapses it, a page tag opens it; kept per browser), follows
+  the cursor while open at the coder's zoom, scrolled so the current item's highlight starts just
+  under its top edge (`→`/`←` or "◀ item k of n ▶" at the top of the column; the cursor moves
+  whether or not the column is open). A stage's `auto_id: {field, first?, next}` fills the id of
+  an added entry or row ("C", then "T1", "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
   stages and the coder adds the first entry; adding an entry retires the "screened — no records"
   sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the
   two-column one, unchanged.
