@@ -91,6 +91,8 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("nested children", lambda d: d["entries"]["children"][0].__setitem__("children", []), "may not nest"),
     ("enum without options", lambda d: d["entries"]["fields"].append({"name": "x", "type": "enum"}), "options"),
     ("options on string", lambda d: d["entries"]["fields"].append({"name": "x", "options": ["a"]}), "options"),
+    ("allow_other on string", lambda d: d["entries"]["fields"].append({"name": "x", "allow_other": True}), "allow_other"),
+    ("option help not a string", lambda d: d["paper"]["fields"][0].__setitem__("options", [{"value": "rct", "label": "RCT", "help": 3}, "obs"]), "help must be a string"),
     ("table without columns", lambda d: d["entries"]["fields"].append({"name": "x", "type": "table"}), "columns"),
     ("bad range", lambda d: d["entries"]["fields"].append({"name": "x", "type": "number", "range": [1, 0]}), "range"),
     ("value evidence on table", lambda d: d["entries"]["fields"][2].__setitem__("evidence", "value"), "evidence"),
@@ -339,7 +341,7 @@ def test_the_criteria_review_layout_names_fields_of_the_right_types() -> None:
     assert any("quotes must be" in e for e in broken(lambda rv: rv.update(quotes="random")))
     assert ps.validate(ps.normalize({**_criteria_spec(), "display": {**_criteria_spec()["display"], "review": {**_criteria_spec()["display"]["review"], "quotes": "mixed"}}}))[0] == []
     assert any("at least one criterion" in e for e in broken(lambda rv: rv.update(criteria=[])))
-    assert any("'chain', 'criteria' or 'evidence'" in e for e in broken(lambda rv: rv.update(layout="grid")))
+    assert any("'chain', 'criteria', 'evidence' or 'stages'" in e for e in broken(lambda rv: rv.update(layout="grid")))
 ITEMS_TABLE = {"name": "items", "type": "table", "evidence": "none", "columns": [
     {"name": "n", "type": "integer"}, {"name": "page", "type": "integer"},
     {"name": "kind", "type": "enum", "options": ["passage", "table"]},
@@ -371,3 +373,158 @@ def test_evidence_review_layout_is_accepted() -> None:
     except ps.SpecError as e:
         errs = e.errors
     assert any("column 'n'" in e for e in errs)
+
+
+# ── allow_other on multi fields: the paper's own term beside the declared codes ──────────────────
+
+def _multi_spec(open_: bool = True) -> dict:
+    doc = copy.deepcopy(GOOD)
+    tags = {"name": "tags", "type": "multi", "options": ["a", "b"], "evidence": "none"}
+    col = {"name": "kinds", "type": "multi", "options": ["x"]}
+    if open_:
+        tags["allow_other"] = True; col["allow_other"] = True
+    doc["entries"]["fields"].append(tags)
+    doc["entries"]["fields"][2]["columns"].append(col)
+    doc["display"]["tabs"][0]["fields"].append("tags")
+    return doc
+
+
+def test_allow_other_on_multi_accepts_free_terms() -> None:
+    """A multi field (or table column) with allow_other takes a term of the paper's own next to
+    the declared codes: the validator accepts the flag, the result check does not flag the term,
+    the prompt says so, the UI grammar carries the flag — and the data contract changes, since what
+    the data may contain changed."""
+    spec = ps.normalize(_multi_spec())
+    assert ps.validate(spec)[0] == []
+    out = {"paper_metadata": {"title": "T"}, "samples": [{"sample_id": "s1", "tags": ["a", "zzz"],
+                                                           "matrix": [{"a": 1, "kinds": ["q"]}], "records": []}], "evidence": []}
+    codes = {(i["path"], i["code"]) for i in ps.validate_result(out, spec)}
+    assert not any(c == "not_in_options" for _, c in codes), codes
+    closed = ps.normalize(_multi_spec(False))
+    codes = {(i["path"], i["code"]) for i in ps.validate_result(out, closed)}
+    assert ("samples[0].tags", "not_in_options") in codes      # (table columns are not option-checked by validate_result)
+    bad = copy.deepcopy(out); bad["samples"][0]["tags"] = "a"
+    assert ("samples[0].tags", "not_list") in {(i["path"], i["code"]) for i in ps.validate_result(bad, spec)}
+    prompt = ps.render_prompt(spec)
+    line = next(ln for ln in prompt.splitlines() if "tags" in ln and "any of" in ln)
+    assert "any of" in line and "or the paper's own term" in line, line
+    assert ps.field_defs_for(spec)["field_types"]["tags"] == {"type": "multiselect", "options": ["a", "b"], "allow_other": True}
+    assert ps.content_hash(spec) != ps.content_hash(closed)
+
+
+# ── the staged review layout ─────────────────────────────────────────────────────────────────────
+
+def _stages_doc(items_on: str = "entry") -> dict:
+    """GOOD with the reader's items table (on the entry, or on the paper), a boolean on the child,
+    and a staged review over the paper field, the entry fields and the child."""
+    doc = copy.deepcopy(GOOD)
+    items = copy.deepcopy(ITEMS_TABLE)
+    if items_on == "paper":
+        doc["paper"]["fields"].append(items)
+    else:
+        doc["entries"]["fields"].append(items); doc["display"]["tabs"][0]["fields"].append("items")
+    doc["entries"]["children"][0]["fields"].append({"name": "is_ref", "type": "boolean"})
+    doc["entries"]["children"][0]["fields"].append({"name": "row_id", "type": "string"})
+    doc["display"]["review"] = {"layout": "stages", "items": "items", "stages": [
+        {"id": "design", "label": "Design", "help": "Code the design from the items.", "paper_fields": ["design"]},
+        {"id": "samples", "label": "Samples", "help": "One sample per group; add each.", "fields": ["sample_id", "n", "matrix"],
+         "auto_id": {"field": "sample_id", "next": "S{n}"}},
+        {"id": "effects", "label": "Effects", "help": "One row per effect.", "child": "records", "child_fields": ["var1", "is_ref", "row_id"],
+         "auto_id": {"field": "row_id", "first": "C", "next": "T{n}"}},
+        {"id": "sizes", "label": "Sizes", "help": "The estimate of each row.", "child": "records", "child_fields": ["es"],
+         "copy_from_sibling": {"when": "is_ref", "fields": ["es"]}},
+    ]}
+    return doc
+
+
+def test_stages_review_layout_is_accepted() -> None:
+    """display.review {layout: stages}: the items table may sit on the entry or on the paper; a
+    stage names the fields of one level; two stages may share a child; the layout never
+    re-versions a dataset; a stage without help and a field in no stage are warnings."""
+    for where in ("entry", "paper"):
+        spec = ps.normalize(_stages_doc(where))
+        errs, warns = ps.validate(spec)
+        assert errs == [], errs
+        assert warns == [], warns
+        bare = copy.deepcopy(_stages_doc(where)); bare["display"].pop("review")
+        assert ps.schema_id(spec) == ps.schema_id(ps.normalize(bare))
+        assert spec["display"]["review"]["stages"][3]["copy_from_sibling"] == {"when": "is_ref", "fields": ["es"]}
+        assert spec["display"]["review"]["stages"][1]["auto_id"] == {"field": "sample_id", "next": "S{n}"}
+        assert spec["display"]["review"]["stages"][2]["auto_id"] == {"field": "row_id", "first": "C", "next": "T{n}"}
+    doc = _stages_doc()
+    doc["display"]["review"]["stages"][0].pop("help")
+    doc["display"]["review"]["stages"][1]["fields"] = ["sample_id"]        # n and matrix in no stage
+    _, warns = ps.validate(ps.normalize(doc))
+    assert any("stages[0]: no help" in w for w in warns), warns
+    assert any("'n' is in no stage" in w for w in warns) and any("'matrix' is in no stage" in w for w in warns), warns
+
+
+def _stage_errors(mutate) -> list[str]:
+    doc = _stages_doc(); mutate(doc["display"]["review"])
+    try:
+        return ps.validate(ps.normalize(doc))[0]
+    except ps.SpecError as e:
+        return e.errors
+
+
+@pytest.mark.parametrize("label,mutate,needle", [
+    ("no stages", lambda rv: rv.pop("stages"), "stages must list at least one stage"),
+    ("empty stages", lambda rv: rv.update(stages=[]), "at least one stage"),
+    ("unknown review key", lambda rv: rv.update(paper_fields=["design"]), "unknown key 'paper_fields'"),
+    ("items not a table", lambda rv: rv.update(items="design"), "table field of the entry or the paper"),
+    ("two levels", lambda rv: rv["stages"][0].update(fields=["n"]), "ONE level"),
+    ("child without child_fields", lambda rv: rv["stages"][2].pop("child_fields"), "ONE level"),
+    ("unknown stage key", lambda rv: rv["stages"][0].update(fields_of="x"), "unknown key 'fields_of'"),
+    ("paper field unknown", lambda rv: rv["stages"][0].update(paper_fields=["zzz"]), "'zzz' is not a paper field"),
+    ("entry field unknown", lambda rv: rv["stages"][1].update(fields=["zzz"]), "'zzz' is not an entry field"),
+    ("entry field on a paper stage", lambda rv: rv["stages"][0].update(paper_fields=["n"]), "'n' is not a paper field"),
+    ("child unknown", lambda rv: rv["stages"][2].update(child="zzz"), "child must name a child"),
+    ("child field unknown", lambda rv: rv["stages"][2].update(child_fields=["n"]), "'n' is not a field of 'records'"),
+    ("empty field list", lambda rv: rv["stages"][1].update(fields=[]), "non-empty list"),
+    ("items as a cell", lambda rv: rv["stages"][1].update(fields=["items"]), "drawn as evidence, not as a cell"),
+    ("copy on an entry stage", lambda rv: rv["stages"][1].update(copy_from_sibling={"when": "is_ref", "fields": ["es"]}), "only applies to a child stage"),
+    ("copy when not boolean", lambda rv: rv["stages"][3].update(copy_from_sibling={"when": "var1", "fields": ["es"]}), "needs 'when' (a boolean field"),
+    ("copy field unknown", lambda rv: rv["stages"][3].update(copy_from_sibling={"when": "is_ref", "fields": ["zzz"]}), "needs 'when'"),
+    ("duplicate id", lambda rv: rv["stages"][1].update(id="design"), "'design' is duplicated"),
+    ("auto_id on a paper stage", lambda rv: rv["stages"][0].update(auto_id={"field": "design", "next": "D{n}"}), "auto_id only applies to an entry or child stage"),
+    ("auto_id not an object", lambda rv: rv["stages"][1].update(auto_id="sample_id"), "auto_id must be an object"),
+    ("auto_id unknown key", lambda rv: rv["stages"][1].update(auto_id={"field": "sample_id", "next": "S{n}", "step": 2}), "auto_id: unknown key 'step'"),
+    ("auto_id field not a string field", lambda rv: rv["stages"][1].update(auto_id={"field": "n", "next": "S{n}"}), "auto_id.field must name a string field of the entry"),
+    ("auto_id field of another level", lambda rv: rv["stages"][2].update(auto_id={"field": "sample_id", "next": "T{n}"}), "auto_id.field must name a string field of 'records'"),
+    ("auto_id next without {n}", lambda rv: rv["stages"][1].update(auto_id={"field": "sample_id", "next": "S"}), "auto_id.next must be a string containing {n}"),
+    ("auto_id first not a string", lambda rv: rv["stages"][2].update(auto_id={"field": "row_id", "first": 1, "next": "T{n}"}), "auto_id.first must be a string"),
+    ("bad id", lambda rv: rv["stages"][1].update(id="2 b"), "id must match"),
+    ("no label", lambda rv: rv["stages"][1].pop("label"), "label is required"),
+])
+def test_stages_review_rejects(label, mutate, needle) -> None:
+    errs = _stage_errors(mutate)
+    assert errs, f"{label}: expected an error"
+    assert any(needle in e for e in errs), f"{label}: {errs}"
+
+
+# ── option definitions: {value, label, help} ──────────────────────────────────────────────────────
+
+def test_option_help_is_accepted_as_wording_only() -> None:
+    """An option may carry ``help`` (the category's definition) on fields and on table columns:
+    the validator takes it, the option helpers keep working, the UI grammar carries it, and the
+    data contract is unchanged — a definition added to a category never re-versions a dataset."""
+    plain = copy.deepcopy(GOOD)
+    plain["paper"]["fields"][0]["options"] = [{"value": "rct", "label": "RCT"}, {"value": "obs", "label": "Observational"}]
+    plain["entries"]["fields"][2]["columns"].append({"name": "kind", "type": "enum", "options": [{"value": "x", "label": "X"}]})
+    helped = copy.deepcopy(plain)
+    helped["paper"]["fields"][0]["options"][0]["help"] = "participants were randomly assigned"
+    helped["entries"]["fields"][2]["columns"][1]["options"][0]["help"] = "the x kind"
+    for doc in (plain, helped):
+        spec = ps.normalize(doc)
+        assert ps.validate(spec)[0] == []
+    sp, sh = ps.normalize(plain), ps.normalize(helped)
+    assert ps.content_hash(sp) == ps.content_hash(sh) and ps.schema_id(sp) == ps.schema_id(sh)
+    design = sh["paper"]["fields"][0]
+    assert ps._opt_values(design, {}, {}) == ["rct", "obs"]
+    assert ps._opt_lines(design, {}, {}) == "rct = RCT, obs = Observational"
+    doc_ = ps._options_doc(design, {}, {})
+    assert doc_["items"][0] == {"value": "rct", "label": "RCT", "help": "participants were randomly assigned"} and "help" not in doc_["items"][1]
+    assert ps.render_prompt(sp) == ps.render_prompt(sh)
+    fh, fp = ps.field_defs_for(sh), ps.field_defs_for(sp)
+    assert {k: v for k, v in fh.items() if k != "spec"} == {k: v for k, v in fp.items() if k != "spec"}   # the legacy grammar is unchanged
+    assert fh["spec"]["paper"]["fields"][0]["options"][0]["help"] == "participants were randomly assigned"  # the UI's spec carries it

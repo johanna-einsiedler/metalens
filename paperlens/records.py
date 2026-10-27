@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import re
+import sys
 import uuid
 from typing import Any
 
@@ -339,6 +340,49 @@ def attach_rects(conn: psycopg.Connection, document_id: str, highlights: list[di
                 )
             n += cur.rowcount
     return n
+
+
+def refresh_schema_wording(conn: psycopg.Connection, schema_id: str, live_spec: dict) -> bool:
+    """Bring a stored format-2 schema row's wording, version and display up to the live preset
+    file's when the file has the SAME schema id (the contract is the id, so the data shape cannot
+    change). True when the row was rewritten."""
+    from . import preset_spec as ps
+    row = get_schema(conn, schema_id)
+    fd = (row or {}).get("field_defs")
+    if not (isinstance(fd, dict) and fd.get("format") == 2 and isinstance(fd.get("spec"), dict)):
+        return False
+    merged = ps.refreshed_spec(fd["spec"], live_spec)
+    if merged is None or ps.schema_id(merged) != schema_id:
+        return False
+    new_fd = {**ps.field_defs_for(merged), "schema_id": schema_id}
+    if new_fd == fd:
+        return False
+    with conn.transaction():
+        conn.execute("UPDATE schema SET field_defs = %s WHERE id = %s", (Json(new_fd), schema_id))
+    return True
+
+
+def refresh_stored_presets(conn: psycopg.Connection, presets_meta: dict | None = None) -> list[str]:
+    """For every loaded preset file whose schema id names a stored row, refresh that row's
+    wording and display from the file. Returns the ids of the rows rewritten. Best-effort: a
+    broken row or file never takes a listing or a start-up down."""
+    from . import presets, preset_spec as ps
+    done: list[str] = []
+    loaded = presets_meta if presets_meta is not None else presets.load_all()
+    for item in loaded.values():
+        if not isinstance(item, dict):
+            continue
+        # load_all() gives {id: normalised spec}; a caller may pass preset metas ({spec, schema_id, …}) instead
+        spec = item.get("spec") if "schema_id" in item or "spec" in item else item
+        if not isinstance(spec, dict) or item.get("legacy") or spec.get("format") != ps.FORMAT:
+            continue
+        try:
+            sid = item.get("schema_id") or ps.schema_id(spec)
+            if refresh_schema_wording(conn, sid, spec):
+                done.append(sid)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[presets] could not refresh schema row {spec.get('id')}: {exc}", file=sys.stderr, flush=True)
+    return done
 
 
 def get_schema(conn: psycopg.Connection, schema_id: str) -> dict | None:
@@ -678,6 +722,7 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             "issues": issues or [],
             "pages": pages, "records": records_out,
             "evidence": evidence_out,
+            "highlights": list_highlights(conn, document_id),   # the coder's own marks
             "paper_confidence": conf["paper"],          # paper-scope groups
             "document_confidence": conf["top"]}         # legacy root-level blocks
 
@@ -698,7 +743,11 @@ def _upgraded_field_defs(field_defs: dict | None, core_key: str | None, core_sha
             live = None
         if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == field_defs.get("hash"):
             spec = {**spec, "display": live["spec"].get("display", spec.get("display"))}
-        return {**field_defs, "spec": spec}
+        out = {**field_defs, "spec": spec}
+        if live and not live.get("legacy"):          # what the preset file is now, so a coder can tell an older contract
+            out["live_schema_id"] = live.get("schema_id")
+            out["live_label"] = live.get("label")
+        return out
     if core_key is None and field_defs is None:
         return None
     if conn is not None and schema_id:
@@ -773,6 +822,52 @@ def document_confidence(conn: psycopg.Connection, document_id: str) -> dict:
 # verified — editing a value is a correction, not an affirmation, so it must not inflate the
 # verified count. It records an event + updates field_values but leaves verification_status.
 _VALID_STATUS = ("verified", "flagged", "unverified", "corrected", "noted")
+
+
+# ── the coder's marks ──────────────────────────────────────────────────────────
+
+def _highlight_row(row) -> dict:
+    hid, doc_id, page, text, rects, created, by, note = row
+    return {"id": str(hid), "document_id": str(doc_id), "page": page, "text": text, "rects": rects,
+            "created_at": created.isoformat() if created else None, "created_by": by, "note": note}
+
+
+def add_highlight(conn: psycopg.Connection, document_id: str, *, page: int, text: str, rects: list,
+                  created_by: str | None = None, note: str | None = None) -> dict:
+    """Keep a sentence the coder marked on a page of the document."""
+    hid = _new_id()
+    with conn.transaction():
+        conn.execute(
+            """INSERT INTO coder_highlight (id, document_id, page, text, rects, created_by, note)
+               VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
+            (hid, document_id, int(page), text, Json(rects), created_by, note))
+    return get_highlight(conn, hid)
+
+
+def get_highlight(conn: psycopg.Connection, highlight_id: str) -> dict | None:
+    if not _is_uuid(highlight_id):
+        return None
+    row = conn.execute(
+        "SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight WHERE id = %s::uuid",
+        (highlight_id,)).fetchone()
+    return _highlight_row(row) if row else None
+
+
+def list_highlights(conn: psycopg.Connection, document_id: str) -> list[dict]:
+    if not _is_uuid(document_id):
+        return []
+    rows = conn.execute(
+        """SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight
+           WHERE document_id = %s::uuid ORDER BY page, created_at""", (document_id,)).fetchall()
+    return [_highlight_row(r) for r in rows]
+
+
+def delete_highlight(conn: psycopg.Connection, highlight_id: str) -> dict:
+    if not _is_uuid(highlight_id):
+        return {"deleted": 0}
+    with conn.transaction():
+        cur = conn.execute("DELETE FROM coder_highlight WHERE id = %s::uuid", (highlight_id,))
+    return {"deleted": cur.rowcount}
 
 
 def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
@@ -1816,6 +1911,17 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "record_id": str(rid), "entry_index": ei,
             "verification_status": vs, "values": fv,
         })
+    # the coder's own marks on each paper, tied to no record
+    for p in papers.values():
+        p["highlights"] = []
+    if papers:
+        for row in conn.execute(
+            """SELECT id, document_id, page, text, rects, created_at, created_by, note FROM coder_highlight
+               WHERE document_id = ANY(%s::uuid[]) ORDER BY document_id, page, created_at""",
+            (list(papers),),
+        ).fetchall():
+            h = _highlight_row(row)
+            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("page", "text", "rects", "created_at", "created_by", "note")})
 
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],
@@ -2336,7 +2442,10 @@ def add_record(conn: psycopg.Connection, document_id: str, *,
                field_values: dict | None = None, session_id: str | None = None,
                owner_user_id: str | None = None) -> dict:
     """Add a manual record/finding to a document. Inherits paper_id + schema_id from
-    the document and dataset_id from a sibling record; entry_index = max + 1."""
+    the document and dataset_id from a sibling record (the "screened — no records" sentinel
+    counts as one); entry_index = max + 1 over the real records. A paper kept in its dataset as
+    screened gets its first real record here, so the sentinel retires in the same transaction
+    (``delete_record`` mints it again when the last real record goes)."""
     doc = conn.execute(
         "SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
         (document_id,)).fetchone()
@@ -2348,10 +2457,14 @@ def add_record(conn: psycopg.Connection, document_id: str, *,
         (document_id,)).fetchone()
     dataset_id = sib[0] if sib else None
     next_ei = conn.execute(
-        "SELECT coalesce(max(entry_index), -1) + 1 FROM record WHERE document_id = %s::uuid",
+        "SELECT coalesce(max(entry_index), -1) + 1 FROM record WHERE document_id = %s::uuid "
+        "AND NOT COALESCE(screened_empty, false)",
         (document_id,)).fetchone()[0]
     rid = _new_id()
     with conn.transaction():
+        conn.execute(
+            "DELETE FROM record WHERE document_id = %s::uuid AND COALESCE(screened_empty, false)",
+            (document_id,))
         conn.execute(
             """INSERT INTO record
                  (id, document_id, paper_id, dataset_id, schema_id, entry_index,

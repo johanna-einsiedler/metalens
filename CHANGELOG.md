@@ -119,6 +119,55 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   and entry cells it bears on and the sub-entry fields it names; what no item bears on
   follows, so nothing is hidden. Evidence rows name their item in `source` ("item 7
   (table) → result: mean"). The cells, saves and verification are the generic card's.
+- Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
+  paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
+  stages (a→g, `]`/`[`) in the left panel — the stage's instruction, then the reader's items that
+  bear on the stage's fields as one bare list (the page tag hanging at the left of the quote, or
+  above a table) with a cursor over them (the rest folded at the end), then its cells (paper
+  fields; every entry as a card with "＋ add"; or each entry's arms / results with "＋", "✕",
+  "copy … from <entry>" and "same as <the reference row>"), then "◂ · next ▸", which becomes
+  "next stage ▸" on the stage's last item and "done" on the last stage — while the PDF column,
+  collapsed by default to a strip at the right edge (the icon opens it at two fifths of the
+  window or the dragged width, "▸" collapses it, a page tag opens it; kept per browser), follows
+  the cursor while open at the coder's zoom, scrolled so the current item's highlight starts just
+  under its top edge (`→`/`←` or "◀ item k of n ▶" at the top of the column; the cursor moves
+  whether or not the column is open). A stage's `auto_id: {field, first?, next}` fills the id of
+  an added entry or row ("C", then "T1", "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
+  stages and the coder adds the first entry; adding an entry retires the "screened — no records"
+  sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the
+  two-column one, unchanged.
+- `allow_other` on `multi` fields and table columns: the widget takes a term of the paper's own
+  after the declared boxes (Enter adds it), stores codes and terms in one list, draws a stored
+  off-list value as a removable chip (never dropped unseen), and the validator no longer flags
+  such values.
+- The generic card adds and removes sub-entries (an arm, a result: "＋", "✕"), logged as
+  corrections like a table row; a cell inside a paper-level table is saved with its table.
+- A stored schema row follows its preset file: when a file with the SAME schema id is loaded
+  (at start-up, at each listing of the presets, at an import), the row's wording — labels,
+  help, titles, option help, stage help — its version and its whole `display` block are
+  replaced by the file's, the contract keys untouched (the id is the contract, so the data
+  shape cannot change); tooltips, auto ids and layout changes thus reach papers already
+  imported. A row of another contract is left alone; the workspace then says "preset file
+  now vN (hash)" next to the paper's own schema id.
+- A coder's highlighter, "mark only, no cell link": in marking mode (`✎ mark` at the top of the
+  PDF column, or `h`) a click on a page marks the sentence under it — the server finds the word
+  at the point in the page's text layer and expands it to its sentence (boundaries at `. ! ?`
+  before a capital or a digit, abbreviations spared; the paragraph, or the clicked line of a
+  long one, when there is none) — painted violet apart from the model's evidence, listed under
+  "Your marks" at the end of the stage's evidence list (page and sentence, click to jump, ✕ to
+  remove; a click on a mark in marking mode removes it too), kept with the document
+  (`coder_highlight`: `GET`/`POST /api/documents/{id}/highlights`, `DELETE /api/highlights/{id}`,
+  the paper's owner only) and exported: `highlights` per paper in the dataset export and in the
+  workspace's JSON download (not yet in release files).
+- Definitions on hover: an option of an enum or multi field (or table column) may carry `help`
+  (`{value, label, help}`) — the review shows it as the title of the checkbox label, of each
+  `<option>` and of the select itself (the chosen option's definition, else the field's help);
+  a field with help gets a dotted underline and a small ⓘ on its label. Wording only: it never
+  re-versions a dataset. The help shows at once in one custom tooltip (`[data-tip]`, shown on
+  hover or focus, below or above the element within the window, hidden on leaving or Escape),
+  not through the browser's slow native title: on the field label and its ⓘ, on each checkbox
+  label, on the select (the chosen option's definition) and on a ⓘ after the select listing
+  every option as "label — definition" under the field's help.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

@@ -9,6 +9,15 @@
 .rv-row { display: flex; gap: 14px; justify-content: space-between; align-items: baseline;
   min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .rv-key { font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
+/* a field with help: a dotted underline and a small ⓘ, both carrying the definition on hover */
+.rv-key.rv-key-help { text-decoration: underline dotted var(--border); text-underline-offset: 3px; cursor: help; }
+.rv-help { font-size: 10px; font-weight: 400; margin-left: 4px; color: var(--text-muted); vertical-align: 1px; cursor: help; }
+.rv-help:focus { outline: none; color: var(--accent); }
+.rv-opt-help { font-size: 11px; margin-left: 2px; }
+/* the one tooltip: at once, plain text with its line breaks, within the viewport */
+.tip { position: fixed; z-index: 1000; max-width: 340px; padding: 6px 9px; border-radius: 6px; font-size: 12.5px; line-height: 1.4;
+  white-space: pre-line; color: var(--surface); background: var(--text); box-shadow: var(--shadow-sm); pointer-events: none; }
+.tip[hidden] { display: none; }
 .rv-val { color: var(--text); line-height: 1.5; word-break: break-word; flex: 0 1 auto;
   min-width: 0; text-align: left; }
 /* nested objects/tables take the full row width and stack the value under the key */
@@ -57,6 +66,9 @@
 .rv-multi { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .rv-chk { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
 .rv-chk input { width: auto; margin: 0; }
+/* a multi value outside the declared options (the paper's own term): a chip the coder can untick */
+.rv-chk.rv-free { border: 1px dashed var(--border); border-radius: 999px; padding: 0 7px; }
+.rv-multi .rv-multi-other { font-size: 12px; padding: 1px 6px; min-width: 110px; flex: 0 1 140px; }
 
 /* confidence badges */
 .confidence-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
@@ -94,6 +106,20 @@ rect.hl.hot { fill: var(--highlight-focus); stroke: none; }
 rect.hl.flash { fill: var(--highlight-focus); stroke: none;
   animation: hl-pulse .5s ease 0s 3; }
 @keyframes hl-pulse { 50% { fill: var(--green-focus); stroke: var(--green-stroke); } }
+/* the coder's own marks: violet, apart from the model's evidence and the current item */
+rect.cm { fill: rgba(126, 87, 194, .26); stroke: none; pointer-events: auto; cursor: pointer; }
+rect.cm.hot, rect.cm.sel { fill: rgba(126, 87, 194, .5); }
+body.stg-marking #pages img.pageimg { cursor: crosshair; }
+body.stg-marking #pages { box-shadow: inset 0 0 0 2px rgba(126, 87, 194, .55); }
+#pagespane .stg-pane-nav .stg-mark { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0; }
+#pagespane .stg-pane-nav .stg-mark.on { color: #7e57c2; background: rgba(126, 87, 194, .12); }
+/* "Your marks": the coder's sentences in the stage panel, page tag and text, ✕ on hover */
+.stg-marks { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 6px; }
+.stg-marks .stg-mark { position: relative; cursor: pointer; padding-right: 26px; }
+.stg-marks .stg-mark-del { position: absolute; right: 2px; top: 4px; border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
+.stg-marks .stg-mark:hover .stg-mark-del { opacity: .8; }
+.stg-marks .stg-mark-del:hover { color: #b3261e; opacity: 1; }
+.stg-nomarks { font-size: 12.5px; margin: 0; }
 
 /* an extracted value that has linked evidence — hover previews, click jumps */
 .rv-linked { cursor: pointer; border-bottom: 1px dotted var(--accent-3); }
@@ -297,6 +323,10 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
              font-size: 11px; padding: 0 2px; opacity: 0; transition: opacity .12s; }
 tr:hover .rv-rowdel { opacity: .75; }
 .rv-rowdel:hover { color: #b3261e; opacity: 1; }
+/* the same two buttons on a sub-entry (an arm, a result): a card's ✕ sits at the end of its head line */
+.rv-childcards .rv-tableadd, .rv-child + .rv-tableadd { margin: 2px 0 6px; }
+.rc-head .rv-rowdel { opacity: .5; margin-left: auto; }
+.rv-card:hover .rv-rowdel { opacity: .85; }
 
 /* display.inline_evidence: a field's note and quotes under it */
 .rv-inline { margin: -2px 0 10px; padding: 4px 0 2px 10px; border-left: 2px solid var(--border); }
@@ -360,3 +390,68 @@ tr:hover .rv-rowdel { opacity: .75; }
 .evi-rec { padding: 8px 12px; } .evi-rec .rectitle { margin-bottom: 4px; } .evi-rec .verify { margin-bottom: 4px; }
 .evi-rest { border-style: dashed; }
 .evi-pgroups { margin: 0 0 8px; }
+/* the staged layout: a stage bar, the stage's instruction, its items, the rest folded, its cells */
+.stg-bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0 0 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.stg-tab { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 999px; padding: 2px 10px 2px 6px; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.stg-tab:hover { color: var(--accent); border-color: var(--accent-3); }
+.stg-tab.active { color: var(--text); border-color: var(--accent); background: var(--accent-wash); font-weight: 600; }
+.stg-k { font: 700 10.5px ui-monospace, Menlo, monospace; text-transform: uppercase; background: var(--bg); border-radius: 999px; padding: 0 5px; color: var(--text-muted); }
+.stg-tab.active .stg-k { background: var(--accent); color: #fff; }
+.stg-prog { font-size: 12px; margin-left: auto; }
+.stg-help { font-size: 13px; line-height: 1.5; padding: 8px 12px; margin: 0 0 10px; border-left: 3px solid var(--accent); background: var(--accent-wash); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.stg-help p { margin: 0 0 6px; } .stg-help p:last-child { margin: 0; }
+.stg-items .evi-item:last-child { margin-bottom: 10px; }
+.stg-noitems { font-size: 12.5px; margin: 0 0 10px; }
+.stg-other { margin: 0 0 12px; border: 1px dashed var(--border); border-radius: var(--radius); padding: 4px 12px; }
+.stg-other > summary { cursor: pointer; color: var(--text-muted); font-size: 12.5px; padding: 4px 0; }
+.stg-other .evi-item { margin: 6px 0; }
+.stg-cells { border-top: 2px solid var(--border); padding-top: 10px; }
+.stg-entry { margin-bottom: 10px; }
+.stg-fields { margin-top: 4px; }
+.stg-empty { font-size: 12.5px; margin: 0 0 8px; }
+.stg-addtask { display: block; margin: 4px 0 10px; }
+.stg-copy { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 2px; font-size: 12px; }
+.stg-copyfrom { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.stg-same { border: 1px dashed var(--border); background: none; color: var(--text-muted); border-radius: var(--radius-sm); padding: 1px 8px; cursor: pointer; font-size: 11.5px; }
+.stg-same:hover { color: var(--accent); border-color: var(--accent-3); background: var(--accent-wash); }
+/* the item control at the top of the PDF column while a stage is open */
+#pagespane .stg-pane-nav { position: absolute; top: 8px; left: 18px; z-index: 6; display: flex; align-items: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 4px; font-size: 12px; color: var(--text-muted); box-shadow: var(--shadow-sm); }
+#pagespane .stg-pane-nav button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+#pagespane .stg-pane-nav button:hover { background: var(--bg); }
+#pagespane .stg-pane-nav button:disabled { opacity: .35; cursor: default; }
+#pagespane .stg-pane-nav .stg-pane-k { min-width: 84px; text-align: center; }
+.stg-head { margin: 0 0 6px; }
+.stg-cells .rv-obj { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+/* the stage's evidence: one plain list — number and page on a line, then the quote or the table —
+   items parted by a thin rule, the current one marked by a left accent */
+.stg-evidence { margin: 8px 0 14px; }
+.stg-evidence > .evi-item { border: 0; border-radius: 0; box-shadow: none; background: none; padding: 6px 8px 7px 10px; margin: 0;
+  border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer; }
+.stg-evidence > .evi-item:last-of-type { border-bottom: 0; }
+.stg-evidence > .evi-item .evi-head { margin-bottom: 3px; gap: 6px; }
+.stg-evidence > .evi-item .evi-body { margin: 0; }
+.stg-evidence > .evi-item .evi-note { flex-basis: auto; }
+.stg-evidence > .evi-item:hover { border-left-color: var(--accent-3); }
+.stg-evidence > .evi-item.cur { border-left-color: var(--accent); background: var(--accent-wash); }
+.stg-evidence .stg-other { margin: 6px 0 0; }
+.evi-item.evi-bare .evi-head { margin-bottom: 2px; }
+/* a bare passage: the page tag hangs at the left of the quote, which wraps beside it; a table
+   keeps its tag above */
+.stg-evidence .evi-item.evi-bare.evi-passage { display: flex; align-items: flex-start; gap: 10px; }
+.stg-evidence .evi-item.evi-bare.evi-passage .evi-head { flex: 0 0 auto; margin: 3px 0 0; }
+.stg-evidence .evi-item.evi-bare.evi-passage .evi-body { flex: 1 1 auto; min-width: 0; }
+/* the PDF column collapsed to a strip at the right edge: the icon opens it; "item k of n" stacked */
+body.stg-pdf-closed #splitter { display: none; }
+body.stg-pdf-closed #panel { width: auto !important; flex: 1 1 auto; }
+body.stg-pdf-closed #pagespane { flex: 0 0 36px; width: 36px; min-width: 36px; border-left: 1px solid var(--border); background: var(--surface); }
+body.stg-pdf-closed #pagespane > :not(.stg-pdf-strip) { display: none; }
+.stg-pdf-strip { display: none; }
+body.stg-pdf-closed .stg-pdf-strip { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0; height: 100%; }
+.stg-pdf-open { border: 0; background: none; cursor: pointer; color: var(--text-muted); padding: 4px; border-radius: 6px; line-height: 0; }
+.stg-pdf-open:hover { color: var(--accent); background: var(--accent-wash); }
+.stg-pdf-k { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
+#pagespane .stg-pane-nav .stg-pdf-close { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
+/* the foot of a stage: previous item, and next item / next stage / done */
+.stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }
+.stg-foot .stg-next { font-weight: 600; }

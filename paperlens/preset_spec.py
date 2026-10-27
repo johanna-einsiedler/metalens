@@ -78,6 +78,10 @@ _ALLOWED_KEYS = {
     "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review",
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
+    # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id"},
+    "copy": {"when", "fields"},
+    "auto_id": {"field", "first", "next"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
     "author": {"family", "given", "orcid", "affiliation"},
@@ -509,13 +513,16 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             else:
                 vals = [o.get("value") if isinstance(o, dict) else o for o in opts]
                 if any(isinstance(v, (dict, list)) or v is None for v in vals):
-                    E(f"{at}.options entries must be scalars or {{value, label}} objects")
+                    E(f"{at}.options entries must be scalars or {{value, label, help?}} objects")
+                # help: the category's definition, shown to the coder on hover; wording, not contract
+                if any(isinstance(o, dict) and "help" in o and not isinstance(o["help"], str) for o in opts):
+                    E(f"{at}.options: help must be a string (the category's definition)")
                 if len({json.dumps(v) for v in vals}) != len(vals):
                     E(f"{at}.options must be unique")
         elif opts is not None:
             E(f"{at}.options only applies to enum / multi fields")
-        if f.get("allow_other") and ftype != "enum":
-            E(f"{at}.allow_other only applies to enum fields")
+        if f.get("allow_other") and ftype not in ("enum", "multi"):
+            E(f"{at}.allow_other only applies to enum / multi fields")
         if "verbatim" in f:                               # the value IS a quotation of the paper: cut in public copies
             if not isinstance(f["verbatim"], bool):
                 E(f"{at}.verbatim must be true or false")
@@ -719,17 +726,23 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # as cause → effect with a sign, its quotes, and the child results that carry it
         # "criteria" reads each entry as a list of yes/no calls — one row per criterion with the call, the
         # model's probability and, under it, the reasoning and the quotes for and against
-        # "evidence" draws the reader's numbered items first — passages and tables, one row each of an
-        # entry TABLE field — and under each item the cells it bears on: a coder reads a quote, then
-        # labels what it supports. Evidence rows name their item in `source` ("item 7 (table)").
+        # "evidence" draws the reader's numbered items first — passages and tables, one row each of a
+        # TABLE field on the entry or the paper — and under each item the cells it bears on: a coder
+        # reads a quote, then labels what it supports. Evidence rows name their item in `source`
+        # ("item 7 (table)").
+        # "stages" codes the paper in an ordered sequence of stages (study design, tasks, arms, …):
+        # each opens with its instruction, then the items that bear on its fields, then the cells of
+        # ONE level — paper fields, every entry's fields (with "add"), or one child's rows per entry.
         rv = display.get("review")
         if rv is not None:
-            if not isinstance(rv, dict) or rv.get("layout") not in ("chain", "criteria", "evidence"):
-                E("$.display.review must be an object with layout 'chain', 'criteria' or 'evidence'")
+            if not isinstance(rv, dict) or rv.get("layout") not in ("chain", "criteria", "evidence", "stages"):
+                E("$.display.review must be an object with layout 'chain', 'criteria', 'evidence' or 'stages'")
             elif rv["layout"] == "criteria":
                 _validate_criteria_review(rv, spec, E)
             elif rv["layout"] == "evidence":
                 _validate_evidence_review(rv, spec, E, W)
+            elif rv["layout"] == "stages":
+                _validate_stages_review(rv, spec, E, W)
             else:
                 enames = {f.get("name") for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
                 kids = {c.get("key"): {f.get("name") for f in (c.get("fields") or []) if isinstance(f, dict)}
@@ -1010,6 +1023,54 @@ def data_contract(spec: dict) -> dict:
     return {"paper": strip(spec.get("paper") or {}),
             "entries": strip(spec.get("entries") or {}),
             "confidence": strip(spec.get("confidence") or {})}
+
+
+# ── refreshing a stored row's wording from the preset file ─────────────────────────────────────
+# A schema row is addressed by its contract hash and never rewritten in shape; its wording (labels,
+# help, titles, option help, stage help), its version and its display block are not the contract,
+# so a preset file with the SAME schema id may bring them up to date on rows minted from an older
+# copy of the file — the tooltips, the auto ids and every layout change then reach what a coder
+# already imported.
+_REFRESH_WORDING = ("label", "help", "title", "tagline", "description")
+
+
+def merge_wording(stored, live):
+    """``stored`` with every wording key taken from ``live`` where the two run in parallel (the
+    same dict keys, lists of the same length — which they do when the contract hashes agree);
+    anything else stays as stored."""
+    if isinstance(stored, dict) and isinstance(live, dict):
+        out = {}
+        for k, v in stored.items():
+            if k in _REFRESH_WORDING:
+                out[k] = live[k] if k in live else v
+            elif k in live:
+                out[k] = merge_wording(v, live[k])
+            else:
+                out[k] = v
+        for k in _REFRESH_WORDING:                    # wording the file gives and the row lacked (option help, say)
+            if k in live and k not in stored:
+                out[k] = live[k]
+        return out
+    if isinstance(stored, list) and isinstance(live, list) and len(stored) == len(live):
+        return [merge_wording(a, b) for a, b in zip(stored, live)]
+    return stored
+
+
+def refreshed_spec(stored: dict, live: dict) -> dict | None:
+    """The stored spec with the live file's wording, version and display — or None when the
+    live file has a different contract (then nothing may change) or a different id."""
+    if not (isinstance(stored, dict) and isinstance(live, dict)) or stored.get("id") != live.get("id"):
+        return None
+    if content_hash(stored) != content_hash(live):
+        return None
+    out = merge_wording(stored, live)
+    if "version" in live:
+        out["version"] = live["version"]
+    if "display" in live:
+        out["display"] = copy.deepcopy(live["display"])
+    if content_hash(out) != content_hash(stored):     # a wording merge cannot move the contract; belt and braces
+        return None
+    return out
 
 
 def content_hash(spec: dict) -> str:
@@ -1685,7 +1746,7 @@ def validate_result(obj: dict, spec: dict, params: dict | None = None) -> list[d
                 vals = _opt_values(f, params, decl)
                 if not isinstance(v, list):
                     issues.append({"path": p, "code": "not_list", "message": "expected an array"})
-                elif vals:
+                elif vals and not f.get("allow_other"):      # with allow_other a term of the paper's own is a value
                     for x in v:
                         if x not in vals and str(x) not in [str(o) for o in vals]:
                             issues.append({"path": p, "code": "not_in_options", "message": f"{x!r} is not an allowed value"})
@@ -1863,32 +1924,146 @@ EVIDENCE_ITEM_COLUMNS = {"n": ("integer",), "page": ("integer",), "kind": ("enum
                          "text": ("text", "string"), "bears_on": ("list",)}
 
 
-def _validate_evidence_review(rv: dict, spec: dict, E, W) -> None:
-    """display.review.layout "evidence": ``items`` names the entry TABLE field holding the reader's
-    items, one row each with ``n`` (its number), ``page``, ``kind`` (passage | table), ``text`` (the
-    passage verbatim, or a table as markdown) and ``bears_on`` (the fields it supports); ``note``
-    is optional. ``paper_fields`` narrows the study fields offered when no item bears on them.
-    Rows, not a text block: the workspace reads them without parsing, a coder can edit them, and
-    the text column is flagged verbatim so public copies cut it to a quotation."""
+def _items_table(rv: dict, spec: dict, E, W) -> tuple[str | None, dict | None]:
+    """The reader's items table ``rv["items"]`` names: a TABLE field of the entry or of the paper,
+    one row per item with ``n`` (its number), ``page``, ``kind`` (passage | table), ``text`` (the
+    passage verbatim, or a table as markdown) and ``bears_on`` (the fields it supports); ``note`` is
+    optional. Rows, not a text block: the workspace reads them without parsing, a coder can edit
+    them, and the text column is flagged verbatim so public copies cut it to a quotation. On the
+    paper, the items are the paper's pooled evidence and a document may carry no entry at all (a
+    blind coding starts empty). Returns (where, field): ("entry" | "paper", the field), or (None,
+    None) after the error."""
     efields = {f.get("name"): f for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+    pfields = {f.get("name"): f for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
+    name = rv.get("items")
+    where, items = ("entry", efields[name]) if name in efields else ("paper", pfields[name]) if name in pfields else (None, None)
+    if items is None or items.get("type") != "table":
+        E("$.display.review.items must name a table field of the entry or the paper that holds the reader's items (one row per item)")
+        return None, None
+    cols = {c.get("name"): c for c in (items.get("columns") or []) if isinstance(c, dict)}
+    for cname, types in EVIDENCE_ITEM_COLUMNS.items():
+        if cname not in cols:
+            E(f"$.display.review.items: the table {name!r} needs a column {cname!r} ({' or '.join(types)})")
+        elif cols[cname].get("type") not in types:
+            E(f"$.display.review.items: column {cname!r} of {name!r} must be {' or '.join(types)}, not {cols[cname].get('type')!r}")
+    if "text" in cols and cols["text"].get("verbatim") is not True:
+        W(f"$.display.review.items: column 'text' of {name!r} holds passages of the paper; flag it verbatim so public copies cut it")
+    return where, items
+
+
+def _validate_evidence_review(rv: dict, spec: dict, E, W) -> None:
+    """display.review.layout "evidence": ``items`` names the reader's items table (see
+    ``_items_table``); ``paper_fields`` narrows the study fields offered when no item bears on
+    them."""
     pnames = {f.get("name") for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
     for k in sorted(set(rv) - {"layout", "items", "paper_fields"}):
         E(f"$.display.review: unknown key {k!r} (an evidence review takes items and paper_fields)")
-    items = efields.get(rv.get("items"))
-    if items is None or items.get("type") != "table":
-        E("$.display.review.items must name the entry table field that holds the reader's items (one row per item)")
-    else:
-        cols = {c.get("name"): c for c in (items.get("columns") or []) if isinstance(c, dict)}
-        for name, types in EVIDENCE_ITEM_COLUMNS.items():
-            if name not in cols:
-                E(f"$.display.review.items: the table {rv['items']!r} needs a column {name!r} ({' or '.join(types)})")
-            elif cols[name].get("type") not in types:
-                E(f"$.display.review.items: column {name!r} of {rv['items']!r} must be {' or '.join(types)}, not {cols[name].get('type')!r}")
-        if "text" in cols and cols["text"].get("verbatim") is not True:
-            W(f"$.display.review.items: column 'text' of {rv['items']!r} holds passages of the paper; flag it verbatim so public copies cut it")
+    _items_table(rv, spec, E, W)
     pf = rv.get("paper_fields")
     if pf is not None and (not isinstance(pf, list) or any(n not in pnames for n in pf)):
         E("$.display.review.paper_fields must list paper fields (those offered when no item bears on them)")
+
+
+def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
+    """display.review.layout "stages": ``items`` names the reader's items table (see
+    ``_items_table``) and ``stages`` the ordered stages a coder works through. Each stage is
+    ``{id, label, help, …}`` naming the fields of ONE level — ``paper_fields``, ``fields`` (of the
+    entry) or ``child`` + ``child_fields`` (of that child) — and, on a child stage, may carry
+    ``copy_from_sibling: {when, fields}``: a row's button copies the listed fields from the sibling
+    row whose boolean ``when`` field is true (the reference arm's sample, say). An entry or child
+    stage may carry ``auto_id: {field, first?, next}``: what "add" writes into ``field`` (a string
+    field of that level) — ``first`` when no sibling has a value there, else ``next`` with ``{n}``
+    the smallest number not yet used (``{"field": "arm_id", "first": "C", "next": "T{n}"}`` gives
+    C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
+    bears_on meets its fields as one bare list (page and quote) with a cursor over them, then its
+    cells (once), then a "next" button — and the PDF column, collapsed to a strip until opened
+    (two fifths of the window by default), follows the cursor to the current item's page while
+    open; a paper-level items table is placed under every entry. The items table is never a cell.
+    A field in no stage is reachable only from the Fields view: a warning."""
+    pfields = {f.get("name"): f for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
+    ent = spec.get("entries") or {}
+    efields = {f.get("name"): f for f in (ent.get("fields") or []) if isinstance(f, dict)}
+    kids = {c.get("key"): {f.get("name"): f for f in (c.get("fields") or []) if isinstance(f, dict)}
+            for c in (ent.get("children") or []) if isinstance(c, dict)}
+    for k in sorted(set(rv) - {"layout", "items", "stages"}):
+        E(f"$.display.review: unknown key {k!r} (a staged review takes items and stages)")
+    _items_table(rv, spec, E, W)
+    stages = rv.get("stages")
+    if not isinstance(stages, list) or not stages:
+        E("$.display.review.stages must list at least one stage ({id, label, help, paper_fields | fields | child + child_fields})")
+        return
+    seen: set[str] = set()
+    covered: set[str] = set()
+    for i, st in enumerate(stages):
+        at = f"$.display.review.stages[{i}]"
+        if not isinstance(st, dict):
+            E(f"{at} must be an object"); continue
+        for k in st:
+            if k not in _ALLOWED_KEYS["stage"]:
+                E(f"{at}: unknown key {k!r}")
+        sid = st.get("id")
+        if not isinstance(sid, str) or not NAME_RE.match(sid):
+            E(f"{at}.id must match ^[A-Za-z_][A-Za-z0-9_]*$")
+        elif sid in seen:
+            E(f"{at}.id {sid!r} is duplicated")
+        else:
+            seen.add(sid)
+        if not (isinstance(st.get("label"), str) and st["label"].strip()):
+            E(f"{at}.label is required")
+        if not (isinstance(st.get("help"), str) and st["help"].strip()):
+            W(f"{at}: no help — the coder gets no instruction at the top of the stage")
+        levels = [k for k in ("paper_fields", "fields", "child") if st.get(k) is not None]
+        if len(levels) != 1 or (st.get("child") is None) != (st.get("child_fields") is None):
+            E(f"{at} must name fields of ONE level: paper_fields, fields (the entry) or child + child_fields")
+            continue
+        level = levels[0]
+        ck = st.get("child")
+        if level == "child" and ck not in kids:
+            E(f"{at}.child must name a child of the entries")
+            continue
+        names = st["child_fields"] if level == "child" else st[level]
+        known = kids[ck] if level == "child" else (pfields if level == "paper_fields" else efields)
+        what = f"a field of {ck!r}" if level == "child" else ("a paper field" if level == "paper_fields" else "an entry field")
+        key = "child_fields" if level == "child" else level
+        if not isinstance(names, list) or not names:
+            E(f"{at}.{key} must be a non-empty list of field names")
+            continue
+        for n in names:
+            if n not in known:
+                E(f"{at}.{key}: {n!r} is not {what}")
+            elif n == rv.get("items"):
+                E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
+            else:
+                covered.add(n)
+        ai = st.get("auto_id")
+        if ai is not None:
+            if level == "paper_fields":
+                E(f"{at}.auto_id only applies to an entry or child stage")
+            elif not isinstance(ai, dict):
+                E(f"{at}.auto_id must be an object {{field, first?, next}}")
+            else:
+                for k in sorted(set(ai) - _ALLOWED_KEYS["auto_id"]):
+                    E(f"{at}.auto_id: unknown key {k!r}")
+                where = f"a string field of {ck!r}" if level == "child" else "a string field of the entry"
+                if (known.get(ai.get("field")) or {}).get("type") != "string":
+                    E(f"{at}.auto_id.field must name {where}")
+                if not isinstance(ai.get("next"), str) or "{n}" not in ai["next"]:
+                    E(f"{at}.auto_id.next must be a string containing {{n}}")
+                if "first" in ai and not isinstance(ai["first"], str):
+                    E(f"{at}.auto_id.first must be a string")
+        cs = st.get("copy_from_sibling")
+        if cs is not None:
+            if level != "child":
+                E(f"{at}.copy_from_sibling only applies to a child stage")
+            elif (not isinstance(cs, dict) or set(cs) - _ALLOWED_KEYS["copy"]
+                  or (kids[ck].get(cs.get("when")) or {}).get("type") != "boolean"
+                  or not isinstance(cs.get("fields"), list) or not cs["fields"]
+                  or any(n not in kids[ck] for n in cs["fields"])):
+                E(f"{at}.copy_from_sibling needs 'when' (a boolean field of {ck!r}) and 'fields' (fields of {ck!r})")
+    declared = [n for n in pfields] + [n for n in efields] + [n for ch in kids.values() for n in ch]
+    for n in declared:
+        if n not in covered and n != rv.get("items"):
+            W(f"$.display.review.stages: {n!r} is in no stage (reachable only from the Fields view)")
 
 
 def _validate_criteria_review(rv: dict, spec: dict, E) -> None:
@@ -2052,8 +2227,8 @@ def _options_doc(f: dict, params: dict, decl: dict) -> dict | None:
                 "items": [{"value": c, "label": _code_label(pdecl, params.get(pname), c)} for c in codes],
                 "empty": pdecl.get("empty")}
     if isinstance(opts, list):
-        return {"kind": "fixed", "items": [{"value": o.get("value"), "label": o.get("label")} if isinstance(o, dict)
-                                            else {"value": o, "label": None} for o in opts]}
+        return {"kind": "fixed", "items": [{"value": o.get("value"), "label": o.get("label"), **({"help": o["help"]} if isinstance(o.get("help"), str) else {})}
+                                            if isinstance(o, dict) else {"value": o, "label": None} for o in opts]}
     return None
 
 

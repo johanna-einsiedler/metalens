@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import os
+import sys
 import time
 import uuid
 
@@ -45,6 +46,10 @@ def _migrate_on_startup() -> None:
         conn = records.connect()
         try:
             records.init_db(conn)
+            # a preset file edited since a row was minted: its wording and display reach the row
+            done = records.refresh_stored_presets(conn)
+            if done:
+                print(f"[presets] refreshed the wording and display of {len(done)} stored schema row(s): {', '.join(done)}", file=sys.stderr, flush=True)
         finally:
             conn.close()
     except Exception as exc:   # pragma: no cover - migration is best-effort
@@ -413,6 +418,19 @@ class IngestBody(BaseModel):
     pdf_from_document_id: str | None = None
 
 
+def _refresh_row_from_file(db, schema_id: str | None) -> None:
+    """At import or extraction: the stored row of this schema id takes the preset file's wording
+    and display (a no-op when the file has moved to another contract)."""
+    if not schema_id:
+        return
+    try:
+        meta = presets.get(schema_id.partition("@")[0], db)
+        if meta and not meta.get("legacy") and meta.get("schema_id") == schema_id and meta.get("spec"):
+            records.refresh_schema_wording(db, schema_id, meta["spec"])
+    except Exception:  # noqa: BLE001 - never fail an import over it
+        pass
+
+
 @app.post("/api/ingest")
 def ingest_endpoint(body: IngestBody, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
@@ -437,6 +455,7 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
     if run.schema_id:
         with db.transaction():
             records.upsert_schema(db, run.schema_id, run.field_defs)
+        _refresh_row_from_file(db, run.schema_id)
     doc_id = records.persist(
         db, res, schema_id=run.schema_id, source_job_id=body.source_job_id,
         session_id=who.session_id, owner_user_id=who.user_id,
@@ -555,6 +574,55 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     if not rects:                       # not a number (or not found) → try literal text
         found_page, rects = pdf_utils.locate_text_rects_any(pdf_bytes, value, prefer_page=page)
     return {"rects": rects, "found": bool(rects), "page": found_page}
+
+
+# ── the coder's marks: sentences kept with the paper, tied to no cell ─────────────────────────
+
+class HighlightBody(BaseModel):
+    page: int                   # 1-indexed
+    x: float                    # the click, in the page image's pixels (the viewer's coordinates)
+    y: float
+    note: str | None = None
+
+
+@app.get("/api/documents/{document_id}/highlights")
+def list_highlights(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner-only: the coder's marks on this paper, in page order."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"highlights": records.list_highlights(db, document_id)}
+
+
+@app.post("/api/documents/{document_id}/highlights")
+def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
+                  who: Principal = Depends(principal)) -> dict:
+    """Owner-only: mark the sentence under a click. The server finds the word at the point in
+    the page's text layer and expands it to its sentence (``paperlens.marks``); the mark is
+    stored with its text and one rectangle per line and returned. 404 when no word is there."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    store = storage.get_store()
+    key = storage.pdf_key(document_id)
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
+    from . import marks
+    hit = marks.mark_at(store.get(key), body.page, body.x, body.y)
+    if hit is None:
+        raise HTTPException(status_code=404, detail="No text at that point.")
+    h = records.add_highlight(db, document_id, page=hit["page"], text=hit["text"], rects=hit["rects"],
+                              created_by=who.user_id or who.session_id, note=body.note)
+    return {"highlight": h}
+
+
+@app.delete("/api/highlights/{highlight_id}")
+def delete_highlight(highlight_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Remove one of the coder's marks — the paper's owner only."""
+    h = records.get_highlight(db, highlight_id)
+    if h is None:
+        raise HTTPException(status_code=404, detail="Mark not found.")
+    if not records.is_document_owner(db, h["document_id"], who):
+        raise HTTPException(status_code=403, detail="Not your document.")
+    return records.delete_highlight(db, highlight_id)
 
 
 @app.get("/api/documents/{document_id}/raw")
@@ -2636,6 +2704,7 @@ def extract_endpoint(
         # mint the row NOW, before the worker needs it, so a queued job never races it
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
+        _refresh_row_from_file(db, schema_id)
 
     own_key = bool(api_key.strip()) or bool((base_url or "").strip())   # a self-hosted model needs no key
 
@@ -2795,6 +2864,7 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
     if schema_id:
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
+        _refresh_row_from_file(db, schema_id)
 
     made_by = (produced_by or "").strip()[:200] or "imported"
 
@@ -2863,6 +2933,10 @@ def list_presets(usage: str = "extract", db=Depends(get_db), who: Principal = De
     into. Hiding those on the import page leaves data with no selectable schema at all."""
     for_import = usage == "import"
     allp = presets.load_all()
+    try:                                   # each listing also brings stored rows up to the files' wording
+        records.refresh_stored_presets(db, allp)
+    except Exception:  # noqa: BLE001 - never fail a listing over it
+        pass
     rows = []
     for pid in sorted(allp):
         meta = allp[pid].get("meta") or {}
