@@ -391,28 +391,24 @@ tr:hover .rv-rowdel { opacity: .75; }
 .stg-copyfrom { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
 .stg-same { border: 1px dashed var(--border); background: none; color: var(--text-muted); border-radius: var(--radius-sm); padding: 1px 8px; cursor: pointer; font-size: 11.5px; }
 .stg-same:hover { color: var(--accent); border-color: var(--accent-3); background: var(--accent-wash); }
-/* stacked: the records panel spans the window (the paper switcher stays on the left) and scrolls;
-   the PDF is a pane pinned below, its height dragged on the handle */
-body.stg-stack { overflow: hidden; }                       /* the window holds still: only the panel and the pane scroll */
-body.stg-stack footer.sitefoot { display: none; }          /* the site footer would push the pinned pane up */
-body.stg-stack main.split { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) var(--stg-pane-h, 50vh); }
-body.stg-stack #doctabs { grid-column: 1; grid-row: 1 / span 2; }
-body.stg-stack #panel { grid-column: 2; grid-row: 1; width: auto !important; min-width: 0; min-height: 0; }
-body.stg-stack #splitter { display: none; }
-body.stg-stack #pagespane { grid-column: 2; grid-row: 2; min-height: 0; border-top: 1px solid var(--border); }
-body.stg-stack .stg-paneh { flex: 0 0 6px; cursor: row-resize; background: var(--bg); border-bottom: 1px solid var(--border); }
-body.stg-stack .stg-paneh:hover, body.stg-stack .stg-paneh.drag { background: var(--accent-3); }
-body.stg-stack .stg-pane-nav { position: absolute; top: 14px; left: 18px; z-index: 6; display: flex; align-items: center; gap: 2px;
+/* the item control at the top of the PDF column while a stage is open */
+#pagespane .stg-pane-nav { position: absolute; top: 8px; left: 18px; z-index: 6; display: flex; align-items: center; gap: 2px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 4px; font-size: 12px; color: var(--text-muted); box-shadow: var(--shadow-sm); }
-body.stg-stack .stg-pane-nav button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
-body.stg-stack .stg-pane-nav button:hover { background: var(--bg); }
-body.stg-stack .stg-pane-nav button:disabled { opacity: .35; cursor: default; }
-body.stg-stack .stg-pane-nav .stg-pane-k { min-width: 84px; text-align: center; }
-body.stg-stack #pdfzoom { top: 14px; }
+#pagespane .stg-pane-nav button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+#pagespane .stg-pane-nav button:hover { background: var(--bg); }
+#pagespane .stg-pane-nav button:disabled { opacity: .35; cursor: default; }
+#pagespane .stg-pane-nav .stg-pane-k { min-width: 84px; text-align: center; }
 .stg-head { margin: 0 0 6px; }
 .stg-cells .rv-obj { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
-.stg-evidence { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 8px 12px; margin: 10px 0 14px; }
-.stg-evidence > .evi-item { cursor: pointer; margin-bottom: 6px; border-left: 3px solid transparent; }
-.stg-evidence > .evi-item:hover { border-color: var(--accent-3); }
-.stg-evidence > .evi-item.cur { border-color: var(--accent); background: var(--accent-wash); }
+/* the stage's evidence: one plain list — number and page on a line, then the quote or the table —
+   items parted by a thin rule, the current one marked by a left accent */
+.stg-evidence { margin: 8px 0 14px; }
+.stg-evidence > .evi-item { border: 0; border-radius: 0; box-shadow: none; background: none; padding: 6px 8px 7px 10px; margin: 0;
+  border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer; }
+.stg-evidence > .evi-item:last-of-type { border-bottom: 0; }
+.stg-evidence > .evi-item .evi-head { margin-bottom: 3px; gap: 6px; }
+.stg-evidence > .evi-item .evi-body { margin: 0; }
+.stg-evidence > .evi-item .evi-note { flex-basis: auto; }
+.stg-evidence > .evi-item:hover { border-left-color: var(--accent-3); }
+.stg-evidence > .evi-item.cur { border-left-color: var(--accent); background: var(--accent-wash); }
 .stg-evidence .stg-other { margin: 6px 0 0; }

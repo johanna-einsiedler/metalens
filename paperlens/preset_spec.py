@@ -1923,11 +1923,11 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     stage may carry ``auto_id: {field, first?, next}``: what "add" writes into ``field`` (a string
     field of that level) — ``first`` when no sibling has a value there, else ``next`` with ``{n}``
     the smallest number not yet used (``{"field": "arm_id", "first": "C", "next": "T{n}"}`` gives
-    C, T1, T2 …). The workspace stacks while a stage is open: the stage's instruction, the items
-    whose bears_on meets its fields with a cursor over them, then its cells (once), and the PDF
-    pinned below on the current item's page; a paper-level items table is placed under every entry.
-    The items table is never a cell. A field in no stage is reachable only from the Fields view: a
-    warning."""
+    C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
+    bears_on meets its fields as one list with a cursor over them, then its cells (once) — and the
+    PDF column follows the cursor to the current item's page; a paper-level items table is placed
+    under every entry. The items table is never a cell. A field in no stage is reachable only from
+    the Fields view: a warning."""
     pfields = {f.get("name"): f for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
     ent = spec.get("entries") or {}
     efields = {f.get("name"): f for f in (ent.get("fields") or []) if isinstance(f, dict)}

@@ -20,7 +20,7 @@ const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
 let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
 let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
-let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "";   // its cursor over the stage's items, per paper and stage
+let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "", STAGE_GO = 0;   // its cursor over the stage's items, per paper and stage
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -621,7 +621,7 @@ function docProgress() {
 
 function renderPanel() {
   computeConstant();
-  setStackMode(stackMode());
+  setStageControl(stagesOpen());
   const panel = $("#panelbody");
   const pr = docProgress();
   const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
@@ -1909,66 +1909,39 @@ function wireEvidencePanel(panel, recs) {
   });
 }
 
-// ── the staged layout: the paper coded stage by stage, in one column, the PDF pinned below ──────
+// ── the staged layout: the paper coded stage by stage, the evidence first, the PDF beside ───────
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
-// paper fields, entry fields, or one child's fields. While a stage is open the workspace stacks:
-// the records panel spans the window and scrolls — the stage bar and its instruction, then
-// EVIDENCE (the items whose bears_on meets the stage's fields, the current one marked, the rest
-// folded), then FIELDS (the stage's cells, once: the study cells; every entry as a card with the
-// stage's fields and "＋ add"; or each entry's sub-entries with "＋", "✕", "copy … from <entry>"
-// and, where the stage declares copy_from_sibling, "same as <the reference row>") — and the PDF
-// is a pane pinned to the bottom, at the scale the coder set, scrolled so the current item's
-// highlight starts just under the pane's top edge (an item with no located rectangle: the top of
-// its page). ← → and the pane's "◀ item k of n ▶" move the cursor, which stops at the ends and
-// starts on the first item when a stage opens. A stage's auto_id fills the id of an added entry or
-// row (first, then next with the smallest unused number). Saves and verification are the generic
-// card's; the Fields view is the two-column one.
-function stackMode() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
+// paper fields, entry fields, or one child's fields. The workspace keeps its two columns: the
+// stage panel on the left scrolls as one — the stage bar and its instruction, then EVIDENCE (one
+// plain list of the items whose bears_on meets the stage's fields, the current one marked, the
+// rest folded at the end), then FIELDS (the stage's cells, once: the study cells; every entry as
+// a card with the stage's fields and "＋ add"; or each entry's sub-entries with "＋", "✕", "copy
+// … from <entry>" and, where the stage declares copy_from_sibling, "same as <the reference row>")
+// — and the PDF column on the right follows the cursor: at the scale the coder set, scrolled so
+// the current item's highlight starts just under the column's top edge (an item with no located
+// rectangle: the top of its page). ← → and the column's "◀ item k of n ▶" move the cursor, which
+// stops at the ends and starts on the first item when a stage opens. A stage's auto_id fills the
+// id of an added entry or row (first, then next with the smallest unused number). Saves and
+// verification are the generic card's; the Fields view is the generic card view.
+function stagesOpen() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
 
-// The window in stacked mode: a body class the stylesheet keys on, a drag handle and the item
-// control on the PDF pane; off, the coder's own zoom comes back.
-function setStackMode(on) {
-  const was = document.body.classList.contains("stg-stack");
-  document.body.classList.toggle("stg-stack", on);
-  if (on && !was) window.scrollTo(0, 0);                  // the sticky top bar and the grid line up
+// The item control at the top of the PDF column while a stage is open; gone otherwise.
+function setStageControl(on) {
   const pane = $("#pagespane"); if (!pane) return;
-  let nav = pane.querySelector(".stg-pane-nav"), h = pane.querySelector(".stg-paneh");
-  if (on) {
-    if (!h) { h = document.createElement("div"); h.className = "stg-paneh"; h.title = "drag to resize the PDF pane"; pane.prepend(h); mountPaneResize(h); }
-    if (!nav) {
-      nav = document.createElement("div"); nav.className = "stg-pane-nav";
-      nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`;
-      nav.querySelectorAll("button").forEach((b) => (b.onclick = () => stageCursor(STAGE_CUR + Number(b.dataset.d))));
-      pane.appendChild(nav);
-    }
-  } else {
-    if (h) h.remove();
-    if (nav) nav.remove();
-    if (was) STAGE_SHOWN = "";
+  let nav = pane.querySelector(".stg-pane-nav");
+  if (on && !nav) {
+    nav = document.createElement("div"); nav.className = "stg-pane-nav";
+    nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`;
+    nav.querySelectorAll("button").forEach((b) => (b.onclick = () => stageCursor(STAGE_CUR + Number(b.dataset.d))));
+    pane.appendChild(nav);
+  } else if (!on && nav) {
+    nav.remove(); STAGE_SHOWN = "";
   }
 }
-function mountPaneResize(h) {
-  const main = document.querySelector("main.split"); if (!main) return;
-  const saved = parseInt(localStorage.getItem("metalens_stage_pane_h") || "", 10);
-  if (saved) main.style.setProperty("--stg-pane-h", `${saved}px`);
-  let drag = false;
-  h.addEventListener("mousedown", (e) => { drag = true; h.classList.add("drag"); document.body.style.userSelect = "none"; e.preventDefault(); });
-  window.addEventListener("mousemove", (e) => {
-    if (!drag) return;
-    const mb = main.getBoundingClientRect();
-    main.style.setProperty("--stg-pane-h", `${Math.max(160, Math.min(mb.height - 200, mb.bottom - e.clientY))}px`);
-  });
-  window.addEventListener("mouseup", () => {
-    if (!drag) return;
-    drag = false; h.classList.remove("drag"); document.body.style.userSelect = "";
-    const v = parseInt(main.style.getPropertyValue("--stg-pane-h"), 10);
-    if (v) localStorage.setItem("metalens_stage_pane_h", String(v));
-  });
-}
 
-// The cursor over the stage's items: the marked item in the evidence box, the pane's control,
-// and the PDF pane on that item's page.
+// The cursor over the stage's items: the marked item in the evidence list, the column's
+// control, and the PDF column on that item's page.
 function stageCursor(i) {
   if (!STAGE_ITEMS.length) return;
   STAGE_CUR = Math.max(0, Math.min(STAGE_ITEMS.length - 1, i));
@@ -1987,8 +1960,10 @@ function stageShowItem() {
   const located = g.ids.some((i) => EV.hasRect[i]);
   const pages = $("#pages"); if (!pages) return;
   // the page at whatever scale the coder set (no automatic zoom); the highlight's TOP a small
-  // margin under the pane's top edge, centred sideways; an unlocated item: the top of its page
+  // margin under the column's top edge, centred sideways; an unlocated item: the top of its page
+  const token = ++STAGE_GO;                                // a later move cancels the retries of this one
   const go = () => {
+    if (token !== STAGE_GO) return;
     const pb = pages.getBoundingClientRect();
     if (located) {
       const rects = jumpToEvidence(page, g.ids, { flash: false, scroll: false });
@@ -2002,7 +1977,12 @@ function stageShowItem() {
       pages.scrollTo({ top: Math.max(0, pages.scrollTop + (wrap.getBoundingClientRect().top - pb.top) - 8), left: 0, behavior: "smooth" });
     }
   };
-  requestAnimationFrame(() => { go(); if (located) setTimeout(go, 500); });   // the rects appear once the page image has loaded
+  requestAnimationFrame(go);
+  if (located) {
+    setTimeout(go, 500);                                   // the rects appear once the page image has loaded
+    // a page image that lands later shifts everything below it: anchor again as each one arrives
+    pages.querySelectorAll("img.pageimg").forEach((img) => { if (!img.complete) img.addEventListener("load", () => setTimeout(go, 60), { once: true }); });
+  }
 }
 function stageLevel(st) {
   if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
@@ -2143,7 +2123,7 @@ function renderStagesPanel(panel, rv) {
     if (g.ids.length) { el.addEventListener("mouseenter", () => showEvidence(g.ids)); el.addEventListener("mouseleave", () => hideEvidence(g.ids)); }
   });
   setContextEvidence(inStage.flatMap((g) => g.ids));
-  if (STAGE_SHOWN !== `${key}|${STAGE_CUR}`) stageShowItem();     // a new stage or paper: the pane moves; an edit's redraw leaves it
+  if (STAGE_SHOWN !== `${key}|${STAGE_CUR}`) stageShowItem();     // a new stage or paper: the PDF moves; an edit's redraw leaves it
 }
 
 // Redraw the panel after a structural edit, keeping the scroll position.

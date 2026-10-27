@@ -121,14 +121,14 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (table) → result: mean"). The cells, saves and verification are the generic card's.
 - Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
   paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
-  stages (a→g, `]`/`[`) in one column that spans the window — the stage's instruction, then the
-  reader's items that bear on the stage's fields with a cursor over them (the rest folded), then
-  its cells (paper fields; every entry as a card with "＋ add"; or each entry's arms / results
-  with "＋", "✕", "copy … from <entry>" and "same as <the reference row>") — and the PDF pinned
-  below at the coder's zoom, scrolled so the current item's highlight starts just under the
-  pane's top edge (`→`/`←` or "◀ item k of n ▶"; the pane's height is dragged). A stage's
-  `auto_id: {field, first?, next}` fills the id of an added entry or row ("C", then "T1", "T2"
-  …). The items table may sit on the paper, so a blind import with no entries opens on the
+  stages (a→g, `]`/`[`) in the left panel — the stage's instruction, then the reader's items that
+  bear on the stage's fields as one list with a cursor over them (the rest folded at the end),
+  then its cells (paper fields; every entry as a card with "＋ add"; or each entry's arms /
+  results with "＋", "✕", "copy … from <entry>" and "same as <the reference row>") — while the
+  PDF column follows the cursor at the coder's zoom, scrolled so the current item's highlight
+  starts just under its top edge (`→`/`←` or "◀ item k of n ▶" at the top of the column). A
+  stage's `auto_id: {field, first?, next}` fills the id of an added entry or row ("C", then "T1",
+  "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
   stages and the coder adds the first entry; adding an entry retires the "screened — no records"
   sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the
   two-column one, unchanged.

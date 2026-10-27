@@ -5,17 +5,18 @@
                                        [--zero-doc <document id imported with no entries>] [--shots DIR]
 
 Opens the workspace on a document imported under a preset with the staged layout and checks the
-stacked window: the records panel spans the window with the stage bar and the instruction, then
-the EVIDENCE box (the stage's items in order, the current one marked, the rest folded), then the
-FIELDS block (the stage's cells, once), and the PDF pane pinned to the bottom with its "◀ item k
-of n ▶" control; `→` / `←` move the marker and the pane, which puts the highlight's top just under
-its edge at the coder's zoom (no automatic scale); `]` / `[` move the stage; a study cell edit is
-saved; a free term typed into an open multi field becomes a chip and survives a reload; "＋ add"
-on the entry stage adds an entry at once with its auto id (T1, T2 …); "＋" on a child stage adds
-a row with its auto id (C, then T1 …); "same as <reference>" and "copy … from" copy; the Fields
-button restores the two-column view; the page logs no script error. With --zero-doc, a paper imported with no entries
-opens on the stages and the first entry is created from there. With --shots, screenshots of the
-first and the results stage of --doc. Needs the system python with playwright installed; prints a
+two columns: the stage panel on the left with the stage bar and the instruction, then the EVIDENCE
+list (the stage's items in order as plain entries, the current one marked, the rest folded at the
+end), then the FIELDS block (the stage's cells, once); the PDF column on the right with its "◀ item
+k of n ▶" control; `→` / `←` move the marker and the column, which puts the highlight's top just
+under its edge at the coder's zoom (no automatic scale); `]` / `[` move the stage; a study cell
+edit is saved; a free term typed into an open multi field becomes a chip and survives a reload;
+"＋ add" on the entry stage adds an entry at once with its auto id (T1, T2 …); "＋" on a child
+stage adds a row with its auto id (C, then T1 …); "same as <reference>" and "copy … from" copy;
+the Fields button shows the generic cards and drops the control; the page logs no script error.
+With --zero-doc, a paper imported with no entries opens on the stages and the first entry is
+created from there. With --shots, screenshots of the entry and the results stage of --doc and of
+the entry stage of --zero-doc. Needs the system python with playwright installed; prints a
 check list and exits non-zero on a failure.
 """
 import argparse
@@ -72,18 +73,19 @@ def main() -> int:
         check(n_stages >= 3, f"stage bar with {n_stages} stages")
         check(page.locator(".stg-help").count() == 1, "the stage opens with its instruction")
         check(letter() == "a", "the first stage is active and lettered a")
-        # the stacked window
-        vw, vh = 1400, 1000
+        # the two columns: the stage panel left, the PDF right with the item control
+        vw = 1400
         pb = page.locator("#panel").bounding_box(); gb = page.locator("#pagespane").bounding_box()
-        check(page.evaluate("() => document.body.classList.contains('stg-stack')"), "the body is in stacked mode")
-        check(pb and pb["width"] >= 0.6 * vw, f"the records panel spans the window ({pb and round(pb['width'])}px)")
-        check(gb and abs(gb["y"] + gb["height"] - vh) <= 2 and 0.3 * vh <= gb["height"] <= 0.7 * vh, f"the PDF pane is pinned to the bottom ({gb and round(gb['height'])}px high)")
-        check(page.locator("#pagespane .stg-paneh").count() == 1 and page.locator("#pagespane .stg-pane-nav").count() == 1, "the pane has its drag handle and item control")
-        check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the pane")
-        # FIELDS before EVIDENCE, nothing under the items
-        check(page.locator(".stg-cells").count() == 1 and page.locator(".stg-evidence").count() == 1, "one fields block and one evidence box")
-        check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the evidence box comes before the fields block")
+        check(not page.evaluate("() => document.body.classList.contains('stg-stack')") and page.locator("#pagespane .stg-paneh").count() == 0, "no stacked mode left")
+        check(pb and gb and pb["width"] < 0.6 * vw and gb["x"] >= pb["x"] + pb["width"] - 1 and gb["height"] > 0.8 * 947, f"the stage panel sits left ({pb and round(pb['width'])}px) and the PDF column right")
+        check(page.locator("#pagespane .stg-pane-nav").count() == 1 and page.locator("#pagespane .stg-pane-nav").bounding_box()["y"] < 120, "the item control sits at the top of the PDF column")
+        check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the column")
+        # EVIDENCE as a plain list before FIELDS, nothing under the items
+        check(page.locator(".stg-cells").count() == 1 and page.locator(".stg-evidence").count() == 1, "one evidence list and one fields block")
+        check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the evidence list comes before the fields block")
         check(page.locator(".stg-evidence .evi-cells").count() == 0, "no cells under the items")
+        check(page.evaluate("() => { const it = document.querySelector('.stg-evidence > .evi-item'); if (!it) return false; const cs = getComputedStyle(it); return cs.borderTopWidth === '0px' && cs.borderRightWidth === '0px' && parseFloat(cs.borderBottomWidth) >= 1 && !!it.querySelector('.evi-head .evi-id') && !!it.querySelector('.evi-head .ev-cite') && !!it.querySelector('.evi-body'); }"), "each item is a compact entry: number and page on a line, the quote below, parted by a rule")
+        check(page.evaluate("() => { const o = document.querySelector('.stg-evidence .stg-other'); return !o || o === document.querySelector('.stg-evidence').lastElementChild; }"), "the 'other evidence' fold closes the list")
         all_items = page.locator(".evi-item").count()
         in_stage = page.locator(".stg-evidence > .evi-item")
         n_in = in_stage.count()
@@ -98,18 +100,28 @@ def main() -> int:
         page.wait_for_timeout(900)
         check(zoom() in ("1", ""), f"the pane shows the page at the coder's zoom, 100% by default (zoom {zoom() or '1'})")
         # the current item's highlight: its top just under the pane's edge
-        anchor = lambda: page.evaluate("() => { const cur = document.querySelector('.stg-evidence > .evi-item.cur .ev-cite[data-eids]'); if (!cur) return null; const ids = cur.dataset.eids.split(','); const rs = ids.flatMap((i) => [...document.querySelectorAll(`rect.hl[data-eids~='${i}']`)]); if (!rs.length) return null; const pb = document.querySelector('#pages').getBoundingClientRect(); return Math.min(...rs.map((r) => r.getBoundingClientRect().top)) - pb.top; }")
-        a0 = anchor()
-        check(a0 is None or 0 <= a0 <= 40, f"the highlight's top sits just under the pane's top ({a0 and round(a0)}px)")
+        # the current highlight's top under the column's edge — or the column scrolled as far as it goes
+        anchor = lambda: page.evaluate("() => { const cur = document.querySelector('.stg-evidence > .evi-item.cur .ev-cite[data-eids]'); if (!cur) return null; const ids = cur.dataset.eids.split(','); const rs = ids.flatMap((i) => [...document.querySelectorAll(`rect.hl[data-eids~='${i}']`)]); if (!rs.length) return null; const pg = document.querySelector('#pages'); const pb = pg.getBoundingClientRect(); return [Math.min(...rs.map((r) => r.getBoundingClientRect().top)) - pb.top, pg.scrollTop >= pg.scrollHeight - pg.clientHeight - 1]; }")
+        anchored = lambda a: a is None or 0 <= a[0] <= 40 or (a[1] and a[0] > 40)
+        def settled():                                   # the column anchors again as page images land: give it a moment
+            for _ in range(20):
+                a = anchor()
+                if anchored(a):
+                    return a
+                page.wait_for_timeout(300)
+            return anchor()
+        a0 = settled()
+        check(anchored(a0), f"the highlight's top sits just under the column's top ({a0 and round(a0[0])}px)")
         st0 = page.evaluate("() => [document.querySelector('#pages').scrollTop, document.querySelector('#pages').scrollLeft]")
         if n_in >= 2:
             page.keyboard.press("ArrowRight"); page.wait_for_timeout(900)
             check(cur_index() == ["1"] and nav_text() == f"item 2 of {n_in}", "→ marks the second item and the pane says so")
             st1 = page.evaluate("() => [document.querySelector('#pages').scrollTop, document.querySelector('#pages').scrollLeft]")
             same_spot = page.evaluate("() => { const a = document.querySelector('.stg-evidence > .evi-item[data-i=\"0\"] .ev-cite'), b = document.querySelector('.stg-evidence > .evi-item[data-i=\"1\"] .ev-cite'); return !!(a && b && a.dataset.eids && a.dataset.eids === b.dataset.eids); }")
-            check(st1 != st0 or same_spot, f"the pane moved to the item ({st0} → {st1})")
-            a1 = anchor()
-            check(a1 is None or 0 <= a1 <= 40, f"and anchored its highlight's top ({a1 and round(a1)}px)")
+            at_end = page.evaluate("() => { const pg = document.querySelector('#pages'); return pg.scrollTop >= pg.scrollHeight - pg.clientHeight - 1; }")
+            check(st1 != st0 or same_spot or at_end, f"the column moved to the item ({st0} → {st1})")
+            a1 = settled()
+            check(anchored(a1), f"and anchored its highlight's top ({a1 and round(a1[0])}px)")
             check(zoom() in ("1", ""), "the zoom stayed at 100% after moving")
             page.locator(".stg-pane-nav button[data-d='-1']").click(); page.wait_for_timeout(600)
             check(cur_index() == ["0"], "◀ on the pane returns to the first item")
@@ -123,6 +135,9 @@ def main() -> int:
             check(cur_index() == [str(n_in - 1)], "the cursor stops at the last item")
         if a.shots:
             page.screenshot(path=os.path.join(a.shots, "stage_a.png"), full_page=False)
+            page.locator(".stg-tab").nth(max(1, tab_index("task|entry|sample"))).click(); page.wait_for_timeout(900)
+            page.screenshot(path=os.path.join(a.shots, "tasks.png"), full_page=False)
+            open_doc(a.doc)
         # a study cell in the fields block: edit, reload, saved
         cells = page.locator(".stg-cells .evi-paper .rv-editable[data-path]")
         check(cells.count() >= 1, "the fields block holds the study cells")
@@ -200,7 +215,7 @@ def main() -> int:
             res_i = tab_index("result")
             if res_i >= 0:
                 open_doc(a.doc, res_i); page.wait_for_timeout(900)
-                page.screenshot(path=os.path.join(a.shots, "stage_f.png"), full_page=False)
+                page.screenshot(path=os.path.join(a.shots, "results.png"), full_page=False)
         # the Fields view: the two-column window again
         open_doc(a.doc)
         page.click("#chaintoggle")
@@ -209,14 +224,15 @@ def main() -> int:
         if first.count():
             first.first.click(); page.wait_for_selector(".record:not(.evi-rec)", timeout=10000)
         check(page.locator(".record:not(.evi-rec)").count() >= 1, "Fields returns to the generic cards")
-        gb2 = page.locator("#pagespane").bounding_box()
-        check(not page.evaluate("() => document.body.classList.contains('stg-stack')") and gb2 and gb2["y"] < 100 and page.locator("#pagespane .stg-pane-nav").count() == 0, "and to the two-column window, the pane control gone")
+        check(page.locator("#pagespane .stg-pane-nav").count() == 0, "and the item control is gone")
         check(page.locator(".record:not(.evi-rec) .rv-child + .rv-tableadd .rv-addrow, .record:not(.evi-rec) .rv-childcards .rv-addrow").count() >= 1, "the generic card offers ＋ on sub-entries")
         if a.zero_doc:
             open_doc(a.zero_doc)
-            check(page.locator(".empty-records").count() == 0 and page.evaluate("() => document.body.classList.contains('stg-stack')"), "a paper with no entries opens on the stacked stages")
+            check(page.locator(".empty-records").count() == 0 and page.locator(".stg-evidence").count() == 1, "a paper with no entries opens on the stages")
             check(page.locator(".stg-evidence > .evi-item").count() >= 1, "its paper-level items are drawn")
             open_doc(a.zero_doc, entry_i)
+            if a.shots:
+                page.wait_for_timeout(600); page.screenshot(path=os.path.join(a.shots, "zero_tasks.png"), full_page=False)
             add = page.locator(".stg-addtask")
             check(add.count() == 1, "the entry stage offers '＋ add' on an empty paper")
             if add.count():
