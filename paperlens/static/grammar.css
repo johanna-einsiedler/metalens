@@ -460,5 +460,8 @@ body.stg-pdf-closed .stg-pdf-strip { display: flex; align-items: center; gap: 10
 .stg-pdf-k { font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
 #pagespane .stg-pane-nav .stg-pdf-close { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
 /* the foot of a stage: previous item, and next item / next stage / done */
+.stg-accept { border: 1px solid var(--border); background: var(--surface); color: var(--accent); border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; padding: 1px 6px; white-space: nowrap; }
+.stg-accept:hover { background: var(--accent-wash); border-color: var(--accent); }
+.stg-accept.done { color: var(--success); border-color: var(--success); cursor: default; }
 .stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }
 .stg-foot .stg-next { font-weight: 600; }

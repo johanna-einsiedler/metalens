@@ -79,8 +79,9 @@ _ALLOWED_KEYS = {
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id", "accept_rows"},
     "copy": {"when", "fields"},
+    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column"},
     "auto_id": {"field", "first", "next"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
@@ -1968,9 +1969,15 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     """display.review.layout "stages": ``items`` names the reader's items table (see
     ``_items_table``) and ``stages`` the ordered stages a coder works through. Each stage is
     ``{id, label, help, …}`` naming the fields of one level — ``paper_fields``, ``fields`` (of the
-    entry) or ``child`` + ``child_fields`` (of that child) — or the entry's ``fields`` together
-    with one child's ``child`` + ``child_fields`` (each entry's cells, then its rows under them).
-    A stage with a child may carry ``copy_from_sibling: {when, fields}``: a row's button copies the
+    entry) or ``child`` + ``child_fields`` (of that child) — or several together: the paper's
+    cells, then each entry's cells, then its rows under them. A stage with a paper table and a
+    child may carry ``accept_rows: {from, child, id_column, id_field, verdict_column, accepted,
+    task_column?}``: every row of the table ``from`` gets a "＋ row" button that copies its
+    same-named columns into a new row of ``child`` under the entry the ``task_column`` names
+    (the only entry, or one the coder picks), writes the row's ``id_column`` into the new row's
+    ``id_field`` and sets the table row's ``verdict_column`` to ``accepted`` — the model's
+    estimates verified into the coder's rows, never retyped. A stage with a child may carry
+    ``copy_from_sibling: {when, fields}``: a row's button copies the
     listed fields from the sibling row whose boolean ``when`` field is true (the reference arm's
     sample, say). An entry or child stage may carry ``auto_id: {field, first?, next}`` — a list of
     them, one per level, on a stage with the entry's fields and a child's — what "add" writes into
@@ -2015,17 +2022,17 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
         if not (isinstance(st.get("help"), str) and st["help"].strip()):
             W(f"{at}: no help — the coder gets no instruction at the top of the stage")
         levels = [k for k in ("paper_fields", "fields", "child") if st.get(k) is not None]
-        both = levels == ["fields", "child"]                       # the entry's cells, then one child's rows
-        if (len(levels) != 1 and not both) or (st.get("child") is None) != (st.get("child_fields") is None):
-            E(f"{at} must name fields of ONE level (paper_fields; fields, the entry; child + child_fields), or the entry's fields together with one child's")
+        if not levels or (st.get("child") is None) != (st.get("child_fields") is None):
+            E(f"{at} must name fields of at least ONE level (paper_fields; fields, the entry; child + child_fields), alone or together")
             continue
-        level = "child" if both else levels[0]                     # where the rows, auto ids and copies live
+        both = st.get("fields") is not None and st.get("child") is not None   # the entry's cells, then one child's rows
+        level = "child" if st.get("child") is not None else levels[0]        # where the rows, auto ids and copies live
         ck = st.get("child")
         if ck is not None and ck not in kids:
             E(f"{at}.child must name a child of the entries")
             continue
         parts = []                                                  # (key, names, known, what) per level named
-        if level == "paper_fields":
+        if st.get("paper_fields") is not None:
             parts.append(("paper_fields", st["paper_fields"], pfields, "a paper field"))
         if st.get("fields") is not None:
             parts.append(("fields", st["fields"], efields, "an entry field"))
@@ -2049,7 +2056,7 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
         if ai is not None:
             homes = ([(efields, "a string field of the entry")] if st.get("fields") is not None else []) \
                 + ([(kids[ck], f"a string field of {ck!r}")] if ck is not None else [])
-            if level == "paper_fields":
+            if not homes:
                 E(f"{at}.auto_id only applies to an entry or child stage")
             elif not isinstance(ai, (dict, list)) or (isinstance(ai, list) and not both):
                 E(f"{at}.auto_id must be an object {{field, first?, next}}" + (" — a list of them only on a stage with the entry's fields and a child's" if isinstance(ai, list) else ""))
@@ -2065,6 +2072,21 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                         E(f"{at}.auto_id.next must be a string containing {{n}}")
                     if "first" in a and not isinstance(a["first"], str):
                         E(f"{at}.auto_id.first must be a string")
+        ar = st.get("accept_rows")
+        if ar is not None:
+            tbl = pfields.get(ar.get("from")) if isinstance(ar, dict) else None
+            cols = {c.get("name"): c for c in (tbl.get("columns") or []) if isinstance(c, dict)} if tbl and tbl.get("type") == "table" else None
+            kid = kids.get(ar.get("child")) if isinstance(ar, dict) else None
+            vcol = (cols or {}).get((ar or {}).get("verdict_column")) if isinstance(ar, dict) else None
+            vopts = [o.get("value") if isinstance(o, dict) else o for o in ((vcol or {}).get("options") or [])] if isinstance(vcol, dict) else []
+            if (not isinstance(ar, dict) or set(ar) - _ALLOWED_KEYS["accept"] or cols is None or kid is None
+                    or ar.get("id_column") not in cols or (kid.get(ar.get("id_field")) or {}).get("type") != "string"
+                    or (vcol or {}).get("type") != "enum" or ar.get("accepted") not in vopts
+                    or ("task_column" in ar and ar["task_column"] not in cols)):
+                E(f"{at}.accept_rows needs from (a paper table field) with id_column, verdict_column (an enum column) and accepted (one of its options), "
+                  f"child with id_field (a string field of it), and task_column (a column) when given")
+            elif ar.get("child") != ck:
+                E(f"{at}.accept_rows.child must be the stage's child")
         cs = st.get("copy_from_sibling")
         if cs is not None:
             if ck is None:

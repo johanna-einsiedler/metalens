@@ -136,7 +136,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   the pane is open). A stage's `auto_id: {field, first?, next}` fills the id of
   an added entry or row ("C", then "T1", "T2" …). A stage may name the entry's fields together
   with one child's (`fields` + `child` + `child_fields`): each entry's cells, then its rows under
-  them, `auto_id` a list with one per level (the tasks with their arms). The staged head shows the
+  them, `auto_id` a list with one per level (the tasks with their arms); any of the three levels
+  may come together, the paper's cells first. A stage with a paper table and a child may declare
+  `accept_rows: {from, child, id_column, id_field, verdict_column, accepted, task_column?}`: every
+  row of that table gets "＋ row" at its start, which copies its same-named columns into a new row
+  of the child under the entry its task column names (the only entry, or one the coder picks),
+  writes the row's id into the child's id field and sets the row's verdict to `accepted` — the
+  model's estimates verified into the coder's rows, never retyped. The staged head shows the
   paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and
   JSON only — no Fields or Grid toggle, no ＋ entry (the stage adds), no CSV; the paper strip at
   the left narrows to one PDF icon per paper (its name on hover, the count in the corner); the

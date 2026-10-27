@@ -9,7 +9,7 @@
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
@@ -2210,14 +2210,15 @@ function stageShowItem() {
     pages.querySelectorAll("img.pageimg").forEach((img) => { if (!img.complete) img.addEventListener("load", () => setTimeout(go, 60), { once: true }); });
   }
 }
-// A stage's level: the paper's fields; the entry's fields (with, on a stage that also names a
-// child, that child's rows under each entry); or one child's rows. `names` is every field the
-// stage shows — what the items' bears_on is matched against.
+// What a stage shows, in order: the paper's fields; each entry's fields; one child's rows under
+// each entry — any of them, alone or together. `names` is every field the stage shows (what the
+// items' bears_on is matched against); `scope` is where "add" acts: the entry when it has entry
+// fields, else the child, else the paper. `accept` is the stage's accept_rows rule.
 function stageLevel(st) {
-  if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
   const child = st.child ? VM.entries.children.find((c) => c.key === st.child) || null : null;
-  if (st.fields) return { scope: "entry", names: new Set([...st.fields, ...(child ? st.child_fields || [] : [])]), child };
-  return { scope: "child", names: new Set(st.child_fields || []), child };
+  const paper = st.paper_fields || null, entry = st.fields || null;
+  const names = new Set([...(paper || []), ...(entry || []), ...(child ? st.child_fields || [] : [])]);
+  return { scope: entry ? "entry" : child ? "child" : "paper", names, child, paper, entry, accept: st.accept_rows || null };
 }
 function fieldLabel(name) {
   const info = VM.fieldIndex.get(name);
@@ -2279,16 +2280,20 @@ function stageCellsBlock(st, L, recs) {
   const box = document.createElement("div"); box.className = "stg-cells";
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>`;
   const unit = VM.entries.label.toLowerCase();
-  if (L.scope === "paper") { box.insertAdjacentHTML("beforeend", eviPaperBlock([...L.names])); return box; }
+  if (L.paper) {                                           // the paper's cells first
+    box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper));
+    if (L.accept && L.child) acceptButtons(box, L);
+  }
+  if (!L.entry && !L.child) return box;
   if (!recs.length) {
-    box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.scope === "entry" ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
-    if (L.scope === "entry") box.appendChild(addEntryButton());
+    box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.entry ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
+    if (L.entry) box.appendChild(addEntryButton());
     return box;
   }
   for (const rec of recs) {
     const card = eviStripEl(rec); card.classList.add("evi-entry", "stg-entry");
     const fv = rec.field_values || {};
-    if (L.scope === "entry") {
+    if (L.entry) {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
     }
@@ -2301,8 +2306,60 @@ function stageCellsBlock(st, L, recs) {
     }
     box.appendChild(card);
   }
-  if (L.scope === "entry") box.appendChild(addEntryButton());
+  if (L.entry) box.appendChild(addEntryButton());
   return box;
+}
+
+// accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row".
+function acceptButtons(box, L) {
+  const ar = L.accept, rows = (DATA.paper_metadata || {})[ar.from];
+  const table = box.querySelector(`.evi-paper .rv-decl[data-field="${ar.from}"] table.rv-typed`);
+  if (!table || !Array.isArray(rows)) return;
+  const head = table.querySelector("thead tr th");                // the button sits at the row's start, next to the citation cell
+  if (head) head.insertAdjacentHTML("afterend", `<th class="stg-accept-h"></th>`);
+  const label = (L.child.label || L.child.key).toLowerCase();
+  table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
+    const i = Number(tr.dataset.row), done = !!rows[i] && rows[i][ar.verdict_column] === ar.accepted;
+    const cite = tr.querySelector("td"); if (!cite) return;
+    cite.insertAdjacentHTML("afterend", `<td class="stg-accept-c"><button type="button" class="stg-accept${done ? " done" : ""}" data-row="${i}"${done ? " disabled" : ""}`
+      + ` title="${done ? "accepted into a row" : esc(`accept: a new ${label} row with these values, this row marked ${ar.accepted}`)}">${done ? "✓ row" : "＋ row"}</button></td>`);
+  });
+}
+
+// The model's table row becomes a child row of the entry its task column names (the only
+// entry, or one the coder picks): same-named columns copied, the row's id written into the
+// child's id field, the table row's verdict set — logged like any added row.
+async function acceptRow(L, recs, i) {
+  const ar = L.accept, child = L.child, pm = DATA.paper_metadata || {};
+  const rows = Array.isArray(pm[ar.from]) ? pm[ar.from] : [], src = rows[i];
+  if (!src || !child) return;
+  const unit = VM.entries.label.toLowerCase();
+  const want = ar.task_column ? src[ar.task_column] : null;
+  let rec = want != null && VM.entries.id_field
+    ? recs.find((r) => String(((r.field_values || {})[VM.entries.id_field]) ?? "") === String(want)) || null : null;
+  if (!rec && recs.length === 1) rec = recs[0];
+  if (!rec) {
+    if (!recs.length) { alert(`Add a ${unit} first: the row needs one to go under.`); return; }
+    const pick = prompt(`Which ${unit} does this row belong to?\n${recs.map((r, k) => `${k + 1} = ${entryTitle(VM, r, r.entry_index)}`).join("\n")}`, "1");
+    rec = recs[Number(pick) - 1] || null;
+    if (!rec) return;
+  }
+  const row = blankRow(child.fields);
+  for (const f of child.fields) {
+    if (f.name !== ar.id_field && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
+  }
+  row[ar.id_field] = src[ar.id_column] == null ? null : String(src[ar.id_column]);
+  if (!rec.field_values) rec.field_values = {};
+  if (!Array.isArray(rec.field_values[child.key])) rec.field_values[child.key] = [];
+  const list = rec.field_values[child.key];
+  list.push(row);
+  try {
+    await saveWholeRecord(rec, [{ field_path: `${child.key}[${list.length - 1}]`, original_value: null,
+                                 final_value: `(row accepted from ${ar.from}[${i}]${src[ar.id_column] ? " " + src[ar.id_column] : ""})` }]);
+    const updated = JSON.parse(JSON.stringify(rows)); updated[i] = { ...updated[i], [ar.verdict_column]: ar.accepted };
+    await savePaperField(ar.from, updated);
+    maybeOfferRepublish(); rerenderKeep();
+  } catch (e) { list.pop(); alert("accept failed: " + e.message); }
 }
 
 function renderStagesPanel(panel, rv) {
@@ -2461,6 +2518,7 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
     try { await saveWholeRecord(rec, diff); maybeOfferRepublish(); rerenderKeep(); }
     catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert("copy failed: " + e.message); }
   }));
+  if (L.accept) panel.querySelectorAll(".stg-accept[data-row]").forEach((b) => (b.onclick = () => acceptRow(L, recs, Number(b.dataset.row))));
 }
 
 // The sub-entries (arms, results …) are added and edited on the generic tabs: switch to the

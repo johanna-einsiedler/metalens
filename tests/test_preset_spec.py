@@ -472,8 +472,6 @@ def _stage_errors(mutate) -> list[str]:
     ("empty stages", lambda rv: rv.update(stages=[]), "at least one stage"),
     ("unknown review key", lambda rv: rv.update(paper_fields=["design"]), "unknown key 'paper_fields'"),
     ("items not a table", lambda rv: rv.update(items="design"), "table field of the entry or the paper"),
-    ("two levels", lambda rv: rv["stages"][0].update(fields=["n"]), "ONE level"),
-    ("paper fields with a child", lambda rv: rv["stages"][0].update(child="records", child_fields=["es"]), "ONE level"),
     ("auto_id list on a plain entry stage", lambda rv: rv["stages"][1].update(auto_id=[{"field": "sample_id", "next": "S{n}"}]), "a list of them only on a stage with the entry's fields and a child's"),
     ("child without child_fields", lambda rv: rv["stages"][2].pop("child_fields"), "ONE level"),
     ("unknown stage key", lambda rv: rv["stages"][0].update(fields_of="x"), "unknown key 'fields_of'"),
@@ -524,6 +522,38 @@ def test_stages_review_entry_stage_may_carry_a_child() -> None:
     except ps.SpecError as e:
         errs = e.errors
     assert any("auto_id.field must name a string field of the entry or a string field of 'records'" in e for e in errs), errs
+
+
+def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
+    """A stage may show a paper table over each entry's rows, with accept_rows: a table row's
+    same-named columns become a child row, its id lands in the child's id field, the table row's
+    verdict is set; the keys are checked against the table's columns and the child's fields."""
+    doc = _stages_doc()
+    doc["paper"]["fields"].append({"name": "model_rows", "type": "table", "columns": [
+        {"name": "rid", "type": "string"}, {"name": "es", "type": "number"}, {"name": "sample_id", "type": "string"},
+        {"name": "verdict", "type": "enum", "options": ["accepted", "wrong"]}]})
+    rv = doc["display"]["review"]
+    rv["stages"][3] = {"id": "sizes", "label": "Sizes", "help": "The model's rows over yours.", "paper_fields": ["model_rows"],
+                       "child": "records", "child_fields": ["es", "row_id"],
+                       "accept_rows": {"from": "model_rows", "child": "records", "id_column": "rid", "id_field": "row_id",
+                                       "verdict_column": "verdict", "accepted": "accepted", "task_column": "sample_id"}}
+    spec = ps.normalize(doc)
+    errs, warns = ps.validate(spec)
+    assert errs == [] and warns == [], (errs, warns)
+    assert spec["display"]["review"]["stages"][3]["accept_rows"]["id_field"] == "row_id"
+    for label, bad_ar, needle in [
+        ("from not a table", dict(rv["stages"][3]["accept_rows"], **{"from": "design"}), "accept_rows needs from"),
+        ("id_field not a string field", dict(rv["stages"][3]["accept_rows"], id_field="es"), "accept_rows needs from"),
+        ("accepted not an option", dict(rv["stages"][3]["accept_rows"], accepted="ok"), "accept_rows needs from"),
+        ("task_column unknown", dict(rv["stages"][3]["accept_rows"], task_column="zzz"), "accept_rows needs from"),
+        ("unknown key", dict(rv["stages"][3]["accept_rows"], extra=1), "accept_rows needs from"),
+    ]:
+        bad = copy.deepcopy(doc); bad["display"]["review"]["stages"][3]["accept_rows"] = bad_ar
+        try:
+            errs = ps.validate(ps.normalize(bad))[0]
+        except ps.SpecError as e:
+            errs = e.errors
+        assert any(needle in e for e in errs), (label, errs)
 
 
 # ── option definitions: {value, label, help} ──────────────────────────────────────────────────────
