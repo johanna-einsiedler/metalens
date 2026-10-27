@@ -79,14 +79,15 @@ _ALLOWED_KEYS = {
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link"},
+    "link": {"child", "field", "value", "label", "when", "skip_when"},
     "stage_child": {"key", "fields"},
     "copy": {"when", "fields", "child"},
-    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column", "lookup", "group_by"},
+    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column", "lookup", "group_by", "skip_fields"},
     "lookup": {"table", "key_column", "take_column", "into_field"},
     "match": {"table", "columns"},
     "match_col": {"from", "value", "label", "skip_when"},
-    "auto_id": {"field", "first", "next"},
+    "auto_id": {"field", "first", "next", "first_values"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
     "author": {"family", "given", "orcid", "affiliation"},
@@ -2087,6 +2088,9 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                         E(f"{at}.auto_id.next must be a string containing {{n}}")
                     if "first" in a and not isinstance(a["first"], str):
                         E(f"{at}.auto_id.first must be a string")
+                    fv = a.get("first_values")
+                    if fv is not None and (not isinstance(fv, dict) or not fv or any(not any(k in known for known, _ in homes) for k in fv)):
+                        E(f"{at}.auto_id.first_values must map fields of the stage's levels to the values the first row starts with")
         ar = st.get("accept_rows")
         if ar is not None:
             tbl = pfields.get(ar.get("from")) if isinstance(ar, dict) else None
@@ -2097,7 +2101,8 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
             if (not isinstance(ar, dict) or set(ar) - _ALLOWED_KEYS["accept"] or cols is None or kid is None
                     or ar.get("id_column") not in cols or (kid.get(ar.get("id_field")) or {}).get("type") != "string"
                     or (vcol or {}).get("type") != "enum" or ar.get("accepted") not in vopts
-                    or ("task_column" in ar and ar["task_column"] not in cols) or ("group_by" in ar and ar["group_by"] not in cols)):
+                    or ("task_column" in ar and ar["task_column"] not in cols) or ("group_by" in ar and ar["group_by"] not in cols)
+                    or ("skip_fields" in ar and (not isinstance(ar["skip_fields"], list) or any(n not in kid for n in ar["skip_fields"])))):
                 E(f"{at}.accept_rows needs from (a paper table field) with id_column, verdict_column (an enum column), accepted (one of its options) and, "
                   f"when given, task_column and group_by (columns of it); child with id_field (a string field of it)")
             elif ar.get("child") not in kid_keys:
@@ -2113,6 +2118,14 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                             or (kid is None or (l1.get("into_field") != "$entry" and l1.get("into_field") not in kid))):
                         E(f"{at}.accept_rows.lookup needs table (a paper table field) with key_column (also a column of from) and take_column, "
                           f"and into_field (a field of the child, or $entry for the entry the row goes under)")
+        lks = st.get("link")
+        if lks is not None:
+            for j, lk in enumerate(lks if isinstance(lks, list) else [None]):
+                kd = kids.get(lk.get("child")) if isinstance(lk, dict) else None
+                if (not isinstance(lk, dict) or set(lk) - _ALLOWED_KEYS["link"] or kd is None or lk.get("child") not in kid_keys
+                        or any(lk.get(k) not in kd for k in ("field", "value", "label"))
+                        or any(k in lk and (kd.get(lk[k]) or {}).get("type") != "boolean" for k in ("when", "skip_when"))):
+                    E(f"{at}.link[{j}] needs child (a child of the stage), field, value and label (fields of it) and, when given, when and skip_when (boolean fields of it)")
         mt = st.get("match")
         if mt is not None:
             tbl = pfields.get(mt.get("table")) if isinstance(mt, dict) else None

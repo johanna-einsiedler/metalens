@@ -2321,6 +2321,7 @@ function stageCellsBlock(st, L, recs) {
         + `<div class="rv-val rv-nested">${renderChild(kid.child, rows, { editable: true, show: kid.names })}</div></div></div>`
         + stageCopyControls(st, L, rec, recs, kid));
     }
+    linkSelects(card, st, rec);
     box.appendChild(card);
   }
   if (L.entry) box.appendChild(addEntryButton());
@@ -2387,6 +2388,46 @@ function matchBlocks(box, L, recs) {
 }
 
 // accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row".
+// link: a child field that names a sibling row (the reference arm a treatment arm is compared
+// with) becomes a select of the sibling rows whose `when` field is true; on a row whose
+// `skip_when` field is true (the reference arm itself) the cell is a dash.
+function linkSelects(card, st, rec) {
+  for (const lk of st.link || []) {
+    const rows = ((rec.field_values || {})[lk.child] || []);
+    const opts = rows.map((r, j) => [r, j]).filter(([r]) => r && (!lk.when || r[lk.when] === true) && r[lk.value] != null && r[lk.value] !== "")
+      .map(([r]) => ({ value: String(r[lk.value]), label: `${r[lk.value]} · ${r[lk.label] ?? ""}`.trim() }));
+    rows.forEach((r, j) => {
+      const path = `${lk.child}[${j}].${lk.field}`;
+      const cell = card.querySelector(`[data-path="${path}"]`); if (!cell || !r) return;
+      if (lk.skip_when && r[lk.skip_when] === true) { cell.outerHTML = `<span class="rv-null" title="the reference arm: nothing to compare it with">—</span>`; return; }
+      const cur = r[lk.field] == null ? "" : String(r[lk.field]);
+      cell.outerHTML = `<span class="rv-selwrap stg-link" data-path="${esc(path)}"><select class="rv-select" title="the reference arm this arm is compared with; blank: the task's single one">`
+        + `<option value=""${cur === "" ? " selected" : ""}>—</option>` + opts.filter((o) => o.value !== String(r[lk.value] ?? ""))
+          .map((o) => `<option value="${esc(o.value)}"${cur === o.value ? " selected" : ""}>${esc(o.label)}</option>`).join("") + `</select></span>`;
+    });
+  }
+}
+
+// A paper table's rows that have evidence of their own (paper_metadata.<table>[i]) get a page
+// tag in their citation cell, and the row jumps to it on a click away from its controls.
+function wirePaperRowCites(panel) {
+  panel.querySelectorAll(".evi-paper .rv-decl[data-field] table.rv-typed").forEach((table) => {
+    const field = table.closest(".rv-decl").dataset.field;
+    table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
+      const want = `paper_metadata.${field}[${tr.dataset.row}]`;
+      const ids = (DATA.evidence || []).map((ev, i) => ({ ev, i })).filter(({ ev }) => ev.field_path === want).map(({ i }) => i);
+      if (!ids.length) return;
+      const page = DATA.evidence[ids[0]].page || 1, cite = tr.querySelector("td.rv-rowcite");
+      if (cite && !cite.children.length) cite.innerHTML = `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p.${page}</button>`;
+      tr.classList.add("stg-cited");
+      tr.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable], .rv-selwrap")) return; jumpToEvidence(page, ids); });
+      tr.addEventListener("mouseenter", () => showEvidence(ids)); tr.addEventListener("mouseleave", () => hideEvidence(ids));
+      const b = cite && cite.querySelector(".ev-cite[data-eids]");
+      if (b) { b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(page, ids); }; }
+    });
+  });
+}
+
 // accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row". With
 // group_by, a header opens each group (an estimand) naming the unit of the coder's it was matched
 // to, from the lookup table; a group whose match says drop is struck through.
@@ -2447,8 +2488,9 @@ async function acceptRow(L, recs, i) {
     if (!rec) return;
   }
   const row = blankRow(child.fields);
+  const skip = new Set(ar.skip_fields || []);
   for (const f of child.fields) {
-    if (f.name !== ar.id_field && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
+    if (f.name !== ar.id_field && !skip.has(f.name) && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
   }
   Object.assign(row, extra);
   row[ar.id_field] = src[ar.id_column] == null ? null : String(src[ar.id_column]);
@@ -2584,7 +2626,9 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
   const fill = L.kids.length ? (path, rows) => {                   // the stage's auto id for the child the row is added to
     const kid = L.kidOf(path), ai = kid ? stageAutoIds(st).find((a) => (kid.child.fields || []).some((f) => f.name === a.field)) : null;
-    return ai ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null;
+    if (!ai) return null;
+    const v = autoIdValue(ai, rows.map((r) => (r || {})[ai.field]));
+    return { [ai.field]: v, ...(ai.first_values && ai.first != null && v === String(ai.first) ? ai.first_values : {}) };
   } : null;
   panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
     const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep, fill);
@@ -2623,6 +2667,11 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
     catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert("copy failed: " + e.message); }
   }));
   if (L.accept) panel.querySelectorAll(".stg-accept[data-row]").forEach((b) => (b.onclick = () => acceptRow(L, recs, Number(b.dataset.row))));
+  wirePaperRowCites(panel);
+  // an entry's child table whose rows cite nothing (the coder's own) drops its empty citation column
+  panel.querySelectorAll(".stg-entry table.rv-typed").forEach((t) => {
+    if (![...t.querySelectorAll("td.rv-rowcite")].some((c) => c.querySelector(".ev-cite:not(.ev-none)"))) t.classList.add("rv-nocite");
+  });
 }
 
 // The sub-entries (arms, results …) are added and edited on the generic tabs: switch to the

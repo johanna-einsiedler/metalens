@@ -151,7 +151,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   task), `copy_from_sibling` then naming its child; `match: {table, columns: {column: {from, value,
   label}}}` turns the named columns of the paper table into selects fed by the paper's own units (the
   entries, or a child's rows), lists the coder's units over the table and the units no row points to
-  under it. The foot of a stage moves between stages ("next ▸", "◂"; the PDF pane's control and
+  under it; `link: [{child, field, value, label, when?, skip_when?}]` turns a child field that
+  names a sibling row into a select of the sibling rows (the reference arm a treatment arm is
+  compared with), a dash on the rows `skip_when` marks; an auto id's `first_values` fills the
+  first row's other cells (the reference arm's label); `accept_rows.skip_fields` keeps named
+  columns out of the accepted row. A paper table row with evidence of its own carries a page tag
+  and jumps to it on a click; an entry's child table whose rows cite nothing drops its citation
+  column; child-table headers carry their help as a tooltip. The foot of a stage moves between stages ("next ▸", "◂"; the PDF pane's control and
   ← → move the items), and on the last stage reads "✓ done with this paper" where the preset
   verifies per paper. An editable list field is typed as comma-separated items. `display.review.verify:
   "paper"` drops the per-entry status, verify and flag (the coder built the entries) for one

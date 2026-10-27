@@ -343,7 +343,7 @@ export function renderChild(child, rows, opts) {
   if ((child.layout || "table") === "table") {
     const names = (child.fields || []).map((f) => f.name);
     const extra = opts.show ? [] : [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
+    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.help ? ` data-tip="${esc(f.help)}"` : ""}${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
       + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("") + (manage ? `<th class="rv-rowdel-h"></th>` : "");
     const body = picked.map(([r, k]) => {
       const base = `${key}[${k}]`;

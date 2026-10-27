@@ -563,9 +563,10 @@ def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
     doc2["paper"]["fields"].append({"name": "model_units", "type": "table", "columns": [
         {"name": "rid", "type": "string"}, {"name": "mine_s", "type": "string"}, {"name": "mine_r", "type": "string"}]})
     rv2["stages"][2] = {"id": "effects", "label": "Effects", "help": "One row per effect.", "children": [{"key": "records", "fields": ["var1", "is_ref", "row_id"]}],
-                       "auto_id": {"field": "row_id", "first": "C", "next": "T{n}"},
+                       "auto_id": {"field": "row_id", "first": "C", "next": "T{n}", "first_values": {"is_ref": True, "var1": "control"}},
+                       "link": [{"child": "records", "field": "var1", "value": "row_id", "label": "var1", "when": "is_ref", "skip_when": "is_ref"}],
                        "copy_from_sibling": {"child": "records", "when": "is_ref", "fields": ["var1"]}}
-    rv2["stages"][3]["accept_rows"].update(group_by="sample_id", lookup=[
+    rv2["stages"][3]["accept_rows"].update(group_by="sample_id", skip_fields=["es"], lookup=[
         {"table": "model_units", "key_column": "rid", "take_column": "mine_r", "into_field": "var1"},
         {"table": "model_units", "key_column": "rid", "take_column": "mine_s", "into_field": "$entry"}])
     rv2["stages"][3]["paper_fields"].remove("model_map"); rv2["stages"][3]["paper_fields"].append("model_map")
@@ -584,6 +585,10 @@ def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
         ("children child unknown", lambda r: r["stages"][2].update(children=[{"key": "zzz", "fields": ["var1"]}]), "children[0] must be"),
         ("children twice", lambda r: r["stages"][2].update(children=[{"key": "records", "fields": ["var1"]}, {"key": "records", "fields": ["es"]}]), "children[1] must be"),
         ("copy child not of the stage", lambda r: r["stages"][2]["copy_from_sibling"].update(child="zzz"), "copy_from_sibling needs"),
+        ("first_values unknown field", lambda r: r["stages"][2]["auto_id"].update(first_values={"zzz": 1}), "first_values must map"),
+        ("link field unknown", lambda r: r["stages"][2]["link"][0].update(field="zzz"), "link[0] needs"),
+        ("link when not boolean", lambda r: r["stages"][2]["link"][0].update(when="var1"), "link[0] needs"),
+        ("skip_fields unknown", lambda r: r["stages"][4]["accept_rows"].update(skip_fields=["zzz"]), "accept_rows needs from"),
     ]:
         bad = copy.deepcopy(doc2); mutate(bad["display"]["review"])
         try:

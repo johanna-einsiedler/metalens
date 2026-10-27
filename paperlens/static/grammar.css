@@ -467,7 +467,13 @@ body.stg-pdf-closed .stg-pdf-strip { display: flex; align-items: center; gap: 10
 .stg-cells .rv-typed .rv-editable { padding: 0 2px; }
 .stg-cells .rv-typed .rv-editable:empty { min-width: 2em; min-height: 1em; }
 .stg-cells .rv-typed select { font-size: 11.5px; padding: 0 2px; }
-.stg-cells .rv-typed .rv-opt-help { display: none; }
+.stg-cells .rv-typed .rv-opt-help { display: inline; margin-left: 2px; }
+.rv-nocite .rv-rowcite { display: none; }
+.stg-cells .stg-entry .ev-none, .stg-cells .stg-entry .rc-evsum { display: none; }
+body.stg-split .stg-entry .rv-uncited { box-shadow: none; }                /* the coder's own cells cite nothing: no marker */
+body.stg-split .stg-entry .rv-uncited::after { content: none; }
+.stg-cells tr.stg-cited { cursor: pointer; }
+.stg-cells tr.stg-cited:hover td { background: var(--accent-wash); }
 .stg-cells .rv-typed .rv-selwrap { white-space: nowrap; }
 .stg-units, .stg-misses { margin: 0 0 8px; font-size: 12px; }
 .stg-units ul, .stg-misses ul { margin: 2px 0 4px 18px; padding: 0; }
