@@ -186,10 +186,15 @@ function renderCards(arr, path, opts, hint) {
 const _opts = (f) => (Array.isArray(f.options) ? f.options : []).map((o) =>
   (o && typeof o === "object") ? { value: o.value, label: o.label != null ? String(o.label) : String(o.value), help: typeof o.help === "string" ? o.help : "" }
                                : { value: o, label: String(o), help: "" });
-// the title a select carries: the chosen option's help, else the field's own
+// the tip a select carries: the chosen option's help, else the field's own
 export function selectTitle(sel) {
   const o = sel.selectedOptions && sel.selectedOptions[0];
   return (o && o.title) || sel.dataset.help || "";
+}
+// the tip of the ⓘ beside a select: the field's help, then every option as "label — definition"
+export function optionsTip(f) {
+  const lines = _opts(f).map((o) => (o.help ? `${o.label} — ${o.help}` : o.label));
+  return [f.help || "", ...lines].filter(Boolean).join("\n");
 }
 
 function renderTypedValue(f, v, path, opts) {
@@ -208,9 +213,12 @@ function renderTypedValue(f, v, path, opts) {
       .concat(f.allow_other ? [`<option value="__other__"${isOther ? " selected" : ""}>Other…</option>`] : []).join("");
     const other = f.allow_other
       ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>` : "";
-    // the select's title: the chosen option's definition, else the field's help (kept in data-help)
+    // the select's tip: the chosen option's definition, else the field's help (kept in data-help);
+    // a ⓘ after it lists every option's definition, since a closed select's options cannot be hovered
     const title = (chosen && chosen.help) || f.help || "";
-    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select"${f.help ? ` data-help="${esc(f.help)}"` : ""}${title ? ` title="${esc(title)}"` : ""}>${optionsHtml}</select>${other}</span>`;
+    const anyHelp = !!f.help || options.some((o) => o.help);
+    const info = anyHelp ? `<span class="rv-help rv-opt-help" data-tip="${esc(optionsTip(f))}" title="${esc(optionsTip(f))}" tabindex="0">ⓘ</span>` : "";
+    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select"${f.help ? ` data-help="${esc(f.help)}"` : ""}${title ? ` title="${esc(title)}" data-tip="${esc(title)}"` : ""}>${optionsHtml}</select>${other}${info}</span>`;
   }
   if (t === "enum" && !editable) {
     const hit = _opts(f).find((o) => String(o.value) === String(v));
@@ -220,7 +228,7 @@ function renderTypedValue(f, v, path, opts) {
     const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
     const options = _opts(f);
     const boxes = options.map((o) =>
-      `<label class="rv-chk"${o.help ? ` title="${esc(o.help)}"` : ""}><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
+      `<label class="rv-chk"${o.help ? ` title="${esc(o.help)}" data-tip="${esc(o.help)}"` : ""}><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
     return `<span class="rv-multi${f.allow_other ? " rv-multi-open" : ""}" data-path="${esc(path)}">${boxes}${multiFree(cur, options.map((o) => String(o.value)), !!f.allow_other)}</span>`;
   }
   if (t === "boolean" && editable) {
@@ -272,7 +280,7 @@ function renderTypedTable(f, v, path, opts) {
   if (!rows.length) return `<span class="rv-null">empty</span> ${addBtn}`;
   const names = cols.map((c) => c.name);
   const extra = [...new Set(rows.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-  const head = cols.map((c) => `<th title="${esc(c.help || "")}">${esc(c.label || formatKey(c.name))}</th>`).join("")
+  const head = cols.map((c) => `<th title="${esc(c.help || "")}"${c.help ? ` data-tip="${esc(c.help)}"` : ""}>${esc(c.label || formatKey(c.name))}</th>`).join("")
     + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("")
     + (opts.editable ? `<th class="rv-rowdel-h"></th>` : "");
   const body = rows.map((r, i) => {
@@ -295,7 +303,7 @@ export function renderFields(defs, obj, basePath, opts) {
     const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
-      + `<div class="rv-key${f.help ? " rv-key-help" : ""}" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}${f.help ? `<span class="rv-help" title="${esc(f.help)}">ⓘ</span>` : ""}</div>`
+      + `<div class="rv-key${f.help ? " rv-key-help" : ""}" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}" data-tip="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}${f.help ? `<span class="rv-help" title="${esc(f.help)}" data-tip="${esc(f.help)}" tabindex="0">ⓘ</span>` : ""}</div>`
       + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;

@@ -116,13 +116,32 @@ def test_option_help_becomes_hover_titles() -> None:
         "plain": {"fields": [TAGS_CLOSED], "obj": {"tags": []}, "opts": {"editable": True}},
     })
     m = out["multi"]
-    assert '<label class="rv-chk" title="data from an experiment">' in m and '<label class="rv-chk"><input type="checkbox" value="survey"' in m
-    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply">Source<span class="rv-help" title="all that apply">ⓘ</span>' in m
+    assert '<label class="rv-chk" title="data from an experiment" data-tip="data from an experiment">' in m and '<label class="rv-chk"><input type="checkbox" value="survey"' in m
+    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply" data-tip="all that apply">Source<span class="rv-help" title="all that apply" data-tip="all that apply" tabindex="0">ⓘ</span>' in m
     e = out["enum_rct"]
     assert '<option value="rct" selected title="random assignment">RCT</option>' in e and '<option value="obs" title="no assignment">' in e
-    assert '<select class="rv-select" data-help="the main comparison" title="random assignment">' in e      # the chosen option's definition
-    assert '<select class="rv-select" data-help="the main comparison" title="the main comparison">' in out["enum_none"]   # nothing chosen: the field's help
+    assert '<select class="rv-select" data-help="the main comparison" title="random assignment" data-tip="random assignment">' in e      # the chosen option's definition
+    assert '<select class="rv-select" data-help="the main comparison" title="the main comparison" data-tip="the main comparison">' in out["enum_none"]   # nothing chosen: the field's help
     assert "rv-help" not in out["plain"] and 'title=' not in out["plain"]
+
+
+def test_help_becomes_immediate_tips() -> None:
+    """Every carrier of help carries data-tip for the custom tooltip: the field label and its ⓘ
+    (the field's help), each multi checkbox label (its option's definition), the select (the chosen
+    option's definition) and a ⓘ after the select listing every option as "label — definition"
+    under the field's help."""
+    out = _render({
+        "multi": {"fields": [HELPED_MULTI], "obj": {"src": ["exp"]}, "opts": {"editable": True}},
+        "enum_rct": {"fields": [HELPED_ENUM], "obj": {"design": "rct"}, "opts": {"editable": True}},
+        "plain": {"fields": [TAGS_CLOSED], "obj": {"tags": []}, "opts": {"editable": True}},
+    })
+    m = out["multi"]
+    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply" data-tip="all that apply">Source<span class="rv-help" title="all that apply" data-tip="all that apply" tabindex="0">ⓘ</span>' in m
+    assert '<label class="rv-chk" title="data from an experiment" data-tip="data from an experiment">' in m
+    e = out["enum_rct"]
+    assert '<select class="rv-select" data-help="the main comparison" title="random assignment" data-tip="random assignment">' in e
+    assert '<span class="rv-help rv-opt-help" data-tip="the main comparison\nRCT — random assignment\nobservational — no assignment" title="the main comparison\nRCT — random assignment\nobservational — no assignment" tabindex="0">ⓘ</span></span>' in e
+    assert "data-tip" not in out["plain"]
 
 
 def test_select_title_follows_the_selection() -> None:
@@ -130,11 +149,12 @@ def test_select_title_follows_the_selection() -> None:
     if not node:
         pytest.skip("node is not installed")
     script = """
-import { selectTitle } from %s;
+import { selectTitle, optionsTip } from %s;
 const mk = (opts, chosen, help) => ({ dataset: { help }, selectedOptions: chosen === null ? [] : [opts[chosen]] });
 const opts = [{ value: "rct", title: "random assignment" }, { value: "obs", title: "" }];
-process.stdout.write(JSON.stringify([selectTitle(mk(opts, 0, "the main comparison")), selectTitle(mk(opts, 1, "the main comparison")), selectTitle(mk(opts, null, "")), selectTitle(mk(opts, 1, ""))]));
+process.stdout.write(JSON.stringify([selectTitle(mk(opts, 0, "the main comparison")), selectTitle(mk(opts, 1, "the main comparison")), selectTitle(mk(opts, null, "")), selectTitle(mk(opts, 1, "")),
+  optionsTip({ help: "H", options: [{ value: "a", label: "A", help: "def a" }, "b"] })]));
 """ % json.dumps("file://" + GRAMMAR)
     r = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout) == ["random assignment", "the main comparison", "", ""]
+    assert json.loads(r.stdout) == ["random assignment", "the main comparison", "", "", "H\nA — def a\nb"]

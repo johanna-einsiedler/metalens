@@ -209,6 +209,25 @@ def main() -> int:
                     sel.select_option(v2); page.wait_for_timeout(500)
                     check(sel.get_attribute("title") == t2 and t2 != t1, "and follows the selection")
             check(page.locator(".stg-cells .rv-key.rv-key-help .rv-help[title]").count() >= 1, "a field label carries its help on an ⓘ")
+            # the custom tooltip: at once, with the text of the hovered carrier
+            def tip_after_hover(selector):
+                el = page.locator(selector).first
+                want = el.get_attribute("data-tip")
+                el.hover(); page.wait_for_timeout(100)
+                tip = page.locator(".tip")
+                return want, tip.is_visible(), tip.inner_text().strip()
+            want, vis, got = tip_after_hover(".stg-cells .rv-key .rv-help[data-tip]")
+            check(vis and got == want.strip(), f"hovering a field's ⓘ shows its help at once ('{got[:40]}')")
+            page.mouse.move(5, 5); page.wait_for_timeout(100)
+            check(not page.locator(".tip").is_visible(), "and leaving it hides the tip")
+            want, vis, got = tip_after_hover(".stg-cells .rv-multi .rv-chk[data-tip]")
+            check(vis and got == want.strip(), f"hovering a checkbox shows its option's definition ('{got[:40]}')")
+            page.mouse.move(5, 5); page.wait_for_timeout(100)
+            oi = page.locator(".stg-cells .rv-selwrap .rv-opt-help[data-tip]")
+            if oi.count():
+                want, vis, got = tip_after_hover(".stg-cells .rv-selwrap .rv-opt-help[data-tip]")
+                check(vis and got == want.strip() and "—" in got, "the ⓘ after a select lists the options' definitions")
+                page.mouse.move(5, 5); page.wait_for_timeout(100)
         else:
             print("  n/a  option definitions: the preset carries none")
         # a free term on an open multi field

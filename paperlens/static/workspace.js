@@ -177,9 +177,38 @@ function jumpToMark(id) {
   });
 }
 
+// ── help on hover, at once ───────────────────────────────────────────────────────
+// One tooltip element for every [data-tip]: shown on mouseover or focus with no delay, below
+// the element (above when there is no room), within the viewport, hidden on mouseout, blur or
+// Escape. Native titles stay where they are, but this is what a coder sees.
+function mountTips() {
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; tip.setAttribute("role", "tooltip");
+  document.body.appendChild(tip);
+  let cur = null;
+  const show = (el) => {
+    const text = el.dataset.tip; if (!text) return;
+    cur = el; tip.textContent = text; tip.hidden = false;
+    const r = el.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
+    tip.style.left = "0px"; tip.style.top = "0px";
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = Math.max(6, Math.min(r.left, vw - tw - 6));
+    let top = r.bottom + 6;
+    if (top + th > vh - 6) top = Math.max(6, r.top - th - 6);
+    tip.style.left = `${Math.round(left)}px`; tip.style.top = `${Math.round(top)}px`;
+  };
+  const hide = () => { cur = null; tip.hidden = true; };
+  document.addEventListener("mouseover", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el !== cur) show(el); else if (!el && cur) hide(); });
+  document.addEventListener("mouseout", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el === cur && !(e.relatedTarget && el.contains(e.relatedTarget))) hide(); });
+  document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el) show(el); });
+  document.addEventListener("focusout", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el === cur) hide(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+  document.addEventListener("scroll", () => { if (cur) hide(); }, true);
+}
+
 async function init() {
   mountSplitter();
   mountMarking();
+  mountTips();
   mountPdfZoom();
   mountKeys();
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
@@ -1986,7 +2015,7 @@ function eviSync(scope, path, val) {
       const sv = val === null || val === undefined ? "" : String(val);
       if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
       else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
-      s.title = selectTitle(s);
+      s.title = selectTitle(s); s.dataset.tip = s.title;
     } else if (cell.classList.contains("rv-multi")) {
       multiSetValues(cell, val);
     }
@@ -2524,7 +2553,7 @@ function wireControls(container, onSave, textToo) {
     const isBool = wrap.classList.contains("rv-bool");
     const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
     sel.onchange = () => {
-      sel.title = selectTitle(sel);                        // the chosen option's definition on hover
+      sel.title = selectTitle(sel); sel.dataset.tip = sel.title;   // the chosen option's definition on hover
       if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
       if (other) other.hidden = true;
       if (isBool) { commit(sel.value === "" ? null : sel.value === "true"); return; }

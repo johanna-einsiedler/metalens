@@ -163,7 +163,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (`{value, label, help}`) — the review shows it as the title of the checkbox label, of each
   `<option>` and of the select itself (the chosen option's definition, else the field's help);
   a field with help gets a dotted underline and a small ⓘ on its label. Wording only: it never
-  re-versions a dataset.
+  re-versions a dataset. The help shows at once in one custom tooltip (`[data-tip]`, shown on
+  hover or focus, below or above the element within the window, hidden on leaving or Escape),
+  not through the browser's slow native title: on the field label and its ⓘ, on each checkbox
+  label, on the select (the chosen option's definition) and on a ⓘ after the select listing
+  every option as "label — definition" under the field's help.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

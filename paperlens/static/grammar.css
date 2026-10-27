@@ -12,6 +12,12 @@
 /* a field with help: a dotted underline and a small ⓘ, both carrying the definition on hover */
 .rv-key.rv-key-help { text-decoration: underline dotted var(--border); text-underline-offset: 3px; cursor: help; }
 .rv-help { font-size: 10px; font-weight: 400; margin-left: 4px; color: var(--text-muted); vertical-align: 1px; cursor: help; }
+.rv-help:focus { outline: none; color: var(--accent); }
+.rv-opt-help { font-size: 11px; margin-left: 2px; }
+/* the one tooltip: at once, plain text with its line breaks, within the viewport */
+.tip { position: fixed; z-index: 1000; max-width: 340px; padding: 6px 9px; border-radius: 6px; font-size: 12.5px; line-height: 1.4;
+  white-space: pre-line; color: var(--surface); background: var(--text); box-shadow: var(--shadow-sm); pointer-events: none; }
+.tip[hidden] { display: none; }
 .rv-val { color: var(--text); line-height: 1.5; word-break: break-word; flex: 0 1 auto;
   min-width: 0; text-align: left; }
 /* nested objects/tables take the full row width and stack the value under the key */
