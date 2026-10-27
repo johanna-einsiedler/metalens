@@ -471,6 +471,7 @@ def _stage_errors(mutate) -> list[str]:
     ("no stages", lambda rv: rv.pop("stages"), "stages must list at least one stage"),
     ("empty stages", lambda rv: rv.update(stages=[]), "at least one stage"),
     ("unknown review key", lambda rv: rv.update(paper_fields=["design"]), "unknown key 'paper_fields'"),
+    ("verify not entry or paper", lambda rv: rv.update(verify="never"), "verify must be 'entry'"),
     ("items not a table", lambda rv: rv.update(items="design"), "table field of the entry or the paper"),
     ("auto_id list on a plain entry stage", lambda rv: rv["stages"][1].update(auto_id=[{"field": "sample_id", "next": "S{n}"}]), "a list of them only on a stage with the entry's fields and a child's"),
     ("child without child_fields", lambda rv: rv["stages"][2].pop("child_fields"), "ONE level"),

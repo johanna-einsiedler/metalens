@@ -1998,8 +1998,10 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     efields = {f.get("name"): f for f in (ent.get("fields") or []) if isinstance(f, dict)}
     kids = {c.get("key"): {f.get("name"): f for f in (c.get("fields") or []) if isinstance(f, dict)}
             for c in (ent.get("children") or []) if isinstance(c, dict)}
-    for k in sorted(set(rv) - {"layout", "items", "stages"}):
-        E(f"$.display.review: unknown key {k!r} (a staged review takes items and stages)")
+    for k in sorted(set(rv) - {"layout", "items", "stages", "verify"}):
+        E(f"$.display.review: unknown key {k!r} (a staged review takes items, stages and verify)")
+    if rv.get("verify") not in (None, "entry", "paper"):
+        E("$.display.review.verify must be 'entry' (each entry verified or flagged, the default) or 'paper' (the coder builds the entries: no per-entry verdict, one 'done' for the paper)")
     _items_table(rv, spec, E, W)
     stages = rv.get("stages")
     if not isinstance(stages, list) or not stages:

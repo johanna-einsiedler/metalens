@@ -2016,18 +2016,20 @@ function renderEviRest(rv, groups, recs) {
 
 // One strip per entry: its title, review status, the model's ratings, verify / flag, history.
 function renderEviStrip(panel, rec) { panel.appendChild(eviStripEl(rec)); }
+function paperVerify() { return stagesOpen() && ((stagesSpec() || {}).verify || "entry") === "paper"; }
 function eviStripEl(rec) {
   const card = document.createElement("div");
   card.className = "record evi-rec"; card.dataset.rid = rec.id;
-  const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
-  const groups = Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
+  const own = paperVerify();                                // the coder built this entry: nothing to verify or flag
+  const worst = own ? null : worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+  const groups = own ? [] : Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
   card.innerHTML = `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
-    + `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`
+    + (own ? "" : `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`)
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
-    + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
+    + (own ? "" : `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
+      + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`)
     + (groups.length ? `<div class="group-head">${groups.map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("")}</div>` : "")
     + `<div class="histbody" hidden></div>`;
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
@@ -2380,8 +2382,8 @@ function renderStagesPanel(panel, rv) {
   bar.innerHTML = `<button type="button" class="chain-nav stg-prev" title="previous stage ([)"${STAGE > 0 ? "" : " disabled"}>‹</button>`
     + stages.map((s, i) => `<button type="button" class="stg-tab${i === STAGE ? " active" : ""}" data-i="${i}" title="${esc(s.help || "")}"><span class="stg-k">${stageLetter(i)}</span> ${esc(s.label || s.id)}</button>`).join("")
     + `<button type="button" class="chain-nav stg-next" title="next stage (])"${STAGE < stages.length - 1 ? "" : " disabled"}>›</button>`
-    + `<span class="stg-prog muted">${pr.total ? (pr.done ? `✓ every ${esc(unit)} verified` : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
-    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="mark every unreviewed ${esc(unit)} verified — the paper is done when all are">✓ verify all ${esc(units)}</button>` : "")
+    + `<span class="stg-prog muted">${pr.total ? (pr.done ? (paperVerify() ? "✓ paper done" : `✓ every ${esc(unit)} verified`) : paperVerify() ? "" : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
+    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="${paperVerify() ? "mark this paper done (every task recorded as reviewed)" : `mark every unreviewed ${esc(unit)} verified — the paper is done when all are`}">${paperVerify() ? "✓ done with this paper" : `✓ verify all ${esc(units)}`}</button>` : "")
     + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(units)}</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(units)} here</button>`) : "");
   panel.appendChild(bar);
   if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }

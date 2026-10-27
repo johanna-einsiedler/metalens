@@ -460,6 +460,15 @@ body.stg-pdf-closed .stg-pdf-strip { display: flex; align-items: center; gap: 10
 .stg-pdf-k { font-size: 11px; color: var(--text-muted); white-space: nowrap; letter-spacing: .02em; }
 #pagespane .stg-pane-nav .stg-pdf-close { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 4px 4px 0; }
 /* the foot of a stage: previous item, and next item / next stage / done */
+/* tables in a stage's fields block are tight: the model's lists are long */
+.stg-cells .rv-table { font-size: 11.5px; }
+.stg-cells .rv-table th, .stg-cells .rv-table td { padding: 1px 5px; line-height: 1.25; }
+.stg-cells .rv-table.rv-typed td, .stg-cells .rv-table.rv-typed th { vertical-align: top; }
+.stg-cells .rv-typed .rv-editable { padding: 0 2px; }
+.stg-cells .rv-typed .rv-editable:empty { min-width: 2em; min-height: 1em; }
+.stg-cells .rv-typed select { font-size: 11.5px; padding: 0 2px; }
+.stg-cells .rv-typed .rv-opt-help { display: none; }
+.stg-cells .rv-typed .rv-selwrap { white-space: nowrap; }
 .stg-accept { border: 1px solid var(--border); background: var(--surface); color: var(--accent); border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; padding: 1px 6px; white-space: nowrap; }
 .stg-accept:hover { background: var(--accent-wash); border-color: var(--accent); }
 .stg-accept.done { color: var(--success); border-color: var(--success); cursor: default; }

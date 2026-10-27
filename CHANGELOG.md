@@ -144,7 +144,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   writes the row's id into the child's id field and sets the row's verdict to `accepted` — the
   model's estimates verified into the coder's rows, never retyped; its optional `lookup: {table,
   key_column, take_column, into_field}` carries one more value over from another paper table by
-  the row's key (the coder's outcome id from the alignment table). The staged head shows the
+  the row's key (the coder's outcome id from the alignment table). `display.review.verify:
+  "paper"` drops the per-entry status, verify and flag (the coder built the entries) for one
+  "✓ done with this paper"; the tables in a stage's fields block are set tight. The staged head shows the
   paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and
   JSON only — no Fields or Grid toggle, no ＋ entry (the stage adds), no CSV; the paper strip at
   the left narrows to one PDF icon per paper (its name on hover, the count in the corner); the
