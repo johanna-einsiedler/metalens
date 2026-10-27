@@ -151,7 +151,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   task), `copy_from_sibling` then naming its child; `match: {table, columns: {column: {from, value,
   label}}}` turns the named columns of the paper table into selects fed by the paper's own units (the
   entries, or a child's rows), lists the coder's units over the table and the units no row points to
-  under it. `display.review.verify:
+  under it. The foot of a stage moves between stages ("next ▸", "◂"; the PDF pane's control and
+  ← → move the items), and on the last stage reads "✓ done with this paper" where the preset
+  verifies per paper. An editable list field is typed as comma-separated items. `display.review.verify:
   "paper"` drops the per-entry status, verify and flag (the coder built the entries) for one
   "✓ done with this paper"; the tables in a stage's fields block are set tight. The staged head shows the
   paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and

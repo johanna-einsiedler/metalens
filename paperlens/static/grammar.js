@@ -237,6 +237,11 @@ function renderTypedValue(f, v, path, opts) {
       + `<option value=""${val === "" ? " selected" : ""}>—</option><option value="true"${val === "true" ? " selected" : ""}>true</option>`
       + `<option value="false"${val === "false" ? " selected" : ""}>false</option></select></span>`;
   }
+  if (t === "list" && editable) {                       // a list the coder types as comma-separated items
+    const items = Array.isArray(v) ? v : v === null || v === undefined ? [] : [v];
+    return `<span contenteditable="plaintext-only" class="rv-editable rv-listed${items.length ? "" : " rv-empty"}" data-path="${esc(path)}"`
+      + ` title="${esc((f.help ? f.help + " — " : "") + "comma-separated")}">${esc(items.map((x) => String(x)).join(", "))}</span>`;
+  }
   if (v === null) {
     const num = t === "integer" || t === "number";
     if (editable && t !== "list" && t !== "multi") {   // a blank the coder can type into (the model left it null)

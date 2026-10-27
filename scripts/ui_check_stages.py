@@ -145,7 +145,7 @@ def main() -> int:
         check(nums == sorted(nums), "the stage's items in order")
         foot = page.locator(".stg-foot .stg-next")
         check(foot.count() == 1 and page.evaluate("() => { const f = document.querySelector('.stg-foot'), c = document.querySelector('.stg-cells'); return !!(f && c && (c.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the next button sits below the fields block")
-        check(foot.inner_text().strip() == ("next ▸" if n_in >= 2 else "next stage ▸"), f"it reads '{foot.inner_text().strip()}'")
+        check(foot.inner_text().strip() == "next ▸", f"it reads '{foot.inner_text().strip()}'")
         check(page.locator(".stg-evidence .stg-other").count() == 1 or n_in == all_items, "the other items are folded under the box")
         check(page.locator(".stg-evidence > .evi-item .ev-cite[data-eids]").count() >= 1, "page jumps on located items")
         # the cursor and the pane
@@ -187,16 +187,11 @@ def main() -> int:
                 page.keyboard.press("ArrowRight")
             page.wait_for_timeout(400)
             check(cur_index() == [str(n_in - 1)], "the cursor stops at the last item")
-            check(foot.inner_text().strip() == "next stage ▸", "on the last item the button reads 'next stage ▸'")
             foot.click(); page.wait_for_timeout(500)
-            check(letter() == "b" and cur_index() in (["0"], []), "and moves to the next stage, its cursor on the first item")
-            page.keyboard.press("["); page.wait_for_timeout(500)             # back to the first stage, cursor on its first item
+            check(letter() == "b" and cur_index() in (["0"], []), "'next ▸' moves to the next stage, its cursor on the first item")
+            page.locator(".stg-foot .stg-foot-prev").click(); page.wait_for_timeout(400)
+            check(letter() == "a", "'◂' moves back to the previous stage")
             foot = page.locator(".stg-foot .stg-next")
-            if n_in >= 2:
-                foot.click(); page.wait_for_timeout(500)
-                check(cur_index() == ["1"], "'next ▸' moves to the next item")
-                page.locator(".stg-foot .stg-foot-prev").click(); page.wait_for_timeout(400)
-                check(cur_index() == ["0"], "'◂' moves back")
         if a.shots:
             page.screenshot(path=os.path.join(a.shots, "stage_a.png"), full_page=False)
             page.locator(".stg-tab").nth(max(1, tab_index("task|entry|sample"))).click(); page.wait_for_timeout(900)

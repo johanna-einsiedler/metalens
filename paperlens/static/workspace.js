@@ -2055,7 +2055,7 @@ function eviSync(scope, path, val) {
   const sel = `#panelbody ${scope} [data-path="${CSS.escape(path)}"]`;
   document.querySelectorAll(sel).forEach((cell) => {
     if (cell.classList.contains("rv-editable")) {
-      const txt = val === null || val === undefined ? "" : String(val);
+      const txt = val === null || val === undefined ? "" : Array.isArray(val) ? val.map((x) => String(x)).join(", ") : String(val);
       if (cell.textContent !== txt) cell.textContent = txt;
       cell.dataset.orig = txt; cell.classList.toggle("rv-empty", txt.trim() === "");
     } else if (cell.classList.contains("rv-selwrap")) {
@@ -2163,18 +2163,20 @@ function stageCursor(i) {
 }
 // The button at the foot of the stage panel: the next item while there is one, else the next
 // stage, else "done" (the last stage, last item: it only scrolls back to the top).
+// The buttons at the foot of the stage panel move through the stages (the items are moved by the
+// PDF pane's control and ← →): "next ▸" to the next stage, and on the last stage "done" — which,
+// where the preset verifies per paper, marks the paper done.
 function stageFootState() {
-  const n = STAGE_ITEMS.length, last = ((stagesSpec() || {}).stages || []).length - 1;
-  if (n && STAGE_CUR < n - 1) return "item";
+  const last = ((stagesSpec() || {}).stages || []).length - 1;
   return STAGE < last ? "stage" : "done";
 }
 function updateStageFoot() {
   const b = document.querySelector(".stg-foot .stg-next"), p = document.querySelector(".stg-foot .stg-foot-prev");
   if (!b) return;
-  const st = stageFootState();
-  b.textContent = st === "item" ? "next ▸" : st === "stage" ? "next stage ▸" : "done";
-  b.title = st === "item" ? "the next item of this stage (→)" : st === "stage" ? "the next stage (])" : "the last item of the last stage";
-  if (p) p.disabled = !STAGE_ITEMS.length || STAGE_CUR <= 0;
+  const st = stageFootState(), finish = st === "done" && paperVerify() && docProgress().total && !docProgress().done;
+  b.textContent = st === "stage" ? "next ▸" : finish ? "✓ done with this paper" : "done";
+  b.title = st === "stage" ? "the next stage (])" : finish ? "mark this paper done" : "the last stage";
+  if (p) p.disabled = STAGE <= 0;
 }
 function stageShowItem() {
   const where = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
@@ -2513,7 +2515,7 @@ function renderStagesPanel(panel, rv) {
   evhost.appendChild(evbox);
   panel.appendChild(stageCellsBlock(st, L, recs));
   const foot = document.createElement("div"); foot.className = "stg-foot";
-  foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous item (←)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
+  foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous stage ([)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
   panel.appendChild(foot);
   wireEvidencePanel(panel, recs);
   if (evhost !== panel) wireEvidencePanel(evbox, recs);
@@ -2561,12 +2563,11 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
   panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = () => doAddFinding(stageEntryAutoId(st))));
   const nx = panel.querySelector(".stg-foot .stg-next"), pv = panel.querySelector(".stg-foot .stg-foot-prev");
   if (nx) nx.onclick = () => {
-    const fs = stageFootState();
-    if (fs === "item") stageCursor(STAGE_CUR + 1);
-    else if (fs === "stage") stageStep(1);
+    if (stageFootState() === "stage") stageStep(1);
+    else if (paperVerify() && docProgress().total && !docProgress().done) verifyAll(nx);
     else for (const sel of ["#panel", "#panelbody"]) if ($(sel)) $(sel).scrollTo({ top: 0, behavior: "smooth" });
   };
-  if (pv) pv.onclick = () => stageCursor(STAGE_CUR - 1);
+  if (pv) pv.onclick = () => stageStep(-1);
   // a page tag in the list: that item becomes current and the column opens on it if collapsed;
   // a tag in the "other evidence" fold opens the column and jumps as the generic tag does
   evbox.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
@@ -2763,8 +2764,10 @@ function wireControls(container, onSave, textToo) {
       if (now === cell.dataset.orig) return;
       cell.classList.add("rv-edited");
       cell.classList.toggle("rv-empty", now.trim() === "");
-      // cleared → null (not ""); a number typed into a numeric cell → number; else text
-      const val = now.trim() === "" ? null
+      // cleared → null (not ""); a number typed into a numeric cell → number; a list cell → its
+      // comma-separated items ([] when cleared); else text
+      const val = cell.classList.contains("rv-listed") ? now.split(",").map((x) => x.trim()).filter(Boolean)
+        : now.trim() === "" ? null
         : cell.classList.contains("rv-num") && !isNaN(Number(now)) ? Number(now) : now;
       Promise.resolve(onSave(cell.dataset.path, val)).then(() => (cell.dataset.orig = now));
     });
