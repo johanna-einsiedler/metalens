@@ -79,9 +79,15 @@ _ALLOWED_KEYS = {
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id"},
-    "copy": {"when", "fields"},
-    "auto_id": {"field", "first", "next"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link"},
+    "link": {"child", "field", "value", "label", "when", "skip_when"},
+    "stage_child": {"key", "fields"},
+    "copy": {"when", "fields", "child"},
+    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column", "lookup", "group_by", "skip_fields"},
+    "lookup": {"table", "key_column", "take_column", "into_field"},
+    "match": {"table", "columns"},
+    "match_col": {"from", "value", "label", "skip_when"},
+    "auto_id": {"field", "first", "next", "first_values"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
     "author": {"family", "given", "orcid", "affiliation"},
@@ -1967,14 +1973,25 @@ def _validate_evidence_review(rv: dict, spec: dict, E, W) -> None:
 def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     """display.review.layout "stages": ``items`` names the reader's items table (see
     ``_items_table``) and ``stages`` the ordered stages a coder works through. Each stage is
-    ``{id, label, help, …}`` naming the fields of ONE level — ``paper_fields``, ``fields`` (of the
-    entry) or ``child`` + ``child_fields`` (of that child) — and, on a child stage, may carry
-    ``copy_from_sibling: {when, fields}``: a row's button copies the listed fields from the sibling
-    row whose boolean ``when`` field is true (the reference arm's sample, say). An entry or child
-    stage may carry ``auto_id: {field, first?, next}``: what "add" writes into ``field`` (a string
-    field of that level) — ``first`` when no sibling has a value there, else ``next`` with ``{n}``
-    the smallest number not yet used (``{"field": "arm_id", "first": "C", "next": "T{n}"}`` gives
-    C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
+    ``{id, label, help, …}`` naming the fields of one level — ``paper_fields``, ``fields`` (of the
+    entry) or ``child`` + ``child_fields`` (of that child) — or several together: the paper's
+    cells, then each entry's cells, then its rows under them. A stage with a paper table and a
+    child may carry ``accept_rows: {from, child, id_column, id_field, verdict_column, accepted,
+    task_column?}``: every row of the table ``from`` gets a "＋ row" button that copies its
+    same-named columns into a new row of ``child`` under the entry the ``task_column`` names
+    (the only entry, or one the coder picks), writes the row's ``id_column`` into the new row's
+    ``id_field`` and sets the table row's ``verdict_column`` to ``accepted`` — the model's
+    estimates verified into the coder's rows, never retyped. Its optional ``lookup: {table,
+    key_column, take_column, into_field}`` takes one more value from another paper table: the row
+    of ``table`` whose ``key_column`` equals the accepted row's, its ``take_column`` written into
+    the child's ``into_field`` (the coder's outcome id from the alignment, say). A stage with a child may carry
+    ``copy_from_sibling: {when, fields}``: a row's button copies the
+    listed fields from the sibling row whose boolean ``when`` field is true (the reference arm's
+    sample, say). An entry or child stage may carry ``auto_id: {field, first?, next}`` — a list of
+    them, one per level, on a stage with the entry's fields and a child's — what "add" writes into
+    ``field`` (a string field of that level): ``first`` when no sibling has a value there, else
+    ``next`` with ``{n}`` the smallest number not yet used (``{"field": "arm_id", "first": "C",
+    "next": "T{n}"}`` gives C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
     bears_on meets its fields as one bare list (page and quote) with a cursor over them, then its
     cells (once), then a "next" button — and the PDF column, collapsed to a strip until opened
     (two fifths of the window by default), follows the cursor to the current item's page while
@@ -1985,8 +2002,10 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     efields = {f.get("name"): f for f in (ent.get("fields") or []) if isinstance(f, dict)}
     kids = {c.get("key"): {f.get("name"): f for f in (c.get("fields") or []) if isinstance(f, dict)}
             for c in (ent.get("children") or []) if isinstance(c, dict)}
-    for k in sorted(set(rv) - {"layout", "items", "stages"}):
-        E(f"$.display.review: unknown key {k!r} (a staged review takes items and stages)")
+    for k in sorted(set(rv) - {"layout", "items", "stages", "verify"}):
+        E(f"$.display.review: unknown key {k!r} (a staged review takes items, stages and verify)")
+    if rv.get("verify") not in (None, "entry", "paper"):
+        E("$.display.review.verify must be 'entry' (each entry verified or flagged, the default) or 'paper' (the coder builds the entries: no per-entry verdict, one 'done' for the paper)")
     _items_table(rv, spec, E, W)
     stages = rv.get("stages")
     if not isinstance(stages, list) or not stages:
@@ -2012,54 +2031,126 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
             E(f"{at}.label is required")
         if not (isinstance(st.get("help"), str) and st["help"].strip()):
             W(f"{at}: no help — the coder gets no instruction at the top of the stage")
-        levels = [k for k in ("paper_fields", "fields", "child") if st.get(k) is not None]
-        if len(levels) != 1 or (st.get("child") is None) != (st.get("child_fields") is None):
-            E(f"{at} must name fields of ONE level: paper_fields, fields (the entry) or child + child_fields")
+        levels = [k for k in ("paper_fields", "fields", "child", "children") if st.get(k) is not None]
+        if not levels or (st.get("child") is None) != (st.get("child_fields") is None) or (st.get("child") is not None and st.get("children") is not None):
+            E(f"{at} must name fields of at least ONE level (paper_fields; fields, the entry; child + child_fields, or children: [{{key, fields}}]), alone or together")
             continue
-        level = levels[0]
-        ck = st.get("child")
-        if level == "child" and ck not in kids:
-            E(f"{at}.child must name a child of the entries")
+        kidspec = list(st.get("children") or []) + ([{"key": st["child"], "fields": st["child_fields"]}] if st.get("child") is not None else [])
+        ok, kid_keys = True, []
+        for j, kd in enumerate(kidspec):
+            if not isinstance(kd, dict) or set(kd) - _ALLOWED_KEYS["stage_child"] or kd.get("key") not in kids or kd.get("key") in kid_keys:
+                E(f"{at}.children[{j}] must be {{key: a child of the entries, fields: [...]}}, each child once"); ok = False
+                continue
+            kid_keys.append(kd["key"])
+        if not ok:
             continue
-        names = st["child_fields"] if level == "child" else st[level]
-        known = kids[ck] if level == "child" else (pfields if level == "paper_fields" else efields)
-        what = f"a field of {ck!r}" if level == "child" else ("a paper field" if level == "paper_fields" else "an entry field")
-        key = "child_fields" if level == "child" else level
-        if not isinstance(names, list) or not names:
-            E(f"{at}.{key} must be a non-empty list of field names")
+        both = st.get("fields") is not None and bool(kid_keys)        # the entry's cells, then its rows
+        level = "child" if kid_keys else levels[0]                    # where the rows, auto ids and copies live
+        ck = kid_keys[0] if len(kid_keys) == 1 else None
+        parts = []                                                     # (key, names, known, what) per level named
+        if st.get("paper_fields") is not None:
+            parts.append(("paper_fields", st["paper_fields"], pfields, "a paper field"))
+        if st.get("fields") is not None:
+            parts.append(("fields", st["fields"], efields, "an entry field"))
+        for j, kd in enumerate(kidspec):
+            parts.append(("child_fields" if st.get("child") is not None else f"children[{j}].fields", kd["fields"], kids[kd["key"]], f"a field of {kd['key']!r}"))
+        for key, names, known, what in parts:
+            if not isinstance(names, list) or not names:
+                E(f"{at}.{key} must be a non-empty list of field names"); ok = False
+                continue
+            for n in names:
+                if n not in known:
+                    E(f"{at}.{key}: {n!r} is not {what}")
+                elif n == rv.get("items"):
+                    E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
+                else:
+                    covered.add(n)
+        if not ok:
             continue
-        for n in names:
-            if n not in known:
-                E(f"{at}.{key}: {n!r} is not {what}")
-            elif n == rv.get("items"):
-                E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
-            else:
-                covered.add(n)
         ai = st.get("auto_id")
         if ai is not None:
-            if level == "paper_fields":
+            homes = ([(efields, "a string field of the entry")] if st.get("fields") is not None else []) \
+                + [(kids[k], f"a string field of {k!r}") for k in kid_keys]
+            many = both or len(kid_keys) > 1
+            if not homes:
                 E(f"{at}.auto_id only applies to an entry or child stage")
-            elif not isinstance(ai, dict):
-                E(f"{at}.auto_id must be an object {{field, first?, next}}")
+            elif not isinstance(ai, (dict, list)) or (isinstance(ai, list) and not many):
+                E(f"{at}.auto_id must be an object {{field, first?, next}}" + (" — a list of them only on a stage with the entry's fields and a child's" if isinstance(ai, list) else ""))
             else:
-                for k in sorted(set(ai) - _ALLOWED_KEYS["auto_id"]):
-                    E(f"{at}.auto_id: unknown key {k!r}")
-                where = f"a string field of {ck!r}" if level == "child" else "a string field of the entry"
-                if (known.get(ai.get("field")) or {}).get("type") != "string":
-                    E(f"{at}.auto_id.field must name {where}")
-                if not isinstance(ai.get("next"), str) or "{n}" not in ai["next"]:
-                    E(f"{at}.auto_id.next must be a string containing {{n}}")
-                if "first" in ai and not isinstance(ai["first"], str):
-                    E(f"{at}.auto_id.first must be a string")
+                for a in (ai if isinstance(ai, list) else [ai]):
+                    if not isinstance(a, dict):
+                        E(f"{at}.auto_id must be an object {{field, first?, next}} (or a list of them)"); continue
+                    for k in sorted(set(a) - _ALLOWED_KEYS["auto_id"]):
+                        E(f"{at}.auto_id: unknown key {k!r}")
+                    if not any((known.get(a.get("field")) or {}).get("type") == "string" for known, _ in homes):
+                        E(f"{at}.auto_id.field must name " + " or ".join(w for _, w in homes))
+                    if not isinstance(a.get("next"), str) or "{n}" not in a["next"]:
+                        E(f"{at}.auto_id.next must be a string containing {{n}}")
+                    if "first" in a and not isinstance(a["first"], str):
+                        E(f"{at}.auto_id.first must be a string")
+                    fv = a.get("first_values")
+                    if fv is not None and (not isinstance(fv, dict) or not fv or any(not any(k in known for known, _ in homes) for k in fv)):
+                        E(f"{at}.auto_id.first_values must map fields of the stage's levels to the values the first row starts with")
+        ar = st.get("accept_rows")
+        if ar is not None:
+            tbl = pfields.get(ar.get("from")) if isinstance(ar, dict) else None
+            cols = {c.get("name"): c for c in (tbl.get("columns") or []) if isinstance(c, dict)} if tbl and tbl.get("type") == "table" else None
+            kid = kids.get(ar.get("child")) if isinstance(ar, dict) else None
+            vcol = (cols or {}).get((ar or {}).get("verdict_column")) if isinstance(ar, dict) else None
+            vopts = [o.get("value") if isinstance(o, dict) else o for o in ((vcol or {}).get("options") or [])] if isinstance(vcol, dict) else []
+            if (not isinstance(ar, dict) or set(ar) - _ALLOWED_KEYS["accept"] or cols is None or kid is None
+                    or ar.get("id_column") not in cols or (kid.get(ar.get("id_field")) or {}).get("type") != "string"
+                    or (vcol or {}).get("type") != "enum" or ar.get("accepted") not in vopts
+                    or ("task_column" in ar and ar["task_column"] not in cols) or ("group_by" in ar and ar["group_by"] not in cols)
+                    or ("skip_fields" in ar and (not isinstance(ar["skip_fields"], list) or any(n not in kid for n in ar["skip_fields"])))):
+                E(f"{at}.accept_rows needs from (a paper table field) with id_column, verdict_column (an enum column), accepted (one of its options) and, "
+                  f"when given, task_column and group_by (columns of it); child with id_field (a string field of it)")
+            elif ar.get("child") not in kid_keys:
+                E(f"{at}.accept_rows.child must be a child of the stage")
+            lk = ar.get("lookup") if isinstance(ar, dict) else None
+            if lk is not None:
+                for l1 in (lk if isinstance(lk, list) else [lk]):
+                    lt = pfields.get(l1.get("table")) if isinstance(l1, dict) else None
+                    lcols = {c.get("name") for c in (lt.get("columns") or []) if isinstance(c, dict)} if lt and lt.get("type") == "table" else set()
+                    if (not isinstance(l1, dict) or set(l1) - _ALLOWED_KEYS["lookup"] or not lcols
+                            or l1.get("key_column") not in lcols or l1.get("take_column") not in lcols
+                            or (cols is None or l1.get("key_column") not in cols)
+                            or (kid is None or (l1.get("into_field") != "$entry" and l1.get("into_field") not in kid))):
+                        E(f"{at}.accept_rows.lookup needs table (a paper table field) with key_column (also a column of from) and take_column, "
+                          f"and into_field (a field of the child, or $entry for the entry the row goes under)")
+        lks = st.get("link")
+        if lks is not None:
+            for j, lk in enumerate(lks if isinstance(lks, list) else [None]):
+                kd = kids.get(lk.get("child")) if isinstance(lk, dict) else None
+                if (not isinstance(lk, dict) or set(lk) - _ALLOWED_KEYS["link"] or kd is None or lk.get("child") not in kid_keys
+                        or any(lk.get(k) not in kd for k in ("field", "value", "label"))
+                        or any(k in lk and (kd.get(lk[k]) or {}).get("type") != "boolean" for k in ("when", "skip_when"))):
+                    E(f"{at}.link[{j}] needs child (a child of the stage), field, value and label (fields of it) and, when given, when and skip_when (boolean fields of it)")
+        mt = st.get("match")
+        if mt is not None:
+            tbl = pfields.get(mt.get("table")) if isinstance(mt, dict) else None
+            mcols = {c.get("name") for c in (tbl.get("columns") or []) if isinstance(c, dict)} if tbl and tbl.get("type") == "table" else None
+            if (not isinstance(mt, dict) or set(mt) - _ALLOWED_KEYS["match"] or mcols is None or mt.get("table") not in (st.get("paper_fields") or [])
+                    or not isinstance(mt.get("columns"), dict) or not mt["columns"]):
+                E(f"{at}.match needs table (a paper table field of the stage) and columns {{column: {{from, value, label}}}}")
+            else:
+                for cn, mc in mt["columns"].items():
+                    lvl = mc.get("from") if isinstance(mc, dict) else None
+                    known = efields if lvl == "entry" else kids.get(lvl)
+                    if (cn not in mcols or not isinstance(mc, dict) or set(mc) - _ALLOWED_KEYS["match_col"] or known is None
+                            or mc.get("value") not in known or mc.get("label") not in known
+                            or ("skip_when" in mc and (known.get(mc["skip_when"]) or {}).get("type") != "boolean")):
+                        E(f"{at}.match.columns.{cn}: must be a column of the table, with from ('entry' or a child of the entries), its value and label fields, and skip_when a boolean field of it when given")
         cs = st.get("copy_from_sibling")
         if cs is not None:
-            if level != "child":
-                E(f"{at}.copy_from_sibling only applies to a child stage")
-            elif (not isinstance(cs, dict) or set(cs) - _ALLOWED_KEYS["copy"]
-                  or (kids[ck].get(cs.get("when")) or {}).get("type") != "boolean"
+            ck2 = cs.get("child") if isinstance(cs, dict) and cs.get("child") else ck
+            if ck2 is None:
+                E(f"{at}.copy_from_sibling only applies to a child stage (one with child + child_fields, or children with its child named)")
+            elif (not isinstance(cs, dict) or set(cs) - _ALLOWED_KEYS["copy"] or ck2 not in kids or ck2 not in kid_keys
+                  or (kids[ck2].get(cs.get("when")) or {}).get("type") != "boolean"
                   or not isinstance(cs.get("fields"), list) or not cs["fields"]
-                  or any(n not in kids[ck] for n in cs["fields"])):
-                E(f"{at}.copy_from_sibling needs 'when' (a boolean field of {ck!r}) and 'fields' (fields of {ck!r})")
+                  or any(n not in kids[ck2] for n in cs["fields"])):
+                E(f"{at}.copy_from_sibling needs 'when' (a boolean field of {ck2!r}) and 'fields' (fields of {ck2!r})")
     declared = [n for n in pfields] + [n for n in efields] + [n for ch in kids.values() for n in ch]
     for n in declared:
         if n not in covered and n != rv.get("items"):

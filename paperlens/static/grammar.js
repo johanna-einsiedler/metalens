@@ -237,6 +237,11 @@ function renderTypedValue(f, v, path, opts) {
       + `<option value=""${val === "" ? " selected" : ""}>—</option><option value="true"${val === "true" ? " selected" : ""}>true</option>`
       + `<option value="false"${val === "false" ? " selected" : ""}>false</option></select></span>`;
   }
+  if (t === "list" && editable) {                       // a list the coder types as comma-separated items
+    const items = Array.isArray(v) ? v : v === null || v === undefined ? [] : [v];
+    return `<span contenteditable="plaintext-only" class="rv-editable rv-listed${items.length ? "" : " rv-empty"}" data-path="${esc(path)}"`
+      + ` title="${esc((f.help ? f.help + " — " : "") + "comma-separated")}">${esc(items.map((x) => String(x)).join(", "))}</span>`;
+  }
   if (v === null) {
     const num = t === "integer" || t === "number";
     if (editable && t !== "list" && t !== "multi") {   // a blank the coder can type into (the model left it null)
@@ -338,7 +343,7 @@ export function renderChild(child, rows, opts) {
   if ((child.layout || "table") === "table") {
     const names = (child.fields || []).map((f) => f.name);
     const extra = opts.show ? [] : [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
+    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.help ? ` data-tip="${esc(f.help)}"` : ""}${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
       + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("") + (manage ? `<th class="rv-rowdel-h"></th>` : "");
     const body = picked.map(([r, k]) => {
       const base = `${key}[${k}]`;

@@ -121,21 +121,54 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (table) → result: mean"). The cells, saves and verification are the generic card's.
 - Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
   paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
-  stages (a→g, `]`/`[`) in the left panel — the stage's instruction, then the reader's items that
-  bear on the stage's fields as one bare list (the page tag hanging at the left of the quote, or
-  above a table) with a cursor over them (the rest folded at the end), then its cells (paper
-  fields; every entry as a card with "＋ add"; or each entry's arms / results with "＋", "✕",
-  "copy … from <entry>" and "same as <the reference row>"), then "◂ · next ▸", which becomes
-  "next stage ▸" on the stage's last item and "done" on the last stage — while the PDF column,
-  collapsed by default to a strip at the right edge (the icon opens it at two fifths of the
-  window or the dragged width, "▸" collapses it, a page tag opens it; kept per browser), follows
-  the cursor while open at the coder's zoom, scrolled so the current item's highlight starts just
-  under its top edge (`→`/`←` or "◀ item k of n ▶" at the top of the column; the cursor moves
-  whether or not the column is open). A stage's `auto_id: {field, first?, next}` fills the id of
-  an added entry or row ("C", then "T1", "T2" …). The items table may sit on the paper, so a blind import with no entries opens on the
+  stages (a→g, `]`/`[`) in three panes. The left panel holds what the coder fills in: the
+  stage's instruction, its cells (paper fields; every entry as a card with "＋ add"; or each
+  entry's arms / results with "＋", "✕", "copy … from <entry>" and "same as <the reference
+  row>"), then "◂ · next ▸", which becomes "next stage ▸" on the stage's last item and "done" on
+  the last stage. The right column (half the window by default, the splitter drags it) shows
+  the reader's items that bear on the stage's fields in its upper pane, as one bare list (the
+  page tag hanging at the left of the quote, or above a table) with a cursor over them (the rest
+  folded at the end, the coder's marks after), and the PDF in its lower pane (half the column
+  by default, a bar between the two drags it; "▸" collapses the PDF to a strip along the
+  column's foot, the icon there opens it; kept per browser), which follows the cursor while
+  open at the coder's zoom, scrolled so the current item's highlight starts just under its top
+  edge (`→`/`←` or "◀ item k of n ▶" at the top of the pane; the cursor moves whether or not
+  the pane is open). A stage's `auto_id: {field, first?, next}` fills the id of
+  an added entry or row ("C", then "T1", "T2" …). A stage may name the entry's fields together
+  with one child's (`fields` + `child` + `child_fields`): each entry's cells, then its rows under
+  them, `auto_id` a list with one per level (the tasks with their arms); any of the three levels
+  may come together, the paper's cells first. A stage with a paper table and a child may declare
+  `accept_rows: {from, child, id_column, id_field, verdict_column, accepted, task_column?}`: every
+  row of that table gets "＋ row" at its start, which copies its same-named columns into a new row
+  of the child under the entry its task column names (the only entry, or one the coder picks),
+  writes the row's id into the child's id field and sets the row's verdict to `accepted` — the
+  model's estimates verified into the coder's rows, never retyped; its optional `lookup: {table,
+  key_column, take_column, into_field}` carries one more value over from another paper table by
+  the row's key (the coder's outcome id from the alignment table); a list of lookups is taken in
+  turn, and one with `into_field: "$entry"` picks the entry the row goes under; `group_by` names a
+  column whose runs open with a header naming the group and the coder's unit it was matched to. A
+  stage names several children as `children: [{key, fields}]` (the arms and the outcomes under each
+  task), `copy_from_sibling` then naming its child; `match: {table, columns: {column: {from, value,
+  label}}}` turns the named columns of the paper table into selects fed by the paper's own units (the
+  entries, or a child's rows), lists the coder's units over the table and the units no row points to
+  under it; `link: [{child, field, value, label, when?, skip_when?}]` turns a child field that
+  names a sibling row into a select of the sibling rows (the reference arm a treatment arm is
+  compared with), a dash on the rows `skip_when` marks; an auto id's `first_values` fills the
+  first row's other cells (the reference arm's label); `accept_rows.skip_fields` keeps named
+  columns out of the accepted row. A paper table row with evidence of its own carries a page tag
+  and jumps to it on a click; an entry's child table whose rows cite nothing drops its citation
+  column; child-table headers carry their help as a tooltip. The foot of a stage moves between stages ("next ▸", "◂"; the PDF pane's control and
+  ← → move the items), and on the last stage reads "✓ done with this paper" where the preset
+  verifies per paper. An editable list field is typed as comma-separated items. `display.review.verify:
+  "paper"` drops the per-entry status, verify and flag (the coder built the entries) for one
+  "✓ done with this paper"; the tables in a stage's fields block are set tight. The staged head shows the
+  paper's title alone (the sidebar switches papers, the stage bar counts) and keeps Raw, Save and
+  JSON only — no Fields or Grid toggle, no ＋ entry (the stage adds), no CSV; the paper strip at
+  the left narrows to one PDF icon per paper (its name on hover, the count in the corner); the
+  evidence list is set a size smaller. The items table may sit on the paper, so a blind import with no entries opens on the
   stages and the coder adds the first entry; adding an entry retires the "screened — no records"
   sentinel. Verification stays per entry; "verify all" finishes a paper. The Fields view is the
-  two-column one, unchanged.
+  two-column one, unchanged (the panel and the PDF).
 - `allow_other` on `multi` fields and table columns: the widget takes a term of the paper's own
   after the declared boxes (Enter adds it), stores codes and terms in one list, draws a stored
   off-list value as a removable chip (never dropped unseen), and the validator no longer flags
@@ -167,7 +200,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   hover or focus, below or above the element within the window, hidden on leaving or Escape),
   not through the browser's slow native title: on the field label and its ⓘ, on each checkbox
   label, on the select (the chosen option's definition) and on a ⓘ after the select listing
-  every option as "label — definition" under the field's help.
+  every option as "label — definition" under the field's help. While the tip is up the native
+  title of the element and of its ancestors is held back (and put back after), so the text no
+  longer appears twice, the browser's bubble over the tip.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

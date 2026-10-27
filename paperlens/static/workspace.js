@@ -9,7 +9,7 @@
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
@@ -34,9 +34,9 @@ let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
 // Drag the splitter to resize the entries panel; width persists across sessions — one width
-// for the generic view, one for a stages preset, whose default gives the PDF column two fifths
-// of the window and the stage panel the rest.
-function panelWidthKey() { return stagesOpen() ? "metalens_panel_w_stages" : "metalens_panel_w"; }
+// for the generic view, one for a stages preset, whose default gives the right column (the
+// evidence over the PDF) half the window and the stage panel the rest.
+function panelWidthKey() { return stagesOpen() ? "metalens_panel_w_split" : "metalens_panel_w"; }
 let PANEL_MODE = null;
 function applyPanelWidth() {
   const panel = $("#panel"); if (!panel) return;
@@ -47,7 +47,8 @@ function applyPanelWidth() {
   if (saved) { panel.style.width = saved + "px"; return; }
   if (!stagesOpen()) { panel.style.width = ""; return; }           // the stylesheet's default
   const main = panel.parentElement, side = $("#doctabs");
-  const pdf = Math.round(window.innerWidth * 0.4);
+  if (side) side.classList.toggle("slim", !!stagesSpec());   // measured as the strip will be drawn
+  const pdf = Math.round(window.innerWidth * 0.5);
   const w = main.getBoundingClientRect().width - (side && side.offsetParent ? side.getBoundingClientRect().width : 0) - 6 - pdf;
   panel.style.width = Math.max(300, Math.round(w)) + "px";
 }
@@ -70,6 +71,28 @@ function mountSplitter() {
     if (!dragging) return;
     dragging = false; sp.classList.remove("drag"); document.body.style.userSelect = "";
     localStorage.setItem(panelWidthKey(), String(parseInt(panel.style.width, 10) || 480));
+  });
+}
+
+// Drag the bar between the evidence pane and the PDF pane of a stages preset; the evidence
+// pane's height persists across sessions (default: half the column).
+function mountHSplitter() {
+  const sp = $("#hsplitter"), col = $("#pagespane");
+  if (!sp || !col) return;
+  const saved = parseInt(localStorage.getItem("metalens_evpane_h") || "", 10);
+  if (saved) col.style.setProperty("--evpane-h", saved + "px");
+  let dragging = false;
+  sp.addEventListener("mousedown", (e) => { dragging = true; sp.classList.add("drag"); document.body.style.userSelect = "none"; e.preventDefault(); });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const cb = col.getBoundingClientRect();
+    const h = Math.max(60, Math.min(cb.height - 120, e.clientY - cb.top));   // a readable strip of the PDF stays
+    col.style.setProperty("--evpane-h", h + "px");
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false; sp.classList.remove("drag"); document.body.style.userSelect = "";
+    localStorage.setItem("metalens_evpane_h", String(parseInt(col.style.getPropertyValue("--evpane-h"), 10) || 400));
   });
 }
 
@@ -180,13 +203,17 @@ function jumpToMark(id) {
 // ── help on hover, at once ───────────────────────────────────────────────────────
 // One tooltip element for every [data-tip]: shown on mouseover or focus with no delay, below
 // the element (above when there is no room), within the viewport, hidden on mouseout, blur or
-// Escape. Native titles stay where they are, but this is what a coder sees.
+// Escape. The browser's own title bubble would repeat the text a second later, so the title of
+// the element and of its ancestors is held back while the tip is up and put back when it goes.
 function mountTips() {
   const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; tip.setAttribute("role", "tooltip");
   document.body.appendChild(tip);
-  let cur = null;
+  let cur = null, held = [];
+  const release = () => { for (const [n, t] of held) n.setAttribute("title", t); held = []; };
   const show = (el) => {
     const text = el.dataset.tip; if (!text) return;
+    release();
+    for (let n = el; n && n !== document.body; n = n.parentElement) if (n.hasAttribute("title")) { held.push([n, n.getAttribute("title")]); n.removeAttribute("title"); }
     cur = el; tip.textContent = text; tip.hidden = false;
     const r = el.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
     tip.style.left = "0px"; tip.style.top = "0px";
@@ -196,7 +223,7 @@ function mountTips() {
     if (top + th > vh - 6) top = Math.max(6, r.top - th - 6);
     tip.style.left = `${Math.round(left)}px`; tip.style.top = `${Math.round(top)}px`;
   };
-  const hide = () => { cur = null; tip.hidden = true; };
+  const hide = () => { cur = null; tip.hidden = true; release(); };
   document.addEventListener("mouseover", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el !== cur) show(el); else if (!el && cur) hide(); });
   document.addEventListener("mouseout", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el === cur && !(e.relatedTarget && el.contains(e.relatedTarget))) hide(); });
   document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el) show(el); });
@@ -207,6 +234,7 @@ function mountTips() {
 
 async function init() {
   mountSplitter();
+  mountHSplitter();
   mountMarking();
   mountTips();
   mountPdfZoom();
@@ -371,7 +399,7 @@ function renderDocTabs() {
     const nm = d.filename || d.title || "untitled";
     const shade = docShade(d);
     return `<button class="doctab${d.document_id === DOCID ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
-      + `${esc(nm.slice(0, 30))}<span class="dt-n">${d.n_records}</span></button>`
+      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${d.n_records}</span></button>`
       + (d.document_id === DOCID ? docSubList() : "");     // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
@@ -386,6 +414,7 @@ function renderDocTabs() {
     : `<span class="doctab jobpend">⏳ extracting…`
       + `<button class="jobstop" data-jobid="${esc(id)}" title="stop this extraction">✕</button></span>`).join("");
   strip.innerHTML = label + docTabs + jobTabs + addBtn;
+  strip.classList.toggle("slim", !!stagesSpec());          // a staged preset: a narrow strip of PDF icons, the name on hover
   syncJobWait();
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
   strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
@@ -762,20 +791,21 @@ function renderPanel() {
         ? ` <span class="muted schema-live" title="this paper was imported under ${esc(DATA.schema_id)}; the preset file is now ${esc(DATA.field_defs.live_schema_id)} — another contract, so its fields and layout do not reach this paper until it is imported again">preset file now ${esc(DATA.field_defs.live_label || DATA.field_defs.live_schema_id)}</span>` : "")
     + ` ${triage}</span>`
     + `<span class="dlbtns">`
-    + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
-    + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`
+    // a staged preset keeps its head short: no view toggles, no grid, no ＋ entry (the stage adds), no CSV
+    + (reviewSpec() && !GRID && !RAW && !stagesSpec() ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`)
     + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
     + (PROJECT   // already a dataset: nothing to save, so this simply opens its overview (audit report, dashboards, export, publishing)
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
         : `<button class="btn btn-primary" id="dlsave" title="keep these papers as a dataset in your workspace; you can carry on reviewing afterwards">💾 Save</button>`)
     + `<button class="btn btn-ghost" id="dljson" title="this paper">⬇ JSON</button>`
-    + `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`)
     // the whole dataset from here, so a coder never has to leave the review to take the work away
     + (PROJECT ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
         + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
         + `<a href="#" data-dl="json-reviewed">Reviewed records only · JSON</a><a href="#" data-dl="csv-reviewed">Reviewed records only · CSV</a></div></details>` : "")
-    + `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`
+    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`)
     + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
@@ -985,7 +1015,7 @@ function wirePanelHead() {
   document.querySelectorAll("#dsdl [data-dl]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); $("#dsdl").open = false; downloadDataset(a.dataset.dl); }));
   const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
   syncJobWait();
-  $("#addfinding").onclick = doAddFinding;
+  const af = $("#addfinding"); if (af) af.onclick = doAddFinding;
   $("#deldoc").onclick = doDelete;
   $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
   const g = $("#gridtoggle"); if (g) g.onclick = () => { GRID = !GRID; renderPanel(); };
@@ -1063,6 +1093,11 @@ async function doDeleteRecord(rec) {
 // immediately editable; edits route through the verify layer.
 async function doAddFinding(extra) {
   const template = VM.legacy ? {} : seedEntry(VM);
+  // in the staged layout the new entry shows on the entries stage: go there, and give it that
+  // stage's auto id — whichever button added it (the head's "＋" is on every stage, where a
+  // card added from the study-design stage was created but not seen)
+  const es = stagesOpen() ? entryStage() : null;
+  if (es && !(extra && extra.constructor === Object)) extra = stageEntryAutoId(es.stage);
   if (extra && extra.constructor === Object) Object.assign(template, extra);   // a stage's auto id; a click event is not one
   if (VM.legacy) {
     const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
@@ -1074,8 +1109,18 @@ async function doAddFinding(extra) {
       }
     });
   }
-  try { await api.addRecord(DATA.document_id, { field_values: template }); await reloadDoc(); }
+  try {
+    await api.addRecord(DATA.document_id, { field_values: template });
+    if (es) STAGE = es.index;
+    await reloadDoc();
+  }
   catch (e) { alert("add failed: " + e.message); }
+}
+// the stage that holds the entries' own fields (where a new entry appears as a card)
+function entryStage() {
+  const stages = ((stagesSpec() || {}).stages || []);
+  const index = stages.findIndex((s) => Array.isArray(s.fields));
+  return index < 0 ? null : { index, stage: stages[index] };
 }
 
 // Save ALL in-scope documents (the whole round), not just the highlighted one.
@@ -1756,10 +1801,11 @@ function renderReviewHead(panel) {
   const pm = DATA.paper_metadata || {};
   const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
   const head = document.createElement("div"); head.className = "chain-head";
-  head.innerHTML = `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`
+  const staged = stagesOpen();                             // the stages: the sidebar switches papers, the stage bar counts
+  head.innerHTML = (staged ? "" : `<button type="button" class="chain-nav" data-dir="-1" title="previous paper"${DOCS.length > 1 ? "" : " disabled"}>‹</button>`)
     + `<h3 class="chain-title" title="${esc(title)}">${esc(title)}</h3>`
-    + `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
-    + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`;
+    + (staged ? "" : `<span class="muted chain-prog">${pr.reviewed} / ${pr.total} reviewed${DOCS.length > 1 ? ` · paper ${i + 1} of ${DOCS.length}` : ""}</span>`
+      + `<button type="button" class="chain-nav" data-dir="1" title="next paper"${DOCS.length > 1 ? "" : " disabled"}>›</button>`);
   head.querySelectorAll(".chain-nav").forEach((b) => (b.onclick = () => { const n = DOCS.length; selectDoc(DOCS[(i + (+b.dataset.dir) + n) % n].document_id); }));
   panel.appendChild(head);
   const pgroups = Object.values(VM.groups).filter((g) => g.scope === "paper" && (DATA.paper_confidence || {})[g.id]);
@@ -1970,18 +2016,20 @@ function renderEviRest(rv, groups, recs) {
 
 // One strip per entry: its title, review status, the model's ratings, verify / flag, history.
 function renderEviStrip(panel, rec) { panel.appendChild(eviStripEl(rec)); }
+function paperVerify() { return stagesOpen() && ((stagesSpec() || {}).verify || "entry") === "paper"; }
 function eviStripEl(rec) {
   const card = document.createElement("div");
   card.className = "record evi-rec"; card.dataset.rid = rec.id;
-  const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
-  const groups = Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
+  const own = paperVerify();                                // the coder built this entry: nothing to verify or flag
+  const worst = own ? null : worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
+  const groups = own ? [] : Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
   card.innerHTML = `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
-    + `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`
+    + (own ? "" : `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`)
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
-    + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`
+    + (own ? "" : `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
+      + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`)
     + (groups.length ? `<div class="group-head">${groups.map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("")}</div>` : "")
     + `<div class="histbody" hidden></div>`;
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
@@ -2007,7 +2055,7 @@ function eviSync(scope, path, val) {
   const sel = `#panelbody ${scope} [data-path="${CSS.escape(path)}"]`;
   document.querySelectorAll(sel).forEach((cell) => {
     if (cell.classList.contains("rv-editable")) {
-      const txt = val === null || val === undefined ? "" : String(val);
+      const txt = val === null || val === undefined ? "" : Array.isArray(val) ? val.map((x) => String(x)).join(", ") : String(val);
       if (cell.textContent !== txt) cell.textContent = txt;
       cell.dataset.orig = txt; cell.classList.toggle("rv-empty", txt.trim() === "");
     } else if (cell.classList.contains("rv-selwrap")) {
@@ -2015,7 +2063,7 @@ function eviSync(scope, path, val) {
       const sv = val === null || val === undefined ? "" : String(val);
       if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
       else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
-      s.title = selectTitle(s); s.dataset.tip = s.title;
+      s.dataset.tip = selectTitle(s); if (s.hasAttribute("title")) s.title = s.dataset.tip;
     } else if (cell.classList.contains("rv-multi")) {
       multiSetValues(cell, val);
     }
@@ -2046,26 +2094,27 @@ function wireEvidencePanel(panel, recs) {
 // ── the staged layout: the paper coded stage by stage, the evidence first, the PDF beside ───────
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
-// paper fields, entry fields, or one child's fields. The workspace keeps its two columns: the
-// stage panel on the left scrolls as one — the stage bar and its instruction, then EVIDENCE (one
-// plain list of the items whose bears_on meets the stage's fields, the current one marked, the
-// rest folded at the end), then FIELDS (the stage's cells, once: the study cells; every entry as
-// a card with the stage's fields and "＋ add"; or each entry's sub-entries with "＋", "✕", "copy
-// … from <entry>" and, where the stage declares copy_from_sibling, "same as <the reference row>")
-// — and the PDF column on the right follows the cursor: at the scale the coder set, scrolled so
-// the current item's highlight starts just under the column's top edge (an item with no located
-// rectangle: the top of its page). ← → and the column's "◀ item k of n ▶" move the cursor, which
+// paper fields, entry fields, or one child's fields. Three panes: the stage panel on the left
+// holds what the coder fills in — the stage bar and its instruction, then FIELDS (the stage's
+// cells, once: the study cells; every entry as a card with the stage's fields and "＋ add"; or
+// each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
+// copy_from_sibling, "same as <the reference row>") and the foot's next button; the right column
+// shows EVIDENCE in its upper pane (one plain list of the items whose bears_on meets the stage's
+// fields, the current one marked, the rest folded at the end, then the coder's marks) and the
+// PDF in its lower pane, which follows the cursor: at the scale the coder set, scrolled so the
+// current item's highlight starts just under the pane's top edge (an item with no located
+// rectangle: the top of its page). ← → and the pane's "◀ item k of n ▶" move the cursor, which
 // stops at the ends and starts on the first item when a stage opens. A stage's auto_id fills the
 // id of an added entry or row (first, then next with the smallest unused number). Saves and
 // verification are the generic card's; the Fields view is the generic card view.
 function stagesOpen() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
 
-// The item control at the top of the PDF column while a stage is open; gone otherwise.
-// The PDF column of a stages preset is collapsed by default to a strip at the right edge — the
-// icon opens it (at the stages width), "▸" at the top of the open column or the icon again
-// collapses it; the choice is kept per browser. The cursor moves either way; the column follows
-// it only while open, and anchors the current item when it opens.
-function stagePdfOpen() { try { return localStorage.getItem("metalens_stage_pdf") === "open"; } catch { return false; } }
+// The item control at the top of the PDF pane while a stage is open; gone otherwise. The PDF
+// pane sits under the evidence pane in the right column, open by default; "▸" at its top
+// collapses it to a strip along the column's foot (the evidence takes the column), the icon on
+// the strip opens it again; the choice is kept per browser. The cursor moves either way; the
+// pane follows it only while open, and anchors the current item when it opens.
+function stagePdfOpen() { try { return localStorage.getItem("metalens_stage_pdf") !== "closed"; } catch { return true; } }
 function togglePdf(open, anchor = true) {
   try { localStorage.setItem("metalens_stage_pdf", open ? "open" : "closed"); } catch { /* */ }
   document.body.classList.toggle("stg-pdf-closed", stagesOpen() && !open);
@@ -2074,20 +2123,21 @@ function togglePdf(open, anchor = true) {
 }
 const PDF_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>`;
 function setStageControl(on) {
-  const pane = $("#pagespane"); if (!pane) return;
+  const pane = $("#pdfpane") || $("#pagespane"); if (!pane) return;
+  document.body.classList.toggle("stg-split", on);          // the right column: evidence over the PDF
   let nav = pane.querySelector(".stg-pane-nav"), strip = pane.querySelector(".stg-pdf-strip");
   if (on) {
     if (!nav) {
       nav = document.createElement("div"); nav.className = "stg-pane-nav";
       nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`
         + `<button type="button" data-act="mark" class="stg-mark${MARKING ? " on" : ""}" title="mark sentences: click a sentence in the PDF to keep it with the paper (h)">✎ mark</button>`
-        + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF column (← → still move the cursor)">▸</button>`;
+        + `<button type="button" data-act="close" class="stg-pdf-close" title="collapse the PDF pane (← → still move the cursor)">▸</button>`;
       nav.querySelectorAll("button").forEach((b) => (b.onclick = () => (b.dataset.act === "close" ? togglePdf(false) : b.dataset.act === "mark" ? setMarking(!MARKING) : stageCursor(STAGE_CUR + Number(b.dataset.d)))));
       pane.appendChild(nav);
     }
     if (!strip) {
       strip = document.createElement("div"); strip.className = "stg-pdf-strip";
-      strip.innerHTML = `<button type="button" class="stg-pdf-open" title="open the PDF column on the current item">${PDF_ICON}</button><span class="stg-pdf-k">—</span>`;
+      strip.innerHTML = `<button type="button" class="stg-pdf-open" title="open the PDF pane on the current item">${PDF_ICON}</button><span class="stg-pdf-k">—</span>`;
       strip.querySelector("button").onclick = () => togglePdf(true);
       pane.appendChild(strip);
     }
@@ -2096,6 +2146,7 @@ function setStageControl(on) {
     if (nav) nav.remove();
     if (strip) strip.remove();
     document.body.classList.remove("stg-pdf-closed");
+    const ev = $("#evpane"); if (ev) ev.innerHTML = "";
     STAGE_SHOWN = "";
   }
 }
@@ -2112,18 +2163,20 @@ function stageCursor(i) {
 }
 // The button at the foot of the stage panel: the next item while there is one, else the next
 // stage, else "done" (the last stage, last item: it only scrolls back to the top).
+// The buttons at the foot of the stage panel move through the stages (the items are moved by the
+// PDF pane's control and ← →): "next ▸" to the next stage, and on the last stage "done" — which,
+// where the preset verifies per paper, marks the paper done.
 function stageFootState() {
-  const n = STAGE_ITEMS.length, last = ((stagesSpec() || {}).stages || []).length - 1;
-  if (n && STAGE_CUR < n - 1) return "item";
+  const last = ((stagesSpec() || {}).stages || []).length - 1;
   return STAGE < last ? "stage" : "done";
 }
 function updateStageFoot() {
   const b = document.querySelector(".stg-foot .stg-next"), p = document.querySelector(".stg-foot .stg-foot-prev");
   if (!b) return;
-  const st = stageFootState();
-  b.textContent = st === "item" ? "next ▸" : st === "stage" ? "next stage ▸" : "done";
-  b.title = st === "item" ? "the next item of this stage (→)" : st === "stage" ? "the next stage (])" : "the last item of the last stage";
-  if (p) p.disabled = !STAGE_ITEMS.length || STAGE_CUR <= 0;
+  const st = stageFootState(), finish = st === "done" && paperVerify() && docProgress().total && !docProgress().done;
+  b.textContent = st === "stage" ? "next ▸" : finish ? "✓ done with this paper" : "done";
+  b.title = st === "stage" ? "the next stage (])" : finish ? "mark this paper done" : "the last stage";
+  if (p) p.disabled = STAGE <= 0;
 }
 function stageShowItem() {
   const where = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
@@ -2161,10 +2214,24 @@ function stageShowItem() {
     pages.querySelectorAll("img.pageimg").forEach((img) => { if (!img.complete) img.addEventListener("load", () => setTimeout(go, 60), { once: true }); });
   }
 }
+// What a stage shows, in order: the paper's fields; each entry's fields; one child's rows under
+// each entry — any of them, alone or together. `names` is every field the stage shows (what the
+// items' bears_on is matched against); `scope` is where "add" acts: the entry when it has entry
+// fields, else the child, else the paper. `accept` is the stage's accept_rows rule.
+// What a stage shows, in order: the paper's fields; each entry's fields; the rows of each child
+// it names under each entry — any of them, alone or together. `names` is every field the stage
+// shows (what the items' bears_on is matched against); `scope` is where "add" acts: the entry
+// when it has entry fields, else a child, else the paper. `accept` and `match` are the stage's
+// rules; `kidOf(key)` finds a child block by its key.
 function stageLevel(st) {
-  if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
-  if (st.fields) return { scope: "entry", names: new Set(st.fields), child: null };
-  return { scope: "child", names: new Set(st.child_fields || []), child: VM.entries.children.find((c) => c.key === st.child) || null };
+  const specs = st.children || (st.child ? [{ key: st.child, fields: st.child_fields || [] }] : []);
+  const kids = specs.map((k) => ({ child: VM.entries.children.find((c) => c.key === k.key) || null, names: new Set(k.fields || []) })).filter((k) => k.child);
+  const paper = st.paper_fields || null, entry = st.fields || null;
+  const names = new Set([...(paper || []), ...(entry || []), ...kids.flatMap((k) => [...k.names])]);
+  const accept = st.accept_rows || null;
+  const kidOf = (key) => kids.find((k) => k.child.key === key) || null;
+  const main = (accept && kidOf(accept.child)) || kids[0] || null;
+  return { scope: entry ? "entry" : kids.length ? "child" : "paper", names, kids, child: main ? main.child : null, paper, entry, accept, match: st.match || null, kidOf };
 }
 function fieldLabel(name) {
   const info = VM.fieldIndex.get(name);
@@ -2183,8 +2250,11 @@ function autoIdValue(ai, siblings) {
   }
   return null;
 }
+// A stage's auto ids: one object, or a list of them (one per level) on a stage with the entry's
+// fields and a child's; each is matched to its level by the field it names.
+function stageAutoIds(st) { return (Array.isArray(st.auto_id) ? st.auto_id : st.auto_id ? [st.auto_id] : []).filter((a) => a && a.field); }
 function stageEntryAutoId(st) {
-  const ai = st.auto_id; if (!ai || !ai.field) return null;
+  const ai = stageAutoIds(st).find((a) => VM.entries.fields.some((f) => f.name === a.field)); if (!ai) return null;
   const v = autoIdValue(ai, (DATA.records || []).map((r) => (r.field_values || {})[ai.field]));
   return v === null ? null : { [ai.field]: v };
 }
@@ -2199,19 +2269,22 @@ function addEntryButton() {
 
 // The copy actions of a child stage: "copy <children> from <another entry>" and, where the stage
 // declares copy_from_sibling, one "same as <reference>" button per row that is not the reference.
-function stageCopyControls(st, L, rec, recs) {
-  const key = L.child.key, label = (L.child.label || key).toLowerCase();
+// The copy actions of a child block: "copy <children> from <another entry>" and, where the stage's
+// copy_from_sibling names this child, one "same as <reference>" button per row that is not the reference.
+function stageCopyControls(st, L, rec, recs, kid) {
+  const child = kid.child, key = child.key, label = (child.label || key).toLowerCase();
   const rows = (rec.field_values || {})[key];
   const others = recs.filter((r) => r !== rec && Array.isArray((r.field_values || {})[key]) && r.field_values[key].length);
   let html = "";
-  if (others.length) html += `<label class="muted">copy ${esc(label)}s from <select class="stg-copyfrom" data-rid="${esc(rec.id)}" title="a deep copy of that ${esc(VM.entries.label.toLowerCase())}'s ${esc(label)}s, replacing these">`
+  if (others.length) html += `<label class="muted">copy ${esc(label)}s from <select class="stg-copyfrom" data-rid="${esc(rec.id)}" data-child="${esc(key)}" title="a deep copy of that ${esc(VM.entries.label.toLowerCase())}'s ${esc(label)}s, replacing these">`
     + `<option value="">…</option>${others.map((r) => `<option value="${esc(r.id)}">${esc(entryTitle(VM, r, r.entry_index))} (${r.field_values[key].length})</option>`).join("")}</select></label>`;
   const cs = st.copy_from_sibling;
-  if (cs && Array.isArray(rows)) {
+  const csKey = cs ? (cs.child || (L.kids.length === 1 ? L.kids[0].child.key : null)) : null;
+  if (cs && csKey === key && Array.isArray(rows)) {
     const ref = rows.findIndex((r) => r && r[cs.when] === true);
     if (ref >= 0) {
-      const refTitle = childTitle(L.child, rows[ref], ref);
-      html += rows.map((r, j) => j === ref || !r ? "" : `<button type="button" class="stg-same" data-rid="${esc(rec.id)}" data-row="${j}" title="copy ${esc(cs.fields.map(fieldLabel).join(", "))} from ${esc(refTitle)}">${esc(childTitle(L.child, r, j))}: same as ${esc(refTitle)}</button>`).join("");
+      const refTitle = childTitle(child, rows[ref], ref);
+      html += rows.map((r, j) => j === ref || !r ? "" : `<button type="button" class="stg-same" data-rid="${esc(rec.id)}" data-child="${esc(key)}" data-row="${j}" title="copy ${esc(cs.fields.map(fieldLabel).join(", "))} from ${esc(refTitle)}">${esc(childTitle(child, r, j))}: same as ${esc(refTitle)}</button>`).join("");
     }
   }
   return html ? `<div class="stg-copy">${html}</div>` : "";
@@ -2223,29 +2296,215 @@ function stageCellsBlock(st, L, recs) {
   const box = document.createElement("div"); box.className = "stg-cells";
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>`;
   const unit = VM.entries.label.toLowerCase();
-  if (L.scope === "paper") { box.insertAdjacentHTML("beforeend", eviPaperBlock([...L.names])); return box; }
+  if (L.paper) {                                           // the paper's cells first
+    box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper));
+    if (L.match) matchBlocks(box, L, recs);
+    if (L.accept && L.kidOf(L.accept.child)) acceptButtons(box, L);
+  }
+  if (!L.entry && !L.kids.length) return box;
   if (!recs.length) {
-    box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.scope === "entry" ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
-    if (L.scope === "entry") box.appendChild(addEntryButton());
+    box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.entry ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
+    if (L.entry) box.appendChild(addEntryButton());
     return box;
   }
   for (const rec of recs) {
     const card = eviStripEl(rec); card.classList.add("evi-entry", "stg-entry");
     const fv = rec.field_values || {};
-    if (L.scope === "entry") {
+    if (L.entry) {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
-    } else if (L.child) {
-      const rows = fv[L.child.key];
-      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(L.child.key)}">`
-        + `<div class="rv-key" data-path="${esc(L.child.key)}" title="${esc(L.child.help || "")}">${esc(L.child.label || formatKey(L.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
-        + `<div class="rv-val rv-nested">${renderChild(L.child, rows, { editable: true, show: L.names })}</div></div></div>`
-        + stageCopyControls(st, L, rec, recs));
     }
+    for (const kid of L.kids) {                              // each child's rows under the entry's cells
+      const rows = fv[kid.child.key];
+      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(kid.child.key)}">`
+        + `<div class="rv-key" data-path="${esc(kid.child.key)}" title="${esc(kid.child.help || "")}">${esc(kid.child.label || formatKey(kid.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
+        + `<div class="rv-val rv-nested">${renderChild(kid.child, rows, { editable: true, show: kid.names })}</div></div></div>`
+        + stageCopyControls(st, L, rec, recs, kid));
+    }
+    linkSelects(card, st, rec);
     box.appendChild(card);
   }
-  if (L.scope === "entry") box.appendChild(addEntryButton());
+  if (L.entry) box.appendChild(addEntryButton());
   return box;
+}
+
+// match: the coder's units (the entries and the children the rule names) listed over the model's
+// table, each matching column turned into a select fed by those units (saved like any enum cell),
+// and under the table the units no row points to — the model's misses.
+function unitOptions(recs, spec) {
+  const out = [];
+  for (const r of recs) {
+    const fv = r.field_values || {};
+    if (spec.from === "entry") {
+      if (fv[spec.value] != null && fv[spec.value] !== "") out.push({ value: String(fv[spec.value]), label: `${fv[spec.value]} · ${fv[spec.label] ?? ""}`.trim() });
+    } else {
+      for (const x of (Array.isArray(fv[spec.from]) ? fv[spec.from] : [])) {
+        if (!x || x[spec.value] == null || x[spec.value] === "") continue;
+        if (spec.skip_when && x[spec.skip_when] === true) continue;          // the reference arm is nobody's match
+        out.push({ value: String(x[spec.value]), label: `${x[spec.value]} · ${x[spec.label] ?? ""}`.trim() });
+      }
+    }
+  }
+  return out;
+}
+function matchBlocks(box, L, recs) {
+  const mt = L.match, pm = DATA.paper_metadata || {}, rows = Array.isArray(pm[mt.table]) ? pm[mt.table] : [];
+  const decl = box.querySelector(`.evi-paper .rv-decl[data-field="${mt.table}"]`); if (!decl) return;
+  const kidSpecs = Object.values(mt.columns).filter((sp) => sp.from !== "entry");
+  const lines = recs.map((r) => {
+    const fv = r.field_values || {};
+    const parts = kidSpecs.map((sp) => {
+      const ch = VM.entries.children.find((c) => c.key === sp.from) || {}, xs = (Array.isArray(fv[sp.from]) ? fv[sp.from] : []).filter(Boolean);
+      return `${esc((ch.label || sp.from).toLowerCase())}s: ${xs.length ? xs.map((x) => `<b>${esc(String(x[sp.value] ?? "?"))}</b> ${esc(String(x[sp.label] ?? ""))}`).join("; ") : "<i>none yet</i>"}`;
+    });
+    return `<li><b>${esc(entryTitle(VM, r, r.entry_index))}</b> — ${parts.join(" — ")}</li>`;
+  });
+  decl.insertAdjacentHTML("beforebegin", `<div class="stg-units"><div class="evi-sub">Your units</div>${lines.length ? `<ul>${lines.join("")}</ul>` : `<p class="muted">None yet — define them first.</p>`}</div>`);
+  for (const [col, sp] of Object.entries(mt.columns)) {
+    const opts = unitOptions(recs, sp);
+    decl.querySelectorAll("table.rv-typed tbody tr[data-row]").forEach((tr) => {
+      const i = Number(tr.dataset.row), path = `${mt.table}[${i}].${col}`;
+      const cell = tr.querySelector(`[data-path="${path}"]`); if (!cell) return;
+      const cur = rows[i] ? rows[i][col] : null;
+      cell.outerHTML = `<span class="rv-selwrap stg-match" data-path="${esc(path)}" data-col="${esc(col)}"><select class="rv-select"><option value=""${cur == null || cur === "" ? " selected" : ""}>—</option>`
+        + opts.map((o) => `<option value="${esc(o.value)}"${String(cur) === o.value ? " selected" : ""}>${esc(o.label)}</option>`).join("") + `</select></span>`;
+    });
+  }
+  const miss = document.createElement("div"); miss.className = "stg-misses";
+  decl.insertAdjacentElement("afterend", miss);
+  const render = () => {
+    const out = [];
+    for (const [col, sp] of Object.entries(mt.columns)) {
+      if (sp.from === "entry") continue;
+      const used = new Set([...decl.querySelectorAll(`.stg-match[data-col="${col}"] select`)].map((x) => x.value).filter(Boolean));
+      const ch = VM.entries.children.find((c) => c.key === sp.from) || {};
+      const left = unitOptions(recs, sp).filter((o) => !used.has(o.value));
+      if (left.length) out.push(`<li>${esc((ch.label || sp.from).toLowerCase())}s no row points to: ${left.map((o) => esc(o.label)).join("; ")}</li>`);
+    }
+    miss.innerHTML = `<div class="evi-sub">Not matched by the model</div>` + (out.length ? `<ul>${out.join("")}</ul>` : `<p class="muted">every unit of yours has a row</p>`);
+  };
+  render();
+  decl.addEventListener("change", (e) => { if (e.target.closest(".stg-match")) render(); });
+}
+
+// accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row".
+// link: a child field that names a sibling row (the reference arm a treatment arm is compared
+// with) becomes a select of the sibling rows whose `when` field is true; on a row whose
+// `skip_when` field is true (the reference arm itself) the cell is a dash.
+function linkSelects(card, st, rec) {
+  for (const lk of st.link || []) {
+    const rows = ((rec.field_values || {})[lk.child] || []);
+    const opts = rows.map((r, j) => [r, j]).filter(([r]) => r && (!lk.when || r[lk.when] === true) && r[lk.value] != null && r[lk.value] !== "")
+      .map(([r]) => ({ value: String(r[lk.value]), label: `${r[lk.value]} · ${r[lk.label] ?? ""}`.trim() }));
+    rows.forEach((r, j) => {
+      const path = `${lk.child}[${j}].${lk.field}`;
+      const cell = card.querySelector(`[data-path="${path}"]`); if (!cell || !r) return;
+      if (lk.skip_when && r[lk.skip_when] === true) { cell.outerHTML = `<span class="rv-null" title="the reference arm: nothing to compare it with">—</span>`; return; }
+      const cur = r[lk.field] == null ? "" : String(r[lk.field]);
+      cell.outerHTML = `<span class="rv-selwrap stg-link" data-path="${esc(path)}"><select class="rv-select" title="the reference arm this arm is compared with; blank: the task's single one">`
+        + `<option value=""${cur === "" ? " selected" : ""}>—</option>` + opts.filter((o) => o.value !== String(r[lk.value] ?? ""))
+          .map((o) => `<option value="${esc(o.value)}"${cur === o.value ? " selected" : ""}>${esc(o.label)}</option>`).join("") + `</select></span>`;
+    });
+  }
+}
+
+// A paper table's rows that have evidence of their own (paper_metadata.<table>[i]) get a page
+// tag in their citation cell, and the row jumps to it on a click away from its controls.
+function wirePaperRowCites(panel) {
+  panel.querySelectorAll(".evi-paper .rv-decl[data-field] table.rv-typed").forEach((table) => {
+    const field = table.closest(".rv-decl").dataset.field;
+    table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
+      const want = `paper_metadata.${field}[${tr.dataset.row}]`;
+      const ids = (DATA.evidence || []).map((ev, i) => ({ ev, i })).filter(({ ev }) => ev.field_path === want).map(({ i }) => i);
+      if (!ids.length) return;
+      const page = DATA.evidence[ids[0]].page || 1, cite = tr.querySelector("td.rv-rowcite");
+      if (cite && !cite.children.length) cite.innerHTML = `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p.${page}</button>`;
+      tr.classList.add("stg-cited");
+      tr.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable], .rv-selwrap")) return; jumpToEvidence(page, ids); });
+      tr.addEventListener("mouseenter", () => showEvidence(ids)); tr.addEventListener("mouseleave", () => hideEvidence(ids));
+      const b = cite && cite.querySelector(".ev-cite[data-eids]");
+      if (b) { b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(page, ids); }; }
+    });
+  });
+}
+
+// accept_rows: a "＋ row" on every row of the model's table — accepted rows show "✓ row". With
+// group_by, a header opens each group (an estimand) naming the unit of the coder's it was matched
+// to, from the lookup table; a group whose match says drop is struck through.
+function acceptButtons(box, L) {
+  const ar = L.accept, rows = (DATA.paper_metadata || {})[ar.from], kid = L.kidOf(ar.child);
+  const table = box.querySelector(`.evi-paper .rv-decl[data-field="${ar.from}"] table.rv-typed`);
+  if (!table || !Array.isArray(rows) || !kid) return;
+  const head = table.querySelector("thead tr th");                // the button sits at the row's start, next to the citation cell
+  if (head) head.insertAdjacentHTML("afterend", `<th class="stg-accept-h"></th>`);
+  const label = (kid.child.label || kid.child.key).toLowerCase();
+  const ncols = table.querySelectorAll("thead th").length;
+  const lks = Array.isArray(ar.lookup) ? ar.lookup : ar.lookup ? [ar.lookup] : [];
+  const ltab = lks.length ? (DATA.paper_metadata || {})[lks[0].table] : null;
+  let last = null;
+  table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
+    const i = Number(tr.dataset.row), row = rows[i] || {}, done = row[ar.verdict_column] === ar.accepted;
+    if (ar.group_by && row[ar.group_by] != null && String(row[ar.group_by]) !== last) {
+      last = String(row[ar.group_by]);
+      const m = Array.isArray(ltab) ? ltab.find((r) => r && String(r[lks[0].key_column]) === last) : null;
+      const unit = m ? lks.map((l) => m[l.take_column]).filter((v) => v != null && v !== "") : [];
+      const verdict = m && m.match != null && m.match !== "" ? String(m.match) : "";
+      tr.insertAdjacentHTML("beforebegin", `<tr class="stg-group${/drop/.test(verdict) ? " dropped" : ""}"><td colspan="${ncols}"><b>${esc(last)}</b>`
+        + (unit.length ? ` → yours: ${esc(unit.join(" · "))}` : ` → not matched to a unit of yours yet`) + (verdict ? ` <span class="muted">(${esc(verdict)})</span>` : "") + `</td></tr>`);
+    }
+    const cite = tr.querySelector("td"); if (!cite) return;
+    cite.insertAdjacentHTML("afterend", `<td class="stg-accept-c"><button type="button" class="stg-accept${done ? " done" : ""}" data-row="${i}"${done ? " disabled" : ""}`
+      + ` title="${done ? "accepted into a row" : esc(`accept: a new ${label} row with these values, this row marked ${ar.accepted}`)}">${done ? "✓ row" : "＋ row"}</button></td>`);
+  });
+}
+
+// The model's table row becomes a child row of the entry its task column names (the only
+// entry, or one the coder picks): same-named columns copied, the row's id written into the
+// child's id field, the table row's verdict set — logged like any added row.
+// The model's table row becomes a child row of the entry its task column (or a $entry lookup)
+// names — the only entry, or one the coder picks: same-named columns copied, the lookups' values
+// added, the row's id written into the child's id field, the table row's verdict set.
+async function acceptRow(L, recs, i) {
+  const ar = L.accept, kid = L.kidOf(ar.child), pm = DATA.paper_metadata || {};
+  const rows = Array.isArray(pm[ar.from]) ? pm[ar.from] : [], src = rows[i];
+  if (!src || !kid) return;
+  const child = kid.child, unit = VM.entries.label.toLowerCase();
+  const lks = Array.isArray(ar.lookup) ? ar.lookup : ar.lookup ? [ar.lookup] : [];
+  const extra = {}; let entryWant = null;
+  for (const lk of lks) {
+    const hit = (Array.isArray(pm[lk.table]) ? pm[lk.table] : []).find((r) => r && r[lk.key_column] != null && String(r[lk.key_column]) === String(src[lk.key_column]));
+    const v = hit ? hit[lk.take_column] : null;
+    if (v == null || v === "") continue;
+    if (lk.into_field === "$entry") entryWant = v; else extra[lk.into_field] = v;
+  }
+  const want = entryWant != null ? entryWant : ar.task_column ? src[ar.task_column] : null;
+  let rec = want != null && VM.entries.id_field
+    ? recs.find((r) => String(((r.field_values || {})[VM.entries.id_field]) ?? "") === String(want)) || null : null;
+  if (!rec && recs.length === 1) rec = recs[0];
+  if (!rec) {
+    if (!recs.length) { alert(`Add a ${unit} first: the row needs one to go under.`); return; }
+    const pick = prompt(`Which ${unit} does this row belong to?\n${recs.map((r, k) => `${k + 1} = ${entryTitle(VM, r, r.entry_index)}`).join("\n")}`, "1");
+    rec = recs[Number(pick) - 1] || null;
+    if (!rec) return;
+  }
+  const row = blankRow(child.fields);
+  const skip = new Set(ar.skip_fields || []);
+  for (const f of child.fields) {
+    if (f.name !== ar.id_field && !skip.has(f.name) && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
+  }
+  Object.assign(row, extra);
+  row[ar.id_field] = src[ar.id_column] == null ? null : String(src[ar.id_column]);
+  if (!rec.field_values) rec.field_values = {};
+  if (!Array.isArray(rec.field_values[child.key])) rec.field_values[child.key] = [];
+  const list = rec.field_values[child.key];
+  list.push(row);
+  try {
+    await saveWholeRecord(rec, [{ field_path: `${child.key}[${list.length - 1}]`, original_value: null,
+                                 final_value: `(row accepted from ${ar.from}[${i}]${src[ar.id_column] ? " " + src[ar.id_column] : ""})` }]);
+    const updated = JSON.parse(JSON.stringify(rows)); updated[i] = { ...updated[i], [ar.verdict_column]: ar.accepted };
+    await savePaperField(ar.from, updated);
+    maybeOfferRepublish(); rerenderKeep();
+  } catch (e) { list.pop(); alert("accept failed: " + e.message); }
 }
 
 function renderStagesPanel(panel, rv) {
@@ -2261,8 +2520,8 @@ function renderStagesPanel(panel, rv) {
   bar.innerHTML = `<button type="button" class="chain-nav stg-prev" title="previous stage ([)"${STAGE > 0 ? "" : " disabled"}>‹</button>`
     + stages.map((s, i) => `<button type="button" class="stg-tab${i === STAGE ? " active" : ""}" data-i="${i}" title="${esc(s.help || "")}"><span class="stg-k">${stageLetter(i)}</span> ${esc(s.label || s.id)}</button>`).join("")
     + `<button type="button" class="chain-nav stg-next" title="next stage (])"${STAGE < stages.length - 1 ? "" : " disabled"}>›</button>`
-    + `<span class="stg-prog muted">${pr.total ? (pr.done ? `✓ every ${esc(unit)} verified` : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
-    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="mark every unreviewed ${esc(unit)} verified — the paper is done when all are">✓ verify all ${esc(units)}</button>` : "")
+    + `<span class="stg-prog muted">${pr.total ? (pr.done ? (paperVerify() ? "✓ paper done" : `✓ every ${esc(unit)} verified`) : paperVerify() ? "" : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
+    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="${paperVerify() ? "mark this paper done (every task recorded as reviewed)" : `mark every unreviewed ${esc(unit)} verified — the paper is done when all are`}">${paperVerify() ? "✓ done with this paper" : `✓ verify all ${esc(units)}`}</button>` : "")
     + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(units)}</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(units)} here</button>`) : "");
   panel.appendChild(bar);
   if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }
@@ -2274,7 +2533,7 @@ function renderStagesPanel(panel, rv) {
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
   STAGE_ITEMS = inStage;
   STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
-  // EVIDENCE, then FIELDS
+  // EVIDENCE in the right column's upper pane, FIELDS in the panel
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
   evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
   inStage.forEach((g, i) => {
@@ -2293,13 +2552,16 @@ function renderStagesPanel(panel, rv) {
   const marks = document.createElement("div"); marks.className = "stg-marks";   // the coder's own marks, per paper
   marks.innerHTML = marksBlockHtml(); wireMarksBlock(marks);
   evbox.appendChild(marks);
-  panel.appendChild(evbox);
+  const evhost = $("#evpane") || panel;                     // the panel itself on a page without the pane
+  if (evhost !== panel) evhost.innerHTML = "";
+  evhost.appendChild(evbox);
   panel.appendChild(stageCellsBlock(st, L, recs));
   const foot = document.createElement("div"); foot.className = "stg-foot";
-  foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous item (←)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
+  foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous stage ([)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
   panel.appendChild(foot);
   wireEvidencePanel(panel, recs);
-  wireStagePanel(panel, recs, st, L);
+  if (evhost !== panel) wireEvidencePanel(evbox, recs);
+  wireStagePanel(panel, recs, st, L, evbox);
   evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
     const g = inStage[Number(el.dataset.i)];
     el.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable]")) return; stageCursor(Number(el.dataset.i)); });
@@ -2311,7 +2573,7 @@ function renderStagesPanel(panel, rv) {
 
 // Redraw the panel after a structural edit, keeping the scroll position.
 function rerenderKeep() {
-  const tops = ["#panel", "#panelbody"].map((s) => [$(s), $(s) ? $(s).scrollTop : 0]);
+  const tops = ["#panel", "#panelbody", "#evpane"].map((s) => [$(s), $(s) ? $(s).scrollTop : 0]);
   renderPanel();
   for (const [el, top] of tops) if (el) el.scrollTop = top;
 }
@@ -2334,7 +2596,7 @@ async function verifyAll(btn) {
   } catch (e) { btn.disabled = false; alert("verify failed: " + e.message); }
 }
 
-function wireStagePanel(panel, recs, st, L) {
+function wireStagePanel(panel, recs, st, L, evbox = panel) {
   const byId = new Map(recs.map((r) => [r.id, r]));
   panel.querySelectorAll(".stg-tab").forEach((b) => (b.onclick = () => stageStep(+b.dataset.i - STAGE)));
   const prev = panel.querySelector(".stg-prev"), next = panel.querySelector(".stg-next");
@@ -2343,35 +2605,38 @@ function wireStagePanel(panel, recs, st, L) {
   panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = () => doAddFinding(stageEntryAutoId(st))));
   const nx = panel.querySelector(".stg-foot .stg-next"), pv = panel.querySelector(".stg-foot .stg-foot-prev");
   if (nx) nx.onclick = () => {
-    const fs = stageFootState();
-    if (fs === "item") stageCursor(STAGE_CUR + 1);
-    else if (fs === "stage") stageStep(1);
+    if (stageFootState() === "stage") stageStep(1);
+    else if (paperVerify() && docProgress().total && !docProgress().done) verifyAll(nx);
     else for (const sel of ["#panel", "#panelbody"]) if ($(sel)) $(sel).scrollTo({ top: 0, behavior: "smooth" });
   };
-  if (pv) pv.onclick = () => stageCursor(STAGE_CUR - 1);
+  if (pv) pv.onclick = () => stageStep(-1);
   // a page tag in the list: that item becomes current and the column opens on it if collapsed;
   // a tag in the "other evidence" fold opens the column and jumps as the generic tag does
-  panel.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
+  evbox.querySelectorAll(".stg-evidence > .evi-item[data-i] .ev-cite[data-eids]").forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     if (!stagePdfOpen()) togglePdf(true, false);
     STAGE_SHOWN = ""; stageCursor(Number(b.closest(".evi-item").dataset.i));
   }));
-  panel.querySelectorAll(".stg-evidence .stg-other .ev-cite[data-eids]").forEach((b) => {
+  evbox.querySelectorAll(".stg-evidence .stg-other .ev-cite[data-eids]").forEach((b) => {
     const jump = b.onclick;
     b.onclick = (e) => { if (!stagePdfOpen()) togglePdf(true, false); if (jump) jump(e); };
   });
   updateStageFoot();
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
-  const ai = st.auto_id;
-  const fill = ai && ai.field && L.child ? (path, rows) => (path === L.child.key ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null) : null;
+  const fill = L.kids.length ? (path, rows) => {                   // the stage's auto id for the child the row is added to
+    const kid = L.kidOf(path), ai = kid ? stageAutoIds(st).find((a) => (kid.child.fields || []).some((f) => f.name === a.field)) : null;
+    if (!ai) return null;
+    const v = autoIdValue(ai, rows.map((r) => (r || {})[ai.field]));
+    return { [ai.field]: v, ...(ai.first_values && ai.first != null && v === String(ai.first) ? ai.first_values : {}) };
+  } : null;
   panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
     const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep, fill);
   });
   panel.querySelectorAll(".stg-copyfrom").forEach((sel) => (sel.onchange = async () => {
-    const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value); sel.value = "";
-    if (!rec || !src || !L.child) return;
-    const key = L.child.key, label = (L.child.label || key).toLowerCase();
+    const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value), kid = L.kidOf(sel.dataset.child); sel.value = "";
+    if (!rec || !src || !kid) return;
+    const key = kid.child.key, label = (kid.child.label || key).toLowerCase();
     const have = Array.isArray((rec.field_values || {})[key]) ? rec.field_values[key].length : 0;
     if (have && !confirm(`Replace the ${have} ${label}${have === 1 ? "" : "s"} of ${entryTitle(VM, rec, rec.entry_index)} with a copy of those of ${entryTitle(VM, src, src.entry_index)}? The change is logged.`)) return;
     const was = JSON.parse(JSON.stringify((rec.field_values || {})[key] || []));
@@ -2384,9 +2649,9 @@ function wireStagePanel(panel, recs, st, L) {
     } catch (e) { rec.field_values[key] = was; alert("copy failed: " + e.message); }
   }));
   panel.querySelectorAll(".stg-same").forEach((b) => (b.onclick = async () => {
-    const rec = byId.get(b.dataset.rid), j = Number(b.dataset.row), cs = st.copy_from_sibling;
-    if (!rec || !cs || !L.child) return;
-    const rows = (rec.field_values || {})[L.child.key] || [];
+    const rec = byId.get(b.dataset.rid), j = Number(b.dataset.row), cs = st.copy_from_sibling, kid = L.kidOf(b.dataset.child);
+    if (!rec || !cs || !kid) return;
+    const rows = (rec.field_values || {})[kid.child.key] || [];
     const ref = rows.find((r) => r && r[cs.when] === true), row = rows[j];
     if (!ref || !row) return;
     const diff = [], was = {};
@@ -2394,13 +2659,19 @@ function wireStagePanel(panel, recs, st, L) {
       const from = ref[f] === undefined ? null : ref[f], to = row[f] === undefined ? null : row[f];
       if (JSON.stringify(from) === JSON.stringify(to)) continue;
       was[f] = row[f];
-      diff.push({ field_path: `${L.child.key}[${j}].${f}`, original_value: to, final_value: from });
+      diff.push({ field_path: `${kid.child.key}[${j}].${f}`, original_value: to, final_value: from });
       row[f] = JSON.parse(JSON.stringify(from));
     }
     if (!diff.length) return;
     try { await saveWholeRecord(rec, diff); maybeOfferRepublish(); rerenderKeep(); }
     catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert("copy failed: " + e.message); }
   }));
+  if (L.accept) panel.querySelectorAll(".stg-accept[data-row]").forEach((b) => (b.onclick = () => acceptRow(L, recs, Number(b.dataset.row))));
+  wirePaperRowCites(panel);
+  // an entry's child table whose rows cite nothing (the coder's own) drops its empty citation column
+  panel.querySelectorAll(".stg-entry table.rv-typed").forEach((t) => {
+    if (![...t.querySelectorAll("td.rv-rowcite")].some((c) => c.querySelector(".ev-cite:not(.ev-none)"))) t.classList.add("rv-nocite");
+  });
 }
 
 // The sub-entries (arms, results …) are added and edited on the generic tabs: switch to the
@@ -2542,8 +2813,10 @@ function wireControls(container, onSave, textToo) {
       if (now === cell.dataset.orig) return;
       cell.classList.add("rv-edited");
       cell.classList.toggle("rv-empty", now.trim() === "");
-      // cleared → null (not ""); a number typed into a numeric cell → number; else text
-      const val = now.trim() === "" ? null
+      // cleared → null (not ""); a number typed into a numeric cell → number; a list cell → its
+      // comma-separated items ([] when cleared); else text
+      const val = cell.classList.contains("rv-listed") ? now.split(",").map((x) => x.trim()).filter(Boolean)
+        : now.trim() === "" ? null
         : cell.classList.contains("rv-num") && !isNaN(Number(now)) ? Number(now) : now;
       Promise.resolve(onSave(cell.dataset.path, val)).then(() => (cell.dataset.orig = now));
     });
@@ -2553,7 +2826,7 @@ function wireControls(container, onSave, textToo) {
     const isBool = wrap.classList.contains("rv-bool");
     const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
     sel.onchange = () => {
-      sel.title = selectTitle(sel); sel.dataset.tip = sel.title;   // the chosen option's definition on hover
+      sel.dataset.tip = selectTitle(sel); if (sel.hasAttribute("title")) sel.title = sel.dataset.tip;   // the chosen option's definition on hover
       if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
       if (other) other.hidden = true;
       if (isBool) { commit(sel.value === "" ? null : sel.value === "true"); return; }
