@@ -1063,6 +1063,11 @@ async function doDeleteRecord(rec) {
 // immediately editable; edits route through the verify layer.
 async function doAddFinding(extra) {
   const template = VM.legacy ? {} : seedEntry(VM);
+  // in the staged layout the new entry shows on the entries stage: go there, and give it that
+  // stage's auto id — whichever button added it (the head's "＋" is on every stage, where a
+  // card added from the study-design stage was created but not seen)
+  const es = stagesOpen() ? entryStage() : null;
+  if (es && !(extra && extra.constructor === Object)) extra = stageEntryAutoId(es.stage);
   if (extra && extra.constructor === Object) Object.assign(template, extra);   // a stage's auto id; a click event is not one
   if (VM.legacy) {
     const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
@@ -1074,8 +1079,18 @@ async function doAddFinding(extra) {
       }
     });
   }
-  try { await api.addRecord(DATA.document_id, { field_values: template }); await reloadDoc(); }
+  try {
+    await api.addRecord(DATA.document_id, { field_values: template });
+    if (es) STAGE = es.index;
+    await reloadDoc();
+  }
   catch (e) { alert("add failed: " + e.message); }
+}
+// the stage that holds the entries' own fields (where a new entry appears as a card)
+function entryStage() {
+  const stages = ((stagesSpec() || {}).stages || []);
+  const index = stages.findIndex((s) => Array.isArray(s.fields));
+  return index < 0 ? null : { index, stage: stages[index] };
 }
 
 // Save ALL in-scope documents (the whole round), not just the highlighted one.
