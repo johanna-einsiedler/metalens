@@ -2349,6 +2349,11 @@ async function acceptRow(L, recs, i) {
     if (f.name !== ar.id_field && src[f.name] !== undefined && src[f.name] !== null) row[f.name] = JSON.parse(JSON.stringify(src[f.name]));
   }
   row[ar.id_field] = src[ar.id_column] == null ? null : String(src[ar.id_column]);
+  const lk = ar.lookup;                                     // one more value from another table, by the row's key
+  if (lk) {
+    const hit = (Array.isArray(pm[lk.table]) ? pm[lk.table] : []).find((r) => r && r[lk.key_column] != null && String(r[lk.key_column]) === String(src[lk.key_column]));
+    if (hit && hit[lk.take_column] != null && hit[lk.take_column] !== "") row[lk.into_field] = hit[lk.take_column];
+  }
   if (!rec.field_values) rec.field_values = {};
   if (!Array.isArray(rec.field_values[child.key])) rec.field_values[child.key] = [];
   const list = rec.field_values[child.key];

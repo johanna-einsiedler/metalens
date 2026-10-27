@@ -81,7 +81,8 @@ _ALLOWED_KEYS = {
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
     "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id", "accept_rows"},
     "copy": {"when", "fields"},
-    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column"},
+    "accept": {"from", "child", "id_column", "id_field", "verdict_column", "accepted", "task_column", "lookup"},
+    "lookup": {"table", "key_column", "take_column", "into_field"},
     "auto_id": {"field", "first", "next"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
@@ -1976,7 +1977,10 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     same-named columns into a new row of ``child`` under the entry the ``task_column`` names
     (the only entry, or one the coder picks), writes the row's ``id_column`` into the new row's
     ``id_field`` and sets the table row's ``verdict_column`` to ``accepted`` — the model's
-    estimates verified into the coder's rows, never retyped. A stage with a child may carry
+    estimates verified into the coder's rows, never retyped. Its optional ``lookup: {table,
+    key_column, take_column, into_field}`` takes one more value from another paper table: the row
+    of ``table`` whose ``key_column`` equals the accepted row's, its ``take_column`` written into
+    the child's ``into_field`` (the coder's outcome id from the alignment, say). A stage with a child may carry
     ``copy_from_sibling: {when, fields}``: a row's button copies the
     listed fields from the sibling row whose boolean ``when`` field is true (the reference arm's
     sample, say). An entry or child stage may carry ``auto_id: {field, first?, next}`` — a list of
@@ -2087,6 +2091,14 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                   f"child with id_field (a string field of it), and task_column (a column) when given")
             elif ar.get("child") != ck:
                 E(f"{at}.accept_rows.child must be the stage's child")
+            lk = ar.get("lookup") if isinstance(ar, dict) else None
+            if lk is not None:
+                lt = pfields.get(lk.get("table")) if isinstance(lk, dict) else None
+                lcols = {c.get("name") for c in (lt.get("columns") or []) if isinstance(c, dict)} if lt and lt.get("type") == "table" else set()
+                if (not isinstance(lk, dict) or set(lk) - _ALLOWED_KEYS["lookup"] or not lcols
+                        or lk.get("key_column") not in lcols or lk.get("take_column") not in lcols
+                        or (cols is None or lk.get("key_column") not in cols) or (kid is None or lk.get("into_field") not in kid)):
+                    E(f"{at}.accept_rows.lookup needs table (a paper table field) with key_column (also a column of from) and take_column, and into_field (a field of the child)")
         cs = st.get("copy_from_sibling")
         if cs is not None:
             if ck is None:

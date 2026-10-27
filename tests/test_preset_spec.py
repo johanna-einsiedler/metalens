@@ -541,6 +541,21 @@ def test_stages_review_paper_table_with_child_and_accept_rows() -> None:
     errs, warns = ps.validate(spec)
     assert errs == [] and warns == [], (errs, warns)
     assert spec["display"]["review"]["stages"][3]["accept_rows"]["id_field"] == "row_id"
+    # a lookup: one more value from another paper table, by the accepted row's key
+    doc["paper"]["fields"].append({"name": "model_map", "type": "table", "columns": [{"name": "rid", "type": "string"}, {"name": "mine", "type": "string"}]})
+    rv["stages"][3]["accept_rows"]["lookup"] = {"table": "model_map", "key_column": "rid", "take_column": "mine", "into_field": "var1"}
+    errs, warns = ps.validate(ps.normalize(doc))
+    assert errs == [], errs
+    for label, bad_lk in [("table unknown", {"table": "zzz", "key_column": "rid", "take_column": "mine", "into_field": "var1"}),
+                          ("key not in from", {"table": "model_map", "key_column": "mine", "take_column": "mine", "into_field": "var1"}),
+                          ("into_field unknown", {"table": "model_map", "key_column": "rid", "take_column": "mine", "into_field": "zzz"})]:
+        bad = copy.deepcopy(doc); bad["display"]["review"]["stages"][3]["accept_rows"]["lookup"] = bad_lk
+        try:
+            errs = ps.validate(ps.normalize(bad))[0]
+        except ps.SpecError as e:
+            errs = e.errors
+        assert any("accept_rows.lookup needs" in e for e in errs), (label, errs)
+    rv["stages"][3]["accept_rows"].pop("lookup")
     for label, bad_ar, needle in [
         ("from not a table", dict(rv["stages"][3]["accept_rows"], **{"from": "design"}), "accept_rows needs from"),
         ("id_field not a string field", dict(rv["stages"][3]["accept_rows"], id_field="es"), "accept_rows needs from"),
