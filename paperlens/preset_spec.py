@@ -513,7 +513,10 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             else:
                 vals = [o.get("value") if isinstance(o, dict) else o for o in opts]
                 if any(isinstance(v, (dict, list)) or v is None for v in vals):
-                    E(f"{at}.options entries must be scalars or {{value, label}} objects")
+                    E(f"{at}.options entries must be scalars or {{value, label, help?}} objects")
+                # help: the category's definition, shown to the coder on hover; wording, not contract
+                if any(isinstance(o, dict) and "help" in o and not isinstance(o["help"], str) for o in opts):
+                    E(f"{at}.options: help must be a string (the category's definition)")
                 if len({json.dumps(v) for v in vals}) != len(vals):
                     E(f"{at}.options must be unique")
         elif opts is not None:
@@ -2176,8 +2179,8 @@ def _options_doc(f: dict, params: dict, decl: dict) -> dict | None:
                 "items": [{"value": c, "label": _code_label(pdecl, params.get(pname), c)} for c in codes],
                 "empty": pdecl.get("empty")}
     if isinstance(opts, list):
-        return {"kind": "fixed", "items": [{"value": o.get("value"), "label": o.get("label")} if isinstance(o, dict)
-                                            else {"value": o, "label": None} for o in opts]}
+        return {"kind": "fixed", "items": [{"value": o.get("value"), "label": o.get("label"), **({"help": o["help"]} if isinstance(o.get("help"), str) else {})}
+                                            if isinstance(o, dict) else {"value": o, "label": None} for o in opts]}
     return None
 
 

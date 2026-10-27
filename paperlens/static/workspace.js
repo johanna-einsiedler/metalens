@@ -9,7 +9,7 @@
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
@@ -1902,6 +1902,7 @@ function eviSync(scope, path, val) {
       const sv = val === null || val === undefined ? "" : String(val);
       if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
       else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
+      s.title = selectTitle(s);
     } else if (cell.classList.contains("rv-multi")) {
       multiSetValues(cell, val);
     }
@@ -2435,6 +2436,7 @@ function wireControls(container, onSave, textToo) {
     const isBool = wrap.classList.contains("rv-bool");
     const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
     sel.onchange = () => {
+      sel.title = selectTitle(sel);                        // the chosen option's definition on hover
       if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
       if (other) other.hidden = true;
       if (isBool) { commit(sel.value === "" ? null : sel.value === "true"); return; }

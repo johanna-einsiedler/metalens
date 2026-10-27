@@ -21,6 +21,10 @@ RESULTS = {"key": "results", "label": "Result", "layout": "table",
            "fields": [{"name": "measure", "type": "string"}, {"name": "mean", "type": "number"}]}
 TAGS = {"name": "tags", "type": "multi", "options": [{"value": "a", "label": "A"}, "b"], "allow_other": True}
 TAGS_CLOSED = {"name": "tags", "type": "multi", "options": ["a", "b"]}
+HELPED_MULTI = {"name": "src", "type": "multi", "label": "Source", "help": "all that apply",
+                "options": [{"value": "exp", "label": "experimental", "help": "data from an experiment"}, {"value": "survey", "label": "survey"}]}
+HELPED_ENUM = {"name": "design", "type": "enum", "label": "Design", "help": "the main comparison",
+               "options": [{"value": "rct", "label": "RCT", "help": "random assignment"}, {"value": "obs", "label": "observational", "help": "no assignment"}]}
 
 RUNNER = """
 import { renderChild, renderFields, blankRow } from %s;
@@ -102,3 +106,35 @@ def test_multi_control_keeps_off_list_terms_and_offers_an_input() -> None:
     closed = out["closed"]
     assert 'data-free="1"' in closed and "rv-multi-other" not in closed         # never dropped, but no input
     assert "rv-multi-other" not in out["readonly"] and "rv-chip" in out["readonly"]
+
+
+def test_option_help_becomes_hover_titles() -> None:
+    out = _render({
+        "multi": {"fields": [HELPED_MULTI], "obj": {"src": ["exp"]}, "opts": {"editable": True}},
+        "enum_rct": {"fields": [HELPED_ENUM], "obj": {"design": "rct"}, "opts": {"editable": True}},
+        "enum_none": {"fields": [HELPED_ENUM], "obj": {"design": None}, "opts": {"editable": True}},
+        "plain": {"fields": [TAGS_CLOSED], "obj": {"tags": []}, "opts": {"editable": True}},
+    })
+    m = out["multi"]
+    assert '<label class="rv-chk" title="data from an experiment">' in m and '<label class="rv-chk"><input type="checkbox" value="survey"' in m
+    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply">Source<span class="rv-help" title="all that apply">ⓘ</span>' in m
+    e = out["enum_rct"]
+    assert '<option value="rct" selected title="random assignment">RCT</option>' in e and '<option value="obs" title="no assignment">' in e
+    assert '<select class="rv-select" data-help="the main comparison" title="random assignment">' in e      # the chosen option's definition
+    assert '<select class="rv-select" data-help="the main comparison" title="the main comparison">' in out["enum_none"]   # nothing chosen: the field's help
+    assert "rv-help" not in out["plain"] and 'title=' not in out["plain"]
+
+
+def test_select_title_follows_the_selection() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    script = """
+import { selectTitle } from %s;
+const mk = (opts, chosen, help) => ({ dataset: { help }, selectedOptions: chosen === null ? [] : [opts[chosen]] });
+const opts = [{ value: "rct", title: "random assignment" }, { value: "obs", title: "" }];
+process.stdout.write(JSON.stringify([selectTitle(mk(opts, 0, "the main comparison")), selectTitle(mk(opts, 1, "the main comparison")), selectTitle(mk(opts, null, "")), selectTitle(mk(opts, 1, ""))]));
+""" % json.dumps("file://" + GRAMMAR)
+    r = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == ["random assignment", "the main comparison", "", ""]

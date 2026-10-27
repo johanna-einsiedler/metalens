@@ -182,9 +182,15 @@ function renderCards(arr, path, opts, hint) {
 // tabular numerals even when it arrived as text, a missing declared field is visibly
 // missing. Undeclared keys still render by shape (renderNode) so nothing is hidden.
 
+// an option: its code, its label, and its help (the category's definition, shown on hover)
 const _opts = (f) => (Array.isArray(f.options) ? f.options : []).map((o) =>
-  (o && typeof o === "object") ? { value: o.value, label: o.label != null ? String(o.label) : String(o.value) }
-                               : { value: o, label: String(o) });
+  (o && typeof o === "object") ? { value: o.value, label: o.label != null ? String(o.label) : String(o.value), help: typeof o.help === "string" ? o.help : "" }
+                               : { value: o, label: String(o), help: "" });
+// the title a select carries: the chosen option's help, else the field's own
+export function selectTitle(sel) {
+  const o = sel.selectedOptions && sel.selectedOptions[0];
+  return (o && o.title) || sel.dataset.help || "";
+}
 
 function renderTypedValue(f, v, path, opts) {
   const t = f.type || "string";
@@ -196,12 +202,15 @@ function renderTypedValue(f, v, path, opts) {
     const val = v == null ? "" : String(v);
     const known = options.map((o) => String(o.value));
     const isOther = !!f.allow_other && val !== "" && !known.includes(val);
+    const chosen = options.find((o) => String(o.value) === val);
     const optionsHtml = [`<option value="">—</option>`]
-      .concat(options.map((o) => `<option value="${esc(o.value)}"${String(o.value) === val ? " selected" : ""}>${esc(o.label)}</option>`))
+      .concat(options.map((o) => `<option value="${esc(o.value)}"${String(o.value) === val ? " selected" : ""}${o.help ? ` title="${esc(o.help)}"` : ""}>${esc(o.label)}</option>`))
       .concat(f.allow_other ? [`<option value="__other__"${isOther ? " selected" : ""}>Other…</option>`] : []).join("");
     const other = f.allow_other
       ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>` : "";
-    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select">${optionsHtml}</select>${other}</span>`;
+    // the select's title: the chosen option's definition, else the field's help (kept in data-help)
+    const title = (chosen && chosen.help) || f.help || "";
+    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select"${f.help ? ` data-help="${esc(f.help)}"` : ""}${title ? ` title="${esc(title)}"` : ""}>${optionsHtml}</select>${other}</span>`;
   }
   if (t === "enum" && !editable) {
     const hit = _opts(f).find((o) => String(o.value) === String(v));
@@ -211,7 +220,7 @@ function renderTypedValue(f, v, path, opts) {
     const cur = Array.isArray(v) ? v.map(String) : (v == null || v === "" ? [] : [String(v)]);
     const options = _opts(f);
     const boxes = options.map((o) =>
-      `<label class="rv-chk"><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
+      `<label class="rv-chk"${o.help ? ` title="${esc(o.help)}"` : ""}><input type="checkbox" value="${esc(o.value)}"${cur.includes(String(o.value)) ? " checked" : ""}/>${esc(o.label)}</label>`).join("");
     return `<span class="rv-multi${f.allow_other ? " rv-multi-open" : ""}" data-path="${esc(path)}">${boxes}${multiFree(cur, options.map((o) => String(o.value)), !!f.allow_other)}</span>`;
   }
   if (t === "boolean" && editable) {
@@ -286,7 +295,7 @@ export function renderFields(defs, obj, basePath, opts) {
     const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
-      + `<div class="rv-key" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}</div>`
+      + `<div class="rv-key${f.help ? " rv-key-help" : ""}" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}${f.help ? `<span class="rv-help" title="${esc(f.help)}">ⓘ</span>` : ""}</div>`
       + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;

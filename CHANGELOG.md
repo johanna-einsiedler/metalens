@@ -142,6 +142,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   such values.
 - The generic card adds and removes sub-entries (an arm, a result: "＋", "✕"), logged as
   corrections like a table row; a cell inside a paper-level table is saved with its table.
+- Definitions on hover: an option of an enum or multi field (or table column) may carry `help`
+  (`{value, label, help}`) — the review shows it as the title of the checkbox label, of each
+  `<option>` and of the select itself (the chosen option's definition, else the field's help);
+  a field with help gets a dotted underline and a small ⓘ on its label. Wording only: it never
+  re-versions a dataset.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

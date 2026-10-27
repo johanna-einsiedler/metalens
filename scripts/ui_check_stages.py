@@ -190,6 +190,23 @@ def main() -> int:
             cells.first.click(); cells.first.fill("EDITED BY CHECK"); page.keyboard.press("Tab"); page.wait_for_timeout(900)
             open_doc(a.doc)
             check(page.locator(f'.stg-cells .evi-paper .rv-editable[data-path="{pth}"]').first.inner_text().strip() == "EDITED BY CHECK", f"the edit of {pth} was saved")
+        # definitions on hover: a checkbox label and a select carry their option's help as title
+        titled = page.locator(".stg-cells .rv-multi .rv-chk[title]:not(.rv-free)")       # a free term's chip has its own title
+        if titled.count():
+            check(titled.first.get_attribute("title").strip() != "", f"a multi checkbox carries its option's definition ('{titled.first.get_attribute('title')[:40]}')")
+            sel = page.locator(".stg-cells .rv-selwrap:not(.rv-bool) select").filter(has=page.locator("option[title]")).first
+            if sel.count():
+                opts = sel.locator("option[title]")
+                v1 = opts.nth(0).get_attribute("value"); t1 = opts.nth(0).get_attribute("title")
+                sel.select_option(v1); page.wait_for_timeout(500)
+                check(sel.get_attribute("title") == t1, "a select's title is the chosen option's definition")
+                if opts.count() >= 2:
+                    v2 = opts.nth(1).get_attribute("value"); t2 = opts.nth(1).get_attribute("title")
+                    sel.select_option(v2); page.wait_for_timeout(500)
+                    check(sel.get_attribute("title") == t2 and t2 != t1, "and follows the selection")
+            check(page.locator(".stg-cells .rv-key.rv-key-help .rv-help[title]").count() >= 1, "a field label carries its help on an ⓘ")
+        else:
+            print("  n/a  option definitions: the preset carries none")
         # a free term on an open multi field
         mo = page.locator(".stg-cells .rv-multi-other")
         check(mo.count() >= 1, "an open multi field offers an 'other…' input")

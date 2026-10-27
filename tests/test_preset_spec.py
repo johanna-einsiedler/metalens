@@ -92,6 +92,7 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("enum without options", lambda d: d["entries"]["fields"].append({"name": "x", "type": "enum"}), "options"),
     ("options on string", lambda d: d["entries"]["fields"].append({"name": "x", "options": ["a"]}), "options"),
     ("allow_other on string", lambda d: d["entries"]["fields"].append({"name": "x", "allow_other": True}), "allow_other"),
+    ("option help not a string", lambda d: d["paper"]["fields"][0].__setitem__("options", [{"value": "rct", "label": "RCT", "help": 3}, "obs"]), "help must be a string"),
     ("table without columns", lambda d: d["entries"]["fields"].append({"name": "x", "type": "table"}), "columns"),
     ("bad range", lambda d: d["entries"]["fields"].append({"name": "x", "type": "number", "range": [1, 0]}), "range"),
     ("value evidence on table", lambda d: d["entries"]["fields"][2].__setitem__("evidence", "value"), "evidence"),
@@ -499,3 +500,31 @@ def test_stages_review_rejects(label, mutate, needle) -> None:
     errs = _stage_errors(mutate)
     assert errs, f"{label}: expected an error"
     assert any(needle in e for e in errs), f"{label}: {errs}"
+
+
+# ── option definitions: {value, label, help} ──────────────────────────────────────────────────────
+
+def test_option_help_is_accepted_as_wording_only() -> None:
+    """An option may carry ``help`` (the category's definition) on fields and on table columns:
+    the validator takes it, the option helpers keep working, the UI grammar carries it, and the
+    data contract is unchanged — a definition added to a category never re-versions a dataset."""
+    plain = copy.deepcopy(GOOD)
+    plain["paper"]["fields"][0]["options"] = [{"value": "rct", "label": "RCT"}, {"value": "obs", "label": "Observational"}]
+    plain["entries"]["fields"][2]["columns"].append({"name": "kind", "type": "enum", "options": [{"value": "x", "label": "X"}]})
+    helped = copy.deepcopy(plain)
+    helped["paper"]["fields"][0]["options"][0]["help"] = "participants were randomly assigned"
+    helped["entries"]["fields"][2]["columns"][1]["options"][0]["help"] = "the x kind"
+    for doc in (plain, helped):
+        spec = ps.normalize(doc)
+        assert ps.validate(spec)[0] == []
+    sp, sh = ps.normalize(plain), ps.normalize(helped)
+    assert ps.content_hash(sp) == ps.content_hash(sh) and ps.schema_id(sp) == ps.schema_id(sh)
+    design = sh["paper"]["fields"][0]
+    assert ps._opt_values(design, {}, {}) == ["rct", "obs"]
+    assert ps._opt_lines(design, {}, {}) == "rct = RCT, obs = Observational"
+    doc_ = ps._options_doc(design, {}, {})
+    assert doc_["items"][0] == {"value": "rct", "label": "RCT", "help": "participants were randomly assigned"} and "help" not in doc_["items"][1]
+    assert ps.render_prompt(sp) == ps.render_prompt(sh)
+    fh, fp = ps.field_defs_for(sh), ps.field_defs_for(sp)
+    assert {k: v for k, v in fh.items() if k != "spec"} == {k: v for k, v in fp.items() if k != "spec"}   # the legacy grammar is unchanged
+    assert fh["spec"]["paper"]["fields"][0]["options"][0]["help"] == "participants were randomly assigned"  # the UI's spec carries it

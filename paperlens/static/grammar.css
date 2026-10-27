@@ -9,6 +9,9 @@
 .rv-row { display: flex; gap: 14px; justify-content: space-between; align-items: baseline;
   min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .rv-key { font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
+/* a field with help: a dotted underline and a small ⓘ, both carrying the definition on hover */
+.rv-key.rv-key-help { text-decoration: underline dotted var(--border); text-underline-offset: 3px; cursor: help; }
+.rv-help { font-size: 10px; font-weight: 400; margin-left: 4px; color: var(--text-muted); vertical-align: 1px; cursor: help; }
 .rv-val { color: var(--text); line-height: 1.5; word-break: break-word; flex: 0 1 auto;
   min-width: 0; text-align: left; }
 /* nested objects/tables take the full row width and stack the value under the key */
