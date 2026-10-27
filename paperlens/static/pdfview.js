@@ -75,13 +75,15 @@ function clearSelection() {
 
 // `eid` may be one evidence index or an array of them (a field cited twice lights both;
 // nothing else). Only the newest selection is ever painted.
-export function jumpToEvidence(page, eid, { flash = true } = {}) {
+export function jumpToEvidence(page, eid, { flash = true, scroll = true } = {}) {
   clearSelection();               // replace the previous highlight — never stack them
   const ids = Array.isArray(eid) ? eid : [eid];
   const rects = ids.flatMap((id) => [...rectsFor(id)]);
   // flash:false → the citation is simply shown selected; the blink is left to the located value
   rects.forEach((r) => { r.classList.add("sel"); if (flash) { r.classList.add("flash"); setTimeout(() => r.classList.remove("flash"), 1500); } });
-  scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
+  // scroll:false → the caller places the page itself (the staged layout anchors the highlight's top)
+  if (scroll) scrollToRect(rects[0], page);   // land ON the evidence, not the top of the page
+  return rects;
 }
 
 // Faintly mark the rects that belong to the CURRENT entry / tab (`.ctx`) so the coder sees

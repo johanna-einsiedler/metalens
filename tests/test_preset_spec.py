@@ -423,10 +423,13 @@ def _stages_doc(items_on: str = "entry") -> dict:
     else:
         doc["entries"]["fields"].append(items); doc["display"]["tabs"][0]["fields"].append("items")
     doc["entries"]["children"][0]["fields"].append({"name": "is_ref", "type": "boolean"})
+    doc["entries"]["children"][0]["fields"].append({"name": "row_id", "type": "string"})
     doc["display"]["review"] = {"layout": "stages", "items": "items", "stages": [
         {"id": "design", "label": "Design", "help": "Code the design from the items.", "paper_fields": ["design"]},
-        {"id": "samples", "label": "Samples", "help": "One sample per group; add each.", "fields": ["sample_id", "n", "matrix"]},
-        {"id": "effects", "label": "Effects", "help": "One row per effect.", "child": "records", "child_fields": ["var1", "is_ref"]},
+        {"id": "samples", "label": "Samples", "help": "One sample per group; add each.", "fields": ["sample_id", "n", "matrix"],
+         "auto_id": {"field": "sample_id", "next": "S{n}"}},
+        {"id": "effects", "label": "Effects", "help": "One row per effect.", "child": "records", "child_fields": ["var1", "is_ref", "row_id"],
+         "auto_id": {"field": "row_id", "first": "C", "next": "T{n}"}},
         {"id": "sizes", "label": "Sizes", "help": "The estimate of each row.", "child": "records", "child_fields": ["es"],
          "copy_from_sibling": {"when": "is_ref", "fields": ["es"]}},
     ]}
@@ -445,6 +448,8 @@ def test_stages_review_layout_is_accepted() -> None:
         bare = copy.deepcopy(_stages_doc(where)); bare["display"].pop("review")
         assert ps.schema_id(spec) == ps.schema_id(ps.normalize(bare))
         assert spec["display"]["review"]["stages"][3]["copy_from_sibling"] == {"when": "is_ref", "fields": ["es"]}
+        assert spec["display"]["review"]["stages"][1]["auto_id"] == {"field": "sample_id", "next": "S{n}"}
+        assert spec["display"]["review"]["stages"][2]["auto_id"] == {"field": "row_id", "first": "C", "next": "T{n}"}
     doc = _stages_doc()
     doc["display"]["review"]["stages"][0].pop("help")
     doc["display"]["review"]["stages"][1]["fields"] = ["sample_id"]        # n and matrix in no stage
@@ -480,6 +485,13 @@ def _stage_errors(mutate) -> list[str]:
     ("copy when not boolean", lambda rv: rv["stages"][3].update(copy_from_sibling={"when": "var1", "fields": ["es"]}), "needs 'when' (a boolean field"),
     ("copy field unknown", lambda rv: rv["stages"][3].update(copy_from_sibling={"when": "is_ref", "fields": ["zzz"]}), "needs 'when'"),
     ("duplicate id", lambda rv: rv["stages"][1].update(id="design"), "'design' is duplicated"),
+    ("auto_id on a paper stage", lambda rv: rv["stages"][0].update(auto_id={"field": "design", "next": "D{n}"}), "auto_id only applies to an entry or child stage"),
+    ("auto_id not an object", lambda rv: rv["stages"][1].update(auto_id="sample_id"), "auto_id must be an object"),
+    ("auto_id unknown key", lambda rv: rv["stages"][1].update(auto_id={"field": "sample_id", "next": "S{n}", "step": 2}), "auto_id: unknown key 'step'"),
+    ("auto_id field not a string field", lambda rv: rv["stages"][1].update(auto_id={"field": "n", "next": "S{n}"}), "auto_id.field must name a string field of the entry"),
+    ("auto_id field of another level", lambda rv: rv["stages"][2].update(auto_id={"field": "sample_id", "next": "T{n}"}), "auto_id.field must name a string field of 'records'"),
+    ("auto_id next without {n}", lambda rv: rv["stages"][1].update(auto_id={"field": "sample_id", "next": "S"}), "auto_id.next must be a string containing {n}"),
+    ("auto_id first not a string", lambda rv: rv["stages"][2].update(auto_id={"field": "row_id", "first": 1, "next": "T{n}"}), "auto_id.first must be a string"),
     ("bad id", lambda rv: rv["stages"][1].update(id="2 b"), "id must match"),
     ("no label", lambda rv: rv["stages"][1].pop("label"), "label is required"),
 ])

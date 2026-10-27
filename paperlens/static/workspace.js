@@ -932,8 +932,9 @@ async function doDeleteRecord(rec) {
 // Add a manual entry: seed a COMPLETE blank form from the preset's declaration (typed
 // blanks: [] for tables / sub-entries / multi, null for booleans) so its cells are
 // immediately editable; edits route through the verify layer.
-async function doAddFinding() {
+async function doAddFinding(extra) {
   const template = VM.legacy ? {} : seedEntry(VM);
+  if (extra && extra.constructor === Object) Object.assign(template, extra);   // a stage's auto id; a click event is not one
   if (VM.legacy) {
     const views = (DATA.field_defs && DATA.field_defs.sub_views) || [];
     views.forEach((v) => (v.include_keys || []).forEach((k) => { if (!(k in template)) template[k] = ""; }));
@@ -1028,13 +1029,15 @@ function rerenderCard(card, rec) {
 // coder must be able to put it in. Both go through the verify layer as corrections, like every
 // other edit. `rerender` redraws the view after the save: the card itself by default, the whole
 // panel for a layout whose cells are not inside a record card.
-function wireTableRows(card, rec, rerender = () => rerenderCard(card, rec)) {
+function wireTableRows(card, rec, rerender = () => rerenderCard(card, rec), fill = null) {
   card.querySelectorAll(".rv-addrow").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path;
     if (!rec.field_values) rec.field_values = {};
     const cur = getByPath(rec.field_values, path);
     const rows = Array.isArray(cur) ? cur : [];
-    rows.push(JSON.parse(b.dataset.blank || "{}"));
+    const blank = JSON.parse(b.dataset.blank || "{}");
+    if (fill) Object.assign(blank, fill(path, rows) || {});          // a stage's auto id, from the rows as they stand
+    rows.push(blank);
     if (!Array.isArray(cur)) setByPath(rec.field_values, path, rows);
     try {
       await saveWholeRecord(rec, [{ field_path: `${path}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }]);
@@ -1910,15 +1913,17 @@ function wireEvidencePanel(panel, recs) {
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
 // paper fields, entry fields, or one child's fields. While a stage is open the workspace stacks:
-// the records panel spans the window and scrolls — the stage bar and its instruction, then FIELDS
-// (the stage's cells, once: the study cells; every entry as a card with the stage's fields and
-// "＋ add"; or each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the
-// stage declares copy_from_sibling, "same as <the reference row>"), then EVIDENCE (the items
-// whose bears_on meets the stage's fields, the current one marked, the rest folded) — and the PDF
-// is a pane pinned to the bottom, showing the current item's page scrolled to its highlight at
-// twice the scale (an item with no located rectangle: its page, normal scale). ← → and the pane's
-// "◀ item k of n ▶" move the cursor, which stops at the ends and starts on the first item when a
-// stage opens. Saves and verification are the generic card's; the Fields view is the two-column one.
+// the records panel spans the window and scrolls — the stage bar and its instruction, then
+// EVIDENCE (the items whose bears_on meets the stage's fields, the current one marked, the rest
+// folded), then FIELDS (the stage's cells, once: the study cells; every entry as a card with the
+// stage's fields and "＋ add"; or each entry's sub-entries with "＋", "✕", "copy … from <entry>"
+// and, where the stage declares copy_from_sibling, "same as <the reference row>") — and the PDF
+// is a pane pinned to the bottom, at the scale the coder set, scrolled so the current item's
+// highlight starts just under the pane's top edge (an item with no located rectangle: the top of
+// its page). ← → and the pane's "◀ item k of n ▶" move the cursor, which stops at the ends and
+// starts on the first item when a stage opens. A stage's auto_id fills the id of an added entry or
+// row (first, then next with the smallest unused number). Saves and verification are the generic
+// card's; the Fields view is the two-column one.
 function stackMode() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
 
 // The window in stacked mode: a body class the stylesheet keys on, a drag handle and the item
@@ -1940,7 +1945,7 @@ function setStackMode(on) {
   } else {
     if (h) h.remove();
     if (nav) nav.remove();
-    if (was) { paneZoom(storedZoom()); STAGE_SHOWN = ""; }
+    if (was) STAGE_SHOWN = "";
   }
 }
 function mountPaneResize(h) {
@@ -1980,19 +1985,21 @@ function stageShowItem() {
   const g = STAGE_ITEMS[STAGE_CUR]; if (!g) return;
   const page = g.page || (g.ids.length ? (DATA.evidence[g.ids[0]] || {}).page : null);
   const located = g.ids.some((i) => EV.hasRect[i]);
-  paneZoom(located ? 2 : 1);
   const pages = $("#pages"); if (!pages) return;
+  // the page at whatever scale the coder set (no automatic zoom); the highlight's TOP a small
+  // margin under the pane's top edge, centred sideways; an unlocated item: the top of its page
   const go = () => {
+    const pb = pages.getBoundingClientRect();
     if (located) {
-      jumpToEvidence(page, g.ids, { flash: false });
-      const r = document.querySelector(g.ids.map((i) => `rect.hl[data-eids~="${i}"]`).join(", "));
+      const rects = jumpToEvidence(page, g.ids, { flash: false, scroll: false });
+      const r = rects.slice().sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top)[0];
       if (!r) return;
-      const rb = r.getBoundingClientRect(), pb = pages.getBoundingClientRect();
-      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (rb.top - pb.top) - pages.clientHeight / 2 + rb.height / 2),
+      const rb = r.getBoundingClientRect();
+      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (rb.top - pb.top) - 24),
                        left: Math.max(0, pages.scrollLeft + (rb.left - pb.left) - pages.clientWidth / 2 + rb.width / 2), behavior: "smooth" });
     } else if (page) {
       const wrap = document.getElementById(`page-${page}`); if (!wrap) return;
-      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (wrap.getBoundingClientRect().top - pages.getBoundingClientRect().top) - 8), left: 0, behavior: "smooth" });
+      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (wrap.getBoundingClientRect().top - pb.top) - 8), left: 0, behavior: "smooth" });
     }
   };
   requestAnimationFrame(() => { go(); if (located) setTimeout(go, 500); });   // the rects appear once the page image has loaded
@@ -2007,6 +2014,23 @@ function fieldLabel(name) {
   return info && info.field ? info.field.label || formatKey(name) : name;
 }
 const stageLetter = (i) => String.fromCharCode(97 + (i % 26));
+
+// A stage's auto_id for a new entry or row: `first` when no sibling has a value in the field,
+// else `next` with the smallest number no sibling uses ({first: "C", next: "T{n}"}: C, T1, T2 …).
+function autoIdValue(ai, siblings) {
+  const used = new Set(siblings.map((v) => (v === null || v === undefined ? "" : String(v).trim())).filter(Boolean));
+  if (ai.first !== undefined && ai.first !== null && !used.size) return String(ai.first);
+  for (let n = 1; n < 10000; n++) {
+    const v = String(ai.next).replace("{n}", String(n));
+    if (!used.has(v)) return v;
+  }
+  return null;
+}
+function stageEntryAutoId(st) {
+  const ai = st.auto_id; if (!ai || !ai.field) return null;
+  const v = autoIdValue(ai, (DATA.records || []).map((r) => (r.field_values || {})[ai.field]));
+  return v === null ? null : { [ai.field]: v };
+}
 
 function addEntryButton() {
   const b = document.createElement("button");
@@ -2093,8 +2117,7 @@ function renderStagesPanel(panel, rv) {
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
   STAGE_ITEMS = inStage;
   STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
-  // FIELDS, then EVIDENCE
-  panel.appendChild(stageCellsBlock(st, L, recs));
+  // EVIDENCE, then FIELDS
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
   evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
   inStage.forEach((g, i) => {
@@ -2111,6 +2134,7 @@ function renderStagesPanel(panel, rv) {
     evbox.appendChild(det);
   }
   panel.appendChild(evbox);
+  panel.appendChild(stageCellsBlock(st, L, recs));
   wireEvidencePanel(panel, recs);
   wireStagePanel(panel, recs, st, L);
   evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
@@ -2153,11 +2177,13 @@ function wireStagePanel(panel, recs, st, L) {
   const prev = panel.querySelector(".stg-prev"), next = panel.querySelector(".stg-next");
   if (prev) prev.onclick = () => stageStep(-1);
   if (next) next.onclick = () => stageStep(1);
-  panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = doAddFinding));
+  panel.querySelectorAll(".stg-addtask").forEach((b) => (b.onclick = () => doAddFinding(stageEntryAutoId(st))));
   const va = panel.querySelector("#stg-verifyall"); if (va) va.onclick = () => verifyAll(va);
   const nc = panel.querySelector("button#noconfirm"); if (nc) nc.onclick = () => confirmNoRecords(nc);
+  const ai = st.auto_id;
+  const fill = ai && ai.field && L.child ? (path, rows) => (path === L.child.key ? { [ai.field]: autoIdValue(ai, rows.map((r) => (r || {})[ai.field])) } : null) : null;
   panel.querySelectorAll(".stg-cells .evi-entry[data-rid]").forEach((box) => {
-    const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep);
+    const rec = byId.get(box.dataset.rid); if (rec) wireTableRows(box, rec, rerenderKeep, fill);
   });
   panel.querySelectorAll(".stg-copyfrom").forEach((sel) => (sel.onchange = async () => {
     const rec = byId.get(sel.dataset.rid), src = byId.get(sel.value); sel.value = "";

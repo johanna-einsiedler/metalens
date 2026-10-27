@@ -6,13 +6,14 @@
 
 Opens the workspace on a document imported under a preset with the staged layout and checks the
 stacked window: the records panel spans the window with the stage bar and the instruction, then
-the FIELDS block (the stage's cells, once), then the EVIDENCE box (the stage's items in order, the
-current one marked, the rest folded), and the PDF pane pinned to the bottom with its "◀ item k of
-n ▶" control; `→` / `←` move the marker and the pane (twice the scale on a located item); `]` / `[`
-move the stage; a study cell edit is saved; a free term typed into an open multi field becomes a
-chip and survives a reload; "＋ add" on the entry stage adds an entry at once; "＋" on a child
-stage adds a row; "same as <reference>" and "copy … from" copy; the Fields button restores the
-two-column view; the page logs no script error. With --zero-doc, a paper imported with no entries
+the EVIDENCE box (the stage's items in order, the current one marked, the rest folded), then the
+FIELDS block (the stage's cells, once), and the PDF pane pinned to the bottom with its "◀ item k
+of n ▶" control; `→` / `←` move the marker and the pane, which puts the highlight's top just under
+its edge at the coder's zoom (no automatic scale); `]` / `[` move the stage; a study cell edit is
+saved; a free term typed into an open multi field becomes a chip and survives a reload; "＋ add"
+on the entry stage adds an entry at once with its auto id (T1, T2 …); "＋" on a child stage adds
+a row with its auto id (C, then T1 …); "same as <reference>" and "copy … from" copy; the Fields
+button restores the two-column view; the page logs no script error. With --zero-doc, a paper imported with no entries
 opens on the stages and the first entry is created from there. With --shots, screenshots of the
 first and the results stage of --doc. Needs the system python with playwright installed; prints a
 check list and exits non-zero on a failure.
@@ -81,7 +82,7 @@ def main() -> int:
         check(page.evaluate("() => getComputedStyle(document.querySelector('#pages')).overflowY") in ("auto", "scroll"), "the pages scroll inside the pane")
         # FIELDS before EVIDENCE, nothing under the items
         check(page.locator(".stg-cells").count() == 1 and page.locator(".stg-evidence").count() == 1, "one fields block and one evidence box")
-        check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (f.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the fields block comes before the evidence box")
+        check(page.evaluate("() => { const f = document.querySelector('.stg-cells'), e = document.querySelector('.stg-evidence'); return !!(f && e && (e.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING)); }"), "the evidence box comes before the fields block")
         check(page.locator(".stg-evidence .evi-cells").count() == 0, "no cells under the items")
         all_items = page.locator(".evi-item").count()
         in_stage = page.locator(".stg-evidence > .evi-item")
@@ -94,9 +95,12 @@ def main() -> int:
         # the cursor and the pane
         check(cur_index() == ["0"], "the first item is current")
         check(nav_text() == f"item 1 of {n_in}", f"the pane says '{nav_text()}'")
-        located = page.locator(".stg-evidence > .evi-item.cur .ev-cite[data-eids]").count() == 1
         page.wait_for_timeout(900)
-        check(zoom() == ("2" if located else "1"), f"the pane shows the current item at {'twice the' if located else 'normal'} scale (zoom {zoom()})")
+        check(zoom() in ("1", ""), f"the pane shows the page at the coder's zoom, 100% by default (zoom {zoom() or '1'})")
+        # the current item's highlight: its top just under the pane's edge
+        anchor = lambda: page.evaluate("() => { const cur = document.querySelector('.stg-evidence > .evi-item.cur .ev-cite[data-eids]'); if (!cur) return null; const ids = cur.dataset.eids.split(','); const rs = ids.flatMap((i) => [...document.querySelectorAll(`rect.hl[data-eids~='${i}']`)]); if (!rs.length) return null; const pb = document.querySelector('#pages').getBoundingClientRect(); return Math.min(...rs.map((r) => r.getBoundingClientRect().top)) - pb.top; }")
+        a0 = anchor()
+        check(a0 is None or 0 <= a0 <= 40, f"the highlight's top sits just under the pane's top ({a0 and round(a0)}px)")
         st0 = page.evaluate("() => [document.querySelector('#pages').scrollTop, document.querySelector('#pages').scrollLeft]")
         if n_in >= 2:
             page.keyboard.press("ArrowRight"); page.wait_for_timeout(900)
@@ -104,6 +108,9 @@ def main() -> int:
             st1 = page.evaluate("() => [document.querySelector('#pages').scrollTop, document.querySelector('#pages').scrollLeft]")
             same_spot = page.evaluate("() => { const a = document.querySelector('.stg-evidence > .evi-item[data-i=\"0\"] .ev-cite'), b = document.querySelector('.stg-evidence > .evi-item[data-i=\"1\"] .ev-cite'); return !!(a && b && a.dataset.eids && a.dataset.eids === b.dataset.eids); }")
             check(st1 != st0 or same_spot, f"the pane moved to the item ({st0} → {st1})")
+            a1 = anchor()
+            check(a1 is None or 0 <= a1 <= 40, f"and anchored its highlight's top ({a1 and round(a1)}px)")
+            check(zoom() in ("1", ""), "the zoom stayed at 100% after moving")
             page.locator(".stg-pane-nav button[data-d='-1']").click(); page.wait_for_timeout(600)
             check(cur_index() == ["0"], "◀ on the pane returns to the first item")
             page.locator(".stg-evidence > .evi-item[data-i='1'] .evi-body").click(); page.wait_for_timeout(600)
@@ -151,6 +158,10 @@ def main() -> int:
         if add.count():
             add.click(); page.wait_for_selector(".stg-bar", timeout=15000); page.wait_for_timeout(900)
             check(page.locator(".stg-cells .stg-entry").count() == before + 1, "an entry was added and shows in the fields block at once")
+            ids = page.locator('.stg-cells .stg-entry .rv-editable[data-path="task_id"], .stg-cells .stg-entry .rv-cell[data-path="task_id"]').all_inner_texts()
+            ids = [x.strip() for x in ids]
+            want = next(f"T{n}" for n in range(1, 100) if f"T{n}" not in ids[:-1])
+            check(ids and ids[-1] == want, f"the new entry got the next free id {want} (ids now {ids})")
         # a child stage: add rows, same-as-reference, copy from another entry
         child_i = tab_index("arm")
         if child_i < 0:
@@ -165,6 +176,8 @@ def main() -> int:
             addrow.last.click(); page.wait_for_timeout(900)
             addrow = card().locator(".rv-addrow"); addrow.last.click(); page.wait_for_timeout(900)
             check(card().locator(".rv-childrow").count() == rows_before + 2, "two rows were added")
+            arm_ids = [x.strip() for x in card().locator('.rv-childrow .rv-editable[data-path$=".arm_id"]').all_inner_texts()]
+            check(arm_ids[-2:] == (["C", "T1"] if rows_before == 0 else [next(f"T{n}" for n in range(1, 100) if f"T{n}" not in arm_ids[:-2]), next(f"T{n}" for n in range(1, 100) if f"T{n}" not in arm_ids[:-1])]), f"the new arms got their auto ids ({arm_ids})")
         if not card().locator(".stg-same").count():                 # no reference row yet: make the first one the reference
             ref = card().locator('.rv-selwrap[data-path$="[0].is_baseline"] select')
             if ref.count():
@@ -210,6 +223,7 @@ def main() -> int:
                 had = page.locator(".stg-cells .stg-entry").count()      # 0 on a fresh paper; a rerun finds the earlier ones
                 add.click(); page.wait_for_selector(".stg-bar", timeout=15000); page.wait_for_timeout(900)
                 check(page.locator(".stg-cells .stg-entry").count() == had + 1, "an entry was created on the empty paper")
+                check(page.locator('.stg-cells .stg-entry .rv-editable[data-path="task_id"]').last.inner_text().strip() == ("T1" if had == 0 else f"T{had + 1}"), "with its auto id")
         check(not errors, "no script errors" + (": " + "; ".join(errors[:3]) if errors else ""))
         browser.close()
     return 1 if fails else 0

@@ -79,8 +79,9 @@ _ALLOWED_KEYS = {
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "copy_from_sibling", "auto_id"},
     "copy": {"when", "fields"},
+    "auto_id": {"field", "first", "next"},
     # the card: a curated preset's own documentation page, and who to credit for the preset
     "card": {"file", "text"},
     "author": {"family", "given", "orcid", "affiliation"},
@@ -1918,14 +1919,18 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     ``{id, label, help, …}`` naming the fields of ONE level — ``paper_fields``, ``fields`` (of the
     entry) or ``child`` + ``child_fields`` (of that child) — and, on a child stage, may carry
     ``copy_from_sibling: {when, fields}``: a row's button copies the listed fields from the sibling
-    row whose boolean ``when`` field is true (the reference arm's sample, say). The workspace stacks
-    while a stage is open: the stage's instruction, its cells (once), then the items whose bears_on
-    meets its fields with a cursor over them, and the PDF pinned below on the current item's page;
-    a paper-level items table is placed under every entry. The items table is never a cell.
-    A field in no stage is reachable only from the Fields view: a warning."""
+    row whose boolean ``when`` field is true (the reference arm's sample, say). An entry or child
+    stage may carry ``auto_id: {field, first?, next}``: what "add" writes into ``field`` (a string
+    field of that level) — ``first`` when no sibling has a value there, else ``next`` with ``{n}``
+    the smallest number not yet used (``{"field": "arm_id", "first": "C", "next": "T{n}"}`` gives
+    C, T1, T2 …). The workspace stacks while a stage is open: the stage's instruction, the items
+    whose bears_on meets its fields with a cursor over them, then its cells (once), and the PDF
+    pinned below on the current item's page; a paper-level items table is placed under every entry.
+    The items table is never a cell. A field in no stage is reachable only from the Fields view: a
+    warning."""
     pfields = {f.get("name"): f for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
     ent = spec.get("entries") or {}
-    enames = {f.get("name") for f in (ent.get("fields") or []) if isinstance(f, dict)}
+    efields = {f.get("name"): f for f in (ent.get("fields") or []) if isinstance(f, dict)}
     kids = {c.get("key"): {f.get("name"): f for f in (c.get("fields") or []) if isinstance(f, dict)}
             for c in (ent.get("children") or []) if isinstance(c, dict)}
     for k in sorted(set(rv) - {"layout", "items", "stages"}):
@@ -1965,7 +1970,7 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
             E(f"{at}.child must name a child of the entries")
             continue
         names = st["child_fields"] if level == "child" else st[level]
-        known = kids[ck] if level == "child" else (pfields if level == "paper_fields" else enames)
+        known = kids[ck] if level == "child" else (pfields if level == "paper_fields" else efields)
         what = f"a field of {ck!r}" if level == "child" else ("a paper field" if level == "paper_fields" else "an entry field")
         key = "child_fields" if level == "child" else level
         if not isinstance(names, list) or not names:
@@ -1978,6 +1983,22 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                 E(f"{at}: the items table {n!r} is drawn as evidence, not as a cell")
             else:
                 covered.add(n)
+        ai = st.get("auto_id")
+        if ai is not None:
+            if level == "paper_fields":
+                E(f"{at}.auto_id only applies to an entry or child stage")
+            elif not isinstance(ai, dict):
+                E(f"{at}.auto_id must be an object {{field, first?, next}}")
+            else:
+                for k in sorted(set(ai) - _ALLOWED_KEYS["auto_id"]):
+                    E(f"{at}.auto_id: unknown key {k!r}")
+                where = f"a string field of {ck!r}" if level == "child" else "a string field of the entry"
+                if (known.get(ai.get("field")) or {}).get("type") != "string":
+                    E(f"{at}.auto_id.field must name {where}")
+                if not isinstance(ai.get("next"), str) or "{n}" not in ai["next"]:
+                    E(f"{at}.auto_id.next must be a string containing {{n}}")
+                if "first" in ai and not isinstance(ai["first"], str):
+                    E(f"{at}.auto_id.first must be a string")
         cs = st.get("copy_from_sibling")
         if cs is not None:
             if level != "child":
@@ -1987,7 +2008,7 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                   or not isinstance(cs.get("fields"), list) or not cs["fields"]
                   or any(n not in kids[ck] for n in cs["fields"])):
                 E(f"{at}.copy_from_sibling needs 'when' (a boolean field of {ck!r}) and 'fields' (fields of {ck!r})")
-    declared = [n for n in pfields] + sorted(enames) + [n for ch in kids.values() for n in ch]
+    declared = [n for n in pfields] + [n for n in efields] + [n for ch in kids.values() for n in ch]
     for n in declared:
         if n not in covered and n != rv.get("items"):
             W(f"$.display.review.stages: {n!r} is in no stage (reachable only from the Fields view)")
