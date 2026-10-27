@@ -122,8 +122,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
   paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
   stages (a→g, `]`/`[`), each opening with its instruction, then the reader's items that bear on
-  the stage's fields (page jump, PDF highlight, the cells beneath, the rest folded), then the
-  stage's cells: paper fields; every entry with "＋ add"; or each entry's arms / results with
+  the stage's fields (page jump, PDF highlight; on a paper stage the study cells beneath each
+  item; the rest folded), then the stage's cells: paper fields; every entry as a card with "＋
+  add"; or each entry's arms / results with
   "＋", "✕", "copy … from <entry>" and "same as <the reference row>". The items table may sit on
   the paper, so a blind import with no entries opens on the stages and the coder adds the first
   entry; adding an entry retires the "screened — no records" sentinel. Verification stays per

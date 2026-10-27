@@ -6,8 +6,9 @@
 
 Opens the workspace on a document imported under a preset with the staged layout and checks: the
 stage bar and the instruction; the stage's items (in order, a subset of all, page jumps); `]` / `[`
-move the stage; "＋ add" on the entry stage adds an entry; "＋" on a child stage adds a row; an
-edit under an item mirrors into the stage's block and is saved; "same as <reference>" copies the
+move the stage; on an entry or child stage the items are plain quotes and the cells live once in
+the block below; "＋ add" on the entry stage adds an entry; "＋" on a child stage adds a row; an
+edit under an item of a paper stage mirrors into the stage's block and is saved; "same as <reference>" copies the
 fields; "copy … from" copies a child list; a free term typed into an open multi field becomes a
 chip in every copy and survives a reload; the Fields button returns to the generic cards; the page
 logs no script error. With --zero-doc, a paper imported with no entries opens on the stages and
@@ -101,6 +102,7 @@ def main() -> int:
         if entry_i < 0:
             entry_i = 1
         tabs.nth(entry_i).click(); page.wait_for_timeout(400)
+        check(page.locator(".stg-items .evi-cells").count() == 0 and page.locator(".stg-cells .stg-entry .rv-editable, .stg-cells .stg-entry .rv-selwrap").count() >= 1, "on the entry stage the items are plain quotes and the cards hold the fields")
         before = page.locator(".stg-cells .stg-entry").count()
         add = page.locator(".stg-addtask")
         check(add.count() == 1, "the entry stage offers '＋ add'")
@@ -112,6 +114,8 @@ def main() -> int:
         if child_i < 0:
             child_i = 2
         page.locator(".stg-tab").nth(child_i).click(); page.wait_for_timeout(400)
+        check(page.locator(".stg-items .evi-item").count() >= 1 and page.locator(".stg-items .evi-cells").count() == 0, "on a child stage the items are plain quotes, the cells live in the block")
+        check(page.locator(".stg-items .evi-item .ev-cite[data-eids]").count() >= 1, "with their page jumps")
         rows_before = page.locator(".stg-cells .rv-childrow").count()
         addrow = page.locator(".stg-cells .rv-addrow")
         check(addrow.count() >= 1, "a child stage offers '＋' per entry")

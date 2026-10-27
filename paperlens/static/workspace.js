@@ -1902,9 +1902,11 @@ function wireEvidencePanel(panel, recs) {
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
 // paper fields, entry fields, or one child's fields. A stage shows its instruction, the items
-// whose bears_on meets its fields (the cells they bear on beneath, restricted to the stage), the
-// rest of the items folded, then the stage's cells: the paper fields; every entry with "＋ add";
-// or each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
+// whose bears_on meets its fields, the rest of the items folded, then the stage's cells. On a
+// paper stage each item carries the study cells it bears on (restricted to the stage) and the
+// block at the bottom holds the rest; on an entry or child stage the items are plain quotes — the
+// cells live once, in the block: every entry as a card with the stage's fields and "＋ add", or
+// each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
 // copy_from_sibling, "same as <the reference row>". Saves and verification are the generic card's.
 function stageLevel(st) {
   if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
@@ -1917,27 +1919,13 @@ function fieldLabel(name) {
 }
 const stageLetter = (i) => String.fromCharCode(97 + (i % 26));
 
-// The cells of an item, restricted to the stage: the study fields it bears on; each entry's
-// fields; or the rows of the child it names (those rows, those fields — or the names, when the
-// rows do not exist yet).
-function stageItemCells(g, L, recs) {
-  if (L.scope === "paper") return eviPaperBlock(g.paper.filter((n) => L.names.has(n)));
-  let html = "";
-  for (const rec of recs) {
-    if (L.scope === "entry") { html += eviEntryBlock(rec, (g.entry.get(rec.id) || []).filter((n) => L.names.has(n)), new Map()); continue; }
-    if (!L.child) continue;
-    const mine = g.lower.filter((x) => x.recId === rec.id && L.names.has(x.name));
-    if (!mine.length) continue;
-    const only = new Set(mine.filter((x) => x.childIndex !== null && x.childIndex !== undefined).map((x) => x.childIndex));
-    const show = new Set(mine.map((x) => x.name));
-    const rows = (rec.field_values || {})[L.child.key];
-    html += `<div class="evi-entry" data-rid="${esc(rec.id)}"><div class="evi-sub">${esc(entryTitle(VM, rec, rec.entry_index))}</div>`
-      + (only.size && Array.isArray(rows) && rows.length
-          ? renderChild(L.child, rows, { editable: true, only, show })
-          : `<div class="evi-lower muted">bears on <b>${esc(L.child.label || L.child.key)}</b>: ${[...show].map((n) => esc(fieldLabel(n))).join(", ")}</div>`)
-      + `</div>`;
-  }
-  return html;
+// The cells of an item on a paper stage: the study fields it bears on, restricted to the stage.
+// On an entry or child stage an item carries no cells: the fields are coded once, in the block at
+// the bottom, so a field several items bear on is not drawn several times over.
+function stageItemCells(g, L) {
+  if (L.scope !== "paper") return null;
+  return eviPaperBlock(g.paper.filter((n) => L.names.has(n)))
+    || `<div class="evi-lower muted">bears on: ${[...g.names].filter((n) => L.names.has(n)).map((n) => esc(fieldLabel(n))).join(", ")}</div>`;
 }
 
 function addEntryButton() {
@@ -2020,11 +2008,7 @@ function renderStagesPanel(panel, rv) {
   const inStage = groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
   const rest = groups.filter((g) => !inStage.includes(g));
   const items = document.createElement("div"); items.className = "stg-items";
-  for (const g of inStage) {
-    const cells = stageItemCells(g, L, recs)
-      || `<div class="evi-lower muted">bears on: ${[...g.names].filter((n) => L.names.has(n)).map((n) => esc(fieldLabel(n))).join(", ")}</div>`;
-    items.appendChild(renderEviItem(g, parsed.get(g.n), recs, cells));
-  }
+  for (const g of inStage) items.appendChild(renderEviItem(g, parsed.get(g.n), recs, stageItemCells(g, L)));
   if (!inStage.length) items.innerHTML = `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`;
   panel.appendChild(items);
   if (rest.length) {
