@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import os
+import sys
 import time
 import uuid
 
@@ -45,6 +46,10 @@ def _migrate_on_startup() -> None:
         conn = records.connect()
         try:
             records.init_db(conn)
+            # a preset file edited since a row was minted: its wording and display reach the row
+            done = records.refresh_stored_presets(conn)
+            if done:
+                print(f"[presets] refreshed the wording and display of {len(done)} stored schema row(s): {', '.join(done)}", file=sys.stderr, flush=True)
         finally:
             conn.close()
     except Exception as exc:   # pragma: no cover - migration is best-effort
@@ -413,6 +418,19 @@ class IngestBody(BaseModel):
     pdf_from_document_id: str | None = None
 
 
+def _refresh_row_from_file(db, schema_id: str | None) -> None:
+    """At import or extraction: the stored row of this schema id takes the preset file's wording
+    and display (a no-op when the file has moved to another contract)."""
+    if not schema_id:
+        return
+    try:
+        meta = presets.get(schema_id.partition("@")[0], db)
+        if meta and not meta.get("legacy") and meta.get("schema_id") == schema_id and meta.get("spec"):
+            records.refresh_schema_wording(db, schema_id, meta["spec"])
+    except Exception:  # noqa: BLE001 - never fail an import over it
+        pass
+
+
 @app.post("/api/ingest")
 def ingest_endpoint(body: IngestBody, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
@@ -437,6 +455,7 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
     if run.schema_id:
         with db.transaction():
             records.upsert_schema(db, run.schema_id, run.field_defs)
+        _refresh_row_from_file(db, run.schema_id)
     doc_id = records.persist(
         db, res, schema_id=run.schema_id, source_job_id=body.source_job_id,
         session_id=who.session_id, owner_user_id=who.user_id,
@@ -2685,6 +2704,7 @@ def extract_endpoint(
         # mint the row NOW, before the worker needs it, so a queued job never races it
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
+        _refresh_row_from_file(db, schema_id)
 
     own_key = bool(api_key.strip()) or bool((base_url or "").strip())   # a self-hosted model needs no key
 
@@ -2844,6 +2864,7 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
     if schema_id:
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
+        _refresh_row_from_file(db, schema_id)
 
     made_by = (produced_by or "").strip()[:200] or "imported"
 
@@ -2912,6 +2933,10 @@ def list_presets(usage: str = "extract", db=Depends(get_db), who: Principal = De
     into. Hiding those on the import page leaves data with no selectable schema at all."""
     for_import = usage == "import"
     allp = presets.load_all()
+    try:                                   # each listing also brings stored rows up to the files' wording
+        records.refresh_stored_presets(db, allp)
+    except Exception:  # noqa: BLE001 - never fail a listing over it
+        pass
     rows = []
     for pid in sorted(allp):
         meta = allp[pid].get("meta") or {}

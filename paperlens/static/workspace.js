@@ -727,7 +727,11 @@ function renderPanel() {
         .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
   panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
-    + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code> ${triage}</span>`
+    + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code>`
+    // the preset file has moved to another contract since this paper was imported: say so
+    + (DATA.field_defs && DATA.field_defs.live_schema_id && DATA.schema_id && DATA.field_defs.live_schema_id !== DATA.schema_id
+        ? ` <span class="muted schema-live" title="this paper was imported under ${esc(DATA.schema_id)}; the preset file is now ${esc(DATA.field_defs.live_schema_id)} — another contract, so its fields and layout do not reach this paper until it is imported again">preset file now ${esc(DATA.field_defs.live_label || DATA.field_defs.live_schema_id)}</span>` : "")
+    + ` ${triage}</span>`
     + `<span class="dlbtns">`
     + (reviewSpec() && !GRID && !RAW ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
     + `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`

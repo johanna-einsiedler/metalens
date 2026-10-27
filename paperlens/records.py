@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import re
+import sys
 import uuid
 from typing import Any
 
@@ -339,6 +340,49 @@ def attach_rects(conn: psycopg.Connection, document_id: str, highlights: list[di
                 )
             n += cur.rowcount
     return n
+
+
+def refresh_schema_wording(conn: psycopg.Connection, schema_id: str, live_spec: dict) -> bool:
+    """Bring a stored format-2 schema row's wording, version and display up to the live preset
+    file's when the file has the SAME schema id (the contract is the id, so the data shape cannot
+    change). True when the row was rewritten."""
+    from . import preset_spec as ps
+    row = get_schema(conn, schema_id)
+    fd = (row or {}).get("field_defs")
+    if not (isinstance(fd, dict) and fd.get("format") == 2 and isinstance(fd.get("spec"), dict)):
+        return False
+    merged = ps.refreshed_spec(fd["spec"], live_spec)
+    if merged is None or ps.schema_id(merged) != schema_id:
+        return False
+    new_fd = {**ps.field_defs_for(merged), "schema_id": schema_id}
+    if new_fd == fd:
+        return False
+    with conn.transaction():
+        conn.execute("UPDATE schema SET field_defs = %s WHERE id = %s", (Json(new_fd), schema_id))
+    return True
+
+
+def refresh_stored_presets(conn: psycopg.Connection, presets_meta: dict | None = None) -> list[str]:
+    """For every loaded preset file whose schema id names a stored row, refresh that row's
+    wording and display from the file. Returns the ids of the rows rewritten. Best-effort: a
+    broken row or file never takes a listing or a start-up down."""
+    from . import presets, preset_spec as ps
+    done: list[str] = []
+    loaded = presets_meta if presets_meta is not None else presets.load_all()
+    for item in loaded.values():
+        if not isinstance(item, dict):
+            continue
+        # load_all() gives {id: normalised spec}; a caller may pass preset metas ({spec, schema_id, …}) instead
+        spec = item.get("spec") if "schema_id" in item or "spec" in item else item
+        if not isinstance(spec, dict) or item.get("legacy") or spec.get("format") != ps.FORMAT:
+            continue
+        try:
+            sid = item.get("schema_id") or ps.schema_id(spec)
+            if refresh_schema_wording(conn, sid, spec):
+                done.append(sid)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[presets] could not refresh schema row {spec.get('id')}: {exc}", file=sys.stderr, flush=True)
+    return done
 
 
 def get_schema(conn: psycopg.Connection, schema_id: str) -> dict | None:
@@ -699,7 +743,11 @@ def _upgraded_field_defs(field_defs: dict | None, core_key: str | None, core_sha
             live = None
         if live and not live.get("legacy") and preset_spec.content_hash(live["spec"]) == field_defs.get("hash"):
             spec = {**spec, "display": live["spec"].get("display", spec.get("display"))}
-        return {**field_defs, "spec": spec}
+        out = {**field_defs, "spec": spec}
+        if live and not live.get("legacy"):          # what the preset file is now, so a coder can tell an older contract
+            out["live_schema_id"] = live.get("schema_id")
+            out["live_label"] = live.get("label")
+        return out
     if core_key is None and field_defs is None:
         return None
     if conn is not None and schema_id:

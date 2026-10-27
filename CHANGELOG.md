@@ -142,6 +142,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   such values.
 - The generic card adds and removes sub-entries (an arm, a result: "＋", "✕"), logged as
   corrections like a table row; a cell inside a paper-level table is saved with its table.
+- A stored schema row follows its preset file: when a file with the SAME schema id is loaded
+  (at start-up, at each listing of the presets, at an import), the row's wording — labels,
+  help, titles, option help, stage help — its version and its whole `display` block are
+  replaced by the file's, the contract keys untouched (the id is the contract, so the data
+  shape cannot change); tooltips, auto ids and layout changes thus reach papers already
+  imported. A row of another contract is left alone; the workspace then says "preset file
+  now vN (hash)" next to the paper's own schema id.
 - A coder's highlighter, "mark only, no cell link": in marking mode (`✎ mark` at the top of the
   PDF column, or `h`) a click on a page marks the sentence under it — the server finds the word
   at the point in the page's text layer and expands it to its sentence (boundaries at `. ! ?`

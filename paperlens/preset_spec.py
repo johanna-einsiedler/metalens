@@ -1025,6 +1025,54 @@ def data_contract(spec: dict) -> dict:
             "confidence": strip(spec.get("confidence") or {})}
 
 
+# ── refreshing a stored row's wording from the preset file ─────────────────────────────────────
+# A schema row is addressed by its contract hash and never rewritten in shape; its wording (labels,
+# help, titles, option help, stage help), its version and its display block are not the contract,
+# so a preset file with the SAME schema id may bring them up to date on rows minted from an older
+# copy of the file — the tooltips, the auto ids and every layout change then reach what a coder
+# already imported.
+_REFRESH_WORDING = ("label", "help", "title", "tagline", "description")
+
+
+def merge_wording(stored, live):
+    """``stored`` with every wording key taken from ``live`` where the two run in parallel (the
+    same dict keys, lists of the same length — which they do when the contract hashes agree);
+    anything else stays as stored."""
+    if isinstance(stored, dict) and isinstance(live, dict):
+        out = {}
+        for k, v in stored.items():
+            if k in _REFRESH_WORDING:
+                out[k] = live[k] if k in live else v
+            elif k in live:
+                out[k] = merge_wording(v, live[k])
+            else:
+                out[k] = v
+        for k in _REFRESH_WORDING:                    # wording the file gives and the row lacked (option help, say)
+            if k in live and k not in stored:
+                out[k] = live[k]
+        return out
+    if isinstance(stored, list) and isinstance(live, list) and len(stored) == len(live):
+        return [merge_wording(a, b) for a, b in zip(stored, live)]
+    return stored
+
+
+def refreshed_spec(stored: dict, live: dict) -> dict | None:
+    """The stored spec with the live file's wording, version and display — or None when the
+    live file has a different contract (then nothing may change) or a different id."""
+    if not (isinstance(stored, dict) and isinstance(live, dict)) or stored.get("id") != live.get("id"):
+        return None
+    if content_hash(stored) != content_hash(live):
+        return None
+    out = merge_wording(stored, live)
+    if "version" in live:
+        out["version"] = live["version"]
+    if "display" in live:
+        out["display"] = copy.deepcopy(live["display"])
+    if content_hash(out) != content_hash(stored):     # a wording merge cannot move the contract; belt and braces
+        return None
+    return out
+
+
 def content_hash(spec: dict) -> str:
     return hashlib.sha256(canonical_json(data_contract(spec)).encode("utf-8")).hexdigest()
 
