@@ -167,7 +167,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   hover or focus, below or above the element within the window, hidden on leaving or Escape),
   not through the browser's slow native title: on the field label and its ⓘ, on each checkbox
   label, on the select (the chosen option's definition) and on a ⓘ after the select listing
-  every option as "label — definition" under the field's help.
+  every option as "label — definition" under the field's help. While the tip is up the native
+  title of the element and of its ancestors is held back (and put back after), so the text no
+  longer appears twice, the browser's bubble over the tip.
 - Review: empty cells are editable; identical highlight rectangles are painted once; a
   click on a number lands on the citation that contains it.
 - Declarative preset format (format 2) with generated evidence / confidence sections,

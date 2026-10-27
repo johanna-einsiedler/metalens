@@ -180,13 +180,17 @@ function jumpToMark(id) {
 // ── help on hover, at once ───────────────────────────────────────────────────────
 // One tooltip element for every [data-tip]: shown on mouseover or focus with no delay, below
 // the element (above when there is no room), within the viewport, hidden on mouseout, blur or
-// Escape. Native titles stay where they are, but this is what a coder sees.
+// Escape. The browser's own title bubble would repeat the text a second later, so the title of
+// the element and of its ancestors is held back while the tip is up and put back when it goes.
 function mountTips() {
   const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; tip.setAttribute("role", "tooltip");
   document.body.appendChild(tip);
-  let cur = null;
+  let cur = null, held = [];
+  const release = () => { for (const [n, t] of held) n.setAttribute("title", t); held = []; };
   const show = (el) => {
     const text = el.dataset.tip; if (!text) return;
+    release();
+    for (let n = el; n && n !== document.body; n = n.parentElement) if (n.hasAttribute("title")) { held.push([n, n.getAttribute("title")]); n.removeAttribute("title"); }
     cur = el; tip.textContent = text; tip.hidden = false;
     const r = el.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
     tip.style.left = "0px"; tip.style.top = "0px";
@@ -196,7 +200,7 @@ function mountTips() {
     if (top + th > vh - 6) top = Math.max(6, r.top - th - 6);
     tip.style.left = `${Math.round(left)}px`; tip.style.top = `${Math.round(top)}px`;
   };
-  const hide = () => { cur = null; tip.hidden = true; };
+  const hide = () => { cur = null; tip.hidden = true; release(); };
   document.addEventListener("mouseover", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el !== cur) show(el); else if (!el && cur) hide(); });
   document.addEventListener("mouseout", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el && el === cur && !(e.relatedTarget && el.contains(e.relatedTarget))) hide(); });
   document.addEventListener("focusin", (e) => { const el = e.target.closest && e.target.closest("[data-tip]"); if (el) show(el); });
@@ -2030,7 +2034,7 @@ function eviSync(scope, path, val) {
       const sv = val === null || val === undefined ? "" : String(val);
       if ([...s.options].some((o) => o.value === sv)) { s.value = sv; if (other) other.hidden = true; }
       else if (other) { s.value = "__other__"; other.hidden = false; other.value = sv; }
-      s.title = selectTitle(s); s.dataset.tip = s.title;
+      s.dataset.tip = selectTitle(s); if (s.hasAttribute("title")) s.title = s.dataset.tip;
     } else if (cell.classList.contains("rv-multi")) {
       multiSetValues(cell, val);
     }
@@ -2568,7 +2572,7 @@ function wireControls(container, onSave, textToo) {
     const isBool = wrap.classList.contains("rv-bool");
     const commit = (val) => { wrap.classList.add("rv-edited"); onSave(path, val); };
     sel.onchange = () => {
-      sel.title = selectTitle(sel); sel.dataset.tip = sel.title;   // the chosen option's definition on hover
+      sel.dataset.tip = selectTitle(sel); if (sel.hasAttribute("title")) sel.title = sel.dataset.tip;   // the chosen option's definition on hover
       if (sel.value === "__other__") { if (other) { other.hidden = false; other.focus(); } return; }
       if (other) other.hidden = true;
       if (isBool) { commit(sel.value === "" ? null : sel.value === "true"); return; }
