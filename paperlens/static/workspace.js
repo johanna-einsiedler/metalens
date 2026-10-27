@@ -20,6 +20,7 @@ const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
 let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
 let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
+let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "";   // its cursor over the stage's items, per paper and stage
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -58,14 +59,19 @@ function mountSplitter() {
 // Zoom the PDF pages: − / + / fit buttons and Ctrl/⌘ + wheel over the pages. A factor
 // above 1 makes a page wider than the pane (it scrolls sideways) — the way to read a page
 // when the review panel takes most of the window. Persists across sessions.
+function paneZoom(z) {                                   // the pages' scale, not remembered
+  const pages = $("#pages"), val = $("#pdfzoomval");
+  if (pages) pages.style.setProperty("--pdf-zoom", String(z));
+  if (val) val.textContent = z === 1 ? "fit" : `${Math.round(z * 100)}%`;
+}
+function storedZoom() { return parseFloat(localStorage.getItem("metalens_pdf_zoom") || "1") || 1; }
 function mountPdfZoom() {
-  const pages = $("#pages"), box = $("#pdfzoom"), val = $("#pdfzoomval");
+  const pages = $("#pages"), box = $("#pdfzoom");
   if (!pages || !box) return;
-  let z = parseFloat(localStorage.getItem("metalens_pdf_zoom") || "1") || 1;
+  let z = storedZoom();
   const apply = () => {
     z = Math.min(4, Math.max(0.5, Math.round(z * 100) / 100));
-    pages.style.setProperty("--pdf-zoom", String(z));
-    val.textContent = z === 1 ? "fit" : `${Math.round(z * 100)}%`;
+    paneZoom(z);
     localStorage.setItem("metalens_pdf_zoom", String(z));
   };
   box.querySelectorAll("button[data-z]").forEach((b) => (b.onclick = () => {
@@ -615,6 +621,7 @@ function docProgress() {
 
 function renderPanel() {
   computeConstant();
+  setStackMode(stackMode());
   const panel = $("#panelbody");
   const pr = docProgress();
   const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
@@ -1136,6 +1143,7 @@ function mountKeys() {
     const staged = stagesSpec() && !CHAIN_OFF && !GRID && !RAW;
     const card = (chain && document.querySelector(".chain-card.cur[data-rid]")) || document.querySelector(".record[data-rid]");
     if (staged && (e.key === "]" || e.key === "[")) { stageStep(e.key === "]" ? 1 : -1); e.preventDefault(); }
+    else if (staged && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { stageCursor(STAGE_CUR + (e.key === "ArrowRight" ? 1 : -1)); e.preventDefault(); }
     else if (chain && (e.key === "j" || e.key === "]" || e.key === "k" || e.key === "[")) { chainStep(e.key === "j" || e.key === "]" ? 1 : -1); e.preventDefault(); }
     else if (e.key === "j" || e.key === "]") { nextEntry(false, 1); e.preventDefault(); }
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
@@ -1146,7 +1154,7 @@ function mountKeys() {
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
       const h = document.createElement("div"); h.className = "kbd-help";
-      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage" : ""} · <kbd>?</kbd> close`
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>?</kbd> close`
         + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
       document.body.appendChild(h);
       $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
@@ -1898,16 +1906,97 @@ function wireEvidencePanel(panel, recs) {
   });
 }
 
-// ── the staged layout: the paper coded stage by stage, the evidence of each stage first ─────────
+// ── the staged layout: the paper coded stage by stage, in one column, the PDF pinned below ──────
 // Declared by display.review (layout "stages"): `items` names the reader's items table (on the
 // entry or on the paper) and `stages` the ordered stages, each naming the fields of ONE level —
-// paper fields, entry fields, or one child's fields. A stage shows its instruction, the items
-// whose bears_on meets its fields, the rest of the items folded, then the stage's cells. On a
-// paper stage each item carries the study cells it bears on (restricted to the stage) and the
-// block at the bottom holds the rest; on an entry or child stage the items are plain quotes — the
-// cells live once, in the block: every entry as a card with the stage's fields and "＋ add", or
-// each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the stage declares
-// copy_from_sibling, "same as <the reference row>". Saves and verification are the generic card's.
+// paper fields, entry fields, or one child's fields. While a stage is open the workspace stacks:
+// the records panel spans the window and scrolls — the stage bar and its instruction, then FIELDS
+// (the stage's cells, once: the study cells; every entry as a card with the stage's fields and
+// "＋ add"; or each entry's sub-entries with "＋", "✕", "copy … from <entry>" and, where the
+// stage declares copy_from_sibling, "same as <the reference row>"), then EVIDENCE (the items
+// whose bears_on meets the stage's fields, the current one marked, the rest folded) — and the PDF
+// is a pane pinned to the bottom, showing the current item's page scrolled to its highlight at
+// twice the scale (an item with no located rectangle: its page, normal scale). ← → and the pane's
+// "◀ item k of n ▶" move the cursor, which stops at the ends and starts on the first item when a
+// stage opens. Saves and verification are the generic card's; the Fields view is the two-column one.
+function stackMode() { return !!(stagesSpec() && !CHAIN_OFF && !GRID && !RAW); }
+
+// The window in stacked mode: a body class the stylesheet keys on, a drag handle and the item
+// control on the PDF pane; off, the coder's own zoom comes back.
+function setStackMode(on) {
+  const was = document.body.classList.contains("stg-stack");
+  document.body.classList.toggle("stg-stack", on);
+  if (on && !was) window.scrollTo(0, 0);                  // the sticky top bar and the grid line up
+  const pane = $("#pagespane"); if (!pane) return;
+  let nav = pane.querySelector(".stg-pane-nav"), h = pane.querySelector(".stg-paneh");
+  if (on) {
+    if (!h) { h = document.createElement("div"); h.className = "stg-paneh"; h.title = "drag to resize the PDF pane"; pane.prepend(h); mountPaneResize(h); }
+    if (!nav) {
+      nav = document.createElement("div"); nav.className = "stg-pane-nav";
+      nav.innerHTML = `<button type="button" data-d="-1" title="previous item (←)">◀</button><span class="stg-pane-k">—</span><button type="button" data-d="1" title="next item (→)">▶</button>`;
+      nav.querySelectorAll("button").forEach((b) => (b.onclick = () => stageCursor(STAGE_CUR + Number(b.dataset.d))));
+      pane.appendChild(nav);
+    }
+  } else {
+    if (h) h.remove();
+    if (nav) nav.remove();
+    if (was) { paneZoom(storedZoom()); STAGE_SHOWN = ""; }
+  }
+}
+function mountPaneResize(h) {
+  const main = document.querySelector("main.split"); if (!main) return;
+  const saved = parseInt(localStorage.getItem("metalens_stage_pane_h") || "", 10);
+  if (saved) main.style.setProperty("--stg-pane-h", `${saved}px`);
+  let drag = false;
+  h.addEventListener("mousedown", (e) => { drag = true; h.classList.add("drag"); document.body.style.userSelect = "none"; e.preventDefault(); });
+  window.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    const mb = main.getBoundingClientRect();
+    main.style.setProperty("--stg-pane-h", `${Math.max(160, Math.min(mb.height - 200, mb.bottom - e.clientY))}px`);
+  });
+  window.addEventListener("mouseup", () => {
+    if (!drag) return;
+    drag = false; h.classList.remove("drag"); document.body.style.userSelect = "";
+    const v = parseInt(main.style.getPropertyValue("--stg-pane-h"), 10);
+    if (v) localStorage.setItem("metalens_stage_pane_h", String(v));
+  });
+}
+
+// The cursor over the stage's items: the marked item in the evidence box, the pane's control,
+// and the PDF pane on that item's page.
+function stageCursor(i) {
+  if (!STAGE_ITEMS.length) return;
+  STAGE_CUR = Math.max(0, Math.min(STAGE_ITEMS.length - 1, i));
+  document.querySelectorAll(".stg-evidence > .evi-item[data-i]").forEach((el) => el.classList.toggle("cur", Number(el.dataset.i) === STAGE_CUR));
+  const el = document.querySelector(`.stg-evidence > .evi-item[data-i="${STAGE_CUR}"]`);
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  stageShowItem();
+}
+function stageShowItem() {
+  const k = document.querySelector(".stg-pane-nav .stg-pane-k");
+  if (k) k.textContent = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
+  document.querySelectorAll(".stg-pane-nav button").forEach((b) => (b.disabled = !STAGE_ITEMS.length || (b.dataset.d === "-1" ? STAGE_CUR <= 0 : STAGE_CUR >= STAGE_ITEMS.length - 1)));
+  STAGE_SHOWN = `${STAGE_KEY}|${STAGE_CUR}`;
+  const g = STAGE_ITEMS[STAGE_CUR]; if (!g) return;
+  const page = g.page || (g.ids.length ? (DATA.evidence[g.ids[0]] || {}).page : null);
+  const located = g.ids.some((i) => EV.hasRect[i]);
+  paneZoom(located ? 2 : 1);
+  const pages = $("#pages"); if (!pages) return;
+  const go = () => {
+    if (located) {
+      jumpToEvidence(page, g.ids, { flash: false });
+      const r = document.querySelector(g.ids.map((i) => `rect.hl[data-eids~="${i}"]`).join(", "));
+      if (!r) return;
+      const rb = r.getBoundingClientRect(), pb = pages.getBoundingClientRect();
+      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (rb.top - pb.top) - pages.clientHeight / 2 + rb.height / 2),
+                       left: Math.max(0, pages.scrollLeft + (rb.left - pb.left) - pages.clientWidth / 2 + rb.width / 2), behavior: "smooth" });
+    } else if (page) {
+      const wrap = document.getElementById(`page-${page}`); if (!wrap) return;
+      pages.scrollTo({ top: Math.max(0, pages.scrollTop + (wrap.getBoundingClientRect().top - pages.getBoundingClientRect().top) - 8), left: 0, behavior: "smooth" });
+    }
+  };
+  requestAnimationFrame(() => { go(); if (located) setTimeout(go, 500); });   // the rects appear once the page image has loaded
+}
 function stageLevel(st) {
   if (st.paper_fields) return { scope: "paper", names: new Set(st.paper_fields), child: null };
   if (st.fields) return { scope: "entry", names: new Set(st.fields), child: null };
@@ -1918,15 +2007,6 @@ function fieldLabel(name) {
   return info && info.field ? info.field.label || formatKey(name) : name;
 }
 const stageLetter = (i) => String.fromCharCode(97 + (i % 26));
-
-// The cells of an item on a paper stage: the study fields it bears on, restricted to the stage.
-// On an entry or child stage an item carries no cells: the fields are coded once, in the block at
-// the bottom, so a field several items bear on is not drawn several times over.
-function stageItemCells(g, L) {
-  if (L.scope !== "paper") return null;
-  return eviPaperBlock(g.paper.filter((n) => L.names.has(n)))
-    || `<div class="evi-lower muted">bears on: ${[...g.names].filter((n) => L.names.has(n)).map((n) => esc(fieldLabel(n))).join(", ")}</div>`;
-}
 
 function addEntryButton() {
   const b = document.createElement("button");
@@ -1960,10 +2040,11 @@ function stageCopyControls(st, L, rec, recs) {
 // history, delete) with the stage's entry fields, or with the child's rows and the copy actions.
 function stageCellsBlock(st, L, recs) {
   const box = document.createElement("div"); box.className = "stg-cells";
+  box.innerHTML = `<div class="evi-sub stg-head">Fields</div>`;
   const unit = VM.entries.label.toLowerCase();
-  if (L.scope === "paper") { box.innerHTML = eviPaperBlock([...L.names]); return box; }
+  if (L.scope === "paper") { box.insertAdjacentHTML("beforeend", eviPaperBlock([...L.names])); return box; }
   if (!recs.length) {
-    box.innerHTML = `<div class="stg-empty muted">${L.scope === "entry" ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`;
+    box.insertAdjacentHTML("beforeend", `<div class="stg-empty muted">${L.scope === "entry" ? `No ${esc(unit)} yet — add one for each the paper reports.` : `Add a ${esc(unit)} first.`}</div>`);
     if (L.scope === "entry") box.appendChild(addEntryButton());
     return box;
   }
@@ -2007,20 +2088,38 @@ function renderStagesPanel(panel, rv) {
   const { groups, parsed, recs } = mergedItems(rv);
   const inStage = groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
   const rest = groups.filter((g) => !inStage.includes(g));
-  const items = document.createElement("div"); items.className = "stg-items";
-  for (const g of inStage) items.appendChild(renderEviItem(g, parsed.get(g.n), recs, stageItemCells(g, L)));
-  if (!inStage.length) items.innerHTML = `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`;
-  panel.appendChild(items);
+  // the cursor: on the first item when a stage opens (or the paper changes), else where it was
+  const key = `${DOCID}|${STAGE}`;
+  if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
+  STAGE_ITEMS = inStage;
+  STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
+  // FIELDS, then EVIDENCE
+  panel.appendChild(stageCellsBlock(st, L, recs));
+  const evbox = document.createElement("div"); evbox.className = "stg-evidence";
+  evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
+  inStage.forEach((g, i) => {
+    const el = renderEviItem(g, parsed.get(g.n), recs, null);
+    el.dataset.i = String(i); if (i === STAGE_CUR) el.classList.add("cur");
+    el.title = "click: show in the PDF (→ / ← move on)";
+    evbox.appendChild(el);
+  });
+  if (!inStage.length) evbox.insertAdjacentHTML("beforeend", `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`);
   if (rest.length) {
     const det = document.createElement("details"); det.className = "stg-other";
     det.innerHTML = `<summary>other evidence (${rest.length})</summary>`;
     for (const g of rest) det.appendChild(renderEviItem(g, parsed.get(g.n), recs, null));
-    panel.appendChild(det);
+    evbox.appendChild(det);
   }
-  panel.appendChild(stageCellsBlock(st, L, recs));
+  panel.appendChild(evbox);
   wireEvidencePanel(panel, recs);
   wireStagePanel(panel, recs, st, L);
+  evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
+    const g = inStage[Number(el.dataset.i)];
+    el.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable]")) return; stageCursor(Number(el.dataset.i)); });
+    if (g.ids.length) { el.addEventListener("mouseenter", () => showEvidence(g.ids)); el.addEventListener("mouseleave", () => hideEvidence(g.ids)); }
+  });
   setContextEvidence(inStage.flatMap((g) => g.ids));
+  if (STAGE_SHOWN !== `${key}|${STAGE_CUR}`) stageShowItem();     // a new stage or paper: the pane moves; an edit's redraw leaves it
 }
 
 // Redraw the panel after a structural edit, keeping the scroll position.

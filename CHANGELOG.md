@@ -121,14 +121,15 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (table) → result: mean"). The cells, saves and verification are the generic card's.
 - Review layout `stages` (`display.review: {layout: "stages", items, stages: [{id, label, help,
   paper_fields | fields | child + child_fields, copy_from_sibling?}]}`): a paper is coded in
-  stages (a→g, `]`/`[`), each opening with its instruction, then the reader's items that bear on
-  the stage's fields (page jump, PDF highlight; on a paper stage the study cells beneath each
-  item; the rest folded), then the stage's cells: paper fields; every entry as a card with "＋
-  add"; or each entry's arms / results with
-  "＋", "✕", "copy … from <entry>" and "same as <the reference row>". The items table may sit on
-  the paper, so a blind import with no entries opens on the stages and the coder adds the first
-  entry; adding an entry retires the "screened — no records" sentinel. Verification stays per
-  entry; "verify all" finishes a paper. The Fields view remains the escape hatch.
+  stages (a→g, `]`/`[`) in one column that spans the window — the stage's instruction, then its
+  cells (paper fields; every entry as a card with "＋ add"; or each entry's arms / results with
+  "＋", "✕", "copy … from <entry>" and "same as <the reference row>"), then the reader's items
+  that bear on the stage's fields with a cursor over them (the rest folded) — and the PDF pinned
+  below, on the current item's page at twice the scale, scrolled to its highlight (`→`/`←` or
+  "◀ item k of n ▶"; the pane's height is dragged). The items table may sit on the paper, so a
+  blind import with no entries opens on the stages and the coder adds the first entry; adding an
+  entry retires the "screened — no records" sentinel. Verification stays per entry; "verify all"
+  finishes a paper. The Fields view is the two-column one, unchanged.
 - `allow_other` on `multi` fields and table columns: the widget takes a term of the paper's own
   after the declared boxes (Enter adds it), stores codes and terms in one list, draws a stored
   off-list value as a removable chip (never dropped unseen), and the validator no longer flags

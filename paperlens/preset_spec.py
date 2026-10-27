@@ -1918,11 +1918,10 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     ``{id, label, help, …}`` naming the fields of ONE level — ``paper_fields``, ``fields`` (of the
     entry) or ``child`` + ``child_fields`` (of that child) — and, on a child stage, may carry
     ``copy_from_sibling: {when, fields}``: a row's button copies the listed fields from the sibling
-    row whose boolean ``when`` field is true (the reference arm's sample, say). The workspace shows,
-    per stage, the instruction, the items whose bears_on meets the stage's fields (on a paper stage
-    with the study cells each bears on beneath; on an entry or child stage as plain quotes), and the
-    stage's cells once, in a block below; a paper-level items table is placed under every entry.
-    The items table is never a cell.
+    row whose boolean ``when`` field is true (the reference arm's sample, say). The workspace stacks
+    while a stage is open: the stage's instruction, its cells (once), then the items whose bears_on
+    meets its fields with a cursor over them, and the PDF pinned below on the current item's page;
+    a paper-level items table is placed under every entry. The items table is never a cell.
     A field in no stage is reachable only from the Fields view: a warning."""
     pfields = {f.get("name"): f for f in ((spec.get("paper") or {}).get("fields") or []) if isinstance(f, dict)}
     ent = spec.get("entries") or {}
