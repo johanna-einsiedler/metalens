@@ -582,6 +582,8 @@ class HighlightBody(BaseModel):
     page: int                   # 1-indexed
     x: float                    # the click, in the page image's pixels (the viewer's coordinates)
     y: float
+    x2: float | None = None     # the end of a drag: the mark is the words from (x, y) to (x2, y2)
+    y2: float | None = None
     note: str | None = None
 
 
@@ -596,9 +598,11 @@ def list_highlights(document_id: str, db=Depends(get_db), who: Principal = Depen
 @app.post("/api/documents/{document_id}/highlights")
 def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
-    """Owner-only: mark the sentence under a click. The server finds the word at the point in
-    the page's text layer and expands it to its sentence (``paperlens.marks``); the mark is
-    stored with its text and one rectangle per line and returned. 404 when no word is there."""
+    """Owner-only: mark the sentence under a click, or the words under a drag (x2, y2 given).
+    The server finds the word at the point in the page's text layer and expands it to its
+    sentence, or takes the words between the two points in reading order (``paperlens.marks``);
+    the mark is stored with its text and one rectangle per line and returned. 404 when no word
+    is there."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     store = storage.get_store()
@@ -606,7 +610,7 @@ def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
     if not store.exists(key):
         raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
     from . import marks
-    hit = marks.mark_at(store.get(key), body.page, body.x, body.y)
+    hit = marks.mark_at(store.get(key), body.page, body.x, body.y, x2_px=body.x2, y2_px=body.y2)
     if hit is None:
         raise HTTPException(status_code=404, detail="No text at that point.")
     h = records.add_highlight(db, document_id, page=hit["page"], text=hit["text"], rects=hit["rects"],

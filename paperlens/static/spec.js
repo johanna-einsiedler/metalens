@@ -81,19 +81,24 @@ export function completeTabs(vm, declared) {
 }
 
 // ── titles ────────────────────────────────────────────────────────────────────
-function fillTemplate(tpl, obj, index) {
+// `defs` (the level's fields) lets an enum value show as its option's label ("Time taken", not productivity_time)
+function fillTemplate(tpl, obj, index, defs) {
   if (!tpl) return "";
+  const byName = new Map((defs || []).map((f) => [f.name, f]));
   const out = tpl.replace(/\{(#|[A-Za-z_][A-Za-z0-9_]*)\}/g, (_, k) => {
     if (k === "#") return String(index + 1);
     const v = (obj || {})[k];
-    return v === null || v === undefined || typeof v === "object" ? "" : String(v);
+    if (v === null || v === undefined || typeof v === "object") return "";
+    const f = byName.get(k);
+    const o = f && Array.isArray(f.options) ? f.options.find((x) => String(x && typeof x === "object" ? x.value : x) === String(v)) : null;
+    return o && typeof o === "object" && o.label != null ? String(o.label) : String(v);
   }).replace(/\s+/g, " ").trim();
   return out.replace(/^[\s–—:·-]+|[\s–—:·-]+$/g, "");
 }
 export function entryTitle(vm, rec, i) {
   const fv = rec.field_values || {};
   const idx = rec.entry_index != null ? rec.entry_index : i;
-  const t = fillTemplate(vm.entries.title, fv, idx);
+  const t = fillTemplate(vm.entries.title, fv, idx, vm.entries.fields);
   if (t) return t;
   if (vm.entries.id_field && fv[vm.entries.id_field] != null && fv[vm.entries.id_field] !== "")
     return `${vm.entries.label} ${fv[vm.entries.id_field]}`;
@@ -101,7 +106,7 @@ export function entryTitle(vm, rec, i) {
   return `${vm.entries.label} ${idx + 1}`;
 }
 export function childTitle(child, row, k) {
-  return fillTemplate(child.title, row, k) || `${child.label || child.key} ${k + 1}`;
+  return fillTemplate(child.title, row, k, child.fields) || `${child.label || child.key} ${k + 1}`;
 }
 
 // ── paths & evidence ──────────────────────────────────────────────────────────

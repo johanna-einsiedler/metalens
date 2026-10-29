@@ -133,24 +133,66 @@ function mountPdfZoom() {
 function setMarking(on) {
   MARKING = !!on;
   document.body.classList.toggle("stg-marking", MARKING);
-  document.querySelectorAll(".stg-pane-nav .stg-mark").forEach((b) => { b.classList.toggle("on", MARKING); b.title = MARKING ? "marking: click a sentence to keep it, a mark to remove it (h stops)" : "mark sentences: click a sentence in the PDF to keep it with the paper (h)"; });
+  document.querySelectorAll(".stg-pane-nav .stg-mark").forEach((b) => { b.classList.toggle("on", MARKING); b.title = MARKING ? "marking: click a sentence to keep it, drag over words to keep just those, click a mark to remove it (h stops)" : "mark: click a sentence in the PDF, or drag over the words you want, to keep it with the paper (h)"; });
 }
+// A click keeps the sentence under it; a drag (more than a few pixels) keeps the words from
+// its start to its end, in reading order — the server resolves both from the page's text
+// layer. The page's image is the drag surface: the pointer is pressed on it, moves anywhere,
+// and the band is drawn on the page's overlay in image pixels.
 function mountMarking() {
   const pages = $("#pages"); if (!pages) return;
+  let drag = null, dragged = false;                       // the press in progress; the last press was a drag (its click is ignored)
+  const natural = (img, e) => { const r = img.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * img.naturalWidth, (e.clientY - r.top) / r.height * img.naturalHeight]; };
+  pages.addEventListener("dragstart", (e) => { if (MARKING && e.target.closest && e.target.closest("img.pageimg")) e.preventDefault(); });
+  pages.addEventListener("pointerdown", (e) => {
+    if (!MARKING || !DATA || e.button !== 0) return;
+    const img = e.target.closest ? e.target.closest("img.pageimg") : null;
+    if (!img || !img.naturalWidth) return;
+    e.preventDefault();
+    const wrap = img.closest(".page"), page = Number(String(wrap && wrap.id).replace("page-", ""));
+    const [x, y] = natural(img, e);
+    drag = { page, img, x, y, x2: x, y2: y, moved: false, rect: null, id: e.pointerId, startX: e.clientX, startY: e.clientY };
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) return;
+    drag.moved = true;
+    const [x2, y2] = natural(drag.img, e);
+    drag.x2 = Math.max(0, Math.min(drag.img.naturalWidth, x2)); drag.y2 = Math.max(0, Math.min(drag.img.naturalHeight, y2));
+    if (!drag.rect) {
+      const svg = drag.img.closest(".page").querySelector("svg.overlay"); if (!svg) return;
+      drag.rect = document.createElementNS("http://www.w3.org/2000/svg", "rect"); drag.rect.setAttribute("class", "cm-drag"); svg.appendChild(drag.rect);
+    }
+    const r = drag.rect;
+    r.setAttribute("x", Math.min(drag.x, drag.x2)); r.setAttribute("y", Math.min(drag.y, drag.y2));
+    r.setAttribute("width", Math.abs(drag.x2 - drag.x)); r.setAttribute("height", Math.abs(drag.y2 - drag.y));
+  });
+  const end = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    if (d.rect) d.rect.remove();
+    if (d.moved) { dragged = true; addMark(d.page, d.x, d.y, d.x2, d.y2); }
+  };
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
   pages.addEventListener("click", (e) => {
     if (!MARKING || !DATA) return;
+    if (dragged) { dragged = false; return; }               // the press was a drag, handled on pointerup
     const cm = e.target.closest ? e.target.closest("rect.cm") : null;
     if (cm) { e.preventDefault(); removeMark(cm.dataset.mid); return; }
     const img = e.target.closest ? e.target.closest("img.pageimg") : null;
     if (!img || !img.naturalWidth) return;
     const wrap = img.closest(".page"), page = Number(String(wrap && wrap.id).replace("page-", ""));
-    const r = img.getBoundingClientRect();
-    addMark(page, (e.clientX - r.left) / r.width * img.naturalWidth, (e.clientY - r.top) / r.height * img.naturalHeight);
+    const [x, y] = natural(img, e);
+    addMark(page, x, y);
   });
 }
-async function addMark(page, x, y) {
+async function addMark(page, x, y, x2, y2) {
+  const px = (v) => Math.round(v * 100) / 100;
+  const body = { page, x: px(x), y: px(y) };
+  if (x2 !== undefined && y2 !== undefined) { body.x2 = px(x2); body.y2 = px(y2); }
   try {
-    const { highlight } = await api.addHighlight(DATA.document_id, { page, x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 });
+    const { highlight } = await api.addHighlight(DATA.document_id, body);
     if (!highlight) return;
     DATA.highlights = [...(DATA.highlights || []), highlight];
     paintMarks(DATA.highlights); markRects(highlight.id).forEach((el) => el.classList.add("sel"));
@@ -170,7 +212,7 @@ function marksBlockHtml() {
     + (ms.length ? ms.map((m) => `<div class="stg-mark evi-item evi-bare evi-passage" data-mid="${esc(m.id)}" title="click: show in the PDF">`
         + `<div class="evi-head"><button type="button" class="ev-cite" data-page="${m.page}">p. ${m.page}</button></div><div class="evi-body">“${esc(m.text)}”</div>`
         + `<button type="button" class="stg-mark-del" title="remove this mark">✕</button></div>`).join("")
-      : `<p class="muted stg-nomarks">None yet — press <b>✎ mark</b> (or <kbd>h</kbd>) and click a sentence in the PDF.</p>`);
+      : `<p class="muted stg-nomarks">None yet — press <b>✎ mark</b> (or <kbd>h</kbd>), then click a sentence in the PDF or drag over the words you want.</p>`);
 }
 function renderMarksBlock() {
   const box = document.querySelector(".stg-marks"); if (!box) return;
@@ -2292,12 +2334,24 @@ function stageCopyControls(st, L, rec, recs, kid) {
 
 // The stage's own cells: the paper fields; or, per entry, a strip (title, status, verify / flag,
 // history, delete) with the stage's entry fields, or with the child's rows and the copy actions.
+// A stage's `inline` groups: the rows of those fields side by side on one line (a period's year
+// and month), each row kept as rendered — its key, value and wiring — inside a flex wrapper.
+function inlineRows(root, st) {
+  for (const grp of Array.isArray(st.inline) ? st.inline : []) {
+    const rows = (Array.isArray(grp) ? grp : []).map((n) => root.querySelector(`.rv-row[data-field="${CSS.escape(String(n))}"]`)).filter(Boolean);
+    if (rows.length < 2) continue;
+    const wrap = document.createElement("div"); wrap.className = "rv-inline";
+    rows[0].parentNode.insertBefore(wrap, rows[0]);
+    rows.forEach((r) => wrap.appendChild(r));
+  }
+}
 function stageCellsBlock(st, L, recs) {
   const box = document.createElement("div"); box.className = "stg-cells";
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>`;
   const unit = VM.entries.label.toLowerCase();
   if (L.paper) {                                           // the paper's cells first
     box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper));
+    inlineRows(box, st);
     if (L.match) matchBlocks(box, L, recs);
     if (L.accept && L.kidOf(L.accept.child)) acceptButtons(box, L);
   }
@@ -2313,6 +2367,7 @@ function stageCellsBlock(st, L, recs) {
     if (L.entry) {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
+      inlineRows(card, st);
     }
     for (const kid of L.kids) {                              // each child's rows under the entry's cells
       const rows = fv[kid.child.key];

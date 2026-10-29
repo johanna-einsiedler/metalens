@@ -79,7 +79,7 @@ _ALLOWED_KEYS = {
                 "inline_evidence"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline"},
     "link": {"child", "field", "value", "label", "when", "skip_when"},
     "stage_child": {"key", "fields"},
     "copy": {"when", "fields", "child"},
@@ -2126,6 +2126,12 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                         or any(lk.get(k) not in kd for k in ("field", "value", "label"))
                         or any(k in lk and (kd.get(lk[k]) or {}).get("type") != "boolean" for k in ("when", "skip_when"))):
                     E(f"{at}.link[{j}] needs child (a child of the stage), field, value and label (fields of it) and, when given, when and skip_when (boolean fields of it)")
+        il = st.get("inline")                                          # groups of fields drawn on one line
+        if il is not None:
+            own = set(st.get("paper_fields") or []) | set(st.get("fields") or [])
+            if (not isinstance(il, list) or not il
+                    or any(not isinstance(g, list) or len(g) < 2 or any(not isinstance(n, str) or n not in own for n in g) for g in il)):
+                E(f"{at}.inline must list groups of two or more of the stage's paper or entry fields (drawn on one line)")
         mt = st.get("match")
         if mt is not None:
             tbl = pfields.get(mt.get("table")) if isinstance(mt, dict) else None
