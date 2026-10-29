@@ -23,6 +23,7 @@ _END = re.compile(r"[.!?][\"'”’)\]]*$")
 _LEAD = re.compile(r"^[\"'“‘(\[]+")
 LONG_PARAGRAPH = 40          # words: a boundary-less paragraph longer than this marks the clicked line only
 TOLERANCE = 4.0              # points: how far from a word a click may land and still pick it
+DRAG_TOLERANCE = 14.0        # points: a drag's ends may land further off (between lines, past the last word)
 
 
 def ends_sentence(word: str) -> bool:
@@ -120,10 +121,29 @@ def sentence_at(words: list, x: float, y: float, *, tolerance: float = TOLERANCE
     return {"text": _join(span), "rects": _line_rects(span), "words": span}
 
 
-def mark_at(pdf_bytes: bytes, page_1indexed: int, x_px: float, y_px: float, *, dpi: int = DISPLAY_DPI) -> dict | None:
-    """The sentence under a click at image pixel ``(x_px, y_px)`` of a page of the PDF, with its
-    rectangles as the viewer draws them: ``{page, text, rects: [[x, y, w, h], …]}``; None when
-    the page has no word there."""
+def span_between(words: list, x: float, y: float, x2: float, y2: float, *, tolerance: float = DRAG_TOLERANCE) -> dict | None:
+    """The words from the one under ``(x, y)`` to the one under ``(x2, y2)``, in reading order
+    (block, line, word) whichever end comes first — a drag across the page: ``{text, rects,
+    words}``, or None when either end is near no word."""
+    a = word_at(words, x, y, tolerance=tolerance)
+    b = word_at(words, x2, y2, tolerance=tolerance)
+    if a is None or b is None:
+        return None
+    order = sorted(words, key=lambda w: (w[5], w[6], w[7]))
+    ia = next(i for i, w in enumerate(order) if w is a)
+    ib = next(i for i, w in enumerate(order) if w is b)
+    if ia > ib:
+        ia, ib = ib, ia
+    span = order[ia:ib + 1]
+    return {"text": _join(span), "rects": _line_rects(span), "words": span}
+
+
+def mark_at(pdf_bytes: bytes, page_1indexed: int, x_px: float, y_px: float, *, x2_px: float | None = None,
+            y2_px: float | None = None, dpi: int = DISPLAY_DPI) -> dict | None:
+    """The sentence under a click at image pixel ``(x_px, y_px)`` of a page of the PDF — or,
+    with ``(x2_px, y2_px)``, the words from the first point to the second — with its rectangles
+    as the viewer draws them: ``{page, text, rects: [[x, y, w, h], …]}``; None when the page
+    has no word there."""
     import fitz
     scale = dpi / 72.0
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -133,7 +153,10 @@ def mark_at(pdf_bytes: bytes, page_1indexed: int, x_px: float, y_px: float, *, d
         words = doc[page_1indexed - 1].get_text("words")
     finally:
         doc.close()
-    hit = sentence_at(words, x_px / scale, y_px / scale)
+    if x2_px is not None and y2_px is not None:
+        hit = span_between(words, x_px / scale, y_px / scale, x2_px / scale, y2_px / scale)
+    else:
+        hit = sentence_at(words, x_px / scale, y_px / scale)
     if hit is None:
         return None
     rects = [[round(x0 * scale, 2), round(y0 * scale, 2), round((x1 - x0) * scale, 2), round((y1 - y0) * scale, 2)]

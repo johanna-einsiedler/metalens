@@ -24,6 +24,9 @@
 .rv-row.rv-row-block { grid-column: 1 / -1; flex-direction: column; align-items: stretch; gap: 3px; }
 .rv-row.rv-row-block > .rv-val { text-align: left; }
 .rv-val.rv-nested { width: 100%; padding: 2px 0; }
+/* a stage's inline group: its fields' rows side by side on one line (a period's year and month) */
+.rv-inline { grid-column: 1 / -1; display: flex; gap: 24px; }
+.rv-inline > .rv-row { flex: 1 1 0; min-width: 0; }
 .rv-num { color: var(--accent-2); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .rv-null { color: var(--text-muted); font-style: italic; }
 .rv-editable.rv-empty { min-width: 1.6em; display: inline-block; }
@@ -109,7 +112,9 @@ rect.hl.flash { fill: var(--highlight-focus); stroke: none;
 /* the coder's own marks: violet, apart from the model's evidence and the current item */
 rect.cm { fill: rgba(126, 87, 194, .26); stroke: none; pointer-events: auto; cursor: pointer; }
 rect.cm.hot, rect.cm.sel { fill: rgba(126, 87, 194, .5); }
-body.stg-marking #pages img.pageimg { cursor: crosshair; }
+body.stg-marking #pages img.pageimg { cursor: text; }
+/* the rubber band of a drag in marking mode: the words from its start to its end become the mark */
+rect.cm-drag { fill: rgba(126, 87, 194, .14); stroke: rgba(126, 87, 194, .75); stroke-width: 1.5; stroke-dasharray: 4 3; pointer-events: none; }
 body.stg-marking #pages { box-shadow: inset 0 0 0 2px rgba(126, 87, 194, .55); }
 #pagespane .stg-pane-nav .stg-mark { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0; }
 #pagespane .stg-pane-nav .stg-mark.on { color: #7e57c2; background: rgba(126, 87, 194, .12); }
