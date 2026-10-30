@@ -191,10 +191,25 @@ export function selectTitle(sel) {
   const o = sel.selectedOptions && sel.selectedOptions[0];
   return (o && o.title) || sel.dataset.help || "";
 }
-// the tip of the ⓘ beside a select: the field's help, then every option as "label — definition"
+// the tip of a field's ⓘ: its help and, for an enum or multi field, every option as "label — definition"
 export function optionsTip(f) {
   const lines = _opts(f).map((o) => (o.help ? `${o.label} — ${o.help}` : o.label));
   return [f.help || "", ...lines].filter(Boolean).join("\n");
+}
+export function fieldTip(f) {
+  return (Array.isArray(f.options) && f.options.length) ? optionsTip(f) : (f.help || "");
+}
+// a child row's title from the child's template ("{arm_id} · {arm_label}"), an enum shown as its label
+export function rowTitleOf(child, r, k) {
+  const byName = new Map((child.fields || []).map((f) => [f.name, f]));
+  const t = (child.title || "").replace(/\{(#|[A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => {
+    if (n === "#") return String(k + 1);
+    const v = r ? r[n] : null;
+    if (v == null || typeof v === "object") return "";
+    const f = byName.get(n), o = f && Array.isArray(f.options) ? _opts(f).find((x) => String(x.value) === String(v)) : null;
+    return o ? o.label : String(v);
+  }).replace(/\s+/g, " ").trim().replace(/^[\s–—:·-]+|[\s–—:·-]+$/g, "");
+  return t || `${child.label || child.key} ${k + 1}`;
 }
 
 function renderTypedValue(f, v, path, opts) {
@@ -214,11 +229,9 @@ function renderTypedValue(f, v, path, opts) {
     const other = f.allow_other
       ? `<input class="rv-other" type="text" placeholder="other value…"${isOther ? "" : " hidden"} value="${isOther ? esc(val) : ""}"/>` : "";
     // the select's tip: the chosen option's definition, else the field's help (kept in data-help);
-    // a ⓘ after it lists every option's definition, since a closed select's options cannot be hovered
+    // every option's definition is on the field's own ⓘ (fieldTip), beside the term or in the column header
     const title = (chosen && chosen.help) || f.help || "";
-    const anyHelp = !!f.help || options.some((o) => o.help);
-    const info = anyHelp ? `<span class="rv-help rv-opt-help" data-tip="${esc(optionsTip(f))}" title="${esc(optionsTip(f))}" tabindex="0">ⓘ</span>` : "";
-    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select"${f.help ? ` data-help="${esc(f.help)}"` : ""}${title ? ` title="${esc(title)}" data-tip="${esc(title)}"` : ""}>${optionsHtml}</select>${other}${info}</span>`;
+    return `<span class="rv-selwrap" data-path="${esc(path)}"><select class="rv-select"${f.help ? ` data-help="${esc(f.help)}"` : ""}${title ? ` title="${esc(title)}" data-tip="${esc(title)}"` : ""}>${optionsHtml}</select>${other}</span>`;
   }
   if (t === "enum" && !editable) {
     const hit = _opts(f).find((o) => String(o.value) === String(v));
@@ -285,7 +298,7 @@ function renderTypedTable(f, v, path, opts) {
   if (!rows.length) return `<span class="rv-null">empty</span> ${addBtn}`;
   const names = cols.map((c) => c.name);
   const extra = [...new Set(rows.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-  const head = cols.map((c) => `<th title="${esc(c.help || "")}"${c.help ? ` data-tip="${esc(c.help)}"` : ""}>${esc(c.label || formatKey(c.name))}</th>`).join("")
+  const head = cols.map((c) => { const t = fieldTip(c); return `<th title="${esc(t)}"${t ? ` data-tip="${esc(t)}"` : ""}>${esc(c.label || formatKey(c.name))}</th>`; }).join("")
     + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("")
     + (opts.editable ? `<th class="rv-rowdel-h"></th>` : "");
   const body = rows.map((r, i) => {
@@ -307,8 +320,9 @@ export function renderFields(defs, obj, basePath, opts) {
     const v = obj ? obj[f.name] : undefined;
     const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
+    const tip = fieldTip(f);
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
-      + `<div class="rv-key${f.help ? " rv-key-help" : ""}" data-path="${esc(path)}"${f.help ? ` title="${esc(f.help)}" data-tip="${esc(f.help)}"` : ""}>${esc(f.label || formatKey(f.name))}${f.help ? `<span class="rv-help" title="${esc(f.help)}" data-tip="${esc(f.help)}" tabindex="0">ⓘ</span>` : ""}</div>`
+      + `<div class="rv-key${tip ? " rv-key-help" : ""}" data-path="${esc(path)}"${tip ? ` title="${esc(tip)}" data-tip="${esc(tip)}"` : ""}>${esc(f.label || formatKey(f.name))}${tip ? `<span class="rv-help" title="${esc(tip)}" data-tip="${esc(tip)}" tabindex="0">ⓘ</span>` : ""}</div>`
       + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;
@@ -343,11 +357,14 @@ export function renderChild(child, rows, opts) {
   if ((child.layout || "table") === "table") {
     const names = (child.fields || []).map((f) => f.name);
     const extra = opts.show ? [] : [...new Set(list.flatMap((r) => (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : []))];
-    const head = defs.map((f) => `<th title="${esc(f.help || "")}"${f.help ? ` data-tip="${esc(f.help)}"` : ""}${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`).join("")
+    // opts.rowTitle: a leading cell naming the row ("C · control") when the fields its title is made of are not shown
+    const head = (opts.rowTitle ? `<th class="rv-rowtitle"></th>` : "")
+      + defs.map((f) => { const t = fieldTip(f); return `<th title="${esc(t)}"${t ? ` data-tip="${esc(t)}"` : ""}${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${esc(f.label || formatKey(f.name))}</th>`; }).join("")
       + extra.map((k) => `<th>${esc(formatKey(k))}</th>`).join("") + (manage ? `<th class="rv-rowdel-h"></th>` : "");
     const body = picked.map(([r, k]) => {
       const base = `${key}[${k}]`;
-      const cells = defs.map((f) => `<td${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${renderTypedValue(f, r ? r[f.name] : undefined, `${base}.${f.name}`, opts)}</td>`).join("")
+      const cells = (opts.rowTitle ? `<td class="rv-rowtitle">${esc(rowTitleOf(child, r, k))}</td>` : "")
+        + defs.map((f) => `<td${f.confidence ? ` data-group="${esc(f.confidence)}"` : ""}>${renderTypedValue(f, r ? r[f.name] : undefined, `${base}.${f.name}`, opts)}</td>`).join("")
         + extra.map((x) => `<td>${renderNode(r ? r[x] : null, `${base}.${x}`, opts)}</td>`).join("")
         + (manage ? `<td class="rv-rowdel-c">${del(k)}</td>` : "");
       return `<tr class="rv-childrow" data-rowpath="${esc(base)}"><td class="rv-rowcite" data-rowpath="${esc(base)}"></td>${cells}</tr>`;

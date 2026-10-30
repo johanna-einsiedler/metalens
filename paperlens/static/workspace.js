@@ -2394,9 +2394,12 @@ function stageCellsBlock(st, L, recs) {
     }
     for (const kid of L.kids) {                              // each child's rows under the entry's cells
       const rows = fv[kid.child.key];
+      // the rows carry their title ("C · control") when none of the title's fields is a cell of this stage
+      const tf = [...(kid.child.title || "").matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1]);
+      const rowTitle = tf.length > 0 && !tf.some((n) => kid.names.has(n));
       card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields"><div class="rv-row rv-row-block rv-decl" data-field="${esc(kid.child.key)}">`
         + `<div class="rv-key" data-path="${esc(kid.child.key)}" title="${esc(kid.child.help || "")}">${esc(kid.child.label || formatKey(kid.child.key))}${Array.isArray(rows) ? ` <span class="muted">(${rows.length})</span>` : ""}</div>`
-        + `<div class="rv-val rv-nested">${renderChild(kid.child, rows, { editable: true, show: kid.names })}</div></div></div>`
+        + `<div class="rv-val rv-nested">${renderChild(kid.child, rows, { editable: true, show: kid.names, rowTitle })}</div></div></div>`
         + stageCopyControls(st, L, rec, recs, kid));
     }
     linkSelects(card, st, rec);

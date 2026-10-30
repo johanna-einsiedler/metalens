@@ -24,6 +24,8 @@
 .rv-row.rv-row-block { grid-column: 1 / -1; flex-direction: column; align-items: stretch; gap: 3px; }
 .rv-row.rv-row-block > .rv-val { text-align: left; }
 .rv-val.rv-nested { width: 100%; padding: 2px 0; }
+/* a child row's title cell in a stage table: the row's identity when its id and label are not cells of the stage */
+.rv-table td.rv-rowtitle { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 /* a stage's inline group: its fields' rows side by side on one line (a period's year and month) */
 .rv-inline { grid-column: 1 / -1; display: flex; gap: 24px; }
 .rv-inline > .rv-row { flex: 1 1 0; min-width: 0; }
