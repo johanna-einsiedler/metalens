@@ -1130,6 +1130,27 @@ async function doDeleteRecord(rec) {
   catch (e) { alert("delete failed: " + e.message); }
 }
 
+// Copy an entry (the stages layout): a new entry with this one's cells and the rows of the children
+// the stages show (arms, outcomes …), a deep copy; children no stage shows (result rows) start
+// empty, since they belong to the original; the entry's auto id continues the series (T3 after
+// T2). The same work given to another sample, or a task with the same arms, is then edited, not
+// rebuilt.
+async function doCopyRecord(rec) {
+  const fv = JSON.parse(JSON.stringify(rec.field_values || {}));
+  const stages = ((stagesSpec() || {}).stages || []);
+  const shown = new Set(stages.flatMap((s) => (s.children || []).map((c) => c.key).concat(s.child ? [s.child] : [])));
+  for (const ch of VM.entries.children || []) if (!shown.has(ch.key) && Array.isArray(fv[ch.key])) fv[ch.key] = [];
+  const es = entryStage();
+  const ai = es ? stageEntryAutoId(es.stage) : null;
+  if (ai) Object.assign(fv, ai);
+  try {
+    await api.addRecord(DATA.document_id, { field_values: fv });
+    if (es) STAGE = es.index;
+    await reloadDoc();
+  }
+  catch (e) { alert("copy failed: " + e.message); }
+}
+
 // Add a manual entry: seed a COMPLETE blank form from the preset's declaration (typed
 // blanks: [] for tables / sub-entries / multi, null for booleans) so its cells are
 // immediately editable; edits route through the verify layer.
@@ -2069,12 +2090,14 @@ function eviStripEl(rec) {
     + (own ? "" : `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`)
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
+    + (stagesOpen() ? `<button class="histbtn reccopy" title="a new ${esc(VM.entries.label.toLowerCase())} with this one's cells and rows copied; the id continues the series">⧉ copy</button>` : "")
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + (own ? "" : `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
       + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`)
     + (groups.length ? `<div class="group-head">${groups.map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("")}</div>` : "")
     + `<div class="histbody" hidden></div>`;
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
+  const cp = card.querySelector(".reccopy"); if (cp) cp.onclick = () => doCopyRecord(rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   wireConfBadges(card);
