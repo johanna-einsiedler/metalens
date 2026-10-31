@@ -4011,10 +4011,15 @@ def extract_endpoint(
 def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
                      dataset_id: str | None, *, filename: str | None,
                      produced_by: str | None = None, run_id: str | None = None,
-                     step_id: str | None = None) -> dict:
+                     step_id: str | None = None, queue: bool = False) -> dict:
     """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
     persist a full viewable document — /api/extract minus the model call. With ``run_id``
-    and ``step_id`` the document is a paper of a workflow run's supplied step."""
+    and ``step_id`` the document is a paper of a workflow run's supplied step. What is cheap
+    and must be answered at once happens here: the owner check, the JSON's validation, the
+    schema row. The rendering — the expensive part — runs here too, unless ``queue`` asks for
+    the worker and the queue is up: then {queued, job_id} comes back and /api/jobs/{id} carries
+    the finished import. A paper of a workflow run is always imported here, whatever ``queue``
+    says: the run's bookkeeping (the claim, ``on_document``) belongs to this request."""
     import json as _json
     claim = None
     pdf_sha = None
@@ -4041,21 +4046,31 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
     usage = (obj.get("usage") if isinstance(obj, dict) else None) or {}
     run = presets.resolve_run(db, schema_id=schema_id)
     schema_id = run.schema_id
+    try:                 # malformed canonical JSON (no records, no evidence) is refused HERE, at
+        ingest(canonical, entries_key=run.entries_key)   # once — never as a queued job retried thrice
+    except ValueError as exc:
+        if claim:
+            workflows.on_job_failed(db, run_id, pdf_sha256=pdf_sha, error=str(exc)[:500], final=True)
+        raise HTTPException(status_code=422, detail=str(exc))
     if schema_id:
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
         _refresh_row_from_file(db, schema_id)
 
     made_by = (produced_by or "").strip()[:200] or "imported"
-
-    def _supplied(pdf_bytes, prompt, **kw):
-        return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model=made_by)
-
+    if queue and not claim:
+        job_id = worker.enqueue(
+            "ingest_pdf_job", base64.b64encode(data).decode(), text, usage=usage, made_by=made_by,
+            schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
+            filename=filename, dataset_id=dataset_id, _expires=1800)
+        if job_id:
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+        # the queue is down (or this process runs jobs inline) → import synchronously, as before
     try:
-        res = extract.run_extraction(
-            db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
-            owner_user_id=who.user_id, filename=filename, complete=_supplied,
-            spec=run.spec, **({"run_id": run_id, "step_id": step_id} if claim else {}))
+        res = extract.import_supplied(
+            db, data, text=text, usage=usage, made_by=made_by, schema_id=schema_id, spec=run.spec,
+            session_id=who.session_id, owner_user_id=who.user_id, filename=filename,
+            **({"run_id": run_id, "step_id": step_id} if claim else {}))
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
         if claim:
             workflows.on_job_failed(db, run_id, pdf_sha256=pdf_sha, error=str(exc)[:500], final=True)
@@ -4080,6 +4095,7 @@ def ingest_pdf_endpoint(
     produced_by: str | None = Form(None),
     run_id: str | None = Form(None),
     step_id: str | None = Form(None),
+    queue: bool = Form(False),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -4091,9 +4107,14 @@ def ingest_pdf_endpoint(
     is added to that dataset (owner-gated).  ``produced_by`` names what actually made the
     records — a model, or the agent pipeline that ran outside — and is stored where a normal
     run stores its model, so an imported record can say where it came from; without it the
-    record only says "imported"."""
+    record only says "imported".  ``queue`` hands the rendering to the worker when the queue
+    is up — the answer is then ``{queued: true, job_id}`` and ``/api/jobs/{id}`` carries the
+    finished import; the browser's import page asks for this, so a dataset coming in does
+    not hold the web process. Without it (the scripts, the tests) the import runs here and
+    the answer carries the document, as it always has."""
     return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
-                            filename=pdf.filename, produced_by=produced_by, run_id=run_id, step_id=step_id)
+                            filename=pdf.filename, produced_by=produced_by, run_id=run_id, step_id=step_id,
+                            queue=queue)
 
 
 @app.get("/api/papers/provenance")
