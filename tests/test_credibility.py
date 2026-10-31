@@ -184,3 +184,27 @@ def test_an_unverified_verdict_withdraws_the_audit() -> None:
     cred = records.dataset_credibility(conn, ds)
     assert cred["audited"] == 1 and cred["tier"] != "ai_only"
     records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()
+
+
+def test_an_unflag_returns_the_record_to_the_unreviewed_pool() -> None:
+    """A flag is taken back by setting the record to "unverified" (what the workspace sends when a
+    lit flag is clicked): the record's status returns to unverified, the badge stops counting it
+    as audited, and the flag stays in the record's history."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import uuid
+    from paperlens import records
+    from test_analysis_table import HAC, _seed
+    conn = records.connect(); records.init_db(conn)
+    ds, _doc = _seed(conn, HAC, "human-ai-collab", f"unflag-{uuid.uuid4().hex[:6]}")
+    rid = conn.execute("SELECT id::text FROM record WHERE dataset_id=%s::uuid AND NOT screened_empty LIMIT 1",
+                       (ds,)).fetchone()[0]
+    records.verify_record(conn, rid, status="flagged")
+    assert conn.execute("SELECT verification_status FROM record WHERE id=%s::uuid", (rid,)).fetchone()[0] == "flagged"
+    cred = records.dataset_credibility(conn, ds)
+    assert cred["audited"] == 1 and cred["agreed"] == 0
+    records.verify_record(conn, rid, status="unverified")
+    assert conn.execute("SELECT verification_status FROM record WHERE id=%s::uuid", (rid,)).fetchone()[0] == "unverified"
+    assert records.dataset_credibility(conn, ds)["audited"] == 0
+    assert [e["status"] for e in records.record_events(conn, rid)][:2] == ["unverified", "flagged"]
+    records.clear_dataset_documents(conn, ds); records.delete_dataset(conn, ds); conn.close()

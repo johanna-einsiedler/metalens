@@ -1415,8 +1415,8 @@ function renderRecordCard(panel, rec) {
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
     // the verdict comes last: a coder reaches it after every field, not before
     + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
-    + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">✓ verify</button>`
-    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag</button></div>`
+    + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified" title="every field checked and right — click again to withdraw">✓ verify</button>`
+    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged" title="something here needs a second look — click again to unflag">⚑ flag</button></div>`
     + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
@@ -2658,7 +2658,7 @@ function wireCard(card, rec) {
     rerenderCard(card, rec);
   }));
   if (!RO) card.querySelectorAll(".vbtn").forEach((b) =>
-    (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+    (b.onclick = () => sendVerify(card, rec, clickedVerdict(rec, b.dataset.status))));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   const rv = criteriaSpec();
   const blindCalls = rv && rv.blind ? new Set((rv.criteria || []).map((c) => c.call)) : null;
@@ -2750,6 +2750,14 @@ function wireConfBadges(root) {
   }));
 }
 
+// The verdict a click on a verdict button asks for: the button's own — or, when the record
+// already carries that verdict, its withdrawal. A lit flag is unflagged, a lit verify unverified:
+// the record returns to the unreviewed pool (the events stay, as history — the server's rule).
+// Without this a flag could never be taken back except by marking the entry verified.
+function clickedVerdict(rec, status) {
+  return rec.verification_status === status ? "unverified" : status;
+}
+
 async function sendVerify(card, rec, status, notes) {
   card.querySelectorAll(".vbtn").forEach((b) => (b.disabled = true));
   try {
@@ -2759,6 +2767,7 @@ async function sendVerify(card, rec, status, notes) {
     rec.verification_status = status;
     setStatus(card, status);
     refreshNavState();
+    if (status === "unverified") return;       // a withdrawal is not a step forward: the queue does not move on, nor the entry
     if (QUEUE) { queueVerdict(rec, status); return; }
     if (AUTOADV && (DATA.records || []).length > 1) nextEntry(true);
   }
@@ -2842,7 +2851,7 @@ function mountKeys() {
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
       const h = document.createElement("div"); h.className = "kbd-help";
-      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>h</kbd> mark sentences · <kbd>/</kbd> search the PDF · <kbd>?</kbd> close`
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify / unverify · <kbd>f</kbd> flag / unflag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>h</kbd> mark sentences · <kbd>/</kbd> search the PDF · <kbd>?</kbd> close`
         + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
       document.body.appendChild(h);
       $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
@@ -3180,8 +3189,8 @@ function renderChainCard(panel, rec, rv) {
     + `<span style="margin-left:auto"></span><button class="histbtn chain-editbtn" title="every field of this claim, editable — corrections are logged">▤ edit</button><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + roBanner() + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
     + `<dl class="chain-dl">${dl}</dl>`
-    + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
-    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">Flag</button>`
+    + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified" title="this claim holds — click again to withdraw">OK</button>`
+    + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged" title="this claim needs a second look — click again to unflag">Flag</button>`
     + `<button class="vbtn notebtn" title="write a note on this claim — it is stored with your name and the time, and does not verify or flag anything">✎ Note</button>`
     + chainReviewNote(rec)
     + (label ? `<span class="tag chain-sup${support === "weak" ? " warn" : ""}">${esc(label)}</span>` : "") + `</div><div class="histbody" hidden></div>`;
@@ -3217,7 +3226,7 @@ function renderChainCard(panel, rec, rv) {
   card.querySelector(".histbtn:not(.chain-editbtn)").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".vbtn[data-status]").forEach((b) => (b.onclick = async () => {
-    await sendVerify(card, rec, b.dataset.status, chainNoteText(card));
+    await sendVerify(card, rec, clickedVerdict(rec, b.dataset.status), chainNoteText(card));
     card.querySelectorAll(".vbtn").forEach((x) => x.classList.toggle("on", x.dataset.status === rec.verification_status));
     card.querySelector(".chain-review").hidden = rec.verification_status !== "flagged" && !rec.note;
   }));
@@ -3576,14 +3585,14 @@ function eviStripEl(rec) {
     + `<button class="histbtn" title="change history">↻ history</button>`
     + (stagesOpen() ? `<button class="histbtn reccopy" title="a new ${esc(VM.entries.label.toLowerCase())} with this one's cells and rows copied; the id continues the series">⧉ copy</button>` : "")
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + (own ? "" : `<div class="verify"><button class="vbtn ok" data-status="verified">✓ verify</button>`
-      + `<button class="vbtn flag" data-status="flagged">⚑ flag</button></div>`)
+    + (own ? "" : `<div class="verify"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified" title="every field checked and right — click again to withdraw">✓ verify</button>`
+      + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged" title="something here needs a second look — click again to unflag">⚑ flag</button></div>`)
     + (groups.length ? `<div class="group-head">${groups.map(([g, r]) => renderConfBadge(g, VM.groups[g], r, VM.levels)).join("")}</div>` : "")
     + `<div class="histbody" hidden></div>`;
   card.querySelector(".histbtn").onclick = () => toggleHistory(card, rec);
   const cp = card.querySelector(".reccopy"); if (cp) cp.onclick = () => doCopyRecord(rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
-  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
+  card.querySelectorAll(".vbtn").forEach((b) => (b.onclick = () => sendVerify(card, rec, clickedVerdict(rec, b.dataset.status))));
   wireConfBadges(card);
   return card;
 }
