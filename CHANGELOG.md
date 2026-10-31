@@ -8,6 +8,16 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A dataset import no longer holds the web process
+
+- **Imports are queued.** The import page sends each paper's PDF with `queue=1`, and `POST /api/ingest-pdf`
+  hands the rendering to the worker (`ingest_pdf_job`, the extraction pipeline minus the model call),
+  answering at once with a job id that `/api/jobs/{id}` resolves. Rendering a dataset's pages in the web
+  process held the web machine's one CPU for every visitor; the site stayed slow for as long as an import
+  ran. The owner check, the JSON's validation and the schema row still happen in the request, so a
+  malformed import is refused at once rather than retried as a job. Without `queue` — the scripts, a
+  queue that is down — the import runs synchronously and answers with the document, as before.
+
 ### Preset inventory: one citable card per curated preset
 
 - **A preset has a card.** A bundled preset may carry `meta.authors` (with ORCIDs), `keywords`, `license`,

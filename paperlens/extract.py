@@ -184,3 +184,20 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
             "n_highlights": len(highlights), "scanned_pages": scanned,
             "page_image_keys": page_keys, "doi": res.doi,
             "n_issues": len(issues) if issues else 0}
+
+
+def import_supplied(conn, pdf_bytes: bytes, *, text: str, usage: dict | None = None,
+                    made_by: str = "imported", schema_id: str | None = None,
+                    spec: dict | None = None, session_id: str | None = None,
+                    owner_user_id: str | None = None, filename: str | None = None,
+                    source_job_id: str | None = None) -> dict:
+    """The import pipeline: ``run_extraction`` with the canonical JSON SUPPLIED (``text``)
+    instead of asked of a model — the pages rendered, the JSON's own evidence located, a full
+    viewable document persisted. ``made_by`` is stored where a live run stores its model.
+    Shared by the web process (a synchronous import) and the worker (a queued one), so the
+    two paths can never drift."""
+    def _supplied(pdf_bytes_, prompt, **kw):
+        return LLMResult(text=text, finish_reason="stop", usage=usage or {}, resolved_model=made_by)
+    return run_extraction(conn, pdf_bytes, prompt="", schema_id=schema_id, session_id=session_id,
+                          owner_user_id=owner_user_id, source_job_id=source_job_id,
+                          filename=filename, complete=_supplied, spec=spec)

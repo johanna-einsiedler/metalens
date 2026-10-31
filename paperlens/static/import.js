@@ -542,14 +542,35 @@ async function run() {
   }
 
   let done = 0, replaced = 0, skipped = 0;
+  // A paper has landed (at once, or when its queued job finished): replace the old copies,
+  // attach it, report. Replacing: the new document was imported OUTSIDE the dataset (the server
+  // refuses a second copy of the same PDF inside one), so the old copies go first and the new one
+  // is attached after — the paper is never missing from the dataset, and never in it twice.
+  const finish = async (r, res, dup) => {
+    done++;
+    let gone = 0;
+    if (dup.length) {
+      for (const d of dup) {
+        if (d.document_id === res.document_id) continue;
+        try { await api.deleteDocument(d.document_id); gone++; } catch { /* leave it; the dataset page can dedupe */ }
+      }
+      if (datasetId) await api.addToDataset(datasetId, { document_id: res.document_id });
+    }
+    if (gone) replaced++;
+    const pages = r.pdf || (res.n_pages > 0);
+    setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${pages ? (r.pdf ? "" : " · PDF kept from the old copy") : " · no page images"}${gone ? ` · replaced ${gone} old cop${gone === 1 ? "y" : "ies"}` : ""}`, "ok");
+  };
+  // Pass one: hand every paper to the server. A paper with a PDF is QUEUED for the worker —
+  // rendering its pages is the slow part, and done in the web process it held the site's one
+  // CPU for every visitor while a dataset came in. The server answers at once with a job id (or
+  // with the finished import when the queue is down). A paper without a PDF is quick and
+  // imports synchronously.
+  const waiting = [];
   for (const r of rows) {
     const dup = existingFor(r.key);
     if (dup.length && (ACTION[r.key] || "replace") === "skip") { skipped++; setStat(r.key, "skipped — already in the dataset", "warn"); continue; }
     setStat(r.key, '<span class="spin"></span> importing…');
     try {
-      // Replacing: import OUTSIDE the dataset first (the server refuses a second copy of the
-      // same PDF inside one dataset), delete the old copies, then attach the new document —
-      // so the paper is never missing from the dataset, and never in it twice.
       const target = dup.length ? null : datasetId;
       let res;
       if (r.pdf) {
@@ -558,6 +579,7 @@ async function run() {
         fd.append("result", JSON.stringify(r.json.canonical));
         if (schemaId) fd.append("schema_id", schemaId);
         if (target) fd.append("dataset_id", target);
+        fd.append("queue", "1");
         res = await api.ingestPdf(fd);
       } else {
         // no PDF dropped: a replaced copy that HAS one lends it, so page images and
@@ -565,19 +587,15 @@ async function run() {
         res = await api.ingest({ result: r.json.canonical, schema_id: schemaId || null, dataset_id: target || null,
                                  pdf_from_document_id: dup.length ? dup[0].document_id : null });
       }
-      done++;
-      let gone = 0;
-      if (dup.length) {
-        for (const d of dup) {
-          if (d.document_id === res.document_id) continue;
-          try { await api.deleteDocument(d.document_id); gone++; } catch { /* leave it; the dataset page can dedupe */ }
-        }
-        if (datasetId) await api.addToDataset(datasetId, { document_id: res.document_id });
-      }
-      if (gone) replaced++;
-      const pages = r.pdf || (res.n_pages > 0);
-      setStat(r.key, `✓ ${res.n_records} record${res.n_records === 1 ? "" : "s"}${pages ? (r.pdf ? "" : " · PDF kept from the old copy") : " · no page images"}${gone ? ` · replaced ${gone} old cop${gone === 1 ? "y" : "ies"}` : ""}`, "ok");
+      if (res.queued) { waiting.push({ r, dup, jobId: res.job_id }); setStat(r.key, '<span class="spin"></span> queued…'); }
+      else await finish(r, res, dup);
     } catch (e) { setStat(r.key, `✗ ${esc(e.message)}`, "warn"); }
+  }
+  // Pass two: wait for the queued papers in order, finishing each as it lands.
+  for (const w of waiting) {
+    setStat(w.r.key, '<span class="spin"></span> importing…');
+    try { await finish(w.r, await api.waitJob(w.jobId), w.dup); }
+    catch (e) { setStat(w.r.key, `✗ ${esc(e.message)}`, "warn"); }
   }
   RUNNING = false; $("#run").disabled = false;
   const go = datasetId ? `/workspace?project=${encodeURIComponent(datasetId)}` : "/workspace";
