@@ -8,6 +8,13 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A flag can be taken back
+
+- **A lit verdict button withdraws its verdict.** Clicking ⚑ flag on a flagged entry (or ✓ verify on a
+  verified one, `f` / `v` likewise) sends `unverified`: the entry returns to the unreviewed pool and the
+  badge stops counting it, while the flag stays in the entry's history. Until now a flag could only be
+  replaced by a verification. A withdrawal does not auto-advance to the next entry.
+
 ### A dataset import no longer holds the web process
 
 - **Imports are queued.** The import page sends each paper's PDF with `queue=1`, and `POST /api/ingest-pdf`

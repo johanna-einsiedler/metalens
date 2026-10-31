@@ -165,8 +165,8 @@ body.stg-marking #pages { box-shadow: inset 0 0 0 2px rgba(126, 87, 194, .55); }
 .verify-foot { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border); align-items: center; }
 .verify-lead { font-size: 12px; margin-right: 4px; }
 .verify-foot .vbtn { padding: 4px 12px; font-size: 12px; }
-.verify-foot .vbtn.on[data-status="verified"] { background: var(--success-bg); border-color: var(--success); color: var(--success); font-weight: 600; }
-.verify-foot .vbtn.on[data-status="flagged"] { background: var(--flag-bg); border-color: var(--flag); color: var(--flag); font-weight: 600; }
+.verify .vbtn.on[data-status="verified"] { background: var(--success-bg); border-color: var(--success); color: var(--success); font-weight: 600; }
+.verify .vbtn.on[data-status="flagged"] { background: var(--flag-bg); border-color: var(--flag); color: var(--flag); font-weight: 600; }
 .vbtn { font-size: 11px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
   padding: 3px 9px; cursor: pointer; }
 .vbtn.ok:hover { background: var(--success-bg); border-color: var(--success); color: var(--success); }
