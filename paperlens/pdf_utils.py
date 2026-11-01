@@ -345,6 +345,44 @@ def locate_text_rects_any(pdf_bytes: bytes, text: str, *, prefer_page: int | Non
         doc.close()
 
 
+def search_text(pdf_bytes: bytes, query: str, *, dpi: int = DISPLAY_DPI, limit: int = 300) -> dict:
+    """Every occurrence of ``query`` in the PDF, in page order, as the viewer draws it: ``{hits:
+    [{page, rect: [x, y, w, h]}, …], total, capped}``. Case-insensitive, whole PDF, one hit per
+    line of an occurrence (a match that wraps gives two). Hyphenated line breaks are tried when
+    the plain search finds nothing on a page. Queries under two characters find nothing — a
+    single letter lights up the whole paper. Stops at ``limit`` hits (``capped``), the counter
+    then reads "300+"."""
+    q = " ".join((query or "").split())
+    if len(q) < 2:
+        return {"hits": [], "total": 0, "capped": False}
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        scale = dpi / 72.0
+        _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
+        hits: list[dict] = []
+        capped = False
+        for p in range(1, len(doc) + 1):
+            page = doc[p - 1]
+            rects = page.search_for(q)
+            if not rects and _DEHY:
+                try:
+                    rects = page.search_for(q, flags=_DEHY)
+                except Exception:
+                    rects = []
+            for r in rects:
+                if len(hits) >= limit:
+                    capped = True
+                    break
+                hits.append({"page": p, "rect": [round(r.x0 * scale, 2), round(r.y0 * scale, 2),
+                                                 round((r.x1 - r.x0) * scale, 2), round((r.y1 - r.y0) * scale, 2)]})
+            if capped:
+                break
+        return {"hits": hits, "total": len(hits), "capped": capped}
+    finally:
+        doc.close()
+
+
 def pdf_to_images(pdf_bytes: bytes, dpi: int = EXTRACTION_DPI, fmt: str = "png") -> list[str]:
     """Convert PDF bytes to a list of base64-encoded images, one per page.
 

@@ -652,11 +652,26 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
         ).fetchall():
             notes_by_rec[str(rid)] = {"text": notes, "status": status, "by": email or kind,
                                       "at": created.isoformat() if created else None}
+    # the marks the latest verdict with marks points at ("see here"): the last list given wins,
+    # so a verdict given with an empty list detaches them all
+    marks_by_rec: dict[str, list] = {}
+    if rec_ids:
+        rows = conn.execute(
+            """SELECT DISTINCT ON (e.record_id) e.record_id, e.highlight_ids
+               FROM verification_event e
+               WHERE e.record_id = ANY(%s::uuid[]) AND e.highlight_ids IS NOT NULL
+               ORDER BY e.record_id, e.created_at DESC""",
+            (rec_ids,),
+        ).fetchall()
+        marks = _highlights_by_id(conn, [h for (_r, hs) in rows for h in (hs if isinstance(hs, list) else [])])
+        for (rid, hs) in rows:
+            marks_by_rec[str(rid)] = [marks[h] for h in (hs if isinstance(hs, list) else []) if h in marks]
     conf = document_confidence(conn, document_id)
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
          "verification_status": vs, "extraction": _ex, "screened_empty": bool(_se),
          "corrections": corrections_by_rec.get(str(rid), []), "note": notes_by_rec.get(str(rid)),
+         "marks": marks_by_rec.get(str(rid), []),
          # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
          # sub-entries — the badges the review UI shows next to each group's fields
          "confidence": conf["by_record"].get(str(rid), {}),
@@ -889,25 +904,40 @@ def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
 def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
                   diff: list | None = None, notes: str | None = None,
                   verifier_user_id: str | None = None, verifier_kind: str = "maintainer",
-                  field_values: dict | None = None, patch: list | None = None) -> dict:
+                  field_values: dict | None = None, patch: list | None = None,
+                  highlight_ids: list | None = None) -> dict:
     """Record a verification event + project it onto record.verification_status.
 
     Optionally apply a correction — the "editing values routes through the verification
     layer" rule. ``patch`` = [{field_path, value}] sets those cells on the record AS STORED
     (the row is locked for the write, so two edits that cross on the wire both land);
     ``field_values`` replaces the whole record, for structural edits (a row added or removed).
-    One transaction.
+    ``highlight_ids`` are the coder's marks this verdict points at — "see here" on a flag; they
+    must be marks on the record's own paper (ValueError otherwise), and the list is kept as
+    given, so a later verdict with a shorter list detaches. One transaction.
     """
     if status not in _VALID_STATUS:
         raise ValueError(f"status must be one of {_VALID_STATUS}")
+    if highlight_ids is not None:
+        ids = [str(h) for h in highlight_ids]
+        if not all(_is_uuid(h) for h in ids):
+            raise ValueError("highlight_ids must be mark ids")
+        if ids:
+            n = conn.execute(
+                """SELECT count(*) FROM coder_highlight h JOIN record r ON r.document_id = h.document_id
+                   WHERE r.id = %s::uuid AND h.id::text = ANY(%s)""", (record_id, ids)).fetchone()[0]
+            if n != len(set(ids)):
+                raise ValueError("every mark must be on this entry's paper")
+        highlight_ids = ids
     eid = _new_id()
     with conn.transaction():
         conn.execute(
             """INSERT INTO verification_event
-                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)
-               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s)""",
+                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes, highlight_ids)
+               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
             (eid, record_id, verifier_user_id, verifier_kind, status,
-             Json(diff) if diff is not None else None, notes),
+             Json(diff) if diff is not None else None, notes,
+             Json(highlight_ids) if highlight_ids is not None else None),
         )
         if status not in ("corrected", "noted"):   # an edit or a note records provenance but is
             # NOT a verification — the record's status stays whatever the reviewer last judged
@@ -936,18 +966,30 @@ def record_events(conn: psycopg.Connection, record_id: str) -> list[dict]:
     with the editor's email when it was a logged-in user."""
     rows = conn.execute(
         """SELECT e.id, e.verifier_user_id, u.email, e.verifier_kind, e.status,
-                  e.diff, e.notes, e.created_at
+                  e.diff, e.notes, e.created_at, e.highlight_ids
            FROM verification_event e
            LEFT JOIN users u ON u.id = e.verifier_user_id
            WHERE e.record_id = %s::uuid ORDER BY e.created_at DESC""",
         (record_id,),
     ).fetchall()
+    marks = _highlights_by_id(conn, [h for (*_r, hs) in rows for h in (hs if isinstance(hs, list) else [])])
     return [
         {"id": str(i), "verifier_user_id": str(u) if u else None, "verifier_email": em,
          "verifier_kind": k, "status": s, "diff": d, "notes": n,
-         "created_at": c.isoformat() if c else None}
-        for (i, u, em, k, s, d, n, c) in rows
+         "created_at": c.isoformat() if c else None,
+         "highlights": [marks[h] for h in (hs if isinstance(hs, list) else []) if h in marks]}
+        for (i, u, em, k, s, d, n, c, hs) in rows
     ]
+
+
+def _highlights_by_id(conn: psycopg.Connection, ids: list) -> dict[str, dict]:
+    """``{id: {id, page, text}}`` for the marks among ``ids`` that still exist (a removed mark
+    simply drops out of the verdicts that pointed at it)."""
+    ids = sorted({str(h) for h in ids if _is_uuid(str(h))})
+    if not ids:
+        return {}
+    return {str(i): {"id": str(i), "page": p, "text": t} for (i, p, t) in conn.execute(
+        "SELECT id, page, text FROM coder_highlight WHERE id::text = ANY(%s)", (ids,)).fetchall()}
 
 
 def _diff_changes_value(diff: Any) -> bool:

@@ -155,6 +155,26 @@ export function paintMarks(marks) {
 }
 export const markRects = (id) => [...document.querySelectorAll(`rect.cm[data-mid="${id}"]`)];
 
+// "Find in PDF": every hit of the search painted faintly (class "srch"), the current one strongly
+// (".cur") and scrolled to the centre of the pane. Called again with [] to clear. The hits are
+// rectangles in image pixels like everything else on the overlay, so zoom keeps them in place.
+export function paintSearch(hits, cur = -1) {
+  document.querySelectorAll("rect.srch").forEach((r) => r.remove());
+  let curEl = null, curPage = null;
+  (hits || []).forEach((h, i) => {
+    const wrap = document.getElementById(`page-${h.page}`);
+    const svg = wrap && wrap.querySelector("svg.overlay");
+    if (!svg) return;
+    const [x, y, w, h2] = h.rect;
+    const r = document.createElementNS(SVGNS, "rect");
+    r.setAttribute("x", x - 1); r.setAttribute("y", y - 1); r.setAttribute("width", w + 2); r.setAttribute("height", h2 + 2);
+    r.setAttribute("class", "srch" + (i === cur ? " cur" : ""));
+    svg.appendChild(r);
+    if (i === cur) { curEl = r; curPage = h.page; }
+  });
+  if (curEl) scrollToRect(curEl, curPage);
+}
+
 // hover preview — light up the rect(s) for an evidence id without scrolling
 export function showEvidence(eid) {
   (Array.isArray(eid) ? eid : [eid]).forEach((id) =>

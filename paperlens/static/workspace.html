@@ -19,9 +19,19 @@
       <div id="evpane" class="stg-evpane"></div>
       <div id="hsplitter" class="hsplitter" title="drag to resize"></div>
       <div id="pdfpane" class="pdfpane">
-        <div id="pdfzoom" class="pdfzoom" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)">
-          <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
-          <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+        <div id="pdfzoom" class="pdfzoom">
+          <span class="pdfsearch" id="pdfsearchbox">
+            <input id="pdfsearch" type="search" placeholder="find in PDF" title="find words in the PDF — Enter: next hit, Shift+Enter: previous, Esc: clear (/ focuses this box)" autocomplete="off" spellcheck="false"/>
+            <span id="pdfsearchn" class="pdfsearch-n" hidden></span>
+            <button type="button" data-s="prev" title="previous hit (Shift+Enter)" hidden>↑</button>
+            <button type="button" data-s="next" title="next hit (Enter)" hidden>↓</button>
+            <button type="button" id="pdfkeep" class="pdf-mark" title="keep this hit as one of your marks (kept with the paper; a flag can point at it)" hidden>✎ keep</button>
+          </span>
+          <button type="button" id="pdfmark" class="pdf-mark" title="mark: click a sentence in the PDF, or drag over the words you want, to keep it with the paper (h)">✎ mark</button>
+          <span class="pdfzoom-z" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)">
+            <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
+            <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+          </span>
         </div>
         <div id="pages" class="pages"><p class="muted">Select a document.</p></div>
       </div>

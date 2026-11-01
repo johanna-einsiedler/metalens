@@ -126,6 +126,29 @@ body.stg-marking #pages { box-shadow: inset 0 0 0 2px rgba(126, 87, 194, .55); }
 .stg-marks .stg-mark-del { position: absolute; right: 2px; top: 4px; border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 12px; opacity: 0; }
 .stg-marks .stg-mark:hover .stg-mark-del { opacity: .8; }
 .stg-marks .stg-mark-del:hover { color: #b3261e; opacity: 1; }
+.stg-marks .stg-mark-flag { font: inherit; font-size: 11px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-sm);
+  padding: 1px 7px; cursor: pointer; margin-top: 4px; color: var(--flag); }
+.stg-marks .stg-mark-flag:hover { background: var(--flag-bg); border-color: var(--flag); }
+.stg-marks .stg-mark-att { display: inline-block; font-size: 11px; margin-top: 4px; }
+.marks-panel { margin-top: 14px; }
+/* the marks an entry's verdict points at: chips under the verdict buttons */
+.verify-marks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 6px; font-size: 11.5px; }
+.mark-chip { border: 1px solid rgba(126, 87, 194, .5); background: rgba(126, 87, 194, .08); color: var(--text); border-radius: 10px; padding: 1px 8px;
+  font: inherit; font-size: 11.5px; cursor: pointer; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mark-chip:hover { background: rgba(126, 87, 194, .18); }
+.mark-chip-x { border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 0 2px; margin-left: -3px; }
+.mark-chip-x:hover { color: #b3261e; }
+.hist-mark { color: #7e57c2; }
+/* find in PDF: the hits on the page, and the box in the pane's corner */
+rect.srch { fill: rgba(255, 196, 0, .32); stroke: none; pointer-events: none; }
+rect.srch.cur { fill: rgba(255, 152, 0, .55); stroke: #e65100; stroke-width: 1.5; }
+.pdfsearch { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; padding-right: 4px; border-right: 1px solid var(--border); }
+.pdfsearch input { font: inherit; font-size: 12px; width: 118px; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; background: var(--bg); color: var(--text); }
+.pdfsearch input:focus { outline: none; border-color: var(--accent); width: 160px; }
+.pdfsearch-n { min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+.pdfsearch.none .pdfsearch-n { color: #b3261e; }
+.pdfzoom .pdf-mark.on { color: #7e57c2; background: rgba(126, 87, 194, .12); }
+.pdfzoom-z { display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; padding-left: 2px; border-left: 1px solid var(--border); }
 .stg-nomarks { font-size: 12.5px; margin: 0; }
 
 /* an extracted value that has linked evidence — hover previews, click jumps */

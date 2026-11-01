@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Find in the PDF, and a flag that points at the coder's own marks
+
+- **Find in PDF.** A search box sits above the pages (`/` focuses it from anywhere): every occurrence
+  of the words is lit on the pages, the current one strongly and scrolled into view; Enter / ↓ and
+  Shift+Enter / ↑ step through them, Esc clears. The matching is the PDF's own text layer
+  (`GET /api/documents/{id}/search?q=`, owner-only, case-insensitive, one hit per line of an
+  occurrence), so a number or a variable name the model never cited can be found at once.
+- **A hit becomes a mark.** "✎ keep" next to the counter keeps the current hit as one of the coder's
+  marks — the matched words, kept with the paper like a dragged mark.
+- **The highlighter in every layout.** "✎ mark" (or `h`) and the "Your marks" list used to exist only
+  in the staged review; the control now sits above the pages and the list under the entry cards, so
+  the tabbed presets (MASEM among them) can mark sentences too.
+- **A flag says where to look.** Each mark in the list carries "⚑ flag <entry>" for the open entry: the
+  entry is flagged and its verdict points at the mark (`highlight_ids` on the verification event; a
+  verified entry only gains the pointer, its verdict stands). The marks show as chips under the
+  verdict buttons (click: the mark in the PDF; ✕: detach), in the entry's history, and in the
+  document view (`records[].marks`). The last list given wins, so a verdict with a shorter list
+  detaches; a removed mark drops out of the verdicts that pointed at it. Marks are the owner's:
+  attaching is refused for anyone else and for a mark on another paper.
+
 ### A flag can be taken back
 
 - **A lit verdict button withdraws its verdict.** Clicking ⚑ flag on a flagged entry (or ✓ verify on a

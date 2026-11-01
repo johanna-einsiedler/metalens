@@ -629,6 +629,23 @@ def delete_highlight(highlight_id: str, db=Depends(get_db), who: Principal = Dep
     return records.delete_highlight(db, highlight_id)
 
 
+@app.get("/api/documents/{document_id}/search")
+def search_document(document_id: str, q: str = "", db=Depends(get_db),
+                    who: Principal = Depends(principal)) -> dict:
+    """Owner-only: find words in the source PDF — every occurrence of ``q``, in page order, as
+    rectangles the viewer paints (``pdf_utils.search_text``). The review's "find in PDF" box:
+    a coder looks for a variable name or a number the model did not cite and marks what they
+    find. An empty or one-character query finds nothing; 404 without a PDF."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    store = storage.get_store()
+    key = storage.pdf_key(document_id)
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
+    from . import pdf_utils
+    return {"q": q, **pdf_utils.search_text(store.get(key), q)}
+
+
 @app.get("/api/documents/{document_id}/raw")
 def document_raw_response(document_id: str, db=Depends(get_db),
                           who: Principal = Depends(principal)) -> Response:
@@ -2433,6 +2450,7 @@ class VerifyBody(BaseModel):
     verifier_kind: str | None = None       # maintainer | community | paperlens
     field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
     patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
+    highlight_ids: list[str] | None = None # the coder's marks this verdict points at ("see here"), on the record's paper
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -2448,12 +2466,14 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     mine = records.records_all_owned(db, [record_id], who)
     if not mine and (body.field_values is not None or body.patch or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    if not mine and body.highlight_ids:        # the marks are the owner's, kept with their paper
+        raise HTTPException(status_code=403, detail="Only the owner can attach marks to an entry.")
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
             verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values,
-            patch=body.patch)
+            patch=body.patch, highlight_ids=body.highlight_ids)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

@@ -143,6 +143,7 @@ export const api = {
   highlights: (docId) => req(`/api/documents/${docId}/highlights`),
   addHighlight: (docId, body) => req(`/api/documents/${docId}/highlights`, json(body)),
   deleteHighlight: (id) => req(`/api/highlights/${id}`, { method: "DELETE" }),
+  searchDoc: (docId, q) => req(`/api/documents/${docId}/search?q=${encodeURIComponent(q)}`),
   addRecord: (docId, body) => req(`/api/documents/${docId}/records`, json(body)),
   documents: (f) => req(`/api/documents${qs(f)}`),
   myPapers: () => req(`/api/papers/mine`),
