@@ -90,3 +90,29 @@ def test_pool_off_connects_per_request(pool_size) -> None:
     with records.pooled() as conn:
         assert conn.execute("SELECT 1").fetchone()[0] == 1
     assert conn.closed
+
+
+def test_pool_stats_count_requests_waits_and_fallbacks(pool_size, monkeypatch) -> None:
+    """The health endpoint's counters: requests served by the pool, requests that went direct
+    because the pool was busy, and the configured sizes; nothing (null) when pooling is off."""
+    pool_size(1, 1)
+    monkeypatch.setattr(records, "_POOL_WAIT_S", 0.2)
+    records.warm_pool(timeout=5)
+    with records.pooled():
+        with records.pooled():                 # busy → direct connection, counted as a fallback
+            pass
+    with records.pooled():
+        pass
+    st = records.pool_stats()
+    assert st["min_size"] == 1 and st["max_size"] == 1 and st["wait_s"] == 0.2
+    assert st["pool_size"] == 1 and st["requests_num"] >= 2 and st["fallbacks"] == 1
+    assert st["requests_errors"] >= 1           # the pool's own account of the timed-out request
+
+    from fastapi.testclient import TestClient
+    from paperlens.app import app
+    body = TestClient(app).get("/api/health/db").json()
+    assert body["ok"] is True and body["round_trip_ms"] >= 0 and body["pool"]["fallbacks"] == 1
+
+    pool_size(0, 0)
+    assert records.pool_stats() is None
+    assert TestClient(app).get("/api/health/db").json()["pool"] is None
