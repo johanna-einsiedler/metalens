@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS verification_event (
     created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS verification_event_record_idx ON verification_event(record_id);
+-- a flag may carry the coder's own marks (coder_highlight ids): "see here" without retyping the quote
+ALTER TABLE verification_event ADD COLUMN IF NOT EXISTS highlight_ids jsonb;
 -- evidence points at sub-entry / table rows by their permanent row id (field_values[...]._rid),
 -- not only by the position the model named: deleting or inserting a row cannot shift a quote
 ALTER TABLE evidence_span ADD COLUMN IF NOT EXISTS child_rid text;

@@ -223,7 +223,13 @@ function resetPdfSearch() {
 function setMarking(on) {
   MARKING = !!on;
   document.body.classList.toggle("stg-marking", MARKING);
-  document.querySelectorAll(".stg-pane-nav .stg-mark").forEach((b) => { b.classList.toggle("on", MARKING); b.title = MARKING ? "marking: click a sentence to keep it, drag over words to keep just those, click a mark to remove it (h stops)" : "mark: click a sentence in the PDF, or drag over the words you want, to keep it with the paper (h)"; });
+  document.querySelectorAll(".stg-pane-nav .stg-mark, #pdfmark").forEach((b) => { b.classList.toggle("on", MARKING); b.title = MARKING ? "marking: click a sentence to keep it, drag over words to keep just those, click a mark to remove it (h stops)" : "mark: click a sentence in the PDF, or drag over the words you want, to keep it with the paper (h)"; });
+}
+
+// the highlighter's button in the PDF pane's tool bar (every layout; the staged review has its own in the pane nav)
+function mountMarkButton() {
+  const mark = $("#pdfmark");
+  if (mark) mark.onclick = () => setMarking(!MARKING);
 }
 // A click keeps the sentence under it; a drag (more than a few pixels) keeps the words from
 // its start to its end, in reading order — the server resolves both from the page's text
@@ -293,14 +299,71 @@ async function removeMark(id) {
   try {
     await api.deleteHighlight(id);
     DATA.highlights = (DATA.highlights || []).filter((h) => h.id !== id);
+    (DATA.records || []).forEach((r) => {                     // the server drops a removed mark from every verdict that pointed at it
+      if (!(r.marks || []).some((m) => m.id === id)) return;
+      r.marks = r.marks.filter((m) => m.id !== id);
+      const card = document.querySelector(`.record[data-rid="${r.id}"]`); if (card) syncMarkChips(card, r);
+    });
     paintMarks(DATA.highlights); renderMarksBlock();
   } catch (e) { alert("remove failed: " + e.message); }
 }
+
+// ── a mark on an entry: "see here" ───────────────────────────────────────────────
+// A flag says something is wrong; a mark attached to it says where in the paper. The entry a
+// mark can be attached to is the card open in the panel; the attachment travels with the
+// verdict (highlight_ids on the verification event), shows as chips under the verdict buttons
+// (click: the mark in the PDF; ✕: detach) and in the history. Attaching flags an entry that is
+// not verified; a verified one only gains the pointer (a note-like event), its verdict stands.
+function marksTarget() {
+  const card = document.querySelector("#panelbody .record[data-rid]"); if (!card) return null;
+  const rec = (DATA.records || []).find((r) => r.id === card.dataset.rid);
+  return rec ? { card, rec } : null;
+}
+async function setAttachedMarks(rec, ids) {
+  const detaching = ids.length < (rec.marks || []).length;
+  const status = rec.verification_status === "verified" || detaching ? "noted" : "flagged";
+  try {
+    await api.verify(rec.id, { status, highlight_ids: ids });
+    rec.marks = ids.map((id) => (DATA.highlights || []).find((h) => h.id === id)).filter(Boolean)
+      .map((h) => ({ id: h.id, page: h.page, text: h.text }));
+    if (status === "flagged") rec.verification_status = "flagged";
+    const card = document.querySelector(`.record[data-rid="${rec.id}"]`);
+    if (card) { if (status === "flagged") setStatus(card, "flagged"); syncMarkChips(card, rec); }
+    refreshNavState(); renderMarksBlock(); maybeOfferRepublish();
+  } catch (e) { alert("attach failed: " + e.message); }
+}
+function markChipsHtml(rec) {
+  const ms = rec.marks || [];
+  if (!ms.length) return "";
+  const short = (t) => { t = String(t || ""); return t.length > 60 ? t.slice(0, 57).trimEnd() + "…" : t; };
+  return `<div class="verify-marks"><span class="muted" title="the marks this entry's verdict points at">see</span>`
+    + ms.map((m) => `<button type="button" class="mark-chip" data-mid="${esc(m.id)}" title="${esc(m.text || "")} — click: show in the PDF">p.${m.page} “${esc(short(m.text))}”</button>`
+      + `<button type="button" class="mark-chip-x" data-mid="${esc(m.id)}" title="detach this mark from the entry">✕</button>`).join("") + `</div>`;
+}
+function wireMarkChips(card, rec) {
+  card.querySelectorAll(".mark-chip").forEach((b) => (b.onclick = () => jumpToMark(b.dataset.mid)));
+  card.querySelectorAll(".mark-chip-x").forEach((b) => (b.onclick = () => setAttachedMarks(rec, (rec.marks || []).map((m) => m.id).filter((id) => id !== b.dataset.mid))));
+}
+function syncMarkChips(card, rec) {
+  const old = card.querySelector(".verify-marks"), html = markChipsHtml(rec);
+  if (old) old.remove();
+  if (!html) return;
+  const foot = card.querySelector(".verify-foot"); if (!foot) return;
+  foot.insertAdjacentHTML("afterend", html); wireMarkChips(card, rec);
+}
 function marksBlockHtml() {
   const ms = (DATA.highlights || []).slice().sort((a, b) => (a.page - b.page) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const t = marksTarget();
+  const title = t ? entryTitle(VM, t.rec, t.rec.entry_index) : "";
+  const verified = t && t.rec.verification_status === "verified";
+  const attach = (m) => {
+    if (!t) return "";
+    if ((t.rec.marks || []).some((x) => x.id === m.id)) return `<span class="stg-mark-att muted" title="this entry's verdict points at the mark">⚑ on ${esc(title)}</span>`;
+    return `<button type="button" class="stg-mark-flag" data-mid="${esc(m.id)}" title="${verified ? `attach to ${esc(title)} — it stays verified, the mark says where to look` : `flag ${esc(title)} and point at this mark: "see here"`}">⚑ ${verified ? "attach to" : "flag"} ${esc(title)}</button>`;
+  };
   return `<div class="evi-sub stg-head">Your marks · ${ms.length}</div>`
     + (ms.length ? ms.map((m) => `<div class="stg-mark evi-item evi-bare evi-passage" data-mid="${esc(m.id)}" title="click: show in the PDF">`
-        + `<div class="evi-head"><button type="button" class="ev-cite" data-page="${m.page}">p. ${m.page}</button></div><div class="evi-body">“${esc(m.text)}”</div>`
+        + `<div class="evi-head"><button type="button" class="ev-cite" data-page="${m.page}">p. ${m.page}</button></div><div class="evi-body">“${esc(m.text)}”</div>${attach(m)}`
         + `<button type="button" class="stg-mark-del" title="remove this mark">✕</button></div>`).join("")
       : `<p class="muted stg-nomarks">None yet — press <b>✎ mark</b> (or <kbd>h</kbd>), then click a sentence in the PDF or drag over the words you want.</p>`);
 }
@@ -311,8 +374,10 @@ function renderMarksBlock() {
 function wireMarksBlock(box) {
   box.querySelectorAll(".stg-mark[data-mid]").forEach((el) => {
     const id = el.dataset.mid;
-    el.addEventListener("click", (e) => { if (e.target.closest(".stg-mark-del")) return; jumpToMark(id); });
+    el.addEventListener("click", (e) => { if (e.target.closest(".stg-mark-del, .stg-mark-flag")) return; jumpToMark(id); });
     el.querySelector(".stg-mark-del").onclick = (e) => { e.stopPropagation(); removeMark(id); };
+    const fl = el.querySelector(".stg-mark-flag");
+    if (fl) fl.onclick = (e) => { e.stopPropagation(); const t = marksTarget(); if (t) setAttachedMarks(t.rec, [...(t.rec.marks || []).map((m) => m.id), id]); };
     el.addEventListener("mouseenter", () => markRects(id).forEach((r) => r.classList.add("hot")));
     el.addEventListener("mouseleave", () => markRects(id).forEach((r) => r.classList.remove("hot")));
   });
@@ -368,6 +433,7 @@ async function init() {
   mountSplitter();
   mountHSplitter();
   mountMarking();
+  mountMarkButton();
   mountTips();
   mountPdfZoom();
   mountPdfSearch();
@@ -1328,6 +1394,11 @@ function renderPanel() {
     if (JOINT && looseClaims().length) renderLooseClaims(panel);
     setContextEvidence(EV.byRecord.get(recs[0].id) || []);
   }
+  // the coder's own marks on this paper, with "flag <entry> with this" for the open entry
+  if ((DATA.pages || []).length || (DATA.highlights || []).length) {
+    const marks = document.createElement("div"); marks.className = "stg-marks marks-panel";
+    marks.innerHTML = marksBlockHtml(); wireMarksBlock(marks); panel.appendChild(marks);
+  }
   wirePanelHead();
   renderDocTabs();                       // the sidebar's sub-list follows the selection / statuses
 }
@@ -1417,6 +1488,7 @@ function renderRecordCard(panel, rec) {
     + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
     + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified" title="every field checked and right — click again to withdraw">✓ verify</button>`
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged" title="something here needs a second look — click again to unflag">⚑ flag</button></div>`
+    + markChipsHtml(rec)
     + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
@@ -2659,6 +2731,7 @@ function wireCard(card, rec) {
   }));
   if (!RO) card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, clickedVerdict(rec, b.dataset.status))));
+  wireMarkChips(card, rec);
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   const rv = criteriaSpec();
   const blindCalls = rv && rv.blind ? new Set((rv.criteria || []).map((c) => c.call)) : null;
@@ -2766,7 +2839,7 @@ async function sendVerify(card, rec, status, notes) {
     maybeOfferRepublish();
     rec.verification_status = status;
     setStatus(card, status);
-    refreshNavState();
+    refreshNavState(); renderMarksBlock();
     if (status === "unverified") return;       // a withdrawal is not a step forward: the queue does not move on, nor the entry
     if (QUEUE) { queueVerdict(rec, status); return; }
     if (AUTOADV && (DATA.records || []).length > 1) nextEntry(true);
@@ -4385,7 +4458,8 @@ function fmtEvent(e) {
         + `${esc(String(d.original_value))} → <b>${esc(String(d.final_value))}</b></div>`).join("")
     : "";
   const note = e.notes ? `<div class="hist-note">${esc(e.notes)}</div>` : "";
-  return `<div class="hist-row"><span class="hist-meta">${esc(e.status)} · ${esc(who)} · ${esc(when)}</span>${note}${changes}</div>`;
+  const marks = (e.highlights || []).map((h) => `<div class="hist-note hist-mark">⚑ p.${h.page} “${esc(h.text)}”</div>`).join("");
+  return `<div class="hist-row"><span class="hist-meta">${esc(e.status)} · ${esc(who)} · ${esc(when)}</span>${note}${marks}${changes}</div>`;
 }
 
 // ── value ↔ evidence linking ────────────────────────────────────────────────

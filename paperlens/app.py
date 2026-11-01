@@ -3449,6 +3449,7 @@ class VerifyBody(BaseModel):
     field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
     patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
     task: str | None = None                # "<run>:<step>": a coder's verdict in a task — refused while required answers are missing
+    highlight_ids: list[str] | None = None # the coder's marks this verdict points at ("see here"), on the record's paper
 
 
 class AnswersBody(BaseModel):
@@ -3511,13 +3512,15 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     mine = records.records_all_owned(db, [record_id], who)
     if not mine and (body.field_values is not None or body.patch or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    if not mine and body.highlight_ids:        # the marks are the owner's, kept with their paper
+        raise HTTPException(status_code=403, detail="Only the owner can attach marks to an entry.")
     _refuse_run(db, (records.get_record(db, record_id) or {}).get("document_id"))
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
             verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values,
-            patch=body.patch)
+            patch=body.patch, highlight_ids=body.highlight_ids)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
