@@ -55,6 +55,16 @@ def _migrate_on_startup() -> None:
     except Exception as exc:   # pragma: no cover - migration is best-effort
         import logging
         logging.getLogger("paperlens").warning("startup init_db skipped: %s", exc)
+    try:                       # fill the request pool so the first visitor doesn't wait for it
+        records.warm_pool()
+    except Exception as exc:   # pragma: no cover - requests fall back to direct connections
+        import logging
+        logging.getLogger("paperlens").warning("db pool did not fill at startup: %s", exc)
+
+
+@app.on_event("shutdown")
+def _close_pool_on_shutdown() -> None:
+    records.close_pool()
 
 # ── beta gate ────────────────────────────────────────────────────────────────
 # A single shared-password HTTP Basic Auth in front of the WHOLE site (beta
@@ -67,6 +77,17 @@ _GATE_EXEMPT = frozenset({"/healthz"})
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/health/db")
+def health_db() -> dict:
+    """The database pool's counters (``records.pool_stats``) and a round trip's time, for finding
+    out where a slow site spends its time. ``pool`` is null when pooling is off."""
+    import time
+    t0 = time.perf_counter()
+    with records.pooled() as db:
+        db.execute("SELECT 1").fetchone()
+    return {"ok": True, "round_trip_ms": round((time.perf_counter() - t0) * 1000, 1), "pool": records.pool_stats()}
 
 
 @app.middleware("http")
@@ -305,11 +326,8 @@ def account_page() -> FileResponse:
 
 
 def get_db() -> Generator:
-    conn = records.connect()
-    try:
+    with records.pooled() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 def principal(
@@ -327,6 +345,26 @@ def principal(
     except Exception:  # noqa: BLE001
         pass
     return Principal(session_id=x_session_id, user_id=user_id)
+
+
+def principal_brief(
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+    pl_session: str | None = Cookie(default=None),
+) -> Principal:
+    """The acting principal for a handler that must not hold a database connection across
+    slow work (a model call, tens of seconds). ``principal`` shares the request's pooled
+    connection, which FastAPI keeps until the handler returns — so a handler that depends on
+    it holds a connection for the whole call, and ten such calls exhaust the pool. This one
+    borrows a connection only to resolve the session and hands it straight back; the handler
+    then borrows its own, briefly, with ``records.pooled()`` around each database phase."""
+    with records.pooled() as db:
+        return principal(x_session_id, pl_session, db)
+
+
+def _refund_credit(who: Principal, model: str, reason: str) -> None:
+    """Give a credit back after a failed model call, on a connection borrowed for just that."""
+    with records.pooled() as db:
+        credits.refund(db, who.user_id, model=model, reason=reason)
 
 
 def _no_accounts_locally() -> None:
@@ -1013,7 +1051,7 @@ def vocabulary_get(vid: str, db=Depends(get_db), who: Principal = Depends(princi
 
 
 @app.post("/api/datasets/{dataset_id}/vocabularies/propose")
-def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, who: Principal = Depends(principal_brief)) -> dict:
     """Owner, signed in: a model groups the distinct values of a text column into concepts
     (the structure pass) — or, with ``vocabulary_id``, places the values a committed
     vocabulary does not cover (map | new | skip). Either way a person reviews before anything
@@ -1021,26 +1059,27 @@ def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, db=Depends(
     if not who.user_id and not localmode.enabled():
         raise HTTPException(status_code=401, detail="Sign in to build a vocabulary.")
     from . import contract, vocabulary
-    if not _dataset_gate(db, dataset_id, who):
-        raise HTTPException(status_code=403, detail="Only the owner can build a vocabulary.")
-    label, help_ = _vocab_column(db, dataset_id, body.unit, body.column)
-    ds = records.get_dataset(db, dataset_id) or {}
-    model, key, base_url, charged = _vocab_model(db, who, body)
-    if not model:
-        raise HTTPException(status_code=422, detail="Choose a model.")
-    prior = vocabulary.get(db, body.vocabulary_id) if body.vocabulary_id else None
-    if body.vocabulary_id and (prior is None or prior["dataset_id"] != dataset_id or prior["status"] != "committed"):
-        raise HTTPException(status_code=404, detail="No committed vocabulary with that id.")
-    vals = vocabulary.values(db, dataset_id, body.unit, body.column)
-    if not vals:
-        raise HTTPException(status_code=422, detail="The column holds no values yet.")
-    if prior:
-        todo = vocabulary.unresolved(vals, prior["assignments"])
-        if not todo:
-            return {"ok": True, "residual": True, "decisions": [], "note": "every value is covered already"}
-        prompt = vocabulary.residual_prompt(ds.get("title") or "", label, vocabulary.as_draft(prior), todo)
-    else:
-        prompt = vocabulary.build_prompt(ds.get("title") or "", label, help_, vals)
+    with records.pooled() as db:    # gate, column, values and prompt; then the connection goes back before the model call
+        if not _dataset_gate(db, dataset_id, who):
+            raise HTTPException(status_code=403, detail="Only the owner can build a vocabulary.")
+        label, help_ = _vocab_column(db, dataset_id, body.unit, body.column)
+        ds = records.get_dataset(db, dataset_id) or {}
+        model, key, base_url, charged = _vocab_model(db, who, body)
+        if not model:
+            raise HTTPException(status_code=422, detail="Choose a model.")
+        prior = vocabulary.get(db, body.vocabulary_id) if body.vocabulary_id else None
+        if body.vocabulary_id and (prior is None or prior["dataset_id"] != dataset_id or prior["status"] != "committed"):
+            raise HTTPException(status_code=404, detail="No committed vocabulary with that id.")
+        vals = vocabulary.values(db, dataset_id, body.unit, body.column)
+        if not vals:
+            raise HTTPException(status_code=422, detail="The column holds no values yet.")
+        if prior:
+            todo = vocabulary.unresolved(vals, prior["assignments"])
+            if not todo:
+                return {"ok": True, "residual": True, "decisions": [], "note": "every value is covered already"}
+            prompt = vocabulary.residual_prompt(ds.get("title") or "", label, vocabulary.as_draft(prior), todo)
+        else:
+            prompt = vocabulary.build_prompt(ds.get("title") or "", label, help_, vals)
     raw, parsed = "", None
     try:
         for nudge in ("", "\n\nReturn ONLY the JSON object described above."):
@@ -1050,11 +1089,11 @@ def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, db=Depends(
                 break
     except Exception as exc:  # noqa: BLE001 — provider errors
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="vocabulary refund")
+            _refund_credit(who, model, "vocabulary refund")
         return {"ok": False, "error": providers.extract_provider_message(exc)}
     if not isinstance(parsed, dict) or not (parsed.get("concepts") or parsed.get("decisions")):
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="vocabulary refund")
+            _refund_credit(who, model, "vocabulary refund")
         return {"ok": False, "error": "The model answered, but no concept in its answer could be used.", "raw": (raw or "")[:_RAW_CAP]}
     sha = vocabulary.prompt_sha(prompt)
     if prior:
@@ -1063,8 +1102,9 @@ def vocabulary_propose(dataset_id: str, body: VocabularyProposeBody, db=Depends(
         return {"ok": True, "residual": True, "vocabulary_id": prior["id"], "values": todo, "decisions": decisions, "model": model,
                 "prompt_sha256": sha, "charged": charged, "raw": (raw or "")[:_RAW_CAP]}
     draft, repairs = vocabulary.validate_draft(parsed, vals)
-    v = vocabulary.create(db, dataset_id, unit=body.unit, column=body.column, draft=draft, model=model, prompt_sha256=sha,
-                          proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "values": vals, "charged": charged}, owner_user_id=who.user_id)
+    with records.pooled() as db:
+        v = vocabulary.create(db, dataset_id, unit=body.unit, column=body.column, draft=draft, model=model, prompt_sha256=sha,
+                              proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "values": vals, "charged": charged}, owner_user_id=who.user_id)
     return {"ok": True, "vocabulary": {**v, "values": vals, "draft": draft, "repairs": repairs}, "prompt": prompt}
 
 
@@ -1178,31 +1218,32 @@ def dataset_pages(dataset_id: str, db=Depends(get_db), who: Principal = Depends(
 
 
 @app.post("/api/datasets/{dataset_id}/pages/propose")
-def page_propose(dataset_id: str, body: PageProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def page_propose(dataset_id: str, body: PageProposeBody, who: Principal = Depends(principal_brief)) -> dict:
     """Owner, signed in: ONE model call writes or updates one page from the dataset's own
     rows. The draft is reviewed as a CHANGE against the committed version — never silently
     applied. Own key or local model: never stored. Credits: one per pass, refunded on failure."""
     from . import contract, pages, vocabulary
-    if not _dataset_gate(db, dataset_id, who):
-        raise HTTPException(status_code=403, detail="Only the owner can build pages.")
-    if not who.user_id and not localmode.enabled():
-        raise HTTPException(status_code=401, detail="Sign in to build a page.")
-    ds = records.get_dataset(db, dataset_id) or {}
-    rows = pages.rows_for(db, dataset_id, body.keyed_by, body.key)
-    if not rows:
-        raise HTTPException(status_code=422, detail=f"No rows have {body.keyed_by} = {body.key!r}.")
-    model, key, base_url, charged = _vocab_model(db, who, body)
-    old = pages.committed(db, dataset_id, body.group, body.key)
-    allowed = {r["record_id"] for r in rows if r.get("record_id")}
-    new_ids = pages.new_since(db, dataset_id, (old or {}).get("built_from")) & allowed
-    concept = None
-    for v in vocabulary.committed(db, dataset_id):
-        for c in v.get("concepts") or []:
-            if c.get("id") == body.key:
-                concept = c
-    prompt = pages.build_prompt(ds.get("title") or "", body.group, body.key, concept=concept,
-                                old_page=old, curated_md=(old or {}).get("curated_md"),
-                                rows=rows, reads=pages.paper_reads(db, dataset_id), new_ids=new_ids)
+    with records.pooled() as db:    # gate, rows, prior page and prompt; then the connection goes back before the model call
+        if not _dataset_gate(db, dataset_id, who):
+            raise HTTPException(status_code=403, detail="Only the owner can build pages.")
+        if not who.user_id and not localmode.enabled():
+            raise HTTPException(status_code=401, detail="Sign in to build a page.")
+        ds = records.get_dataset(db, dataset_id) or {}
+        rows = pages.rows_for(db, dataset_id, body.keyed_by, body.key)
+        if not rows:
+            raise HTTPException(status_code=422, detail=f"No rows have {body.keyed_by} = {body.key!r}.")
+        model, key, base_url, charged = _vocab_model(db, who, body)
+        old = pages.committed(db, dataset_id, body.group, body.key)
+        allowed = {r["record_id"] for r in rows if r.get("record_id")}
+        new_ids = pages.new_since(db, dataset_id, (old or {}).get("built_from")) & allowed
+        concept = None
+        for v in vocabulary.committed(db, dataset_id):
+            for c in v.get("concepts") or []:
+                if c.get("id") == body.key:
+                    concept = c
+        prompt = pages.build_prompt(ds.get("title") or "", body.group, body.key, concept=concept,
+                                    old_page=old, curated_md=(old or {}).get("curated_md"),
+                                    rows=rows, reads=pages.paper_reads(db, dataset_id), new_ids=new_ids)
     raw, parsed = "", None
     try:
         for nudge in ("", "\n\nReturn ONLY the JSON object described above."):
@@ -1212,18 +1253,19 @@ def page_propose(dataset_id: str, body: PageProposeBody, db=Depends(get_db), who
                 break
     except Exception as exc:  # noqa: BLE001 — provider errors
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="page refund")
+            _refund_credit(who, model, "page refund")
         return {"ok": False, "error": providers.extract_provider_message(exc)}
     if not isinstance(parsed, dict) or not parsed.get("sections"):
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="page refund")
+            _refund_credit(who, model, "page refund")
         return {"ok": False, "error": "The model answered, but no usable section came back.", "raw": (raw or "")[:_RAW_CAP]}
     draft, repairs = pages.validate_draft(parsed, allowed, new_ids, (old or {}).get("sections"))
-    pg = pages.create(db, dataset_id, group=body.group, key=body.key, draft=draft,
-                      curated_md=(old or {}).get("curated_md"), model=model,
-                      prompt_sha256=pages.prompt_sha(prompt), basis=pages.built_from(db, dataset_id),
-                      proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "keyed_by": body.keyed_by, "charged": charged},
-                      owner_user_id=who.user_id)
+    with records.pooled() as db:
+        pg = pages.create(db, dataset_id, group=body.group, key=body.key, draft=draft,
+                          curated_md=(old or {}).get("curated_md"), model=model,
+                          prompt_sha256=pages.prompt_sha(prompt), basis=pages.built_from(db, dataset_id),
+                          proposal={"raw": (raw or "")[:_RAW_CAP], "repairs": repairs, "keyed_by": body.keyed_by, "charged": charged},
+                          owner_user_id=who.user_id)
     return {"ok": True, "page": pg, "repairs": repairs}
 
 
@@ -1574,7 +1616,7 @@ _RAW_CAP = 64_000          # characters of the model's answer kept
 
 
 @app.post("/api/dashboards/propose")
-def dashboards_propose(body: DashboardProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def dashboards_propose(body: DashboardProposeBody, who: Principal = Depends(principal_brief)) -> dict:
     """A model proposes the dashboard's STRUCTURE for the user's questions, out of our building
     blocks; the validator repairs and checks it against the data, and a person reviews it
     before anything is built. Own key or self-hosted model: never stored, no ledger. Credits:
@@ -1584,37 +1626,38 @@ def dashboards_propose(body: DashboardProposeBody, db=Depends(get_db), who: Prin
         raise HTTPException(status_code=401, detail="Sign in to build dashboards.")
     import hashlib
     from . import contract, dashboard_spec, dashboards
-    owner = _dataset_gate(db, body.dataset_id, who)
-    own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
-    revision = bool(body.previous and (body.previous.get("blocks") or []))
-    charged = False
-    if own:
-        model, key, base_url = body.model, body.api_key, body.base_url
-    elif body.use_credits:
-        if localmode.enabled():
-            raise HTTPException(status_code=422, detail="Local mode runs on your own API key or a local model.")
-        if not who.user_id:
-            raise HTTPException(status_code=401, detail="Sign in to use credits, or add your own API key.")
-        if not credits.offered():
-            raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
-        model = credits.credit_model()
-        key, base_url = credits.server_key_for(providers.get_provider(model, None)), None
-        prior = dashboards.get(db, body.dashboard_id) if body.dashboard_id else None
-        n_prior = int(((prior or {}).get("proposal") or {}).get("attempts_total") or 0) if prior and dashboards.owns(who, prior) else 0
-        free = revision and (n_prior < FREE_REPROPOSALS if prior else True)
-        if not free:
-            if not credits.try_consume(db, who.user_id, model=model, reason="dashboard"):
-                raise HTTPException(status_code=402, detail="No credits left. Add your own API key, or start from the default dashboard.")
-            charged = True
-    else:
-        raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model; or start from the default dashboard.")
-    if not model:
-        raise HTTPException(status_code=422, detail="Choose a model.")
+    with records.pooled() as db:    # gate, credit, tables and prompt; then the connection goes back before the model call
+        owner = _dataset_gate(db, body.dataset_id, who)
+        own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
+        revision = bool(body.previous and (body.previous.get("blocks") or []))
+        charged = False
+        if own:
+            model, key, base_url = body.model, body.api_key, body.base_url
+        elif body.use_credits:
+            if localmode.enabled():
+                raise HTTPException(status_code=422, detail="Local mode runs on your own API key or a local model.")
+            if not who.user_id:
+                raise HTTPException(status_code=401, detail="Sign in to use credits, or add your own API key.")
+            if not credits.offered():
+                raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
+            model = credits.credit_model()
+            key, base_url = credits.server_key_for(providers.get_provider(model, None)), None
+            prior = dashboards.get(db, body.dashboard_id) if body.dashboard_id else None
+            n_prior = int(((prior or {}).get("proposal") or {}).get("attempts_total") or 0) if prior and dashboards.owns(who, prior) else 0
+            free = revision and (n_prior < FREE_REPROPOSALS if prior else True)
+            if not free:
+                if not credits.try_consume(db, who.user_id, model=model, reason="dashboard"):
+                    raise HTTPException(status_code=402, detail="No credits left. Add your own API key, or start from the default dashboard.")
+                charged = True
+        else:
+            raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model; or start from the default dashboard.")
+        if not model:
+            raise HTTPException(status_code=422, detail="Choose a model.")
 
-    tables, default = dashboards.tables_for(db, body.dataset_id, owner=owner)
-    questions = [{"id": f"q{k + 1}", "text": q.strip()[:400]} for k, q in enumerate(body.questions) if isinstance(q, str) and q.strip()][:12]
-    prompt = dashboard_spec.build_prompt(questions, tables, default, previous=body.previous if revision else None,
-                                         feedback=body.feedback, keep=body.keep, context=body.context)
+        tables, default = dashboards.tables_for(db, body.dataset_id, owner=owner)
+        questions = [{"id": f"q{k + 1}", "text": q.strip()[:400]} for k, q in enumerate(body.questions) if isinstance(q, str) and q.strip()][:12]
+        prompt = dashboard_spec.build_prompt(questions, tables, default, previous=body.previous if revision else None,
+                                             feedback=body.feedback, keep=body.keep, context=body.context)
     attempts, raw, spec, report = 0, "", None, None
     try:
         for nudge in ("", "\n\nReturn ONLY the JSON object described above, with at least one block."):
@@ -1642,11 +1685,11 @@ def dashboards_propose(body: DashboardProposeBody, db=Depends(get_db), who: Prin
         raise
     except Exception as exc:  # noqa: BLE001 - provider errors (bad key, quota, unreachable server)
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="dashboard refund")
+            _refund_credit(who, model, "dashboard refund")
         return {"ok": False, "error": providers.extract_provider_message(exc)}
     if not spec or not spec["blocks"]:
         if charged:
-            credits.refund(db, who.user_id, model=model, reason="dashboard refund")
+            _refund_credit(who, model, "dashboard refund")
         text = (raw or "").strip()
         why = ("The model returned nothing." if not text
                else "The model's answer was cut off before the JSON ended (it ran out of output tokens)." if not text.rstrip("`\n ").endswith(("}", "]"))
@@ -1661,12 +1704,13 @@ def dashboards_propose(body: DashboardProposeBody, db=Depends(get_db), who: Prin
                         # with the dashboard for its owner. The prompt is returned once and never stored.
                         "raw": (raw or "")[:_RAW_CAP]},
            "prompt": prompt}
-    if who.user_id and not own:
-        out["credits"] = credits.summary(db, who.user_id)
-    if body.dashboard_id:                                    # count the attempt on the saved dashboard
-        prior = dashboards.get(db, body.dashboard_id)
-        if prior and dashboards.owns(who, prior):
-            dashboards.count_proposal(db, body.dashboard_id)
+    with records.pooled() as db:
+        if who.user_id and not own:
+            out["credits"] = credits.summary(db, who.user_id)
+        if body.dashboard_id:                                    # count the attempt on the saved dashboard
+            prior = dashboards.get(db, body.dashboard_id)
+            if prior and dashboards.owns(who, prior):
+                dashboards.count_proposal(db, body.dashboard_id)
     return out
 
 

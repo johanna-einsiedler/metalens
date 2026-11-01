@@ -15,8 +15,10 @@ import math
 import os
 import re
 import sys
+import threading
 import uuid
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 import psycopg
 from psycopg.types.json import Json
@@ -42,6 +44,133 @@ def connect() -> psycopg.Connection:
     # autocommit mode, reads commit individually and transaction() issues a real
     # BEGIN/COMMIT around each write block.
     return psycopg.connect(dsn(), autocommit=True)
+
+
+# ── request connection pool ───────────────────────────────────────────────────
+# Opening a connection to a managed Postgres is TCP + TLS + auth — several network round
+# trips, close to a second in production — and the web process used to pay that on EVERY
+# request. The pool keeps a few connections open and lends one per request (``pooled``).
+# Only the web path uses it: the worker, the scripts and the tests keep ``connect()``.
+#
+#   PAPERLENS_DB_POOL_MAX   most connections the pool holds (default 10; 0 = no pool,
+#                           every request connects as before)
+#   PAPERLENS_DB_POOL_MIN   connections kept open while idle (default 2)
+_POOL_WAIT_S = 2.0          # how long a request waits for a pooled connection before going direct
+_pool = None
+_pool_dsn: str | None = None
+_pool_lock = threading.Lock()
+_pool_fallbacks = 0         # requests that went direct because the pool was busy or unreachable
+
+
+def _pool_size() -> tuple[int, int]:
+    def _int(name: str, default: int) -> int:
+        try:
+            return max(0, int(os.environ.get(name, default)))
+        except ValueError:
+            return default
+    max_size = _int("PAPERLENS_DB_POOL_MAX", 10)
+    return min(_int("PAPERLENS_DB_POOL_MIN", 2), max_size), max_size
+
+
+def open_pool():
+    """The pool for the current DSN, created on first use (None when pooling is off or
+    ``psycopg_pool`` is missing). A changed DSN — tests, the local launcher — replaces it."""
+    global _pool, _pool_dsn
+    target = dsn()
+    if _pool is not None and _pool_dsn == target:
+        return _pool
+    with _pool_lock:
+        if _pool is not None and _pool_dsn == target:
+            return _pool
+        min_size, max_size = _pool_size()
+        if _pool is not None:
+            _pool.close()
+            _pool = None
+        if max_size <= 0:
+            return None
+        try:
+            from psycopg_pool import ConnectionPool
+        except ImportError:
+            return None
+        # check= pings a connection as it is lent, so one the server dropped while idle
+        # (a managed Postgres does that) is replaced instead of failing the request.
+        # prepare_threshold=None: a pooled connection lives across many requests, so psycopg
+        # would start preparing the busiest queries on the server — and a transaction-mode
+        # pooler in front of the database (PgBouncer, Supavisor, a Neon "-pooler" host) does
+        # not keep those, which fails requests with "prepared statement does not exist".
+        _pool = ConnectionPool(target, kwargs={"autocommit": True, "prepare_threshold": None},
+                               min_size=min_size, max_size=max_size,
+                               check=ConnectionPool.check_connection,
+                               open=True, name="paperlens-web")
+        _pool_dsn = target
+        return _pool
+
+
+def close_pool() -> None:
+    global _pool, _pool_dsn, _pool_fallbacks
+    with _pool_lock:
+        if _pool is not None:
+            _pool.close()
+        _pool, _pool_dsn = None, None
+        _pool_fallbacks = 0
+
+
+def warm_pool(timeout: float = 10.0) -> None:
+    """Block until the pool holds its ``min_size`` connections, so the first visitor does not
+    pay for them and a database the process cannot reach is reported at boot rather than on
+    the first request. Raises what the pool raised (PoolTimeout, an auth error)."""
+    p = open_pool()
+    if p is not None:
+        p.wait(timeout=timeout)
+
+
+def pool_stats() -> dict | None:
+    """What the pool is doing, for the health endpoint: ``psycopg_pool``'s own counters —
+    ``pool_size`` / ``pool_available`` (connections held / idle), ``requests_num`` / ``requests_queued``
+    / ``requests_wait_ms`` (requests served / that had to wait / their total wait),
+    ``requests_errors`` (requests the pool failed) — plus ``fallbacks``, how many requests went direct
+    because the pool was busy longer than the wait or unreachable, and the configured sizes. A rising
+    ``requests_queued`` or ``fallbacks`` says the pool is too small for the traffic. ``None`` when
+    pooling is off."""
+    p = open_pool()
+    if p is None:
+        return None
+    min_size, max_size = _pool_size()
+    return {**p.get_stats(), "min_size": min_size, "max_size": max_size, "fallbacks": _pool_fallbacks,
+            "wait_s": _POOL_WAIT_S}
+
+
+@contextmanager
+def pooled() -> Iterator[psycopg.Connection]:
+    """A connection for one request: borrowed from the pool and handed back afterwards
+    (the pool rolls back anything left open and discards a broken connection). When the
+    pool is off, exhausted or cannot reach the database in time, the request falls back to
+    its own connection — the old behaviour — so a busy pool slows a request, never fails it."""
+    global _pool_fallbacks
+    p = open_pool()
+    conn = None
+    if p is not None:
+        try:
+            conn = p.getconn(timeout=_POOL_WAIT_S)
+        except Exception as exc:  # noqa: BLE001 - PoolTimeout / PoolClosed → connect directly
+            conn = None
+            _pool_fallbacks += 1
+            _log.warning("db pool: %s after %.1fs, request connects directly (fallback #%d)",
+                         type(exc).__name__, _POOL_WAIT_S, _pool_fallbacks)
+    if conn is None:
+        conn = connect()
+        try:
+            yield conn
+        finally:
+            conn.close()
+        return
+    try:
+        yield conn
+    finally:
+        try:
+            p.putconn(conn)
+        except Exception:  # noqa: BLE001 - the pool was closed or replaced meanwhile
+            conn.close()
 
 
 def init_db(conn: psycopg.Connection) -> None:

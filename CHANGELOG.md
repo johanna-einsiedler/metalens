@@ -8,6 +8,21 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Requests borrow a pooled database connection
+
+- **A pool, not a connection per request.** `records.pooled()` lends each request a `psycopg_pool` connection
+  (`PAPERLENS_DB_POOL_MIN` / `PAPERLENS_DB_POOL_MAX`, default 2 / 10; `MAX=0` turns it off) instead of opening
+  one — the handshake to a managed Postgres cost close to a second per request. A connection is pinged as
+  it is lent, a busy pool falls back to a direct connection, and pooled connections never prepare statements,
+  so a transaction-mode pooler can sit in front of the database.
+- **No pooled connection is held across a model call.** The vocabulary, page and dashboard proposers borrow a
+  connection only around their database phases.
+- **The pool can be watched.** `GET /api/health/db` answers with one round trip's time and the pool's counters
+  (`records.pool_stats()`: connections held and idle, requests served, requests that had to wait and for how
+  long, and `fallbacks` — requests that went direct because the pool was busy). A rising `requests_queued` or
+  `fallbacks` says the pool is too small for the traffic. The pool is filled at startup (`records.warm_pool`),
+  so a database the process cannot reach is logged at boot instead of on the first request.
+
 ### Preset inventory: one citable card per curated preset
 
 - **A preset has a card.** A bundled preset may carry `meta.authors` (with ORCIDs), `keywords`, `license`,
