@@ -55,10 +55,11 @@ def _migrate_on_startup() -> None:
     except Exception as exc:   # pragma: no cover - migration is best-effort
         import logging
         logging.getLogger("paperlens").warning("startup init_db skipped: %s", exc)
-    try:                       # warm the request pool so the first visitor doesn't wait for it
-        records.open_pool()
-    except Exception:          # pragma: no cover - requests fall back to direct connections
-        pass
+    try:                       # fill the request pool so the first visitor doesn't wait for it
+        records.warm_pool()
+    except Exception as exc:   # pragma: no cover - requests fall back to direct connections
+        import logging
+        logging.getLogger("paperlens").warning("db pool did not fill at startup: %s", exc)
 
 
 @app.on_event("shutdown")
@@ -76,6 +77,17 @@ _GATE_EXEMPT = frozenset({"/healthz"})
 @app.get("/healthz")
 def healthz() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/health/db")
+def health_db() -> dict:
+    """The database pool's counters (``records.pool_stats``) and a round trip's time, for finding
+    out where a slow site spends its time. ``pool`` is null when pooling is off."""
+    import time
+    t0 = time.perf_counter()
+    with records.pooled() as db:
+        db.execute("SELECT 1").fetchone()
+    return {"ok": True, "round_trip_ms": round((time.perf_counter() - t0) * 1000, 1), "pool": records.pool_stats()}
 
 
 @app.middleware("http")

@@ -59,6 +59,7 @@ _POOL_WAIT_S = 2.0          # how long a request waits for a pooled connection b
 _pool = None
 _pool_dsn: str | None = None
 _pool_lock = threading.Lock()
+_pool_fallbacks = 0         # requests that went direct because the pool was busy or unreachable
 
 
 def _pool_size() -> tuple[int, int]:
@@ -106,11 +107,37 @@ def open_pool():
 
 
 def close_pool() -> None:
-    global _pool, _pool_dsn
+    global _pool, _pool_dsn, _pool_fallbacks
     with _pool_lock:
         if _pool is not None:
             _pool.close()
         _pool, _pool_dsn = None, None
+        _pool_fallbacks = 0
+
+
+def warm_pool(timeout: float = 10.0) -> None:
+    """Block until the pool holds its ``min_size`` connections, so the first visitor does not
+    pay for them and a database the process cannot reach is reported at boot rather than on
+    the first request. Raises what the pool raised (PoolTimeout, an auth error)."""
+    p = open_pool()
+    if p is not None:
+        p.wait(timeout=timeout)
+
+
+def pool_stats() -> dict | None:
+    """What the pool is doing, for the health endpoint: ``psycopg_pool``'s own counters —
+    ``pool_size`` / ``pool_available`` (connections held / idle), ``requests_num`` / ``requests_queued``
+    / ``requests_wait_ms`` (requests served / that had to wait / their total wait),
+    ``requests_errors`` (requests the pool failed) — plus ``fallbacks``, how many requests went direct
+    because the pool was busy longer than the wait or unreachable, and the configured sizes. A rising
+    ``requests_queued`` or ``fallbacks`` says the pool is too small for the traffic. ``None`` when
+    pooling is off."""
+    p = open_pool()
+    if p is None:
+        return None
+    min_size, max_size = _pool_size()
+    return {**p.get_stats(), "min_size": min_size, "max_size": max_size, "fallbacks": _pool_fallbacks,
+            "wait_s": _POOL_WAIT_S}
 
 
 @contextmanager
@@ -119,13 +146,17 @@ def pooled() -> Iterator[psycopg.Connection]:
     (the pool rolls back anything left open and discards a broken connection). When the
     pool is off, exhausted or cannot reach the database in time, the request falls back to
     its own connection — the old behaviour — so a busy pool slows a request, never fails it."""
+    global _pool_fallbacks
     p = open_pool()
     conn = None
     if p is not None:
         try:
             conn = p.getconn(timeout=_POOL_WAIT_S)
-        except Exception:  # noqa: BLE001 - PoolTimeout / PoolClosed → connect directly
+        except Exception as exc:  # noqa: BLE001 - PoolTimeout / PoolClosed → connect directly
             conn = None
+            _pool_fallbacks += 1
+            _log.warning("db pool: %s after %.1fs, request connects directly (fallback #%d)",
+                         type(exc).__name__, _POOL_WAIT_S, _pool_fallbacks)
     if conn is None:
         conn = connect()
         try:

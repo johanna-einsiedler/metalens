@@ -17,6 +17,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   so a transaction-mode pooler can sit in front of the database.
 - **No pooled connection is held across a model call.** The vocabulary, page and dashboard proposers borrow a
   connection only around their database phases.
+- **The pool can be watched.** `GET /api/health/db` answers with one round trip's time and the pool's counters
+  (`records.pool_stats()`: connections held and idle, requests served, requests that had to wait and for how
+  long, and `fallbacks` — requests that went direct because the pool was busy). A rising `requests_queued` or
+  `fallbacks` says the pool is too small for the traffic. The pool is filled at startup (`records.warm_pool`),
+  so a database the process cannot reach is logged at boot instead of on the first request.
 
 ### Preset inventory: one citable card per curated preset
 
