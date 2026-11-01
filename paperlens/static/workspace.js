@@ -1404,7 +1404,13 @@ function wireTableRows(card, rec, rerender = () => rerenderCard(card, rec), fill
       // inside a quoted attribute selector the brackets are literal — no escaping
       const first = document.querySelector(`#panelbody [data-rid="${rec.id}"] [data-path^="${path}[${rows.length - 1}]."]`);
       if (first && first.focus) first.focus();
-    } catch (e) { alert("add failed: " + e.message); }
+    } catch (e) {
+      // the row never reached the server: take it back, or it would sit on screen until the
+      // next reload and look like a row that cannot be saved
+      rows.pop(); if (!Array.isArray(cur)) setByPath(rec.field_values, path, cur);
+      rerender();
+      alert(saveProblem("add a row", e));
+    }
   }));
   card.querySelectorAll(".rv-rowdel").forEach((b) => (b.onclick = async () => {
     const path = b.dataset.path, i = Number(b.dataset.row);
@@ -1421,8 +1427,18 @@ function wireTableRows(card, rec, rerender = () => rerenderCard(card, rec), fill
     try {
       await saveWholeRecord(rec, [{ field_path: `${path}[${i}]`, original_value: label, final_value: "(row removed)" }]);
       maybeOfferRepublish(); rerender();
-    } catch (e) { live.splice(i, 0, row); alert("remove failed: " + e.message); }
+    } catch (e) { live.splice(i, 0, row); alert(saveProblem("remove the row", e)); }
   }));
+}
+
+// What to tell the coder when a change is refused. The server's 403 says who may change an entry's
+// values — its owner — and that is worth more than a status code: a reviewer on someone else's
+// dataset may verify, flag and note, but every value change is the owner's to make.
+function saveProblem(what, e) {
+  const msg = String(e && e.message || e);
+  if (/^403\b/.test(msg)) return `Couldn't ${what}: only the owner of this dataset can change an entry's values. You can still verify, flag or note it.`;
+  if (/^401\b/.test(msg)) return `Couldn't ${what}: sign in first.`;
+  return `Couldn't ${what}: ${msg.replace(/^\d{3}\s+/, "")}`;
 }
 
 // A structural edit (a row added or removed) replaces the whole record — taken from the
@@ -1871,7 +1887,7 @@ function renderChainCard(panel, rec, rv) {
     try {
       await saveWholeRecord(rec, [{ field_path: `${R.child}[${j}]`, original_value: label, final_value: "(row removed)" }]);
       maybeOfferRepublish(); renderPanel();
-    } catch (e) { rows2.splice(j, 0, row); alert("remove failed: " + e.message); }
+    } catch (e) { rows2.splice(j, 0, row); alert(saveProblem("remove the row", e)); }
   }));
   const addres = card.querySelector(".chain-addres");
   if (addres) addres.onclick = async () => {
@@ -1884,7 +1900,7 @@ function renderChainCard(panel, rec, rv) {
       maybeOfferRepublish();
       CHAIN_EDIT.add(rec.id);                    // straight into the field view to fill it in
       renderPanel();
-    } catch (e) { rows.pop(); alert("add failed: " + e.message); }
+    } catch (e) { rows.pop(); alert(saveProblem("add a row", e)); }
   };
   card.querySelector(".histbtn:not(.chain-editbtn)").onclick = () => toggleHistory(card, rec);
   card.querySelector(".recdel").onclick = () => doDeleteRecord(rec);
@@ -2715,7 +2731,7 @@ async function acceptRow(L, recs, i) {
     const updated = JSON.parse(JSON.stringify(rows)); updated[i] = { ...updated[i], [ar.verdict_column]: ar.accepted };
     await savePaperField(ar.from, updated);
     maybeOfferRepublish(); rerenderKeep();
-  } catch (e) { list.pop(); alert("accept failed: " + e.message); }
+  } catch (e) { list.pop(); alert(saveProblem("accept the row", e)); }
 }
 
 function renderStagesPanel(panel, rv) {
@@ -2875,7 +2891,7 @@ function wireStagePanel(panel, recs, st, L, evbox = panel) {
     }
     if (!diff.length) return;
     try { await saveWholeRecord(rec, diff); maybeOfferRepublish(); rerenderKeep(); }
-    catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert("copy failed: " + e.message); }
+    catch (e) { for (const [f, v] of Object.entries(was)) row[f] = v; alert(saveProblem("copy the values", e)); }
   }));
   if (L.accept) panel.querySelectorAll(".stg-accept[data-row]").forEach((b) => (b.onclick = () => acceptRow(L, recs, Number(b.dataset.row))));
   wirePaperRowCites(panel);

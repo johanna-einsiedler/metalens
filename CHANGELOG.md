@@ -8,6 +8,15 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A refused row change says why, and leaves nothing behind
+
+Adding a row to an entry's table and having the server refuse it (a reviewer who does not own
+the dataset: only the owner may change an entry's values) used to leave the new row on screen
+until the next reload, looking like a row that would not save, with an alert that began with a
+status code. The row is now taken back at once, and the message says who may change values and
+what a reviewer can still do: verify, flag or note. The same wording serves a refused remove,
+copy or accept.
+
 ### A field whose options nobody explains carries no ⓘ
 
 Since the field's ⓘ took over every option's definition, a field with options but no help
