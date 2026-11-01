@@ -8,6 +8,13 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A field whose options nobody explains carries no ⓘ
+
+Since the field's ⓘ took over every option's definition, a field with options but no help
+text anywhere grew an ⓘ that only repeated the option labels. It is gone again; the ⓘ appears
+when the field or one of its options has something to say. The two grammar tests that still
+described the earlier second ⓘ beside the select now describe the single one.
+
 ### A deploy survives a busy database
 
 The schema run (`records.init_db`, the deploy's release command and the app's startup) is a

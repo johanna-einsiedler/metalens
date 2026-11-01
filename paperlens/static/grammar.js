@@ -196,8 +196,12 @@ export function optionsTip(f) {
   const lines = _opts(f).map((o) => (o.help ? `${o.label} — ${o.help}` : o.label));
   return [f.help || "", ...lines].filter(Boolean).join("\n");
 }
+// a field's tip, if it has anything to say: its help, with every option's definition for an enum
+// or multi field — but no ⓘ for a bare list of options that nothing explains
 export function fieldTip(f) {
-  return (Array.isArray(f.options) && f.options.length) ? optionsTip(f) : (f.help || "");
+  const anyHelp = !!f.help || (Array.isArray(f.options) && _opts(f).some((o) => o.help));
+  if (!anyHelp) return "";
+  return (Array.isArray(f.options) && f.options.length) ? optionsTip(f) : f.help;
 }
 // a child row's title from the child's template ("{arm_id} · {arm_label}"), an enum shown as its label
 export function rowTitleOf(child, r, k) {
