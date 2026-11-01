@@ -13,8 +13,10 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import re
 import sys
+import time
 import uuid
 from typing import Any
 
@@ -44,10 +46,40 @@ def connect() -> psycopg.Connection:
     return psycopg.connect(dsn(), autocommit=True)
 
 
-def init_db(conn: psycopg.Connection) -> None:
+# The schema run is retried on a lock conflict. schema.sql is a hundred-odd idempotent
+# DDL statements executed as one transaction; every ALTER TABLE in it takes an ACCESS
+# EXCLUSIVE lock, even when it changes nothing. Run against a live database (the deploy's
+# release command, the app's own startup) that queues behind requests holding locks on the
+# same tables in another order, and Postgres resolves the cycle by killing one side —
+# "deadlock detected" — or the run waits on a long request for as long as it lasts. The
+# whole transaction rolls back, nothing is half-applied, so trying again is safe: each
+# attempt waits at most ``lock_timeout`` for any one lock, then backs off and retries.
+INIT_DB_ATTEMPTS = 6
+INIT_DB_LOCK_TIMEOUT = "5s"
+_RETRY_ON = (psycopg.errors.DeadlockDetected, psycopg.errors.LockNotAvailable)
+
+
+def init_db(conn: psycopg.Connection, *, attempts: int = INIT_DB_ATTEMPTS,
+            lock_timeout: str = INIT_DB_LOCK_TIMEOUT) -> int:
+    """Apply schema.sql (idempotent). Returns the number of attempts it took; raises the
+    last lock error once ``attempts`` are used up."""
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:
-        conn.execute(fh.read())
-    conn.commit()
+        schema = fh.read()
+    for attempt in range(1, attempts + 1):
+        try:
+            with conn.transaction():
+                conn.execute(f"SET LOCAL lock_timeout = '{lock_timeout}'")
+                conn.execute(schema)
+            conn.commit()
+            return attempt
+        except _RETRY_ON as exc:
+            if attempt >= attempts:
+                raise
+            pause = min(8.0, 0.5 * 2 ** (attempt - 1)) * (1 + random.random() / 2)
+            _log.warning("init_db: %s on attempt %d/%d, retrying in %.1fs",
+                         type(exc).__name__, attempt, attempts, pause)
+            time.sleep(pause)
+    raise AssertionError("unreachable")   # pragma: no cover
 
 
 def _new_id() -> str:
@@ -652,11 +684,20 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
         ).fetchall():
             notes_by_rec[str(rid)] = {"text": notes, "status": status, "by": email or kind,
                                       "at": created.isoformat() if created else None}
+    # the marks the latest verdict with marks points at ("see here"): the last list given wins,
+    # so a verdict given with an empty list detaches them all
+    marks_by_rec: dict[str, list] = {}
+    if rec_ids:
+        pointed = attached_mark_ids(conn, rec_ids)
+        marks = _highlights_by_id(conn, [h for hs in pointed.values() for h in hs])
+        for rid, hs in pointed.items():
+            marks_by_rec[rid] = [marks[h] for h in hs if h in marks]
     conf = document_confidence(conn, document_id)
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
          "verification_status": vs, "extraction": _ex, "screened_empty": bool(_se),
          "corrections": corrections_by_rec.get(str(rid), []), "note": notes_by_rec.get(str(rid)),
+         "marks": marks_by_rec.get(str(rid), []),
          # {group: {level, notes}} for this entry, and {"<child>[j]": {group: …}} for its
          # sub-entries — the badges the review UI shows next to each group's fields
          "confidence": conf["by_record"].get(str(rid), {}),
@@ -889,25 +930,40 @@ def get_record(conn: psycopg.Connection, record_id: str) -> dict | None:
 def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
                   diff: list | None = None, notes: str | None = None,
                   verifier_user_id: str | None = None, verifier_kind: str = "maintainer",
-                  field_values: dict | None = None, patch: list | None = None) -> dict:
+                  field_values: dict | None = None, patch: list | None = None,
+                  highlight_ids: list | None = None) -> dict:
     """Record a verification event + project it onto record.verification_status.
 
     Optionally apply a correction — the "editing values routes through the verification
     layer" rule. ``patch`` = [{field_path, value}] sets those cells on the record AS STORED
     (the row is locked for the write, so two edits that cross on the wire both land);
     ``field_values`` replaces the whole record, for structural edits (a row added or removed).
-    One transaction.
+    ``highlight_ids`` are the coder's marks this verdict points at — "see here" on a flag; they
+    must be marks on the record's own paper (ValueError otherwise), and the list is kept as
+    given, so a later verdict with a shorter list detaches. One transaction.
     """
     if status not in _VALID_STATUS:
         raise ValueError(f"status must be one of {_VALID_STATUS}")
+    if highlight_ids is not None:
+        ids = [str(h) for h in highlight_ids]
+        if not all(_is_uuid(h) for h in ids):
+            raise ValueError("highlight_ids must be mark ids")
+        if ids:
+            n = conn.execute(
+                """SELECT count(*) FROM coder_highlight h JOIN record r ON r.document_id = h.document_id
+                   WHERE r.id = %s::uuid AND h.id::text = ANY(%s)""", (record_id, ids)).fetchone()[0]
+            if n != len(set(ids)):
+                raise ValueError("every mark must be on this entry's paper")
+        highlight_ids = ids
     eid = _new_id()
     with conn.transaction():
         conn.execute(
             """INSERT INTO verification_event
-                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes)
-               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s)""",
+                 (id, record_id, verifier_user_id, verifier_kind, status, diff, notes, highlight_ids)
+               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
             (eid, record_id, verifier_user_id, verifier_kind, status,
-             Json(diff) if diff is not None else None, notes),
+             Json(diff) if diff is not None else None, notes,
+             Json(highlight_ids) if highlight_ids is not None else None),
         )
         if status not in ("corrected", "noted"):   # an edit or a note records provenance but is
             # NOT a verification — the record's status stays whatever the reviewer last judged
@@ -936,18 +992,48 @@ def record_events(conn: psycopg.Connection, record_id: str) -> list[dict]:
     with the editor's email when it was a logged-in user."""
     rows = conn.execute(
         """SELECT e.id, e.verifier_user_id, u.email, e.verifier_kind, e.status,
-                  e.diff, e.notes, e.created_at
+                  e.diff, e.notes, e.created_at, e.highlight_ids
            FROM verification_event e
            LEFT JOIN users u ON u.id = e.verifier_user_id
            WHERE e.record_id = %s::uuid ORDER BY e.created_at DESC""",
         (record_id,),
     ).fetchall()
+    marks = _highlights_by_id(conn, [h for (*_r, hs) in rows for h in (hs if isinstance(hs, list) else [])])
     return [
         {"id": str(i), "verifier_user_id": str(u) if u else None, "verifier_email": em,
          "verifier_kind": k, "status": s, "diff": d, "notes": n,
-         "created_at": c.isoformat() if c else None}
-        for (i, u, em, k, s, d, n, c) in rows
+         "created_at": c.isoformat() if c else None,
+         "highlights": [marks[h] for h in (hs if isinstance(hs, list) else []) if h in marks]}
+        for (i, u, em, k, s, d, n, c, hs) in rows
     ]
+
+
+def attached_mark_ids(conn: psycopg.Connection, rec_ids: list) -> dict[str, list[str]]:
+    """``{record_id: [highlight_id, …]}`` — the marks each record's latest verdict-with-marks points
+    at ("see here"). The last list given wins, so a verdict given with an empty list detaches them
+    all; a record no verdict pointed anything at is absent. Ids as stored, whether or not the
+    mark still exists — callers resolve them with ``_highlights_by_id``."""
+    rec_ids = [str(x) for x in rec_ids]
+    if not rec_ids:
+        return {}
+    rows = conn.execute(
+        """SELECT DISTINCT ON (e.record_id) e.record_id, e.highlight_ids
+           FROM verification_event e
+           WHERE e.record_id = ANY(%s::uuid[]) AND e.highlight_ids IS NOT NULL
+           ORDER BY e.record_id, e.created_at DESC""",
+        (rec_ids,),
+    ).fetchall()
+    return {str(rid): [str(h) for h in hs] for (rid, hs) in rows if isinstance(hs, list)}
+
+
+def _highlights_by_id(conn: psycopg.Connection, ids: list) -> dict[str, dict]:
+    """``{id: {id, page, text}}`` for the marks among ``ids`` that still exist (a removed mark
+    simply drops out of the verdicts that pointed at it)."""
+    ids = sorted({str(h) for h in ids if _is_uuid(str(h))})
+    if not ids:
+        return {}
+    return {str(i): {"id": str(i), "page": p, "text": t} for (i, p, t) in conn.execute(
+        "SELECT id, page, text FROM coder_highlight WHERE id::text = ANY(%s)", (ids,)).fetchall()}
 
 
 def _diff_changes_value(diff: Any) -> bool:
@@ -1911,7 +1997,8 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "record_id": str(rid), "entry_index": ei,
             "verification_status": vs, "values": fv,
         })
-    # the coder's own marks on each paper, tied to no record
+    # the coder's own marks on each paper, by id; a record's ``marks`` are the ids its latest
+    # verdict-with-marks points at ("see here"), so a flag in the file can be traced to the passage
     for p in papers.values():
         p["highlights"] = []
     if papers:
@@ -1921,7 +2008,12 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             (list(papers),),
         ).fetchall():
             h = _highlight_row(row)
-            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("page", "text", "rects", "created_at", "created_by", "note")})
+            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("id", "page", "text", "rects", "created_at", "created_by", "note")})
+        have = {h["id"] for p in papers.values() for h in p["highlights"]}
+        pointed = attached_mark_ids(conn, [rec["record_id"] for p in papers.values() for rec in p["records"]])
+        for p in papers.values():
+            for rec in p["records"]:
+                rec["marks"] = [h for h in pointed.get(rec["record_id"], []) if h in have]   # a removed mark drops out
 
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],

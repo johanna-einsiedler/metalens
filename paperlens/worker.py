@@ -142,6 +142,37 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, *, model: str = "",
         conn.close()
 
 
+async def ingest_pdf_job(ctx: dict, pdf_b64: str, text: str, *, usage: dict | None = None,
+                         made_by: str = "imported", schema_id: str | None = None,
+                         session_id: str | None = None, owner_user_id: str | None = None,
+                         filename: str | None = None, dataset_id: str | None = None) -> dict:
+    """A queued import: ``extract_job`` minus the model call, the canonical JSON supplied.
+    Rendering the pages is the expensive part — in the web process it held the web machine's
+    one CPU for every visitor while a dataset came in; here it runs beside the extractions.
+    The web process validated the JSON and minted the schema row before enqueuing, so a
+    failure here is the PDF's or the box's, and arq's retries are worth having."""
+    import base64
+    from . import extract, presets
+    pdf_bytes = base64.b64decode(pdf_b64)
+    conn = records.connect()
+    try:
+        spec = presets.resolve_run(conn, schema_id=schema_id).spec
+        result = extract.import_supplied(
+            conn, pdf_bytes, text=text, usage=usage, made_by=made_by, schema_id=schema_id,
+            spec=spec, session_id=session_id, owner_user_id=owner_user_id, filename=filename,
+            source_job_id=ctx.get("job_id"))
+        # as extract_job: attach the finished document to its dataset here, best-effort — the
+        # import succeeded, so never fail or retry the job over the link
+        if dataset_id and isinstance(result, dict) and result.get("document_id"):
+            try:
+                records.assign_document_to_dataset(conn, dataset_id, result["document_id"])
+            except Exception:
+                pass
+        return result
+    finally:
+        conn.close()
+
+
 async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
     """Publish a dataset to the metalens-datasets repo as a PR. Only the dataset_id
     transits Redis — the GitHub token lives in the worker env, never in the payload."""
@@ -185,7 +216,7 @@ async def github_sync_task(ctx: dict) -> dict:
 
 
 class WorkerSettings:
-    functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
+    functions = [enrich_paper_task, ingest_task, extract_job, ingest_pdf_job, publish_dataset_task]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]
     redis_settings = redis_settings()

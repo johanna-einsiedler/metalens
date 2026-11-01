@@ -143,6 +143,7 @@ export const api = {
   highlights: (docId) => req(`/api/documents/${docId}/highlights`),
   addHighlight: (docId, body) => req(`/api/documents/${docId}/highlights`, json(body)),
   deleteHighlight: (id) => req(`/api/highlights/${id}`, { method: "DELETE" }),
+  searchDoc: (docId, q) => req(`/api/documents/${docId}/search?q=${encodeURIComponent(q)}`),
   addRecord: (docId, body) => req(`/api/documents/${docId}/records`, json(body)),
   documents: (f) => req(`/api/documents${qs(f)}`),
   myPapers: () => req(`/api/papers/mine`),
@@ -194,6 +195,17 @@ export const api = {
   extract: (formData) => req(`/api/extract`, { method: "POST", body: formData }),
   ingestPdf: (formData) => req(`/api/ingest-pdf`, { method: "POST", body: formData }),
   job: (id) => req(`/api/jobs/${id}`),
+  // Wait for a queued job: its result once it succeeds; an Error when it fails or the wait runs
+  // out. A blip in the poll itself (the network, a 503 from the queue) is retried, not fatal.
+  waitJob: async (id, { every = 2000, tries = 900 } = {}) => {
+    for (let i = 0; i < tries; i++) {
+      await new Promise((r) => setTimeout(r, every));
+      let st; try { st = await req(`/api/jobs/${id}`); } catch { continue; }
+      if (st.success === true) return st.result;
+      if (st.success === false) throw new Error(st.error || "the job failed");
+    }
+    throw new Error("timed out — is the worker running?");
+  },
   retryJob: (id) => req(`/api/jobs/${id}/retry`, { method: "POST" }),
   cancelJob: (id) => req(`/api/jobs/${id}/cancel`, { method: "POST" }),
   me: () => req(`/api/auth/me`).catch(() => null),

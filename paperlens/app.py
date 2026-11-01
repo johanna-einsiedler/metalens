@@ -629,6 +629,23 @@ def delete_highlight(highlight_id: str, db=Depends(get_db), who: Principal = Dep
     return records.delete_highlight(db, highlight_id)
 
 
+@app.get("/api/documents/{document_id}/search")
+def search_document(document_id: str, q: str = "", db=Depends(get_db),
+                    who: Principal = Depends(principal)) -> dict:
+    """Owner-only: find words in the source PDF — every occurrence of ``q``, in page order, as
+    rectangles the viewer paints (``pdf_utils.search_text``). The review's "find in PDF" box:
+    a coder looks for a variable name or a number the model did not cite and marks what they
+    find. An empty or one-character query finds nothing; 404 without a PDF."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    store = storage.get_store()
+    key = storage.pdf_key(document_id)
+    if not store.exists(key):
+        raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
+    from . import pdf_utils
+    return {"q": q, **pdf_utils.search_text(store.get(key), q)}
+
+
 @app.get("/api/documents/{document_id}/raw")
 def document_raw_response(document_id: str, db=Depends(get_db),
                           who: Principal = Depends(principal)) -> Response:
@@ -2433,6 +2450,7 @@ class VerifyBody(BaseModel):
     verifier_kind: str | None = None       # maintainer | community | paperlens
     field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
     patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
+    highlight_ids: list[str] | None = None # the coder's marks this verdict points at ("see here"), on the record's paper
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -2448,12 +2466,14 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     mine = records.records_all_owned(db, [record_id], who)
     if not mine and (body.field_values is not None or body.patch or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    if not mine and body.highlight_ids:        # the marks are the owner's, kept with their paper
+        raise HTTPException(status_code=403, detail="Only the owner can attach marks to an entry.")
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
             db, record_id, status=body.status, diff=body.diff, notes=body.notes,
             verifier_user_id=who.user_id, verifier_kind=kind, field_values=body.field_values,
-            patch=body.patch)
+            patch=body.patch, highlight_ids=body.highlight_ids)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -2847,9 +2867,13 @@ def extract_endpoint(
 
 def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
                      dataset_id: str | None, *, filename: str | None,
-                     produced_by: str | None = None) -> dict:
+                     produced_by: str | None = None, queue: bool = False) -> dict:
     """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
-    persist a full viewable document — /api/extract minus the model call."""
+    persist a full viewable document — /api/extract minus the model call. What is cheap and
+    must be answered at once happens here: the owner check, the JSON's validation, the schema
+    row. The rendering — the expensive part — runs here too, unless ``queue`` asks for the
+    worker and the queue is up: then {queued, job_id} comes back and /api/jobs/{id} carries
+    the finished import."""
     import json as _json
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
@@ -2865,21 +2889,28 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
     usage = (obj.get("usage") if isinstance(obj, dict) else None) or {}
     run = presets.resolve_run(db, schema_id=schema_id)
     schema_id = run.schema_id
+    try:                 # malformed canonical JSON (no records, no evidence) is refused HERE, at
+        ingest(canonical, entries_key=run.entries_key)   # once — never as a queued job retried thrice
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     if schema_id:
         with db.transaction():
             records.upsert_schema(db, schema_id, run.field_defs)
         _refresh_row_from_file(db, schema_id)
 
     made_by = (produced_by or "").strip()[:200] or "imported"
-
-    def _supplied(pdf_bytes, prompt, **kw):
-        return extract.LLMResult(text=text, finish_reason="stop", usage=usage, resolved_model=made_by)
-
+    if queue:
+        job_id = worker.enqueue(
+            "ingest_pdf_job", base64.b64encode(data).decode(), text, usage=usage, made_by=made_by,
+            schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
+            filename=filename, dataset_id=dataset_id, _expires=1800)
+        if job_id:
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+        # the queue is down (or this process runs jobs inline) → import synchronously, as before
     try:
-        res = extract.run_extraction(
-            db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
-            owner_user_id=who.user_id, filename=filename, complete=_supplied,
-            spec=run.spec)
+        res = extract.import_supplied(
+            db, data, text=text, usage=usage, made_by=made_by, schema_id=schema_id, spec=run.spec,
+            session_id=who.session_id, owner_user_id=who.user_id, filename=filename)
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -2896,6 +2927,7 @@ def ingest_pdf_endpoint(
     schema_id: str | None = Form(None),
     dataset_id: str | None = Form(None),
     produced_by: str | None = Form(None),
+    queue: bool = Form(False),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2907,9 +2939,13 @@ def ingest_pdf_endpoint(
     is added to that dataset (owner-gated).  ``produced_by`` names what actually made the
     records — a model, or the agent pipeline that ran outside — and is stored where a normal
     run stores its model, so an imported record can say where it came from; without it the
-    record only says "imported"."""
+    record only says "imported".  ``queue`` hands the rendering to the worker when the queue
+    is up — the answer is then ``{queued: true, job_id}`` and ``/api/jobs/{id}`` carries the
+    finished import; the browser's import page asks for this, so a dataset coming in does
+    not hold the web process. Without it (the scripts, the tests) the import runs here and
+    the answer carries the document, as it always has."""
     return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
-                            filename=pdf.filename, produced_by=produced_by)
+                            filename=pdf.filename, produced_by=produced_by, queue=queue)
 
 
 @app.get("/api/papers/provenance")
