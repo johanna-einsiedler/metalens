@@ -8,6 +8,13 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The export traces a flag to its passage
+
+A dataset export already carried each paper's marks; it did not say which entry's verdict they
+belonged to. Each mark in `papers[].highlights` now carries its `id`, and each record carries
+`marks`: the ids its latest verdict-with-marks points at, so a flag in the file can be followed
+to the passage the coder meant. A removed mark drops out of both.
+
 ### A refused row change says why, and leaves nothing behind
 
 Adding a row to an entry's table and having the server refuse it (a reviewer who does not own

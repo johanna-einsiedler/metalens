@@ -688,16 +688,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     # so a verdict given with an empty list detaches them all
     marks_by_rec: dict[str, list] = {}
     if rec_ids:
-        rows = conn.execute(
-            """SELECT DISTINCT ON (e.record_id) e.record_id, e.highlight_ids
-               FROM verification_event e
-               WHERE e.record_id = ANY(%s::uuid[]) AND e.highlight_ids IS NOT NULL
-               ORDER BY e.record_id, e.created_at DESC""",
-            (rec_ids,),
-        ).fetchall()
-        marks = _highlights_by_id(conn, [h for (_r, hs) in rows for h in (hs if isinstance(hs, list) else [])])
-        for (rid, hs) in rows:
-            marks_by_rec[str(rid)] = [marks[h] for h in (hs if isinstance(hs, list) else []) if h in marks]
+        pointed = attached_mark_ids(conn, rec_ids)
+        marks = _highlights_by_id(conn, [h for hs in pointed.values() for h in hs])
+        for rid, hs in pointed.items():
+            marks_by_rec[rid] = [marks[h] for h in hs if h in marks]
     conf = document_confidence(conn, document_id)
     records_out = [
         {"id": str(rid), "entry_index": ei, "field_values": fv,
@@ -1012,6 +1006,24 @@ def record_events(conn: psycopg.Connection, record_id: str) -> list[dict]:
          "highlights": [marks[h] for h in (hs if isinstance(hs, list) else []) if h in marks]}
         for (i, u, em, k, s, d, n, c, hs) in rows
     ]
+
+
+def attached_mark_ids(conn: psycopg.Connection, rec_ids: list) -> dict[str, list[str]]:
+    """``{record_id: [highlight_id, …]}`` — the marks each record's latest verdict-with-marks points
+    at ("see here"). The last list given wins, so a verdict given with an empty list detaches them
+    all; a record no verdict pointed anything at is absent. Ids as stored, whether or not the
+    mark still exists — callers resolve them with ``_highlights_by_id``."""
+    rec_ids = [str(x) for x in rec_ids]
+    if not rec_ids:
+        return {}
+    rows = conn.execute(
+        """SELECT DISTINCT ON (e.record_id) e.record_id, e.highlight_ids
+           FROM verification_event e
+           WHERE e.record_id = ANY(%s::uuid[]) AND e.highlight_ids IS NOT NULL
+           ORDER BY e.record_id, e.created_at DESC""",
+        (rec_ids,),
+    ).fetchall()
+    return {str(rid): [str(h) for h in hs] for (rid, hs) in rows if isinstance(hs, list)}
 
 
 def _highlights_by_id(conn: psycopg.Connection, ids: list) -> dict[str, dict]:
@@ -1985,7 +1997,8 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "record_id": str(rid), "entry_index": ei,
             "verification_status": vs, "values": fv,
         })
-    # the coder's own marks on each paper, tied to no record
+    # the coder's own marks on each paper, by id; a record's ``marks`` are the ids its latest
+    # verdict-with-marks points at ("see here"), so a flag in the file can be traced to the passage
     for p in papers.values():
         p["highlights"] = []
     if papers:
@@ -1995,7 +2008,12 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             (list(papers),),
         ).fetchall():
             h = _highlight_row(row)
-            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("page", "text", "rects", "created_at", "created_by", "note")})
+            papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("id", "page", "text", "rects", "created_at", "created_by", "note")})
+        have = {h["id"] for p in papers.values() for h in p["highlights"]}
+        pointed = attached_mark_ids(conn, [rec["record_id"] for p in papers.values() for rec in p["records"]])
+        for p in papers.values():
+            for rec in p["records"]:
+                rec["marks"] = [h for h in pointed.get(rec["record_id"], []) if h in have]   # a removed mark drops out
 
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],

@@ -81,7 +81,8 @@ def test_marks_round_trip(monkeypatch) -> None:
     records.assign_document_to_dataset(conn, ds["id"], doc_id); conn.commit()
     exp = records.dataset_export(conn, ds["id"])
     paper = next(p for p in exp["papers"] if p["document_id"] == doc_id)
-    assert paper["highlights"] == [{"page": 1, "text": "Second one follows!", "rects": h["rects"], "created_at": h["created_at"], "created_by": "sess-marks", "note": None}]
+    assert paper["highlights"] == [{"id": h["id"], "page": 1, "text": "Second one follows!", "rects": h["rects"], "created_at": h["created_at"], "created_by": "sess-marks", "note": None}]
+    assert [r["marks"] for r in paper["records"]] == [[]]       # no verdict points at it
 
     assert c.delete(f"/api/highlights/{h['id']}", headers={"X-Session-Id": "someone-else"}).status_code == 403
     assert c.delete(f"/api/highlights/{h['id']}", headers=H).json() == {"deleted": 1}
@@ -169,6 +170,12 @@ def test_a_verdict_points_at_the_coders_marks(monkeypatch) -> None:
     assert [(m["id"], m["page"]) for m in rec["marks"]] == [(m1["id"], 1), (m2["id"], 2)] and rec["marks"][0]["text"] == m1["text"]
     ev = c.get(f"/api/records/{rid}/events", headers=H).json()["events"][0]
     assert ev["status"] == "flagged" and [m["id"] for m in ev["highlights"]] == [m1["id"], m2["id"]]
+    # the dataset export keeps the pointer: the paper's marks carry ids, the record lists the ones its flag points at
+    ds = records.create_dataset(conn, title="Pointed DS", schema_id="human-ai-collab@v1", session_id="sess-point")
+    records.assign_document_to_dataset(conn, ds["id"], doc_id); conn.commit()
+    paper = next(p for p in records.dataset_export(conn, ds["id"])["papers"] if p["document_id"] == doc_id)
+    assert {h["id"] for h in paper["highlights"]} == {m1["id"], m2["id"]}
+    assert [r["marks"] for r in paper["records"] if r["record_id"] == rid] == [[m1["id"], m2["id"]]]
 
     # refused: a mark on another paper; a stranger (the entry is private, so 404); not an id
     assert c.post(f"/api/records/{rid}/verify", headers=H, json={"status": "flagged", "highlight_ids": [elsewhere["id"]]}).status_code == 422
@@ -185,5 +192,7 @@ def test_a_verdict_points_at_the_coders_marks(monkeypatch) -> None:
     # a removed mark drops out
     assert c.delete(f"/api/highlights/{m2['id']}", headers=H).json() == {"deleted": 1}
     assert c.get(f"/api/documents/{doc_id}/view", headers=H).json()["records"][0]["marks"] == []
+    paper = next(p for p in records.dataset_export(conn, ds["id"])["papers"] if p["document_id"] == doc_id)
+    assert [r["marks"] for r in paper["records"] if r["record_id"] == rid] == [[]] and [h["id"] for h in paper["highlights"]] == [m1["id"]]
     assert c.get(f"/api/records/{rid}/events", headers=H).json()["events"][-1]["highlights"] == [{"id": m1["id"], "page": 1, "text": m1["text"]}]
     tmp.cleanup()
