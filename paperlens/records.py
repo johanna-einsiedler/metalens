@@ -13,8 +13,10 @@ from __future__ import annotations
 import logging
 import math
 import os
+import random
 import re
 import sys
+import time
 import uuid
 from typing import Any
 
@@ -44,10 +46,40 @@ def connect() -> psycopg.Connection:
     return psycopg.connect(dsn(), autocommit=True)
 
 
-def init_db(conn: psycopg.Connection) -> None:
+# The schema run is retried on a lock conflict. schema.sql is a hundred-odd idempotent
+# DDL statements executed as one transaction; every ALTER TABLE in it takes an ACCESS
+# EXCLUSIVE lock, even when it changes nothing. Run against a live database (the deploy's
+# release command, the app's own startup) that queues behind requests holding locks on the
+# same tables in another order, and Postgres resolves the cycle by killing one side —
+# "deadlock detected" — or the run waits on a long request for as long as it lasts. The
+# whole transaction rolls back, nothing is half-applied, so trying again is safe: each
+# attempt waits at most ``lock_timeout`` for any one lock, then backs off and retries.
+INIT_DB_ATTEMPTS = 6
+INIT_DB_LOCK_TIMEOUT = "5s"
+_RETRY_ON = (psycopg.errors.DeadlockDetected, psycopg.errors.LockNotAvailable)
+
+
+def init_db(conn: psycopg.Connection, *, attempts: int = INIT_DB_ATTEMPTS,
+            lock_timeout: str = INIT_DB_LOCK_TIMEOUT) -> int:
+    """Apply schema.sql (idempotent). Returns the number of attempts it took; raises the
+    last lock error once ``attempts`` are used up."""
     with open(_SCHEMA_PATH, "r", encoding="utf-8") as fh:
-        conn.execute(fh.read())
-    conn.commit()
+        schema = fh.read()
+    for attempt in range(1, attempts + 1):
+        try:
+            with conn.transaction():
+                conn.execute(f"SET LOCAL lock_timeout = '{lock_timeout}'")
+                conn.execute(schema)
+            conn.commit()
+            return attempt
+        except _RETRY_ON as exc:
+            if attempt >= attempts:
+                raise
+            pause = min(8.0, 0.5 * 2 ** (attempt - 1)) * (1 + random.random() / 2)
+            _log.warning("init_db: %s on attempt %d/%d, retrying in %.1fs",
+                         type(exc).__name__, attempt, attempts, pause)
+            time.sleep(pause)
+    raise AssertionError("unreachable")   # pragma: no cover
 
 
 def _new_id() -> str:

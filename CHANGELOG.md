@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A deploy survives a busy database
+
+The schema run (`records.init_db`, the deploy's release command and the app's startup) is a
+hundred-odd idempotent statements in one transaction, and every `ALTER TABLE` among them takes
+an exclusive lock even when it changes nothing. Against a live database it could queue behind
+a request for as long as the request lasted, or lose a lock cycle to it — "deadlock detected" —
+and the deploy failed at the release step while the old build stayed up. The run now waits at
+most five seconds for any one lock, and on a deadlock or a lock timeout backs off and tries
+again, up to six times; the transaction rolls back whole, so a retry starts clean. Two tests
+hold a lock from a second session and watch the run wait it out, and give up when told to.
+
 ### Find in the PDF, and a flag that points at the coder's own marks
 
 - **Find in PDF.** A search box sits above the pages (`/` focuses it from anywhere): every occurrence
