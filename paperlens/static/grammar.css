@@ -501,3 +501,35 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .stg-accept.done { color: var(--success); border-color: var(--success); cursor: default; }
 .stg-foot { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 6px 0 18px; }
 .stg-foot .stg-next { font-weight: 600; }
+
+/* display.sheet: a table field as the printed table — rows as printed, one column per entry of the
+   same table; this entry's column is the editable one (tinted), its siblings stand beside it */
+.sheet { margin: 2px 0 4px; }
+.sh-cap { font-weight: 600; font-size: 12.5px; margin: 0 0 4px; }
+.sh-cap .muted { font-weight: 400; }
+.sh-t { border-collapse: collapse; font-size: 12.5px; min-width: 100%; border-top: 2px solid var(--text); border-bottom: 2px solid var(--text); }
+.sh-t th, .sh-t td { padding: 2px 8px; vertical-align: baseline; white-space: nowrap; border: 0; }
+.sh-t thead th { font-weight: 600; text-align: right; color: var(--text); }
+.sh-t thead tr:last-child th { border-bottom: 1px solid var(--text); }
+.sh-t thead tr.sh-hdr th { font-weight: 400; font-size: 11.5px; color: var(--text-muted); white-space: normal; max-width: 120px; vertical-align: top; }
+.sh-t th.sh-col[data-rid] { cursor: pointer; color: var(--text-muted); }
+.sh-t th.sh-col[data-rid]:hover { color: var(--accent); }
+.sh-t .st-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 5px; background: var(--border); vertical-align: middle; }
+.sh-t .st-dot.verified { background: var(--success); }
+.sh-t .st-dot.flagged { background: var(--flag); }
+.sh-t td.sh-lab, .sh-t th.sh-lab { text-align: left; white-space: normal; min-width: 90px; max-width: 220px; }
+.sh-t td.sh-cell { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12px; }
+.sh-t .sh-me { background: var(--accent-wash); }
+.sh-t thead th.sh-me { color: var(--accent); }
+.sh-t td.sh-sib { color: var(--text-muted); cursor: pointer; }
+.sh-t td.sh-sib:hover { color: var(--text); }
+.sh-t tr.sh-sub td { padding-top: 0; font-size: 11.5px; }
+.sh-t tr.sh-sub td.sh-lab { color: var(--text-muted); }
+.sh-type { font-size: 10px; color: var(--text-muted); margin-left: 4px; font-style: italic; font-family: var(--font-sans, inherit); }
+.sh-t tr.sh-rule td { border-top: 1px solid var(--text); padding-top: 4px; }
+.sh-t tr.sh-panel td { font-weight: 600; font-style: italic; padding-top: 6px; }
+.sh-val { display: inline-block; min-width: 2.5em; text-align: right; }
+.sh-foot { margin: 4px 0 0; }
+.sh-toggle { font-size: 11.5px; border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: 1px 8px;
+  cursor: pointer; color: var(--text-muted); }
+.sh-toggle:hover { color: var(--text); background: var(--surface); }

@@ -112,6 +112,14 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("evidence review items table lacks a column", lambda d: d["display"].__setitem__("review", {"layout": "evidence", "items": "matrix"}), "needs a column"),
     ("evidence review unknown key", lambda d: (_with_items(d), d["display"].__setitem__("review", {"layout": "evidence", "items": "items", "edge": {}})), "unknown key"),
     ("evidence review paper_fields unknown", lambda d: (_with_items(d), d["display"].__setitem__("review", {"layout": "evidence", "items": "items", "paper_fields": ["zzz"]})), "paper_fields"),
+    ("sheet not an object", lambda d: d["display"].__setitem__("sheet", "matrix"), "sheet must be an object"),
+    ("sheet field not a table", lambda d: d["display"].__setitem__("sheet", {"field": "sample_id", "row_label": "a", "value": "a"}), "table field"),
+    ("sheet value not a column", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "zzz"}), "sheet.value must name a column"),
+    ("sheet row_type not a column", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "row_type": "zzz"}), "sheet.row_type"),
+    ("sheet column not an entry field", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "column": "design"}), "scalar entry field"),
+    ("sheet column a table", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "header": "matrix"}), "scalar entry field"),
+    ("sheet group unknown", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "group": ["zzz"]}), "sheet.group"),
+    ("sheet unknown key", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "rows": "a"}), "unknown key"),
 ])
 def test_validation_rejects(label, mutate, needle) -> None:
     errs = _errors(mutate)
@@ -637,3 +645,27 @@ def test_option_help_is_accepted_as_wording_only() -> None:
     fh, fp = ps.field_defs_for(sh), ps.field_defs_for(sp)
     assert {k: v for k, v in fh.items() if k != "spec"} == {k: v for k, v in fp.items() if k != "spec"}   # the legacy grammar is unchanged
     assert fh["spec"]["paper"]["fields"][0]["options"][0]["help"] == "participants were randomly assigned"  # the UI's spec carries it
+
+
+def test_sheet_lays_a_table_field_out_as_printed() -> None:
+    """display.sheet: a table field of the entries drawn as the printed table — the row label and the
+    printed text are the two columns it needs; the rest (row order, type, the coefficient an se row
+    belongs to, the parsed number) is optional and must name columns of that table."""
+    doc = copy.deepcopy(GOOD)
+    doc["entries"]["fields"][2]["columns"] = [{"name": "a", "type": "number"}, {"name": "label", "type": "string"},
+                                              {"name": "printed", "type": "string"}, {"name": "kind", "type": "enum", "options": ["coef", "se"]},
+                                              {"name": "idx", "type": "integer"}, {"name": "of", "type": "integer"}]
+    doc["entries"]["fields"].append({"name": "col", "type": "string"})
+    doc["display"]["sheet"] = {"field": "matrix", "row_label": "label", "value": "printed", "row_type": "kind", "row_index": "idx",
+                               "refers_to": "of", "numeric": "a", "column": "col", "group": ["sample_id"]}
+    spec = ps.normalize(doc)
+    errs, _ = ps.validate(spec)
+    assert errs == [], errs
+    assert spec["display"]["sheet"]["group"] == ["sample_id"]
+    bare = copy.deepcopy(doc); del bare["display"]["sheet"]
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize(bare))       # a layout never re-versions a dataset
+    # the two tables presets declare it over their cells: one row per printed row, a column per regression column
+    for pid in ("register-tables", "econ-regression-tables"):
+        sh = presets.load_all()[pid]["display"]["sheet"]
+        assert sh["field"] == "cells" and sh["value"] == "raw_text" and sh["refers_to"] == "refers_to" and sh["group"] == ["table_number", "panel"]
+        assert presets.load_all()[pid]["display"]["locate"]["cells"] == {"anchor_fields": ["row_label"]}

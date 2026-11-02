@@ -532,6 +532,32 @@
         ]
       }
     },
+    "locate": {
+      "cells": {
+        "anchor_fields": [
+          "row_label"
+        ]
+      }
+    },
+    "sheet": {
+      "field": "cells",
+      "row_label": "row_label",
+      "row_index": "row_index",
+      "column_label": "column_label",
+      "value": "raw_text",
+      "row_type": "row_type",
+      "refers_to": "refers_to",
+      "numeric": "numeric_value",
+      "stars": "significance_stars",
+      "column": "column",
+      "header": "outcome_variable",
+      "caption": "table_title",
+      "group": [
+        "table_number",
+        "panel"
+      ],
+      "col_index": "col_index"
+    },
     "analysis": {
       "default_unit": "cells",
       "roles": {

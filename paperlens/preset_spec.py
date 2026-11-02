@@ -76,7 +76,10 @@ _ALLOWED_KEYS = {
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
     "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review",
-                "inline_evidence"},
+                "inline_evidence", "sheet"},
+    # sheet: a table field of the entries drawn as the printed table it transcribes
+    "sheet": {"field", "row_label", "row_index", "col_index", "column_label", "value", "row_type", "refers_to", "numeric", "stars",
+              "column", "header", "caption", "group"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
     "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline"},
@@ -803,6 +806,36 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # as PDF highlights — for presets whose reviewer judges a call against the model's reading
         if display.get("inline_evidence") is not None and not isinstance(display.get("inline_evidence"), bool):
             E("$.display.inline_evidence must be true or false")
+        # sheet: a TABLE field of the entries drawn as the printed table it transcribes — one row per
+        # printed row (row_label, in row_index order) with the cell's printed text (value) in it, and
+        # one column per entry of the same table: the entries whose `group` fields agree (table number,
+        # panel), headed by `column` (the column label as the paper prints it) over `header` (its
+        # outcome). row_type, refers_to, numeric and stars name the columns that explain a cell —
+        # a standard-error row sits under the coefficient it refers to — and that follow a correction
+        # of the printed text. The generic typed table stays one click away for the other columns.
+        sh = display.get("sheet")
+        if sh is not None:
+            if not isinstance(sh, dict):
+                E("$.display.sheet must be an object: {field, row_label, value, …}")
+            else:
+                unknown(sh, "sheet", "$.display.sheet")
+                efields = {f.get("name"): f for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+                tf = efields.get(sh.get("field")) if isinstance(sh.get("field"), str) else None
+                if not tf or tf.get("type") != "table":
+                    E("$.display.sheet.field must name a table field of the entries"); tf = None
+                cols = [c if isinstance(c, str) else (c or {}).get("name") for c in ((tf or {}).get("columns") or [])]
+                for k in ("row_label", "value"):
+                    if tf is not None and sh.get(k) not in cols:
+                        E(f"$.display.sheet.{k} must name a column of {sh.get('field')}")
+                for k in ("row_index", "col_index", "column_label", "row_type", "refers_to", "numeric", "stars"):
+                    if sh.get(k) is not None and (tf is None or sh[k] not in cols):
+                        E(f"$.display.sheet.{k} must name a column of {sh.get('field')}")
+                for k in ("column", "header", "caption"):
+                    if sh.get(k) is not None and (sh[k] not in efields or efields[sh[k]].get("type") == "table"):
+                        E(f"$.display.sheet.{k} must name a scalar entry field")
+                grp = sh.get("group")
+                if grp is not None and (not isinstance(grp, list) or any(g not in efields for g in grp)):
+                    E("$.display.sheet.group must list entry fields (those that name the table: table number, panel)")
         aud = display.get("audit")      # {"<table field>": {"key": [columns that identify a row]}} for the audit report
         if aud is not None:
             if not isinstance(aud, dict):

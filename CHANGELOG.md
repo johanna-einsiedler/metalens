@@ -8,6 +8,23 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A regression column as printed: the table-shaped cells view
+
+- **`display.sheet`** draws a table field of the entries as the printed table it transcribes, in place of
+  the generic one-row-per-cell list: one row per printed row, in row order, the printed text in the cell,
+  and one column per entry of the same table (the entries whose `group` fields agree — table number and
+  panel) under the column labels the paper prints and the outcome each estimates. The open entry's column
+  is tinted and editable; its siblings stand beside it read-only, each opening its own entry from its
+  heading and showing its own evidence from a cell. A standard-error (t, p, CI) row sits under the
+  coefficient it refers to, without a label of its own, as printed; statistics rows sit under a rule.
+  Everything the list showed is in the cell's tooltip; "▤ every field" switches back to the list, and the
+  choice is remembered.
+- Correcting the printed text of a cell ("0.94***" → "0.95***") carries the parsed number and the star
+  count along when they still matched the old text; an earlier independent correction of either stands.
+- A click on a printed cell pinpoints its number on the row of its label in the PDF (`display.locate`
+  over `cells` in both tables presets); stars and parentheses are stripped before the search.
+- `register-tables` and `econ-regression-tables` declare the sheet over `cells`.
+
 ### One paper, every side: the paper's documents across presets
 
 - **The paper's document strip.** Above the review panel, one pill per document of the open paper
