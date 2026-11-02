@@ -965,7 +965,11 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
             conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid",
                          (Json(field_values), record_id))
         elif patch:
-            row = conn.execute("SELECT field_values FROM record WHERE id = %s::uuid FOR UPDATE",
+            # NO KEY UPDATE, not UPDATE: the event insert above already holds a KEY SHARE on the
+            # record row (its foreign key), and so does a second edit's insert crossing on the
+            # wire — FOR UPDATE conflicts with that share and the two edits deadlock; NO KEY UPDATE
+            # serialises the writes among themselves and lets the inserts be
+            row = conn.execute("SELECT field_values FROM record WHERE id = %s::uuid FOR NO KEY UPDATE",
                                (record_id,)).fetchone()
             if row is None:
                 raise ValueError("Record not found.")

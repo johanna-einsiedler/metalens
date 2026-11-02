@@ -108,6 +108,40 @@ def test_two_edits_that_cross_on_the_wire_both_land() -> None:
     conn.close()
 
 
+def test_two_edits_at_the_same_moment_do_not_deadlock() -> None:
+    """The event insert holds a key-share lock on the record row (its foreign key); the cell write
+    then locks the row. Two edits arriving together — the page saving a printed cell and the parsed
+    number that follows it, or two coders — used to deadlock on FOR UPDATE; the write now takes
+    NO KEY UPDATE, which the inserts' share does not conflict with."""
+    _skip()
+    import threading
+    conn = records.connect(); records.init_db(conn)
+    rec = _record(conn, f"patch-{uuid.uuid4().hex[:6]}")
+    n, gate, errors = 25, threading.Barrier(2), []
+
+    def edits(path, values):
+        c = records.connect()
+        try:
+            gate.wait()
+            for v in values:
+                records.verify_record(c, rec["id"], status="corrected", patch=[{"field_path": path, "value": v}]); c.commit()
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{path}: {e!r}")
+        finally:
+            c.close()
+    ts = [threading.Thread(target=edits, args=("rows[0].es", [i / 100 for i in range(n)])),
+          threading.Thread(target=edits, args=("rows[2].es", [i / 10 for i in range(n)]))]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(timeout=60)
+    assert errors == [], errors
+    fv = records.get_record(conn, rec["id"])["field_values"]
+    assert [r["es"] for r in fv["rows"]] == [(n - 1) / 100, 0.2, (n - 1) / 10]
+    assert len(records.record_events(conn, rec["id"])) == 2 * n + 1          # + the seeding correction
+    conn.close()
+
+
 def test_only_the_owner_patches() -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)
