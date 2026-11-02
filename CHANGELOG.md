@@ -23,6 +23,12 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   count along when they still matched the old text; an earlier independent correction of either stands.
 - A click on a printed cell pinpoints its number on the row of its label in the PDF (`display.locate`
   over `cells` in both tables presets); stars and parentheses are stripped before the search.
+- With a sheet declared, the entry strip above the cards and the sidebar list one pill per **table**
+  (table number and panel), not one per column: a pill carries its verified-over-total column count and
+  the state of its columns, and opens the first column still to review; the columns are switched from
+  the sheet's headings. A paper with 45 regression columns in nine panels shows nine pills.
+- A sentence written as a column's outcome (a balance table's "one regression per row") is clipped in
+  the sheet's heading row, whole in its tooltip.
 - `register-tables` and `econ-regression-tables` declare the sheet over `cells`.
 
 ### One paper, every side: the paper's documents across presets

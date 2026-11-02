@@ -590,11 +590,13 @@ function docSubList() {
   const ordered = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues);
   const many = DATA.records.length > 1;
   const cur = !many ? null : PANEL_SEL === null ? (TRIAGE === "order" ? "paper" : ordered[0].i) : PANEL_SEL;
-  const item = (sel, label, status) =>
-    `<button class="docsub-item${cur === sel ? " active" : ""}" data-sel="${sel}" title="${esc(label)}${status ? " · " + esc(status) : ""}">`
-    + `<span class="docsub-title">${esc(shortTitle(label))}</span>${status ? `<span class="st-dot ${esc(status)}"></span>` : ""}</button>`;
+  const item = (sel, label, status, active = cur === sel, short = shortTitle(label)) =>
+    `<button class="docsub-item${active ? " active" : ""}" data-sel="${sel}" title="${esc(label)}${status ? " · " + esc(status) : ""}">`
+    + `<span class="docsub-title">${esc(short)}</span>${status ? `<span class="st-dot ${esc(status)}"></span>` : ""}</button>`;
+  const groups = sheetGroups(ordered);          // display.sheet: one item per table, its columns are side by side in the sheet
   return `<div class="docsub">` + (paperPanelHasContent() ? item("paper", "📄 Paper", "") : "")
-    + ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join("") + `</div>`;
+    + (groups ? groups.map((g) => item(g.open, `${g.label} · ${g.done} of ${g.n} verified`, g.status, g.active, `${g.label} ${g.done}/${g.n}`)).join("")
+             : ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join("")) + `</div>`;
 }
 
 // "Experiment PRISMA · Appraise systematic reviews …" → "Experiment PRISMA" for the narrow sidebar
@@ -1040,16 +1042,22 @@ function renderEntryNav(panel, recs) {
   const nav = document.createElement("div");
   nav.className = "rnav";
   const ordered = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues);
+  const groups = sheetGroups(ordered);
   nav.innerHTML = (paperPanelHasContent()
       ? `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>` : "")
-    + ordered.map(({ rec, i }) => {
+    + (groups ? groups.map((g) =>
+      `<button class="rnav-tab rnav-group${g.active ? " active" : ""}" data-sel="${g.open}" title="${esc(`${g.label} · ${g.done} of ${g.n} column${g.n === 1 ? "" : "s"} verified${g.needs ? ` · ${g.needs} to check` : ""}`)}">`
+        + `${esc(g.label)}<span class="dt-n">${g.done}/${g.n}</span><span class="st-dot ${esc(g.status)}"></span>`
+        + (g.worst ? renderConfDot(g.worst, VM.levels, `lowest confidence: ${g.worst}`) : "")
+        + (g.needs && g.status !== "verified" ? `<span class="needs">${g.needs}</span>` : "") + `</button>`).join("")
+    : ordered.map(({ rec, i }) => {
       const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
       const needs = entryNeeds(VM, EV, rec, DATA.issues);
       return `<button class="rnav-tab${PANEL_SEL === i ? " active" : ""}" data-sel="${i}" title="${esc(rec.verification_status)}${needs ? ` · ${needs} to check` : ""}">`
         + `${esc(entryTitle(VM, rec, i))}<span class="st-dot ${esc(rec.verification_status)}"></span>`
         + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
         + (needs && rec.verification_status !== "verified" ? `<span class="needs">${needs}</span>` : "") + `</button>`;
-    }).join("");
+    }).join(""));
   panel.appendChild(nav);
   nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
 }
@@ -1247,6 +1255,36 @@ function sheetTip(c, S, def) {
   }
   return parts.join(" · ");
 }
+// The strip and the sidebar list one TABLE per pill when a sheet is declared, not every column —
+// the columns stand side by side in the sheet and a sibling's heading opens it. A table's pill
+// carries its verified-over-total count and the state of its columns (verified when all are,
+// flagged when one is); a click opens its first column still to review, else its first.
+function sheetGroups(ordered) {
+  const S = sheetSpec(); if (!S) return null;
+  const groups = new Map();
+  for (const it of ordered) {
+    const key = sheetKey(it.rec, S);
+    if (!groups.has(key)) groups.set(key, { key, label: sheetLabel(it.rec, S), items: [] });
+    groups.get(key).items.push(it);
+  }
+  const rank = (l) => VM.levels.indexOf(String(l));
+  return [...groups.values()].map((g) => {
+    const sts = g.items.map(({ rec }) => rec.verification_status);
+    g.n = g.items.length; g.done = sts.filter((s) => s === "verified").length;
+    g.status = sts.some((s) => s === "flagged") ? "flagged" : g.done === g.n ? "verified" : "unverified";
+    g.needs = g.items.reduce((a, { rec }) => a + (rec.verification_status === "verified" ? 0 : entryNeeds(VM, EV, rec, DATA.issues)), 0);
+    g.worst = g.items.map(({ rec }) => worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) }))
+      .filter(Boolean).sort((a, b) => rank(b) - rank(a))[0] || null;
+    g.open = (g.items.find(({ rec }) => rec.verification_status !== "verified" && rec.verification_status !== "flagged") || g.items[0]).i;
+    g.active = g.items.some(({ i }) => i === PANEL_SEL);
+    return g;
+  });
+}
+function sheetLabel(rec, S) {
+  const fv = rec.field_values || {};
+  return (S.group || []).map((f) => fv[f]).filter((v) => v != null && String(v).trim() !== "").map(String).join(" · ")
+    || entryTitle(VM, rec, rec.entry_index);
+}
 function sheetToggle(list) {
   return `<div class="sh-foot"><button type="button" class="sh-toggle" title="${list ? "the cells laid out as the printed table" : "every cell with all its fields: row type, parsed value, the coefficient it belongs to"}">${list ? "▦ as printed" : "▤ every field"}</button></div>`;
 }
@@ -1269,7 +1307,10 @@ function renderSheet(rec, def) {
   }).join("");
   const hdrs = cols.map((r) => (S.header ? (r.field_values || {})[S.header] : null));
   const hdrRow = hdrs.some((h) => h != null && String(h).trim() !== "")
-    ? `<tr class="sh-hdr"><th></th>${cols.map((r, k) => `<th class="${r.id === rec.id ? "sh-me" : ""}">${hdrs[k] == null ? "" : esc(String(hdrs[k]))}</th>`).join("")}</tr>` : "";
+    ? `<tr class="sh-hdr"><th></th>${cols.map((r, k) => {
+        const h = hdrs[k] == null ? "" : String(hdrs[k]);                 // a pipeline may write a sentence here (a balance table's rows)
+        return `<th class="${r.id === rec.id ? "sh-me" : ""}" title="${esc(h)}">${esc(h.length > 40 ? h.slice(0, 39).trimEnd() + "…" : h)}</th>`;
+      }).join("")}</tr>` : "";
   let prevLabel = null, prevStat = false;
   const body = rows.map((row) => {
     const type = row.type == null ? "" : String(row.type);
