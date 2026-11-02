@@ -55,6 +55,22 @@ def main() -> int:
         check(heads.count() == 3, f"one column per entry of the same table ({heads.count()}; the other table's column is not among them)")
         check(sheet.locator("thead th.sh-col.sh-me").count() == 1 and "(1)" in sheet.locator("thead th.sh-col.sh-me").inner_text(), "the open entry's column is the tinted one, headed by its printed label")
         check(sheet.locator("thead tr.sh-hdr").count() == 1 and "Low-wage" in sheet.locator("thead tr.sh-hdr").inner_text(), "a second heading row carries each column's outcome")
+        long_th = sheet.locator("thead tr.sh-hdr th").nth(3)
+        check(long_th.inner_text().strip().endswith("…") and len(long_th.inner_text()) < 60 and "High school" in (long_th.get_attribute("title") or ""), "a sentence written as the outcome is clipped in the heading, whole in its tooltip")
+        # the strip and the sidebar list the tables, not every column
+        pills = page.locator(".rnav .rnav-tab.rnav-group")
+        check(pills.count() == 2 and [t.split("\n")[0].strip() for t in pills.all_inner_texts()][0].startswith("Table 3"), f"the strip lists the paper's tables ({pills.count()} pills for 4 columns)")
+        active = page.locator(".rnav .rnav-group.active")
+        check(active.count() == 1 and "0/3" in active.inner_text(), f"the open column's table is the active pill, with its verified count: {active.inner_text() if active.count() else '—'}")
+        subs = page.locator(".docsub .docsub-item")
+        check(subs.count() == 3 and "Table 4" in subs.nth(2).inner_text(), f"the sidebar lists Paper and the two tables ({subs.count()} items)")
+        page.locator(".rnav .rnav-group", has_text="Table 4").click()
+        page.wait_for_function("() => { const t = document.querySelector('.record .rectitle'); return t && t.textContent.includes('Table 4'); }", timeout=10000)
+        check(page.locator(".rnav .rnav-group.active").inner_text().startswith("Table 4"), "a table's pill opens its first column still to review")
+        page.locator(".rnav .rnav-group", has_text="Table 3").click()
+        page.wait_for_function("() => { const t = document.querySelector('.record .rectitle'); return t && t.textContent.includes('Table 3 col (1)'); }", timeout=10000)
+        sheet = page.locator(".record .sheet").first
+        me_cells = sheet.locator("tbody td.sh-me .sh-val")
         labels = [t.strip() for t in sheet.locator("tbody td.sh-lab").all_inner_texts()]
         print("       rows:", labels)
         check(labels[0] == "Import Competition" and labels[1] == "se", "the se row sits under its coefficient without a label of its own (its type in small print)")
@@ -82,6 +98,7 @@ def main() -> int:
         sheet.locator("thead th.sh-col[data-rid]").first.click()
         page.wait_for_function("() => { const h = document.querySelector('.record .sheet thead th.sh-col.sh-me'); return h && h.textContent.includes('(2)'); }", timeout=10000)
         check(True, "a sibling column's heading opens that entry, whose column is now the tinted one")
+        check(page.locator(".rnav .rnav-group.active").inner_text().startswith("Table 3"), "the table's pill stays active while its columns are switched")
         page.wait_for_timeout(300)
         page.screenshot(path=f"{a.shot}-sibling.png", full_page=True)
         # the list view
