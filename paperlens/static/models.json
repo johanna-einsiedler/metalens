@@ -909,6 +909,10 @@
       "in": 1.4,
       "out": 4.4
     },
+    "deepseek-v4-1-flash-1017": {
+      "in": 0.3,
+      "out": 1.2
+    },
     "zai-glm-5-3": {
       "in": 1.4,
       "out": 4.4
@@ -938,12 +942,12 @@
       "out": 0.6
     },
     "mistral-large-4": {
-      "in": 0.68,
-      "out": 2.09
+      "in": 1.36,
+      "out": 4.18
     },
     "mistral-large-4-0": {
-      "in": 0.68,
-      "out": 2.09
+      "in": 1.36,
+      "out": 4.18
     },
     "mistral-large-latest": {
       "in": 0.5,
@@ -1313,6 +1317,18 @@
       "in": 2.0,
       "out": 10.0
     },
+    "gpt-6.1-terra": {
+      "in": 1.0,
+      "out": 5.0
+    },
+    "gpt-6-rosalind": {
+      "in": 15.0,
+      "out": 75.0
+    },
+    "gpt-6-astra-law": {
+      "in": 10.0,
+      "out": 50.0
+    },
     "chatgpt-4o-latest": {
       "in": 5.0,
       "out": 15.0
@@ -1566,5 +1582,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-10-26T06:58:19Z"
+  "generated_at": "2026-11-02T06:37:55Z"
 }
