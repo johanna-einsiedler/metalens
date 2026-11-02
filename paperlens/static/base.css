@@ -155,6 +155,23 @@ a.doctabs-label:hover { color: var(--accent); }
 .jobstop { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px;
   padding: 0 2px; margin-left: 6px; line-height: 1; opacity: .6; }
 .jobstop:hover { color: var(--error); opacity: 1; }
+/* the documents of the open paper, one pill per preset (its tables, its claims …), above the
+   review panel: the pill of the open document is active, a sibling's pill switches to it;
+   green once every entry of that document is verified, orange while any is flagged */
+.docbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; padding: 0 0 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.docbar[hidden] { display: none; }
+.docbar-label { font-weight: 600; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-right: 2px; }
+.docbar-doc { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  color: var(--text-muted); cursor: pointer; padding: 3px 10px; font-size: 12px; max-width: 100%; }
+.docbar-doc .dbd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.docbar-doc:hover { border-color: var(--accent-3); color: var(--text); }
+.docbar-doc.active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); font-weight: 600; cursor: default; }
+.docbar-doc.reviewed { background: var(--success-bg); border-color: var(--success); }
+.docbar-doc.flagged { background: var(--flag-bg); border-color: var(--flag); }
+.docbar-doc.active.reviewed { color: var(--success); } .docbar-doc.active.flagged { color: var(--flag); }
+.docbar-doc .dt-n { font-size: 11px; background: var(--bg); border-radius: 8px; padding: 0 6px; }
+.docbar-doc.reviewed .dt-n, .docbar-doc.flagged .dt-n { background: var(--surface); }
+.docbar-hidden { font-size: 11.5px; }
 /* entry sub-nav in the records panel: Study information + one tab per table/record */
 .rnav { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; }
 .rnav-tab { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);

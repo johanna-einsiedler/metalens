@@ -516,6 +516,54 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
     ]
 
 
+def documents_for_paper(conn: psycopg.Connection, document_id: str, *,
+                        owner_user_id: str | None = None, session_id: str | None = None) -> dict | None:
+    """Every document of the SAME PAPER as ``document_id`` that the principal owns — the same PDF
+    (``pdf_sha256``) or the same paper row (DOI / title) — one per preset it was run or imported
+    under, with its review counts and the datasets its records sit in; plus the companion pairs
+    among those datasets (``dataset.companion_dataset_id``), so a claims document and the tables
+    document it is cross-checked against are known to belong together. Ownership is the
+    ``list_documents`` rule (the document's owner, or any of its records'); documents of the paper
+    the principal cannot see are only counted (``n_hidden``). None when the document is unknown."""
+    if not _is_uuid(document_id):
+        return None
+    me = conn.execute("SELECT paper_id, pdf_sha256 FROM extraction_document WHERE id = %s::uuid", (document_id,)).fetchone()
+    if me is None:
+        return None
+    paper_id, sha = (str(me[0]) if me[0] else None), me[1]
+    same = "((%s::text IS NOT NULL AND d.pdf_sha256 = %s) OR (%s::text IS NOT NULL AND d.paper_id::text = %s))"
+    same_args = (sha, sha, paper_id, paper_id)
+    rows = conn.execute(
+        f"""SELECT d.id, d.schema_id, d.created_at, d.filename, d.pdf_sha256,
+                   count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
+                   count(*) FILTER (WHERE r.verification_status = 'verified' AND NOT COALESCE(r.screened_empty, false)) AS n_verified,
+                   count(*) FILTER (WHERE r.verification_status = 'flagged' AND NOT COALESCE(r.screened_empty, false)) AS n_flagged,
+                   array_remove(array_agg(DISTINCT r.dataset_id::text), NULL) AS datasets
+            FROM extraction_document d
+            LEFT JOIN record r ON r.document_id = d.id
+            WHERE {same}
+            GROUP BY d.id
+            HAVING ((%s::text IS NOT NULL AND (d.owner_user_id::text = %s OR bool_or(r.owner_user_id::text = %s)))
+                    OR (%s::text IS NOT NULL AND ((d.session_id = %s AND d.owner_user_id IS NULL)
+                                                  OR bool_or(r.session_id = %s AND r.owner_user_id IS NULL))))
+            ORDER BY d.created_at""",
+        (*same_args, owner_user_id, owner_user_id, owner_user_id, session_id, session_id, session_id),
+    ).fetchall()
+    total = conn.execute(f"SELECT count(*) FROM extraction_document d WHERE {same}", same_args).fetchone()[0]
+    ds_ids = sorted({x for (*_, dss) in rows for x in (dss or [])})
+    dsets = {str(i): {"id": str(i), "title": t, "companion_dataset_id": c}
+             for (i, t, c) in conn.execute("SELECT id::text, title, companion_dataset_id::text FROM dataset WHERE id::text = ANY(%s)", (ds_ids,)).fetchall()} if ds_ids else {}
+    paper = conn.execute("SELECT title, doi FROM paper WHERE id = %s::uuid", (paper_id,)).fetchone() if paper_id else None
+    docs = [{"document_id": str(did), "schema_id": sid, "preset_id": (sid or "").split("@")[0], "created_at": ca.isoformat() if ca else None,
+             "filename": fn, "pdf_sha256": dsha, "n_records": n, "n_verified": nv, "n_flagged": nf, "mine": True,
+             "datasets": [dsets[x] for x in (dss or []) if x in dsets]}
+            for (did, sid, ca, fn, dsha, n, nv, nf, dss) in rows]
+    pairs = [{"dataset_id": d["id"], "companion_dataset_id": d["companion_dataset_id"]}
+             for d in dsets.values() if d["companion_dataset_id"] and d["companion_dataset_id"] in dsets]
+    return {"document_id": document_id, "pdf_sha256": sha, "paper": {"id": paper_id, "title": paper[0] if paper else None, "doi": paper[1] if paper else None},
+            "documents": docs, "companions": pairs, "n_hidden": max(0, int(total) - len(docs))}
+
+
 def list_papers(conn: psycopg.Connection, *, owner_user_id: str | None = None,
                 session_id: str | None = None, limit: int = 200) -> list[dict]:
     """The principal's distinct cached PDFs — one row per content hash — regardless of

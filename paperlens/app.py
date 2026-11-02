@@ -530,6 +530,24 @@ def document_view(document_id: str, db=Depends(get_db),
     return v
 
 
+@app.get("/api/documents/{document_id}/paper-documents")
+def paper_documents(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner-only: the documents of this paper the viewer owns, one per preset (the tables
+    document and the claims document of one article, say), each with its review counts, its
+    datasets and the companion pairs among them — what the workspace draws as the paper's
+    document strip, so a reviewer finishes a paper on both sides before moving to the next."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    out = records.documents_for_paper(db, document_id, owner_user_id=who.user_id, session_id=who.session_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    allp = presets.load_all()
+    for d in out["documents"]:
+        spec = allp.get(presets.resolve_id(d["preset_id"])) or {}
+        d["preset_title"] = ((spec.get("meta") or {}).get("title")) or d["preset_id"]
+    return out
+
+
 @app.get("/api/documents/{document_id}/locate")
 def locate_value(document_id: str, value: str, page: int, bands: str | None = None,
                  anchor: list[str] | None = Query(None), page_only: bool = False,

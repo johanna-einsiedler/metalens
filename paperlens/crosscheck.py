@@ -1,11 +1,14 @@
 """Two datasets that read the same papers from two sides, checked against each other.
 
 A dataset may name a COMPANION dataset (``dataset.companion_dataset_id``) when a registered
-check exists for the pair of presets. The first one: register-data claims against register-data
-tables — every table result a claim cites (table, panel, column, point estimate, written by the
-claims pass from the prose) is looked up in the companion's regression columns (transcribed
-cell by cell by the tables pass), and the printed coefficient must agree. Two passes agreeing
-on -1.292 is strong evidence both are right; disagreeing is a flag on one of them.
+check exists for the pair of presets. The first one: claims against transcribed regression
+tables (register-data tables, or the economics regression tables) — every table result a claim
+cites (table, panel, column, point estimate, written by the claims pass from the prose) is
+looked up in the companion's regression columns (transcribed cell by cell by the tables pass),
+and the printed coefficient must agree. Two passes agreeing on -1.292 is strong evidence both
+are right; disagreeing is a flag on one of them. A verdict that resolves a column also names
+that column's record (``companion_record_id``), so the review can open it: from a claim's
+result row to the regression column it cites, and from a column back to the claims citing it.
 
 Statuses per result row
   exact        the exhibit resolves and a coefficient cell equals the estimate
@@ -29,6 +32,7 @@ from . import records
 # (this preset, companion preset) → the row unit checked and the checker
 CHECKS: dict[tuple[str, str], dict] = {
     ("register-claims", "register-tables"): {"unit": "results", "label": "point estimates against the transcribed table cells"},
+    ("register-claims", "econ-regression-tables"): {"unit": "results", "label": "point estimates against the transcribed table cells"},
 }
 
 # ── the exhibit grammar (shared with scripts/import_danish.py and the pipeline's link_tables.py) ──
@@ -110,10 +114,15 @@ def preset_of(schema_id: str | None) -> str:
     return (schema_id or "").split("@")[0]
 
 
-def companion_preset(schema_id: str | None) -> str | None:
-    """The preset a dataset of this preset may be checked against, or None (no check registered)."""
+def companion_presets(schema_id: str | None) -> list[str]:
+    """The presets a dataset of this preset may be checked against (empty: no check registered)."""
     me = preset_of(schema_id)
-    return next((b for (a, b) in CHECKS if a == me), None)
+    return [b for (a, b) in CHECKS if a == me]
+
+
+def companion_preset(schema_id: str | None) -> str | None:
+    """The first of ``companion_presets`` (the payload's legacy singular), or None."""
+    return (companion_presets(schema_id) or [None])[0]
 
 
 def check_for(schema_id: str | None, companion_schema_id: str | None) -> dict | None:
@@ -146,6 +155,7 @@ def statuses(claim_rows: list[dict], regressions: list[dict]) -> list[dict]:
     for row in claim_rows:
         base = {k: row.get(k) for k in ("record_id", "path", "claim_id", "result_id", "source_table", "panel", "column", "point_estimate")}
         kind, whence = row.get("exhibit") or "table", row.get("value_from") or "printed"
+        base["companion_record_id"] = None            # the companion column's record, once one resolves
         if whence != "printed":
             out.append({**base, "status": "stated", "regression_id": None, "table_coefficients": [],
                         "detail": ("the paper states this number in its prose, not in the exhibit — the analysis is "
@@ -162,14 +172,16 @@ def statuses(claim_rows: list[dict], regressions: list[dict]) -> list[dict]:
             out.append({**base, "status": "unlinked", "regression_id": None, "table_coefficients": [],
                         "detail": f"no regression column for {row.get('source_table') or '?'}{' ' + str(row.get('panel')) if row.get('panel') else ''}{' ' + str(row.get('column')) if row.get('column') else ''} in the companion"}); continue
         if pt is None:
-            out.append({**base, "status": "no_estimate", "regression_id": cands[0]["regression_id"], "table_coefficients": cands[0]["coefficients"][:6],
-                        "detail": "the claim carries no estimate to check"}); continue
+            out.append({**base, "status": "no_estimate", "regression_id": cands[0]["regression_id"], "companion_record_id": cands[0].get("record_id"),
+                        "table_coefficients": cands[0]["coefficients"][:6], "detail": "the claim carries no estimate to check"}); continue
         hit = next((r for r in cands if any(num_match(float(pt), c) for c in r["coefficients"])), None)
         if hit:
-            out.append({**base, "status": "exact", "regression_id": hit["regression_id"], "table_coefficients": [c for c in hit["coefficients"] if num_match(float(pt), c)][:1],
+            out.append({**base, "status": "exact", "regression_id": hit["regression_id"], "companion_record_id": hit.get("record_id"),
+                        "table_coefficients": [c for c in hit["coefficients"] if num_match(float(pt), c)][:1],
                         "detail": f"a coefficient cell of {hit['regression_id']} equals {pt}"})
         else:
-            out.append({**base, "status": "mismatch", "regression_id": cands[0]["regression_id"], "table_coefficients": cands[0]["coefficients"][:6],
+            out.append({**base, "status": "mismatch", "regression_id": cands[0]["regression_id"], "companion_record_id": cands[0].get("record_id"),
+                        "table_coefficients": cands[0]["coefficients"][:6],
                         "detail": f"{len(cands)} column{'s' if len(cands) != 1 else ''} resolve but no coefficient cell equals {pt}"})
     return out
 
@@ -233,18 +245,19 @@ def run(conn, dataset_id: str, *, release: dict | None = None) -> dict | None:
         return None
     comp = companion_of(conn, d)
     applies = companion_preset(d.get("schema_id"))
+    head = {"companion_preset": applies, "companion_presets": companion_presets(d.get("schema_id"))}
     if release is not None and isinstance((release.get("snapshot") or {}).get("crosscheck"), dict):
         fz = release["snapshot"]["crosscheck"]
         c = records.get_dataset(conn, fz["companion_dataset_id"]) or {}
-        return {"applies": True, "companion_preset": applies, "companion": {"id": fz["companion_dataset_id"], "title": c.get("title"), "release": fz.get("companion_release")},
+        return {"applies": True, **head, "companion": {"id": fz["companion_dataset_id"], "title": c.get("title"), "release": fz.get("companion_release")},
                 "frozen": True, "unit": fz["unit"], "summary": summary(fz["rows"]), "rows": fz["rows"]}
     if not comp:
-        return {"applies": bool(applies), "companion_preset": applies, "companion": None, "frozen": False, "summary": None, "rows": []}
+        return {"applies": bool(applies), **head, "companion": None, "frozen": False, "summary": None, "rows": []}
     fz = frozen(conn, dataset_id)
     if fz is None:
-        return {"applies": bool(applies), "companion_preset": applies, "companion": comp, "frozen": False, "summary": None, "rows": [],
+        return {"applies": bool(applies), **head, "companion": comp, "frozen": False, "summary": None, "rows": [],
                 "note": "no check is registered for these two presets"}
-    return {"applies": True, "companion_preset": applies, "companion": comp, "frozen": False, "unit": fz["unit"],
+    return {"applies": True, **head, "companion": comp, "frozen": False, "unit": fz["unit"],
             "companion_unreleased": fz["companion_release"] is None, "summary": summary(fz["rows"]), "rows": fz["rows"]}
 
 

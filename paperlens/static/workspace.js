@@ -23,7 +23,10 @@ let STAGE = 0;                                           // the staged layout: w
 let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "", STAGE_GO = 0;   // its cursor over the stage's items, per paper and stage
 let MARKING = false;                                     // the coder's highlighter: a click on a page marks the sentence under it
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
-let AUX = { dataset: null, cross: null, concepts: null };   // per dataset: cross-check verdicts, concept ids (chain layout)
+let AUX = { dataset: null, cross: null, concepts: null, companion: null };   // per dataset: cross-check verdicts, concept ids, the companion dataset (chain layout)
+let PAPER = null;                                        // this paper's documents across presets (the strip above the panel) — /paper-documents
+let CITED = null;                                        // {record id → cross-check rows}: the claims citing this document's regression columns
+let REFOCUS = null;                                      // a deep-linked record to pulse again after an async re-render
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
 let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id?, error?} — this-round tracking
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
@@ -281,6 +284,7 @@ async function init() {
   mountTips();
   mountPdfZoom();
   mountKeys();
+  window.addEventListener("popstate", onPopState);
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
   PROJECT = q.get("project") || null;
@@ -332,6 +336,112 @@ async function init() {
 }
 
 function selectDoc(docId) { DOCID = docId; renderDocTabs(); load(docId); }
+
+// A sidebar tab is the open paper's when it is the open document — or, the open document being
+// one of the paper's siblings from another dataset (the strip above the panel), when it is that
+// paper's document in this list.
+function tabActive(d) {
+  if (d.document_id === DOCID) return true;
+  if (DOCS.some((x) => x.document_id === DOCID)) return false;
+  return ((PAPER && PAPER.documents) || []).some((x) => x.document_id === d.document_id);
+}
+
+// ── the paper's documents across presets: its tables, its claims … ───────────────────────────
+// Switch to another document of the SAME paper (a sibling): the sidebar keeps the dataset the
+// reviewer is walking through, the URL follows so Back returns, `rec` focuses one record there.
+function openSibling(id, rec = null) {
+  if (!id || id === DOCID) { if (rec) focusRecord(rec); return; }
+  const q = new URLSearchParams(location.search);
+  q.set("doc", id); if (rec) q.set("rec", rec); else q.delete("rec");
+  history.pushState({ doc: id, rec }, "", `${location.pathname}?${q}`);
+  FOCUS_REC = rec; DOCID = id; renderDocBar(); renderDocTabs(); load(id);   // the pill flips at once; the strip reloads with the document
+}
+function onPopState() {
+  const q = new URLSearchParams(location.search);
+  const d = q.get("doc") || (DOCS[0] || {}).document_id;     // the landing URL names no document: its first
+  if (!d || d === DOCID) return;
+  FOCUS_REC = q.get("rec") || null; DOCID = d; renderDocBar(); renderDocTabs(); load(d);
+}
+
+// The documents of this paper the reviewer owns, one per preset → the strip above the panel.
+async function loadPaperDocs(docId) {
+  let p = null;
+  try { p = await api.paperDocuments(docId); } catch { p = null; }
+  if (DOCID !== docId) return;
+  PAPER = p; renderDocBar(); renderDocTabs();
+}
+
+// One pill per document of the paper (the preset's title, verified / total), the open one active;
+// green once every entry of a document is verified, orange while any is flagged. Hidden for a
+// paper with one document only.
+function renderDocBar() {
+  const bar = $("#docbar"); if (!bar) return;
+  const docs = (PAPER && PAPER.documents) || [];
+  if (docs.length < 2) { bar.hidden = true; bar.innerHTML = ""; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<span class="docbar-label" title="the documents of this paper you own, one per preset — finish the paper on every side before moving on">This paper</span>`
+    + docs.map((d) => {
+      const cur = d.document_id === DOCID, shade = docShade(d);
+      const sets = (d.datasets || []).map((x) => x.title).filter(Boolean).join(", ");
+      const tip = `${d.preset_title || d.preset_id}${sets ? ` · ${sets}` : ""} · ${d.n_verified} of ${d.n_records} verified${d.n_flagged ? `, ${d.n_flagged} flagged` : ""}${cur ? "" : " — click to switch"}`;
+      return `<button type="button" class="docbar-doc${cur ? " active" : ""}${shade ? " " + shade : ""}" data-id="${esc(d.document_id)}" title="${esc(tip)}"${cur ? ' aria-current="page"' : ""}>`
+        + `<span class="dbd-name">${esc(d.preset_title || d.preset_id)}</span><span class="dt-n">${d.n_verified}/${d.n_records}</span></button>`;
+    }).join("")
+    + (PAPER.n_hidden ? `<span class="docbar-hidden muted" title="documents of this paper by another account — not yours to open">· ${PAPER.n_hidden} more by another account</span>` : "");
+  bar.querySelectorAll(".docbar-doc[data-id]").forEach((b) => (b.onclick = () => openSibling(b.dataset.id)));
+}
+
+// The paper's document (not this one) whose records sit in `datasetId` — the companion side.
+function siblingDoc(datasetId) {
+  if (!datasetId) return null;
+  return ((PAPER && PAPER.documents) || []).find((d) => d.document_id !== DOCID && (d.datasets || []).some((x) => x.id === datasetId)) || null;
+}
+function currentDatasetIds() {
+  const me = ((PAPER && PAPER.documents) || []).find((d) => d.document_id === DOCID);
+  return me ? (me.datasets || []).map((x) => x.id) : (PROJECT ? [PROJECT] : []);
+}
+
+// The claims citing this document's regression columns: from every claims dataset whose
+// companion is one of this document's datasets, the cross-check rows that resolved to a record
+// here — drawn under each column's title as links into the claims document of this paper.
+async function loadCitedBy(docId) {
+  CITED = null;
+  const mine = new Set(currentDatasetIds());
+  const pairs = ((PAPER && PAPER.companions) || []).filter((p) => mine.has(p.companion_dataset_id));
+  if (!pairs.length) return;
+  const here = new Set((DATA.records || []).map((r) => r.id));
+  const out = {};
+  for (const p of pairs) {
+    const sib = siblingDoc(p.dataset_id); if (!sib) continue;
+    let cross = null;
+    try { cross = await api.crosscheck(p.dataset_id); } catch { continue; }
+    if (DOCID !== docId) return;
+    for (const r of (cross && cross.rows) || []) {
+      if (!r.companion_record_id || !here.has(r.companion_record_id)) continue;
+      (out[r.companion_record_id] = out[r.companion_record_id] || []).push({ ...r, document_id: sib.document_id, preset_title: sib.preset_title });
+    }
+  }
+  if (DOCID !== docId || !Object.keys(out).length) return;
+  CITED = out;
+  if (!RAW) renderPanel();
+  if (REFOCUS) { focusRecord(REFOCUS); REFOCUS = null; }
+}
+const CC_GLYPH = { exact: "✓", mismatch: "✗", no_estimate: "?" };
+function citedByHtml(rec) {
+  const rows = CITED && CITED[rec.id];
+  if (!rows || !rows.length) return "";
+  return `<div class="cited-by"><span class="k">cited by</span>` + rows.map((r) =>
+    `<a class="cited-link cc-${esc(r.status)}" href="/workspace?doc=${esc(r.document_id)}&rec=${esc(r.record_id)}" data-doc="${esc(r.document_id)}" data-rec="${esc(r.record_id)}"`
+    + ` title="${esc(r.detail || r.status)} — open claim ${esc(r.claim_id || "")} in ${esc(r.preset_title || "the claims document")}">${esc(r.claim_id || "?")}${r.result_id ? ` · ${esc(r.result_id)}` : ""} ${CC_GLYPH[r.status] || ""}</a>`).join("") + `</div>`;
+}
+// Links into a sibling document switch in place (Back returns); a modifier click opens a tab.
+function wireSiblingLinks(root) {
+  root.querySelectorAll("a[data-doc][data-rec]").forEach((a) => (a.onclick = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault(); e.stopPropagation();
+    openSibling(a.dataset.doc, a.dataset.rec);
+  }));
+}
 
 // While a parallel extraction round finishes, poll for siblings still processing and
 // slot them into the sidebar as they land. Stops once things go quiet (~40s idle).
@@ -440,9 +550,10 @@ function renderDocTabs() {
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
     const shade = docShade(d);
-    return `<button class="doctab${d.document_id === DOCID ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
+    const active = tabActive(d);
+    return `<button class="doctab${active ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
       + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${d.n_records}</span></button>`
-      + (d.document_id === DOCID ? docSubList() : "");     // the open paper's parts, one line each
+      + (active ? docSubList() : "");                      // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
   // Hidden until the first status check (JOBS_POLLED) so a refresh of already-finished
@@ -549,8 +660,11 @@ async function load(docId) {
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   paintMarks(DATA.highlights || []);
   renderPanel();
-  if (FOCUS_REC) { focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
+  if (FOCUS_REC) { REFOCUS = FOCUS_REC; focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
+  await loadPaperDocs(docId);
+  if (DOCID !== docId) return;
   if (chainSpec()) loadChainAux(docId);
+  loadCitedBy(docId);
 }
 
 // Scroll to a specific record's card, pulse it, and flash its first evidence (from a
@@ -968,6 +1082,7 @@ function renderRecordCard(panel, rec) {
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
+    + citedByHtml(rec)
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
     // the verdict comes last: a coder reaches it after every field, not before
@@ -1231,6 +1346,7 @@ function wireCard(card, rec) {
     card.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("hidden", p.dataset.vi !== vi));
   }));
   wireConfBadges(card);
+  wireSiblingLinks(card);
   if (VM.legacy) linkValueCells(card, recordEvidence(rec));
   else linkCells(card, rec);
   card.querySelectorAll(".vbtn").forEach((b) =>
@@ -1357,6 +1473,13 @@ function refreshNavState() {
     me.n_flagged = recs.filter((r) => r.verification_status === "flagged").length;
     const tab = document.querySelector(`#doctabs .doctab[data-id="${DOCID}"]`);
     if (tab) { tab.classList.remove("reviewed", "flagged"); const s = docShade(me); if (s) tab.classList.add(s); }
+  }
+  const pd = ((PAPER && PAPER.documents) || []).find((d) => d.document_id === DOCID);
+  if (pd) {
+    const recs = DATA.records || [];
+    pd.n_verified = recs.filter((r) => r.verification_status === "verified").length;
+    pd.n_flagged = recs.filter((r) => r.verification_status === "flagged").length;
+    renderDocBar();
   }
 }
 
@@ -1495,7 +1618,7 @@ const SIGN_GLYPH = { "+": "+", "-": "−", "0": "0", "mixed": "±" };
 
 async function loadChainAux(docId) {
   const ds = PROJECT || ((DATA.records || [])[0] || {}).dataset_id || null;
-  if (!ds) { AUX = { dataset: null, cross: null, concepts: null }; return; }
+  if (!ds) { AUX = { dataset: null, cross: null, concepts: null, companion: null }; return; }
   if (AUX.dataset === ds && AUX.cross !== undefined) { /* refresh anyway: verdicts follow edits */ }
   const [cross, vocabs] = await Promise.all([api.crosscheck(ds).catch(() => null), api.vocabularies(ds).catch(() => ({ vocabularies: [] }))]);
   let concepts = null;
@@ -1513,8 +1636,11 @@ async function loadChainAux(docId) {
   }
   const byKey = {};
   for (const r of (cross && cross.rows) || []) byKey[`${r.record_id}|${r.path}`] = r;
-  AUX = { dataset: ds, cross: cross && cross.companion ? byKey : null, concepts };
-  if (DOCID === docId && chainSpec() && !CHAIN_OFF && !GRID && !RAW) renderPanel();
+  AUX = { dataset: ds, cross: cross && cross.companion ? byKey : null, concepts, companion: (cross && cross.companion) || null };
+  if (DOCID === docId && chainSpec() && !CHAIN_OFF && !GRID && !RAW) {
+    renderPanel();
+    if (REFOCUS) { focusRecord(REFOCUS); REFOCUS = null; }
+  }
 }
 
 function chainEdges(rv) {
@@ -1682,6 +1808,9 @@ function renderChainCard(panel, rec, rv) {
         : verdict.status === "mismatch" ? `<span class="chain-chk mismatch" title="${esc(verdict.detail || "")}">✗ DISAGREES with the table extraction</span>`
         : verdict.status === "figure" ? `<span class="chain-chk unchecked">a figure · nothing to transcribe against</span>`
         : `<span class="chain-chk unchecked" title="${esc(verdict.detail || "")}">${esc(verdict.status === "unlinked" ? "no matching table column" : verdict.status.replace("_", " "))}</span>`;
+      const sib = verdict && verdict.companion_record_id && AUX.companion ? siblingDoc(AUX.companion.id) : null;
+      const open = sib ? ` <a class="chain-open" href="/workspace?doc=${esc(sib.document_id)}&rec=${esc(verdict.companion_record_id)}" data-doc="${esc(sib.document_id)}" data-rec="${esc(verdict.companion_record_id)}"`
+        + ` title="open this regression column in ${esc(sib.preset_title || "the tables document")} of this paper">column ↗</a>` : "";
       const ex = (R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" ");
       const val = row[R.value], se = R.se ? row[R.se] : null;
       const rel = (which) => { const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return ""; return v === "direct" ? `<span class="tag">direct measure</span>` : `<span class="tag warn">${esc(v === "assignment" ? "assignment indicator (stands in for the cause)" : v)}</span>`; };
@@ -1695,7 +1824,7 @@ function renderChainCard(panel, rec, rv) {
         + (ids ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page || 1}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p. ${page || "?"}</button>` : "")
         + ` <span class="chain-num"><span class="rv-editable rv-num rv-empty" data-path="${esc(path)}.${esc(R.value)}" contenteditable="plaintext-only" title="the point estimate — click to correct it">${val === null || val === undefined ? "" : esc(String(val))}</span>`
         + (R.se ? ` (<span class="rv-editable rv-num rv-empty" data-path="${esc(path)}.${esc(R.se)}" contenteditable="plaintext-only" title="the standard error — click to correct it">${se === null || se === undefined ? "" : esc(String(se))}</span>)` : "")
-        + `</span> ${stratum}${chk}${signOpp}${role}<button type="button" class="chain-resdel" data-j="${j}" title="remove this result row from the claim">✕</button></div>`
+        + `</span> ${stratum}${chk}${open}${signOpp}${role}<button type="button" class="chain-resdel" data-j="${j}" title="remove this result row from the claim">✕</button></div>`
         + (R.row && row[R.row] ? `<div class="chain-rowlab muted">${esc(row[R.row])}</div>` : "")
         + (R.cause ? `<div class="chain-op"><span class="k">cause</span><span>${esc(row[R.cause] || "—")} ${rel("cause")}</span></div>` : "")
         + (R.effect ? `<div class="chain-op"><span class="k">effect</span><span>${esc(row[R.effect] || "—")} ${rel("effect")}</span></div>` : "")
@@ -1774,6 +1903,7 @@ function renderChainCard(panel, rec, rv) {
     b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
     b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
   });
+  wireSiblingLinks(card);
   const ed = card.querySelector(".chain-edge"); if (ed) ed.onclick = () => chainFocus(CHAIN_FOCUS === edgeKey ? null : edgeKey, false);
   card.addEventListener("click", () => { document.querySelectorAll(".chain-card").forEach((c) => c.classList.remove("cur")); card.classList.add("cur"); });
   panel.appendChild(card);
@@ -1860,7 +1990,7 @@ function reviewToggleTitle() {
 // model's ratings of the paper-level groups (design, sample …).
 function renderReviewHead(panel) {
   const pr = docProgress();
-  const i = DOCS.findIndex((d) => d.document_id === DOCID);
+  const i = DOCS.findIndex((d) => tabActive(d));            // a sibling from another dataset: its paper's place here
   const pm = DATA.paper_metadata || {};
   const title = pm.title || (DATA.paper || {}).title || (DOCS[i] || {}).title || (DOCS[i] || {}).filename || "";
   const head = document.createElement("div"); head.className = "chain-head";

@@ -47,9 +47,13 @@ def test_matching_rules() -> None:
     assert [r["status"] for r in out] == ["exact", "exact", "exact", "mismatch", "unlinked", "no_estimate", "figure", "stated", "unlinked"]
     assert "states this number in its prose" in out[7]["detail"] and "Figure 3" in out[7]["detail"]
     assert out[0]["regression_id"] == "T3::_::C1" and out[3]["table_coefficients"] == [-1.292, 0.4]
+    # a verdict that resolves a column names that column's record (the link both review sides open); the rest carry None
+    assert [r["companion_record_id"] for r in out] == ["x", "x", "x", "x", None, "x", None, None, None]
     assert cc.summary(out) == {"exact": 3, "mismatch": 1, "unlinked": 2, "no_estimate": 1, "figure": 1, "stated": 1}
     assert cc.companion_preset("register-claims@abc") == "register-tables" and cc.companion_preset("human-ai-collab@x") is None
+    assert cc.companion_presets("register-claims@abc") == ["register-tables", "econ-regression-tables"] and cc.companion_presets("register-tables@1") == []
     assert cc.check_for("register-claims@1", "register-tables@2")["unit"] == "results" and cc.check_for("register-tables@2", "register-claims@1") is None
+    assert cc.check_for("register-claims@1", "econ-regression-tables@9")["unit"] == "results"    # the economics tables are the other transcription
 
 
 def test_column_release_export_and_api() -> None:
@@ -63,7 +67,8 @@ def test_column_release_export_and_api() -> None:
     tables_ds, tdoc = _seed(conn, TABLES, "register-tables", sess)
     c, stranger = TestClient(appmod.app), TestClient(appmod.app)
     # nothing shows without a companion; the check only says it applies
-    assert c.get(f"/api/datasets/{claims_ds}/crosscheck", headers=mine).json() == {"applies": True, "companion_preset": "register-tables", "companion": None, "frozen": False, "summary": None, "rows": []}
+    assert c.get(f"/api/datasets/{claims_ds}/crosscheck", headers=mine).json() == {"applies": True, "companion_preset": "register-tables", "companion_presets": ["register-tables", "econ-regression-tables"],
+                                                                                   "companion": None, "frozen": False, "summary": None, "rows": []}
     assert c.get(f"/api/datasets/{tables_ds}/crosscheck", headers=mine).json()["applies"] is False
     assert "_crosscheck" not in {col["name"] for col in at.build(conn, claims_ds, "results", owner=True)["columns"]}
     # setting the companion: mine, of the registered preset pair
