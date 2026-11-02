@@ -32,6 +32,7 @@ export function viewModel(DATA) {
     citationFlash: !(spec.display && spec.display.citation_flash === false),   // false: only the located value blinks
     inlineEvidence: !!(spec.display && spec.display.inline_evidence),          // each field's note and quotes under it
     locate: (spec.display && spec.display.locate) || {},   // table field → how a clicked number is pinpointed
+    sheet: (spec.display && spec.display.sheet) || null,   // a table field drawn as the printed table (workspace)
     tabs: [],
     fieldIndex: new Map(),
   };

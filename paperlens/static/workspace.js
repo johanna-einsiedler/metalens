@@ -34,6 +34,7 @@ let ACCOUNT = false;  // logged in? (exports need no account; kept for owner-onl
 let VM = null, EV = null;   // the preset's view model + the evidence index for the loaded document
 let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
+let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 
 // Drag the splitter to resize the entries panel; width persists across sessions — one width
@@ -1141,7 +1142,13 @@ function renderEntryBody(rec) {
     if (defs.length && VM.inlineEvidence) {             // each field, then its note and its quotes
       const shown = new Set();
       html += `<div class="rv-root">${defs.map((f) => renderFields([f], fv, "", eopts) + inlineEvidence(rec, f, shown)).join("")}</div>`;
-    } else if (defs.length) html += `<div class="rv-root">${renderFields(defs, fv, "", eopts)}</div>`;
+    } else if (defs.length) {
+      // display.sheet: the declared table field drawn as the printed table (the other fields of the
+      // tab above it); the generic typed table one click away, for the columns the sheet folds into tooltips
+      const S = sheetSpec(), sdef = S ? defs.find((f) => f.name === S.field) : null;
+      if (sdef && !SHEET_LIST) html += `<div class="rv-root">${renderFields(defs.filter((f) => f !== sdef), fv, "", eopts)}</div>${renderSheet(rec, sdef)}`;
+      else html += `<div class="rv-root">${renderFields(defs, fv, "", eopts)}</div>${sdef ? sheetToggle(true) : ""}`;
+    }
     for (const ch of children) {
       const cites = EV.tableCites.get(`${rec.id}|${ch.key}`);
       html += `<div class="rv-row rv-row-block rv-decl" data-field="${esc(ch.key)}"><div class="rv-key" data-path="${esc(ch.key)}" title="${esc(ch.help || "")}">`
@@ -1163,6 +1170,177 @@ function renderEntryBody(rec) {
   }).join("");
   const panels = tabs.map(({ html }, i) => `<div class="subpanel${i === 0 ? "" : " hidden"}" data-vi="${i}">${html}</div>`).join("");
   return `<div class="subtabs">${strip}</div><div class="subpanels">${panels}</div>`;
+}
+
+// ── display.sheet: a table field as the printed table ──────────────────────────
+// One row per printed row, one column per entry of the same table (the entries whose `group`
+// fields agree: table number, panel), the cell's printed text in each. This entry's column is
+// the editable one; its siblings stand beside it for context, read-only, each opening its own
+// entry on a click. A standard-error (t, p, CI) row sits under its coefficient (`refers_to`),
+// whatever its own label says; statistics rows sit under a rule, as printed.
+const SHEET_SUB = new Map([["se", "se"], ["t_stat", "t"], ["p_value", "p"], ["ci", "CI"]]);
+function sheetSpec() {
+  const S = VM && VM.sheet;
+  const info = S && VM.fieldIndex.get(S.field);
+  return info && info.scope === "entry" && info.field.type === "table" ? S : null;
+}
+function sheetNorm(v) { return String(v == null ? "" : v).trim().toLowerCase().replace(/\s+/g, " "); }
+function sheetKey(rec, S) { return (S.group || []).map((f) => sheetNorm((rec.field_values || {})[f])).join("|"); }
+function sheetCells(rec, S) { const v = (rec.field_values || {})[S.field]; return Array.isArray(v) ? v : []; }
+// the entries of this entry's table, in printed order: col_index when the cells carry it, else as extracted
+function sheetCols(rec, S) {
+  const key = sheetKey(rec, S);
+  const pos = (r) => { const c = S.col_index ? (sheetCells(r, S)[0] || {})[S.col_index] : null; return c == null || c === "" || !Number.isFinite(+c) ? null : +c; };
+  return (DATA.records || []).filter((r) => sheetKey(r, S) === key)
+    .map((r, k) => ({ r, p: pos(r), e: r.entry_index == null ? k : r.entry_index }))
+    .sort((a, b) => (a.p != null && b.p != null && a.p !== b.p) ? a.p - b.p : a.e - b.e).map((x) => x.r);
+}
+// the printed rows across the columns: this column's rows first, a sibling's rows folded in where
+// they fall — a row the sheet lacks goes right before the sibling's next row the sheet has (a table
+// adds rows at the end of a block more often than at its start), else after its last one. Two cells
+// are the same row when label and type agree (for an se row: its coefficient's row and its type).
+function sheetRows(cols, S) {
+  const rows = [], index = new Map();
+  const posOf = (c, i) => { const v = S.row_index && c ? c[S.row_index] : null; return v == null || !Number.isFinite(+v) ? i : +v; };
+  for (const r of cols) {
+    const cells = sheetCells(r, S);
+    const order = cells.map((_, i) => i).sort((a, b) => posOf(cells[a], a) - posOf(cells[b], b));
+    const seen = new Map(), keyAt = new Map();
+    let last = -1, pending = [];
+    const flush = (at) => { for (const row of pending) rows.splice(at++, 0, row); pending = []; return at; };
+    for (const i of order) {
+      const c = cells[i] && typeof cells[i] === "object" ? cells[i] : {};
+      const type = S.row_type ? sheetNorm(c[S.row_type]) : "";
+      let base = null;
+      if (S.refers_to && S.row_index && c[S.refers_to] != null) {
+        const j = cells.findIndex((x) => x && typeof x === "object" && x[S.row_index] != null && +x[S.row_index] === +c[S.refers_to]);
+        if (j >= 0 && keyAt.has(j)) base = `${keyAt.get(j)}>${type}`;
+      }
+      if (base === null) base = `${sheetNorm(c[S.row_label])}|${type}`;
+      const n = seen.get(base) || 0; seen.set(base, n + 1);
+      const key = `${base}#${n}`;
+      keyAt.set(i, key);
+      let row = index.get(key);
+      if (row) { last = flush(rows.indexOf(row)); row.at.set(r.id, i); }
+      else { row = { key, label: c[S.row_label], type: S.row_type ? c[S.row_type] : null, at: new Map([[r.id, i]]) }; index.set(key, row); pending.push(row); }
+    }
+    flush(last + 1);
+  }
+  return rows;
+}
+// what the sheet folds into a cell's tooltip: its type, parsed value, stars, the row it belongs to, and
+// every other column of the cell that carries something
+function sheetTip(c, S, def) {
+  const byName = new Map((def.columns || []).map((x) => [x.name, x]));
+  const lab = (n) => ((byName.get(n) || {}).label || formatKey(n)).toLowerCase();
+  const parts = [];
+  if (S.row_type && c[S.row_type] != null) parts.push(String(c[S.row_type]).replace(/_/g, " "));
+  if (S.numeric && c[S.numeric] != null) parts.push(`${lab(S.numeric)} ${c[S.numeric]}`);
+  if (S.stars && c[S.stars]) parts.push(`${c[S.stars]} star${+c[S.stars] === 1 ? "" : "s"}`);
+  if (S.refers_to && c[S.refers_to] != null) parts.push(`belongs to row ${c[S.refers_to]}`);
+  if (S.row_index && c[S.row_index] != null) parts.push(`row ${c[S.row_index]}`);
+  const shown = new Set([S.value, S.row_label, S.row_type, S.numeric, S.stars, S.refers_to, S.row_index, S.col_index, S.column_label, "_rid"]);
+  for (const k of Object.keys(c)) {
+    const v = c[k];
+    if (shown.has(k) || v == null || v === "" || v === false || v === 0) continue;
+    parts.push(`${lab(k)}: ${typeof v === "object" ? JSON.stringify(v) : v}`);
+  }
+  return parts.join(" · ");
+}
+function sheetToggle(list) {
+  return `<div class="sh-foot"><button type="button" class="sh-toggle" title="${list ? "the cells laid out as the printed table" : "every cell with all its fields: row type, parsed value, the coefficient it belongs to"}">${list ? "▦ as printed" : "▤ every field"}</button></div>`;
+}
+function renderSheet(rec, def) {
+  const S = sheetSpec();
+  const fv = rec.field_values || {};
+  const cols = sheetCols(rec, S), rows = sheetRows(cols, S);
+  const cap = (S.group || []).map((f) => fv[f]).filter((v) => v != null && String(v).trim() !== "").map(String).join(" · ");
+  const title = S.caption && fv[S.caption] != null ? String(fv[S.caption]) : "";
+  const colLabel = (r) => {
+    const own = S.column ? (r.field_values || {})[S.column] : null;
+    if (own != null && String(own).trim() !== "") return String(own);
+    const printed = S.column_label ? (sheetCells(r, S)[0] || {})[S.column_label] : null;
+    return printed != null && String(printed).trim() !== "" ? String(printed) : entryTitle(VM, r, r.entry_index);
+  };
+  const heads = cols.map((r) => {
+    const me = r.id === rec.id, st = r.verification_status || "unverified";
+    return `<th class="sh-col${me ? " sh-me" : ""}"${me ? ` title="this column"` : ` data-rid="${esc(r.id)}" title="${esc(`${entryTitle(VM, r, r.entry_index)} · ${st} — open it`)}"`}>`
+      + `${esc(colLabel(r))}${me ? "" : `<span class="st-dot ${esc(st)}"></span>`}</th>`;
+  }).join("");
+  const hdrs = cols.map((r) => (S.header ? (r.field_values || {})[S.header] : null));
+  const hdrRow = hdrs.some((h) => h != null && String(h).trim() !== "")
+    ? `<tr class="sh-hdr"><th></th>${cols.map((r, k) => `<th class="${r.id === rec.id ? "sh-me" : ""}">${hdrs[k] == null ? "" : esc(String(hdrs[k]))}</th>`).join("")}</tr>` : "";
+  let prevLabel = null, prevStat = false;
+  const body = rows.map((row) => {
+    const type = row.type == null ? "" : String(row.type);
+    const sub = SHEET_SUB.has(type), stat = type.startsWith("statistic"), rule = stat && !prevStat;
+    prevStat = stat;
+    const labelTxt = row.label == null ? "" : String(row.label);
+    if (type === "panel_header") { prevLabel = null; return `<tr class="sh-panel"><td colspan="${cols.length + 1}">${esc(labelTxt)}</td></tr>`; }
+    const hide = sub && (labelTxt.trim() === "" || sheetNorm(labelTxt) === prevLabel);    // as printed: the se row carries no label of its own
+    if (!sub) prevLabel = sheetNorm(labelTxt);
+    const cells = cols.map((r) => {
+      const me = r.id === rec.id, i = row.at.get(r.id);
+      if (i == null) return `<td class="sh-cell sh-blank${me ? " sh-me" : ""}"></td>`;
+      const c = sheetCells(r, S)[i] || {}, v = c[S.value], t = sheetTip(c, S, def), text = v == null ? "" : esc(String(v));
+      if (me) return `<td class="sh-cell sh-me"><span contenteditable="plaintext-only" class="rv-editable sh-val${text === "" ? " rv-empty" : ""}" data-path="${esc(`${S.field}[${i}].${S.value}`)}" title="${esc(t)}">${text}</span></td>`;
+      return `<td class="sh-cell sh-sib" data-rid="${esc(r.id)}" data-ci="${i}" title="${esc(t)}">${text}</td>`;
+    }).join("");
+    return `<tr class="sh-row${sub ? " sh-sub" : ""}${stat ? " sh-stat" : ""}${rule ? " sh-rule" : ""}">`
+      + `<td class="sh-lab" title="${esc(labelTxt + (type ? ` · ${type.replace(/_/g, " ")}` : ""))}">${hide ? "" : esc(labelTxt)}${sub ? `<span class="sh-type">${esc(SHEET_SUB.get(type))}</span>` : ""}</td>${cells}</tr>`;
+  }).join("");
+  return `<div class="sheet" data-field="${esc(S.field)}"><div class="sh-cap">${esc(cap || def.label || S.field)}`
+    + `${title ? ` <span class="muted">${esc(title)}</span>` : ""}${cols.length > 1 ? ` <span class="muted sh-n">· ${cols.length} columns, this one tinted</span>` : ""}</div>`
+    + `<div class="rv-tablewrap"><table class="sh-t"><thead><tr><th class="sh-lab"></th>${heads}</tr>${hdrRow}</thead><tbody>${body}</tbody></table></div>`
+    + sheetToggle(false) + `</div>`;
+}
+// The printed text is the value of record: when the coder corrects it, the parsed number and the
+// star count follow — provided they still matched the old text (an independent correction stands).
+function parsePrinted(v) {
+  const s = v == null ? "" : String(v);
+  const m = /-?\d[\d,]*(\.\d+)?/.exec(s.replace(/−/g, "-").replace(/[()[\]*†‡§]/g, " "));
+  const num = m ? Number(m[0].replace(/,/g, "")) : NaN;
+  return { num: Number.isFinite(num) ? num : null, stars: (s.match(/\*/g) || []).length };
+}
+function sheetFollow(rec, card, path, newVal, origVal) {
+  const S = sheetSpec(); if (!S) return;
+  const m = /^(\w+)\[(\d+)\]\.(\w+)$/.exec(path || "");
+  if (!m || m[1] !== S.field || m[3] !== S.value) return;
+  const base = `${S.field}[${m[2]}]`, was = parsePrinted(origVal), now = parsePrinted(newVal);
+  const follow = (col, from, to) => {
+    if (!col || from === to) return;
+    const cur = curVal(rec, `${base}.${col}`);
+    const matched = cur == null || cur === from || (typeof cur === "number" && typeof from === "number" && Math.abs(cur - from) < 1e-9);
+    if (matched && cur !== to) saveFieldEdit(rec, card, `${base}.${col}`, to, cur);
+  };
+  follow(S.numeric, was.num, now.num);
+  follow(S.stars, was.stars, now.stars);
+}
+function wireSheet(card, rec) {
+  const S = sheetSpec(); if (!S) return;
+  card.querySelectorAll(".sh-toggle").forEach((b) => (b.onclick = () => {
+    SHEET_LIST = !SHEET_LIST;
+    try { localStorage.setItem("metalens_sheet", SHEET_LIST ? "list" : "printed"); } catch { /* */ }
+    rerenderCard(card, rec);
+  }));
+  card.querySelectorAll("th.sh-col[data-rid]").forEach((th) => (th.onclick = () => focusRecord(th.dataset.rid)));
+  // a sibling's cell: its own column's evidence (the table it was read from), the number pinpointed on its row
+  card.querySelectorAll("td.sh-sib[data-rid]").forEach((td) => {
+    const r = (DATA.records || []).find((x) => x.id === td.dataset.rid); if (!r) return;
+    const p = `${S.field}[${td.dataset.ci}].${S.value}`;
+    const hit = evidenceFor(EV, VM, r.id, p);
+    if (!hit) { td.onclick = () => locateAndFlash(td); return; }
+    td.classList.add(hit.kind === "exact" ? "rv-cited" : "rv-covered");
+    td.onmouseenter = () => showEvidence(hit.ids); td.onmouseleave = () => hideEvidence(hit.ids);
+    td.onclick = () => verifyAndJump(td, { ids: hit.ids, page: DATA.evidence[citeFor(td, hit.ids)].page, exact: hit.kind === "exact", kind: hit.kind, locate: tableLocate(r, p) });
+  });
+}
+// the text a cell is searched by in the PDF: a printed-table cell ("-1.292***", "(0.382)") by its bare number
+function cellText(cell) {
+  const t = (cell.textContent || "").trim();
+  if (!cell.classList.contains("sh-val") && !cell.classList.contains("sh-sib")) return t;
+  const m = /-?\d[\d,]*(\.\d+)?/.exec(t.replace(/−/g, "-").replace(/[()[\]*†‡§]/g, " "));
+  return m ? m[0] : t;
 }
 
 function wirePanelHead() {
@@ -1355,11 +1533,14 @@ function wireCard(card, rec) {
   const rv = criteriaSpec();
   const blindCalls = rv && rv.blind ? new Set((rv.criteria || []).map((c) => c.call)) : null;
   wireControls(card, (path, val) => {
-    const saved = saveFieldEdit(rec, card, path, val, curVal(rec, path));
+    const orig = curVal(rec, path);
+    const saved = saveFieldEdit(rec, card, path, val, orig);
+    saved.then(() => sheetFollow(rec, card, path, val, orig));      // after the text itself, so the history reads in order
     if (blindCalls && blindCalls.has(path)) saved.then(() => rerenderCard(card, rec));   // the model's side appears once the call is made
     return saved;
   }, true);
   wireTableRows(card, rec);
+  wireSheet(card, rec);
 }
 
 // Re-render one card in place after a structural edit (a table row added or removed),
@@ -3222,7 +3403,7 @@ function linkValueCells(card, evs) {
 // the PDF and flash it. Verbatim search is numeric-only (text values jump to their cited
 // snippet instead, never a verbatim value hunt). Silent when the number isn't found.
 async function locateAndFlash(cell) {
-  const txt = (cell.textContent || "").trim();
+  const txt = cellText(cell);
   if (!NUM_RE.test(txt)) return;               // numeric-only
   try {
     const r = await api.locateValue(DATA.document_id, txt.replace(/%$/, ""), 1);
@@ -3240,7 +3421,7 @@ const NUM_RE = /^-?\d[\d,]*(\.\d+)?%?$/;
 // a click on a NUMBER lands on the citation whose snippet carries that number, so the
 // band-limited chase below finds it; otherwise the first citation.
 function citeFor(cell, ids) {
-  const txt = cell.textContent.trim().replace(/%$/, "");
+  const txt = cellText(cell).replace(/%$/, "");
   if (!NUM_RE.test(txt) || ids.length < 2) return ids[0];
   const bare = txt.replace(/,/g, "");
   const hit = ids.find((i) => {
@@ -3276,7 +3457,7 @@ async function verifyAndJump(cell, hit) {
   // Jump to the cited snippet IMMEDIATELY — the rects are already in the DOM, so this is
   // instant. For a number we then refine to its exact location once the server search
   // returns; the user never waits on that round-trip to see the evidence.
-  const txt = cell.textContent.trim();
+  const txt = cellText(cell);
   const chased = NUM_RE.test(txt) && !isPageRef(cell.dataset.path);
   // presets with display.citation_flash:false (MASEMiner): the cited table/row is shown
   // steadily and only the number found inside it blinks
