@@ -404,15 +404,16 @@ async function loadCrosscheck() {
       ${r.frozen ? `<span class="badge" title="as frozen in this release">release</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">${r.companion
       ? `Every table result a claim cites is looked up in the companion’s regression columns (transcribed cell by cell, independently) and the printed coefficient must agree.${r.companion.release != null ? ` Checked against its release v${r.companion.release}.` : " The companion has no release yet: checked against its live data."}`
-      : `Claims can be checked row by row against a <b>${esc(r.companion_preset || "companion")}</b> dataset of the same papers: each cited table result must reappear as a transcribed coefficient cell. No companion is set${OWNER && !ANON ? " — choose one under Advanced." : "."}`}</p>
+      : `Claims can be checked row by row against a <b>${esc(companionNames(r))}</b> dataset of the same papers: each cited table result must reappear as a transcribed coefficient cell. No companion is set${OWNER && !ANON ? " — choose one under Advanced." : "."}`}</p>
     ${r.companion && r.summary ? `<div class="ds-sync${sm.mismatch ? " off" : ""}" style="font-size:13px;margin:0 0 8px"><b>${sm.exact || 0}</b> exact · <span${sm.mismatch ? ' class="lag"' : ""}><b>${sm.mismatch || 0}</b> mismatch</span> · <b>${sm.unlinked || 0}</b> unlinked · <b>${sm.no_estimate || 0}</b> without estimate · <b>${sm.figure || 0}</b> figures</div>
       ${rows.length ? `<table class="ds-cc"><thead><tr><th>Claim</th><th>Result</th><th>Exhibit</th><th>Estimate</th><th>Cells</th><th>Status</th></tr></thead><tbody>${rows.map((x) => `<tr class="cc-${esc(x.status)}"><td>${esc(x.claim_id || "")}</td><td>${esc(x.result_id || "")}</td><td>${esc([x.source_table, x.panel, x.column].filter(Boolean).join(" "))}</td><td>${x.point_estimate == null ? "—" : esc(String(x.point_estimate))}</td><td class="muted">${esc((x.table_coefficients || []).map(String).join(", "))}</td><td title="${esc(x.detail || "")}">${esc(STATUS[x.status] || x.status)}</td></tr>`).join("")}</tbody></table>${(r.rows || []).length > rows.length ? `<p class="muted" style="font-size:12px">first ${rows.length} of ${r.rows.length} rows; every row is in the analysis table as <code>_crosscheck</code></p>` : ""}` : ""}` : ""}
     ${OWNER && !ANON ? `<details class="ds-adv" style="margin-top:10px"><summary class="muted" style="font-size:13px;cursor:pointer">Advanced</summary>
-      <div style="margin:8px 0 0;font-size:13px">Companion dataset (a <b>${esc(r.companion_preset || "")}</b> dataset of yours over the same papers): <select id="ds-companion"><option value="">— none —</option></select> <button type="button" class="btn btn-ghost btn-sm" id="ds-companion-set">Set</button> <span class="muted" id="ds-companion-msg"></span></div></details>` : ""}`;
+      <div style="margin:8px 0 0;font-size:13px">Companion dataset (a <b>${esc(companionNames(r))}</b> dataset of yours over the same papers): <select id="ds-companion"><option value="">— none —</option></select> <button type="button" class="btn btn-ghost btn-sm" id="ds-companion-set">Set</button> <span class="muted" id="ds-companion-msg"></span></div></details>` : ""}`;
   const sel = $("#ds-companion");
   if (sel) {
     try {
-      const mine = ((await api.myDatasets()).datasets || []).filter((d) => d.id !== id && String(d.schema_id || "").startsWith(`${r.companion_preset}@`));
+      const want = r.companion_presets || (r.companion_preset ? [r.companion_preset] : []);
+      const mine = ((await api.myDatasets()).datasets || []).filter((d) => d.id !== id && want.some((pid) => String(d.schema_id || "").startsWith(`${pid}@`)));
       sel.innerHTML = `<option value="">— none —</option>` + mine.map((d) => `<option value="${esc(d.id)}"${r.companion && r.companion.id === d.id ? " selected" : ""}>${esc(d.title || d.slug || d.id)}</option>`).join("");
     } catch { /* keep the empty select */ }
     $("#ds-companion-set").onclick = async () => {
@@ -420,6 +421,12 @@ async function loadCrosscheck() {
       try { await api.setCompanion(id, sel.value); msg.textContent = ""; loadCrosscheck(); loadReleases(); } catch (e) { msg.textContent = e.message; }
     };
   }
+}
+
+// "register-tables or econ-regression-tables": every preset a dataset of this one may be checked against
+function companionNames(r) {
+  const names = r.companion_presets || (r.companion_preset ? [r.companion_preset] : []);
+  return names.length ? names.join(" or ") : "companion";
 }
 
 // ── the declared update process (meta.update): each step with its state ────────────────────────

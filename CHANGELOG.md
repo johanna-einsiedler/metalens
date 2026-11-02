@@ -8,6 +8,22 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### One paper, every side: the paper's documents across presets
+
+- **The paper's document strip.** Above the review panel, one pill per document of the open paper
+  the reviewer owns — its regression tables under one preset, its claims under another — with
+  verified / total and the review shade; a click switches to that document in place (the sidebar
+  keeps the dataset being walked through, Back returns). A reviewer finishes a paper on both sides
+  before moving to the next, instead of all tables first and every paper again for the claims.
+  `GET /api/documents/{id}/paper-documents` lists them (same PDF hash or same paper row), with the
+  companion pairs among their datasets.
+- **The two sides linked.** A cross-check verdict that resolves a column now names that column's
+  record (`companion_record_id`): in the chain layout a result row's "column ↗" opens the regression
+  column it cites in the tables document, focused; a regression column lists the claims citing it
+  ("cited by S1 · R1 ✓") with links back into the claims document.
+- `econ-regression-tables` is a registered companion of `register-claims` next to `register-tables`
+  (`companion_presets` in the cross-check payload; the dataset page offers datasets of either).
+
 ### Preset inventory: one citable card per curated preset
 
 - **A preset has a card.** A bundled preset may carry `meta.authors` (with ORCIDs), `keywords`, `license`,
