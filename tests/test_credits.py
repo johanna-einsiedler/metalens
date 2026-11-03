@@ -67,6 +67,15 @@ def test_grant_consume_refund() -> None:
     led = credits.ledger(conn, u)
     assert [row["reason"] for row in led][:1] == ["refund"]        # newest first
     assert credits.summary(conn, u) == {"granted": 2, "used": 1, "balance": 1}
+    # a run that plans several calls spends them at once, or not at all; a refund gives back what it names
+    credits.grant(conn, u, 4)                                      # balance 5
+    assert credits.try_consume(conn, u, model="gpt-4o", n=6) is False and credits.balance(conn, u) == 5
+    assert credits.try_consume(conn, u, model="gpt-4o", n=5, reason="workflow:demo") is True and credits.balance(conn, u) == 0
+    assert credits.ledger(conn, u)[0]["delta"] == -5
+    credits.refund(conn, u, n=3, reason="workflow refund")
+    assert credits.balance(conn, u) == 3 and credits.ledger(conn, u)[0]["delta"] == 3
+    credits.refund(conn, u, n=0)                                   # nothing to give back: no ledger row
+    assert credits.ledger(conn, u)[0]["delta"] == 3
     conn.close()
 
 

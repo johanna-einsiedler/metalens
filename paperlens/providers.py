@@ -8,6 +8,18 @@ import re
 import openai
 
 
+def is_transient(exc: Exception) -> bool:
+    """A provider failure worth retrying later: rate limits, overload, 5xx, timeouts and
+    connection errors — never a bad key, a bad request or a refused model."""
+    code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(code, int):
+        return code == 429 or code >= 500
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    return any(w in name for w in ("timeout", "connection", "ratelimit", "overloaded", "serviceunavailable", "internalserver")) \
+        or any(w in text for w in ("rate limit", "429", "overloaded", "timed out", "temporarily unavailable", "503", "502", "500"))
+
+
 def extract_provider_message(exc: Exception) -> str:
     """Pull the human-readable message out of a provider exception.
 

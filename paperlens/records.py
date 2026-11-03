@@ -1803,6 +1803,18 @@ def update_dataset_meta(conn: psycopg.Connection, dataset_id: str, **fields) -> 
 EMPTY_PROMPT_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 
+def dataset_params(conn: psycopg.Connection, dataset_id: str, schema_id: str) -> dict:
+    """The preset parameters the dataset's newest document under ``schema_id`` ran with — what
+    a paper added later inherits when the caller posts none (the page posts the rendered
+    prompt, not the parameters it was rendered from)."""
+    row = conn.execute(
+        """SELECT ed.params FROM extraction_document ed
+           WHERE ed.schema_id = %s AND ed.params IS NOT NULL AND ed.params::text NOT IN ('{}', 'null')
+             AND EXISTS (SELECT 1 FROM record r WHERE r.document_id = ed.id AND r.dataset_id = %s::uuid)
+           ORDER BY ed.created_at DESC LIMIT 1""", (schema_id, dataset_id)).fetchone()
+    return dict(row[0]) if row and isinstance(row[0], dict) else {}
+
+
 def dataset_recipe(conn: psycopg.Connection, dataset_id: str, d: dict) -> dict:
     """What the dataset was made with: schema, model, prompt. The dataset row carries the prompt
     only when the dataset was created from the extract page; one saved later from the workspace,

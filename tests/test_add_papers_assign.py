@@ -73,6 +73,22 @@ def test_extract_with_dataset_id_assigns_to_it(monkeypatch) -> None:
     records.verify_record(conn, str(rid), status="flagged"); conn.commit()
     row = next(d for d in records.list_documents(conn, session_id=sess, dataset_id=ds["id"]) if d["document_id"] == doc_id)
     assert (row["n_flagged"], row["n_verified"]) == (1, 0)
+    # the page posts the rendered prompt, not the parameters it came from: a paper added later
+    # inherits the dataset's parameters, so its provenance matches the papers before it
+    r = TestClient(appmod.app).post(
+        "/api/extract", headers={"X-Session-Id": sess},
+        files={"pdf": ("q.pdf", _pdf() + b"\n%q", "application/pdf")},
+        data={"prompt": "x", "schema_id": "human-ai-collab@v1", "dataset_id": ds["id"], "params": json.dumps({"variables": ["a", "b"]})})
+    assert r.status_code == 200, r.text
+    r2 = TestClient(appmod.app).post(
+        "/api/extract", headers={"X-Session-Id": sess},
+        files={"pdf": ("r.pdf", _pdf() + b"\n%r", "application/pdf")},
+        data={"prompt": "x", "schema_id": "human-ai-collab@v1", "dataset_id": ds["id"]})
+    assert r2.status_code == 200, r2.text
+    conn.rollback()
+    assert records.dataset_params(conn, ds["id"], "human-ai-collab@v1") == {"variables": ["a", "b"]}
+    stored = conn.execute("SELECT params FROM extraction_document WHERE id=%s::uuid", (r2.json()["document_id"],)).fetchone()[0]
+    assert stored == {"variables": ["a", "b"]}
 
 
 def test_dataset_never_holds_same_paper_twice(monkeypatch) -> None:

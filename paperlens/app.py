@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Generator
 
 import base64
+import dataclasses
 import hashlib
 import hmac
 import os
@@ -2714,6 +2715,12 @@ def extract_endpoint(
                                   params=params, prompt=prompt)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if dataset_id and run.schema_id and not run.params:
+        # add-papers posts the dataset's prompt but no parameters: the dataset's own documents
+        # know the ones the preset ran with, and the new paper is stored with the same
+        inherited = records.dataset_params(db, dataset_id, run.schema_id)
+        if inherited:
+            run = dataclasses.replace(run, params=inherited)
     prompt = run.prompt
     schema_id = run.schema_id
     if not prompt.strip():
