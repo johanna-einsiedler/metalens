@@ -289,6 +289,23 @@ def _param_type_from_default(v: Any) -> str:
 
 # ── validation ────────────────────────────────────────────────────────────────
 
+def _validate_update_step(st, E, at: str) -> None:
+    """One step of a preset's update process (``meta.update``) — also what a workflow's
+    vocabulary / pages / crosscheck step must satisfy (``workflow_spec``)."""
+    if not isinstance(st, dict) or st.get("type") not in ("crosscheck", "vocabulary", "pages"):
+        E(f"{at}.type must be 'crosscheck', 'vocabulary' or 'pages'"); return
+    extra = set(st) - {"type", "unit", "column", "group", "keyed_by", "label"}
+    if extra:
+        E(f"{at} has unknown keys {sorted(extra)}")
+    if st["type"] == "vocabulary" and not (isinstance(st.get("column"), str) and st["column"]):
+        E(f"{at}: a vocabulary step names its column")
+    if st["type"] == "pages":
+        if not (isinstance(st.get("group"), str) and st["group"]):
+            E(f"{at}: a pages step names its group (design, theory, ...)")
+        if not (isinstance(st.get("keyed_by"), str) and st["keyed_by"]):
+            E(f"{at}: a pages step names keyed_by (the entries column whose values key the pages)")
+
+
 def _validate_card(spec: dict, meta: dict, E, W) -> None:
     """The card metadata: authors, keywords, licence, related work and the card text. None
     of it enters the data contract; all of it is checked because a card is shown on a public
@@ -434,19 +451,7 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
             E("$.meta.update must be a list of steps")
         else:
             for i, st in enumerate(up):
-                at = f"$.meta.update[{i}]"
-                if not isinstance(st, dict) or st.get("type") not in ("crosscheck", "vocabulary", "pages"):
-                    E(f"{at}.type must be 'crosscheck', 'vocabulary' or 'pages'"); continue
-                extra = set(st) - {"type", "unit", "column", "group", "keyed_by", "label"}
-                if extra:
-                    E(f"{at} has unknown keys {sorted(extra)}")
-                if st["type"] == "vocabulary" and not (isinstance(st.get("column"), str) and st["column"]):
-                    E(f"{at}: a vocabulary step names its column")
-                if st["type"] == "pages":
-                    if not (isinstance(st.get("group"), str) and st["group"]):
-                        E(f"{at}: a pages step names its group (design, theory, ...)")
-                    if not (isinstance(st.get("keyed_by"), str) and st["keyed_by"]):
-                        E(f"{at}: a pages step names keyed_by (the entries column whose values key the pages)")
+                _validate_update_step(st, E, f"$.meta.update[{i}]")
 
     _validate_card(spec, meta, E, W)
 

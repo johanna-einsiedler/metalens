@@ -1,0 +1,20 @@
+{
+  "format": 1,
+  "id": "masem",
+  "version": 1,
+  "meta": {
+    "title": "MASEMiner direct information",
+    "tagline": "Correlations and sample descriptions extracted by a model from each paper, reviewed by a person, released.",
+    "description": "The MASEMiner direct-information preset run on every new paper by the Metalens worker, the contract re-checked on the stored values, every new entry reviewed before a release.",
+    "hidden": false,
+    "brands": ["metalens", "maseminer"]
+  },
+  "dataset": {"unit": "paper", "key": "pdf_sha256"},
+  "steps": [
+    {"id": "extract", "kind": "extract", "label": "Direct information",
+     "preset": "masem-direct@eb5f0287", "source": "live",
+     "review": {"mode": "all", "unit": "entry", "blocks": "release"}},
+    {"id": "contract", "kind": "check", "label": "Contract check", "check": "schema", "over": ["extract"], "on_fail": "note"},
+    {"id": "release", "kind": "release", "label": "Release", "gate": ["extract"]}
+  ]
+}

@@ -165,6 +165,16 @@ def page_image_key(doc_id: str, page: int) -> str:
     return f"pages/{doc_id}/{page}.jpg"
 
 
+def run_pdf_key(run_id: str, pdf_sha256: str) -> str:
+    """A PDF staged for a workflow run, kept until its step is done so a failed paper can be
+    retried without a re-upload and without the queue remembering the job."""
+    return f"runs/{run_id}/{pdf_sha256}.pdf"
+
+
+def run_prefix(run_id: str) -> str:
+    return f"runs/{run_id}/"
+
+
 def raw_key(doc_id: str) -> str:
     """The model's verbatim response (or the JSON that was imported), as text."""
     return f"raw/{doc_id}.txt"

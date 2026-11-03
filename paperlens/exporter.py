@@ -56,6 +56,7 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
         "version": ov.get("version"),
         "visibility": ov.get("visibility"),
         "recipe": ov.get("recipe"),
+        "workflow": (ov.get("recipe") or {}).get("workflow"),   # the process behind the data: workflow contract and the run
         "stats": ov.get("stats"),
         "credibility": ov.get("credibility"),
         # The preset travels WITH the data: a consumer can rebuild the review grammar

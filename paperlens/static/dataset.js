@@ -187,7 +187,7 @@ function render() {
   loadReleases();
   loadDashboards();
   loadExternal();
-  loadUpdateCard();
+  loadWorkflowCard();
   loadCrosscheck();
   loadVocabularies();
   const sf = $("#ds-saveform");
@@ -461,6 +461,114 @@ async function loadUpdateCard() {
     Every step produces a draft you review — vocabulary assignments as map / new / skip, pages as a change-by-change diff
     naming the evidence that triggered each edit. Nothing updates silently.</p>
     ${steps.map(line).join("")}`;
+}
+
+// ── the workflow: the process the dataset is built with, its steps' states, the current run ─────
+// Every dataset has one — the declared workflow or its preset's implicit one-step workflow — so
+// the panel replaces the Update card: per step a state chip (fresh · stale · missing · draft ·
+// awaiting review · blocked), what a run would do, the review gate, and the run in progress.
+let WF = null, WF_TIMER = null;
+const WF_STATE = { fresh: ["tier-human_verified", "fresh"], stale: ["tier-sample_verified", "stale"], missing: ["", "not yet"],
+                   draft: ["tier-sample_verified", "draft"], awaiting_review: ["tier-sample_verified", "awaiting review"],
+                   blocked: ["", "blocked"], unsupported: ["", "not in this release"] };
+const WF_KIND = { extract: "⬚", agent: "⬚", check: "✓", derive: "Σ", vocabulary: "🏷", pages: "📖", crosscheck: "↔", loop: "↻", release: "⛁" };
+
+async function loadWorkflowCard() {
+  const host = $("#ds-update"); if (!host) return;
+  let w; try { w = await api.datasetWorkflow(id); } catch { return loadUpdateCard(); }
+  if (!w || !(w.steps || []).length) return loadUpdateCard();
+  WF = w; host.hidden = false;
+  renderWorkflowCard(host, w);
+  if (w.current_run && !/^(done|failed|cancelled)$/.test(w.current_run.status) && !w.current_run.status.startsWith("awaiting")) {
+    clearTimeout(WF_TIMER);
+    WF_TIMER = setTimeout(loadWorkflowCard, 8000);        // the run moves as papers land
+  }
+}
+
+function wfChip(state, title) {
+  const [cls, label] = WF_STATE[state] || ["", state];
+  return `<span class="badge ${cls}"${title ? ` title="${esc(title)}"` : ""}>${esc(label)}</span>`;
+}
+
+function renderWorkflowCard(host, w) {
+  const wf = w.workflow, run = w.current_run, mine = OWNER && !ANON;
+  const ex = (w.steps || []).find((s) => s.kind === "extract" || s.kind === "agent") || {};
+  const supplied = ex.source === "supplied";
+  const line = (st) => {
+    const because = (st.because || []).join("; ");
+    let what = "";
+    if (st.kind === "extract" || st.kind === "agent") {
+      what = `${esc(st.source === "supplied" ? "results made elsewhere, uploaded" : "a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
+      if (st.work && (st.work.wait_for || st.work.extract || st.work.attach)) what += ` · ${st.work.wait_for || st.work.extract || st.work.attach} new`;
+    } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}` : ""}`;
+    else if (st.kind === "vocabulary") what = `vocabulary <b>${esc(st.column || "")}</b>${st.version ? ` · v${st.version}` : ""}${mine ? ` · <a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}`;
+    else if (st.kind === "pages") what = `${esc(st.label || st.group + " pages")} · ${(st.pages || []).map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a> <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified">stale</span>` : ""}`).join(" · ") || `<span class="muted">none yet</span>`}${mine ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}`;
+    else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above`;
+    else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
+    const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
+    const gate = st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked</span>${mine && st.gate.pending ? ` <a href="/workspace?project=${esc(id)}">review ${st.gate.pending} →</a>` : ""}` : "";
+    return `<div class="ds-dashrow wf-row"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b> ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
+  };
+  const runLine = run ? (() => {
+    const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
+    const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status;
+    const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${esc(p.status)}</small></span>`).join(" ");
+    return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · papers ${pp.done || 0} of ${pp.total || 0}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
+      ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
+      ${mine ? `<div class="wf-actions">
+        ${waiting ? `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(id)}&run=${esc(run.id)}&step=${esc(ex.id || "extract")}">Upload the pipeline's files</a>
+                     <button class="btn btn-ghost btn-sm" id="wf-complete" title="the papers never uploaded are dropped from the plan and the run goes on">Uploads complete</button>` : ""}
+        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
+        ${!/^(done|failed|cancelled)$/.test(run.status) ? `<button class="btn btn-ghost btn-sm" id="wf-cancel">Cancel run</button>` : ""}
+      </div>` : ""}</div>`;
+  })() : "";
+  const picker = mine && wf.implicit && (w.available || []).length
+    ? `<div class="ds-dashrow muted" style="font-size:12.5px">Declare a workflow: <select id="wf-pick"><option value="">— the preset's own process —</option>${w.available.map((a) => `<option value="${esc(a.id)}">${esc(a.title || a.id)}</option>`).join("")}</select> <button class="btn btn-ghost btn-sm" id="wf-set">Set</button></div>` : "";
+  const problems = (wf.problems || []).length ? `<div class="ds-relwarn" style="font-size:12.5px">${wf.problems.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : "";
+  host.innerHTML = `<div class="ds-card-h">Workflow <span class="muted" style="font-weight:400">· ${esc(wf.title || wf.id)}${wf.implicit ? " (the preset's own process)" : ` v${wf.version} · <code>${esc(wf.contract)}</code>`}</span>
+      ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px">${supplied
+        ? `<button class="btn btn-ghost btn-sm" id="wf-start" title="start a run; then upload the pipeline's files for the new papers">Start a run</button>`
+        : `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1" title="stage new PDFs; the run is planned (calls, credits) before it starts">Add papers</a>
+           <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px">What happens when the data grows: the steps below run in order on the new papers, every check and review is declared, and the release holds until the gate is open. Nothing updates silently.</p>
+    ${problems}${picker}
+    ${(w.steps || []).map(line).join("")}
+    ${runLine}
+    <div class="muted" style="font-size:12.5px;margin-top:6px">Release gate: ${w.gate && w.gate.open ? `<span class="badge tier-human_verified">open</span>` : `<span class="badge tier-sample_verified">holds</span> ${esc([...(w.gate.blocking || []).filter((b) => !(w.gate.gates_blocking || []).includes(b)).map((b) => `${b} not fresh`), ...(w.gate.gates_blocking || []).map((g) => `${g} awaits review`)].join(", "))}`}
+      ${(w.runs || []).length > 1 ? `· ${w.runs.length} runs so far` : ""}</div>`;
+  const start = $("#wf-start");
+  if (start) start.onclick = async () => {
+    start.disabled = true;
+    try { await api.workflowStart(id, {}); await loadWorkflowCard(); }
+    catch (e) { alert(`Could not start the run: ${e.message}`); start.disabled = false; }
+  };
+  const cancel = $("#wf-cancel");
+  if (cancel && run) cancel.onclick = async () => {
+    if (!confirm("Cancel this run? Papers that already landed stay in the dataset; credits for papers that never ran are given back.")) return;
+    try { await api.workflowCancel(run.id); } catch (e) { alert(e.message); }
+    loadWorkflowCard();
+  };
+  const complete = $("#wf-complete");
+  if (complete && run) complete.onclick = async () => {
+    try { await api.workflowComplete(run.id, ex.id || "extract"); } catch (e) { alert(e.message); }
+    loadWorkflowCard();
+  };
+  const resume = $("#wf-resume");
+  if (resume && run) resume.onclick = async () => {
+    try { await api.workflowResume(run.id, {}); }
+    catch (e) {
+      const m = /(\d+) of (\d+) records/.exec(e.message || "");
+      if (m && confirm(`${m[1]} of ${m[2]} records still need a verdict. Resume anyway? The run records that the gate was overridden.`)) {
+        try { await api.workflowResume(run.id, { override: true }); } catch (e2) { alert(e2.message); }
+      } else alert(e.message);
+    }
+    loadWorkflowCard();
+  };
+  const set = $("#wf-set");
+  if (set) set.onclick = async () => {
+    try { await api.setWorkflow(id, $("#wf-pick").value || ""); } catch (e) { alert(e.message); }
+    loadWorkflowCard();
+  };
 }
 
 // ── dashboards built elsewhere: URL, the release they show, last check ─────────────────────────
