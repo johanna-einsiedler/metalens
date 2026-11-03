@@ -8,6 +8,18 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Extraction jobs: retries, refunds and the stage they are at
+
+- A transient provider failure (a rate limit, an overload, a 5xx, a timeout) re-queues the
+  extraction job with backoff instead of ending it; any other failure, the last failed try and an
+  abort from the page give the consumed credits back at once. Before, the refund waited for a third
+  try that never came, so a failed credit run kept its credit.
+- The model call runs in a worker thread, so the job's timeout and the page's "stop" reach a call
+  in progress; a running job reports its stage, which the job status carries as `progress`.
+- Credits can be spent and refunded in multiples (`n`), for runs that plan several calls.
+- A paper added to a dataset inherits the dataset's preset parameters when the page posts none, so
+  its provenance matches the papers before it.
+
 ### A regression column as printed: the table-shaped cells view
 
 - **`display.sheet`** draws a table field of the entries as the printed table it transcribes, in place of
