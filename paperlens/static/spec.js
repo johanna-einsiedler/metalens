@@ -215,8 +215,10 @@ export function isLow(vm, level) { return level != null && levelRank(vm, level) 
 
 // Coder's triage number for one entry: low ratings + declared-value fields with no citation
 // + server-side issues under this entry's path.
-export function entryNeeds(vm, EV, rec, issues) {
+export function entryNeeds(vm, EV, rec, issues, findings) {
   let n = 0;
+  // what the dataset's workflow checks found on this record (errors and warnings; notes count for nothing)
+  for (const f of findings || []) if (f.record_id === rec.id && f.severity !== "info") n += 1;
   for (const v of Object.values(rec.confidence || {})) if (v && isLow(vm, v.level)) n += 1;
   for (const ch of Object.values(rec.child_confidence || {}))
     for (const v of Object.values(ch || {})) if (v && isLow(vm, v.level)) n += 1;
@@ -255,11 +257,15 @@ export function seedEntry(vm) {
   for (const ch of vm.entries.children) out[ch.key] = [];
   return out;
 }
-export function orderedEntries(vm, EV, recs, mode, issues) {
+export function orderedEntries(vm, EV, recs, mode, issues, findings) {
   const withIdx = recs.map((rec, i) => ({ rec, i }));
   const rank = (r) => ({ unverified: 0, corrected: 0, flagged: 1, verified: 2 }[r.verification_status] ?? 0);
-  if (mode === "low_conf") {
-    withIdx.sort((a, b) => (entryNeeds(vm, EV, b.rec, issues) - entryNeeds(vm, EV, a.rec, issues)) || (rank(a.rec) - rank(b.rec)) || (a.i - b.i));
+  if (mode === "checks") {
+    // the records a check found something on first, errors before warnings
+    const weight = (r) => (findings || []).reduce((a, f) => a + (f.record_id === r.id ? (f.severity === "error" ? 2 : f.severity === "warn" ? 1 : 0) : 0), 0);
+    withIdx.sort((a, b) => (weight(b.rec) - weight(a.rec)) || (entryNeeds(vm, EV, b.rec, issues, findings) - entryNeeds(vm, EV, a.rec, issues, findings)) || (a.i - b.i));
+  } else if (mode === "low_conf") {
+    withIdx.sort((a, b) => (entryNeeds(vm, EV, b.rec, issues, findings) - entryNeeds(vm, EV, a.rec, issues, findings)) || (rank(a.rec) - rank(b.rec)) || (a.i - b.i));
   } else if (mode === "unverified") {
     withIdx.sort((a, b) => (rank(a.rec) - rank(b.rec)) || (a.i - b.i));
   } else if (mode === "flagged") {

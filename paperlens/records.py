@@ -637,6 +637,14 @@ def delete_paper(conn: psycopg.Connection, pdf_sha256: str, *,
     return n
 
 
+def _findings_for(conn: psycopg.Connection, document_id: str) -> list[dict]:
+    try:
+        from . import checks
+        return checks.for_document(conn, document_id)
+    except Exception:  # noqa: BLE001 - the view never fails over a check
+        return []
+
+
 def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> dict | None:
     """Everything the viewer needs for one document: paper metadata, the resolved
     schema grammar, page-image urls, records, and evidence spans (with rects)."""
@@ -771,6 +779,7 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
             "field_defs": field_defs, "spec": (field_defs or {}).get("spec"),
             "params": params, "prompt_sha256": prompt_sha256, "prompt": prompt,   # what it was asked, verbatim
             "issues": issues or [],
+            "findings": _findings_for(conn, document_id),   # what the dataset's workflow checks found on these records
             "pages": pages, "records": records_out,
             "evidence": evidence_out,
             "highlights": list_highlights(conn, document_id),   # the coder's own marks

@@ -8,6 +8,19 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Checks on the review cards: regression cells and claims against tables
+
+- Two more checks in the registry: `regression-cells` (every standard error names its coefficient,
+  the parsed number is the printed one, stars agree with the level and the p-value, t with
+  coefficient over se, the stated N with the printed N, columns of one table with different Ns)
+  and `claims-vs-tables` (each cited estimate against the companion tables' cells, the cross-check
+  as a workflow step). A workflow's `crosscheck` step runs the latter once a companion is set.
+- What a check found reaches the reviewer: a note on the card naming the check and the message, a
+  mark on the cell the finding names, a "check findings first" order of the entries (also a
+  preset's `display.triage: checks_first`), and the Workflow panel's "open" link into it.
+- Bundled: `econ-regressions` gains the number check; `econ-claims` (claims supplied, contract and
+  cross-check, review all).
+
 ### Workflows: the process a dataset is built with, run incrementally
 
 - A **workflow** (`paperlens/workflows/<id>.json`, `docs/WORKFLOWS.md`) declares which presets run,

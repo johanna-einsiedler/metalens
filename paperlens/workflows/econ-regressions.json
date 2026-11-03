@@ -7,22 +7,77 @@
     "tagline": "Every regression table of an empirical economics article, transcribed by the Robustness-at-Scale pipeline, checked against its own contract, reviewed, released.",
     "description": "The pipeline that reads each article and writes one file per regression table runs outside Metalens; this workflow is how its output enters a dataset: the new papers' files are uploaded into a run, the declared contract is re-checked on the stored values, every new column is reviewed, and a release is cut only when the review is done.",
     "authors": [
-      {"family": "Einsiedler", "given": "Johanna", "orcid": "0000-0002-6312-6861", "affiliation": "University of Basel; University of Copenhagen"}
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
     ],
-    "keywords": ["regression tables", "transcription", "reproduction", "economics", "robustness"],
+    "keywords": [
+      "regression tables",
+      "transcription",
+      "reproduction",
+      "economics",
+      "robustness"
+    ],
     "license": "CC-BY-4.0",
-    "brands": ["metalens"]
+    "brands": [
+      "metalens"
+    ]
   },
-  "card": {"file": "econ-regressions.card.md"},
-  "dataset": {"unit": "paper", "key": "pdf_sha256"},
+  "card": {
+    "file": "econ-regressions.card.md"
+  },
+  "dataset": {
+    "unit": "paper",
+    "key": "pdf_sha256"
+  },
   "steps": [
-    {"id": "tables", "kind": "extract", "label": "Regression tables",
-     "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF",
-     "preset": "econ-regression-tables@67780825", "source": "supplied",
-     "review": {"mode": "all", "unit": "entry", "blocks": "release"}},
-    {"id": "contract", "kind": "check", "label": "Contract check",
-     "help": "the declared fields, types and options re-checked on the values as stored, after corrections",
-     "check": "schema", "over": ["tables"], "on_fail": "note", "severity": "error"},
-    {"id": "release", "kind": "release", "label": "Release", "gate": ["tables"]}
+    {
+      "id": "tables",
+      "kind": "extract",
+      "label": "Regression tables",
+      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF",
+      "preset": "econ-regression-tables@67780825",
+      "source": "supplied",
+      "review": {
+        "mode": "all",
+        "unit": "entry",
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "contract",
+      "kind": "check",
+      "label": "Contract check",
+      "help": "the declared fields, types and options re-checked on the values as stored, after corrections",
+      "check": "schema",
+      "over": [
+        "tables"
+      ],
+      "on_fail": "note",
+      "severity": "error"
+    },
+    {
+      "id": "numbers",
+      "kind": "check",
+      "label": "Number check",
+      "help": "every standard error names its coefficient, the parsed number is the printed one, stars agree with the level and the p-value, t with coefficient over se, the stated N with the printed N",
+      "check": "regression-cells",
+      "over": [
+        "tables"
+      ],
+      "on_fail": "note",
+      "severity": "error"
+    },
+    {
+      "id": "release",
+      "kind": "release",
+      "label": "Release",
+      "gate": [
+        "tables"
+      ]
+    }
   ]
 }

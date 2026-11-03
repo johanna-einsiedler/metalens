@@ -536,3 +536,10 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .sh-toggle { font-size: 11.5px; border: 1px solid var(--border); background: var(--bg); border-radius: 999px; padding: 1px 8px;
   cursor: pointer; color: var(--text-muted); }
 .sh-toggle:hover { color: var(--text); background: var(--surface); }
+
+/* what the workflow's checks found: a note on the card, a mark on the cell a finding names */
+.check-note { font-size: 12px; margin: 2px 0 6px; padding: 3px 8px; border-radius: 6px; background: var(--conf-low-bg); color: var(--conf-low); cursor: help; }
+.check-note.cf-warn { background: var(--conf-med-bg); color: var(--conf-med); }
+.cell-finding { box-shadow: inset 0 -2px 0 var(--conf-low); }
+.cell-finding.cf-warn { box-shadow: inset 0 -2px 0 var(--conf-med-bd); }
+.cell-finding.cf-info { box-shadow: none; text-decoration: underline dotted var(--border); }

@@ -46,11 +46,13 @@ def main() -> int:
         page.goto(f"{a.url}/dataset?id={a.dataset}")
         page.wait_for_selector("#ds-update:not([hidden]) .wf-row", timeout=30000)
         rows = page.locator("#ds-update .wf-row")
-        check(rows.count() == 3, f"the panel lists the workflow's three steps ({rows.count()})")
+        check(rows.count() == 4, f"the panel lists the workflow's four steps ({rows.count()})")
         head = page.locator("#ds-update .ds-card-h").inner_text()
         check("Economics regression tables" in head and "econ-regressions@" in head, f"the panel names the workflow and its contract: {head.strip()[:80]}")
         chips = [c.strip() for c in page.locator("#ds-update .wf-row .badge").all_inner_texts()]
-        check(chips[:3] == ["awaiting review", "fresh", "blocked"], f"state chips: tables awaiting review, the check fresh, the release blocked ({chips})")
+        check(chips[:4] == ["awaiting review", "fresh", "fresh", "blocked"], f"state chips: tables awaiting review, both checks fresh, the release blocked ({chips})")
+        numbers = page.locator("#ds-update .wf-row", has_text="Number check")
+        check(numbers.count() == 1 and "1 finding" in numbers.inner_text() and numbers.locator("a", has_text="open").count() == 1, "the number check row counts its finding and links into the review")
         check("0 of 2 checked" in page.locator("#ds-update .wf-row").first.inner_text(), "the tables row shows the gate's count")
         run = page.locator("#ds-update .wf-run")
         check(run.count() == 1 and "done" in run.inner_text() and "new-paper.pdf" in run.inner_text(), "the finished run and its paper are listed")
@@ -64,7 +66,18 @@ def main() -> int:
         page.wait_for_function("() => (document.querySelector('#ds-rel-msg') || {}).textContent.includes('gate') || !document.querySelector('#ds-rel-go')", timeout=15000)
         msg = page.locator("#ds-rel-msg").inner_text() if page.locator("#ds-rel-msg").count() else ""
         check("gate" in msg, f"creating a release is refused while the gate holds: {msg[:80]}")
+        # the finding reaches the review: the "open" link orders the entries by findings, the card carries the note
+        numbers.locator("a", has_text="open").click()
+        page.wait_for_selector(".record .vbtn.ok", timeout=30000)
+        sel = page.locator("#triage")
+        chosen = sel.input_value() if sel.count() else "(no select)"
+        check(chosen == "checks", f"the review opens in the check-findings-first order (select: {chosen}; url: {page.url[-60:]})")
+        note = page.locator(".record .check-note")
+        check(note.count() == 1 and "regression-cells" in note.inner_text() and "refers to no coefficient" in note.inner_text(), f"the card notes the finding: {note.inner_text()[:70] if note.count() else '—'}")
+        page.screenshot(path=f"{a.shot}-card.png", full_page=True)
         # verdicts in the workspace: the review link opens the dataset's review
+        page.goto(f"{a.url}/dataset?id={a.dataset}")
+        page.wait_for_selector("#ds-update:not([hidden]) .wf-row", timeout=30000)
         page.locator("#ds-update a", has_text="review 2").first.click()
         page.wait_for_selector(".record .vbtn.ok", timeout=30000)
         for _ in range(2):

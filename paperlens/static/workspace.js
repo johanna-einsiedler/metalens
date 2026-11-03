@@ -36,6 +36,8 @@ let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | 
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
+let TRIAGE_FROM_URL = false;                             // ?triage=checks from the Workflow panel: this visit's order, over the preset's default
+try { const t = new URLSearchParams(location.search).get("triage"); if (t) { TRIAGE = t; TRIAGE_FROM_URL = true; } } catch { /* */ }
 
 // Drag the splitter to resize the entries panel; width persists across sessions — one width
 // for the generic view, one for a stages preset, whose default gives the right column (the
@@ -587,7 +589,7 @@ function docShade(d) {
 // that part in the panel — the same navigation as the tabs above the cards.
 function docSubList() {
   if (!DATA || !VM || !Array.isArray(DATA.records) || DATA.document_id !== DOCID || !DATA.records.length) return "";
-  const ordered = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues);
+  const ordered = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues, DATA.findings);
   const many = DATA.records.length > 1;
   const cur = !many ? null : PANEL_SEL === null ? (TRIAGE === "order" ? "paper" : ordered[0].i) : PANEL_SEL;
   const item = (sel, label, status, active = cur === sel, short = shortTitle(label)) =>
@@ -659,7 +661,10 @@ async function load(docId) {
   DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
-  if (!localStorage.getItem("metalens_triage") && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
+  const stored = (() => { try { return localStorage.getItem("metalens_triage"); } catch { return null; } })();
+  if (!TRIAGE_FROM_URL && !stored && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
+  if (!TRIAGE_FROM_URL && !stored && VM.triage === "checks_first" && (DATA.findings || []).length) TRIAGE = "checks";
+  if (TRIAGE === "checks" && !(DATA.findings || []).length) TRIAGE = "low_conf";   // nothing found here: the next best order
   renderPages($("#pages"), DATA.pages, DATA.evidence);
   paintMarks(DATA.highlights || []);
   renderPanel();
@@ -940,7 +945,8 @@ function renderPanel() {
   const label = (DATA.field_defs && DATA.field_defs.label) || DATA.schema_id || "—";
   const triage = (DATA.records || []).length > 1
     ? `<select class="triage" id="triage" title="order of the entries">`
-      + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"]]
+      + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"],
+         ...((DATA.findings || []).length ? [["checks", "check findings first"]] : [])]
         .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
   panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
@@ -1022,8 +1028,8 @@ function renderPanel() {
   const recs = DATA.records;
   if (recs.length > 1) {                // many entries (e.g. one per table) → view one at a time
     const paperTab = paperPanelHasContent();
-    if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" && paperTab ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
-    if (PANEL_SEL === "paper" && !paperTab) PANEL_SEL = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues)[0].i;
+    if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" && paperTab ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings)[0].i;
+    if (PANEL_SEL === "paper" && !paperTab) PANEL_SEL = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings)[0].i;
     renderEntryNav(panel, recs);
     if (PANEL_SEL === "paper" || !recs[PANEL_SEL]) { renderPaperPanel(panel); setContextEvidence(null); }
     else { renderRecordCard(panel, recs[PANEL_SEL]); setContextEvidence(EV.byRecord.get(recs[PANEL_SEL].id) || []); }
@@ -1041,7 +1047,7 @@ function renderPanel() {
 function renderEntryNav(panel, recs) {
   const nav = document.createElement("div");
   nav.className = "rnav";
-  const ordered = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues);
+  const ordered = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings);
   const groups = sheetGroups(ordered);
   nav.innerHTML = (paperPanelHasContent()
       ? `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>` : "")
@@ -1052,7 +1058,7 @@ function renderEntryNav(panel, recs) {
         + (g.needs && g.status !== "verified" ? `<span class="needs">${g.needs}</span>` : "") + `</button>`).join("")
     : ordered.map(({ rec, i }) => {
       const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
-      const needs = entryNeeds(VM, EV, rec, DATA.issues);
+      const needs = entryNeeds(VM, EV, rec, DATA.issues, DATA.findings);
       return `<button class="rnav-tab${PANEL_SEL === i ? " active" : ""}" data-sel="${i}" title="${esc(rec.verification_status)}${needs ? ` · ${needs} to check` : ""}">`
         + `${esc(entryTitle(VM, rec, i))}<span class="st-dot ${esc(rec.verification_status)}"></span>`
         + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
@@ -1093,6 +1099,7 @@ function renderRecordCard(panel, rec) {
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
     + citedByHtml(rec)
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
+    + checkNoteHtml(rec)
     + (VM.legacy ? renderLegacyConf(rec) + renderLegacyBody(rec) : renderEntryBody(rec))
     // the verdict comes last: a coder reaches it after every field, not before
     + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
@@ -1272,7 +1279,7 @@ function sheetGroups(ordered) {
     const sts = g.items.map(({ rec }) => rec.verification_status);
     g.n = g.items.length; g.done = sts.filter((s) => s === "verified").length;
     g.status = sts.some((s) => s === "flagged") ? "flagged" : g.done === g.n ? "verified" : "unverified";
-    g.needs = g.items.reduce((a, { rec }) => a + (rec.verification_status === "verified" ? 0 : entryNeeds(VM, EV, rec, DATA.issues)), 0);
+    g.needs = g.items.reduce((a, { rec }) => a + (rec.verification_status === "verified" ? 0 : entryNeeds(VM, EV, rec, DATA.issues, DATA.findings)), 0);
     g.worst = g.items.map(({ rec }) => worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) }))
       .filter(Boolean).sort((a, b) => rank(b) - rank(a))[0] || null;
     g.open = (g.items.find(({ rec }) => rec.verification_status !== "verified" && rec.verification_status !== "flagged") || g.items[0]).i;
@@ -1407,7 +1414,7 @@ function wirePanelHead() {
 function renderGridInto(panel) {
   const host = document.createElement("div");
   panel.appendChild(host);
-  const order = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues).map(({ rec }) => rec);
+  const order = orderedEntries(VM, EV, DATA.records, TRIAGE, DATA.issues, DATA.findings).map(({ rec }) => rec);
   // a declared preset flattens to the unit display.grid_rows names (entry / sub-entry /
   // table row); a legacy document keeps its sub_views columns
   const specMode = !VM.legacy;
@@ -1709,7 +1716,7 @@ function refreshNavState() {
 function nextEntry(unreviewedOnly, dir = 1) {
   const recs = DATA.records || [];
   if (recs.length < 2) return;
-  const order = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues).map(({ i }) => i);
+  const order = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings).map(({ i }) => i);
   const cur = PANEL_SEL === "paper" || PANEL_SEL === null ? -1 : order.indexOf(PANEL_SEL);
   for (let step = 1; step <= order.length; step++) {
     const j = order[(cur + dir * step + order.length * step) % order.length];
@@ -3327,7 +3334,30 @@ function isPageRef(path) {
 // Declared documents: bind every cell to the most specific evidence that supports it —
 // its own citation, else its row's, its table's, its entry's — and mark its citation
 // state. A declared "value" field with nothing is visibly uncited. Orphans never attach.
+// What the dataset's workflow checks found on this record: a note on the card (errors and
+// warnings, with the check's name and message) and a mark on each cell a finding names.
+function recFindings(rec) { return (DATA.findings || []).filter((f) => f.record_id === rec.id); }
+function checkNoteHtml(rec) {
+  const fs = recFindings(rec).filter((f) => f.severity !== "info");
+  if (!fs.length) return "";
+  const errs = fs.filter((f) => f.severity === "error").length;
+  const shown = fs.slice(0, 2).map((f) => `${f.check}: ${f.message}`).join(" · ");
+  return `<div class="check-note ${errs ? "cf-error" : "cf-warn"}" title="${esc(fs.map((f) => `${f.path || ""} — ${f.check}: ${f.message}`).join("\n"))}">`
+    + `✗ ${fs.length} check finding${fs.length === 1 ? "" : "s"}${errs ? ` (${errs} error${errs === 1 ? "" : "s"})` : ""} — ${esc(shown)}${fs.length > 2 ? " · …" : ""}</div>`;
+}
+function markFindings(card, rec) {
+  const byPath = new Map();
+  for (const f of recFindings(rec)) if (f.path) byPath.set(f.path, f);
+  card.querySelectorAll("[data-path]").forEach((cell) => {
+    const f = byPath.get(cell.dataset.path);
+    if (!f) return;
+    cell.classList.add("cell-finding", `cf-${f.severity}`);
+    cell.title = `${f.check}: ${f.message}`;
+  });
+}
+
 function linkCells(card, rec) {
+  markFindings(card, rec);
   card.querySelectorAll("[data-path]").forEach((cell) => {
     const p = cell.dataset.path;
     const leaf = p.split(".").pop().replace(/\[\d+\]$/, "");

@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "id": "econ-claims",
+  "version": 1,
+  "meta": {
+    "title": "Claims in empirical economics papers",
+    "tagline": "The claims a paper states and the results that carry them, transcribed by the pipeline, checked against the companion tables, reviewed, released.",
+    "description": "The claims files of the Robustness-at-Scale pipeline enter a dataset through this workflow: uploaded into a run, re-checked against the declared contract, every cited point estimate checked against the cells of the companion tables dataset, every new claim reviewed, then released.",
+    "authors": [
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
+    ],
+    "keywords": [
+      "claims",
+      "regression tables",
+      "cross-check",
+      "economics"
+    ],
+    "license": "CC-BY-4.0",
+    "brands": [
+      "metalens"
+    ]
+  },
+  "dataset": {
+    "unit": "paper",
+    "key": "pdf_sha256"
+  },
+  "steps": [
+    {
+      "id": "claims",
+      "kind": "extract",
+      "label": "Claims and their results",
+      "preset": "register-claims@f7387875",
+      "source": "supplied",
+      "review": {
+        "mode": "all",
+        "unit": "entry",
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "contract",
+      "kind": "check",
+      "label": "Contract check",
+      "check": "schema",
+      "over": [
+        "claims"
+      ],
+      "on_fail": "note"
+    },
+    {
+      "id": "links",
+      "kind": "check",
+      "label": "Estimates against the tables",
+      "help": "each cited point estimate against the coefficient cells of the companion tables dataset; a resolved column with no matching cell is an error, an exhibit no column matches a warning",
+      "check": "claims-vs-tables",
+      "over": [
+        "claims"
+      ],
+      "on_fail": "note",
+      "severity": "error"
+    },
+    {
+      "id": "release",
+      "kind": "release",
+      "label": "Release",
+      "gate": [
+        "claims"
+      ]
+    }
+  ]
+}

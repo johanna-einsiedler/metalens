@@ -41,6 +41,18 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
 - **A check's `on_fail`**: `note` records findings; `flag` puts every record with a finding at or
   above `severity` in front of a reviewer (a release-blocking gate); `fail` fails the run.
 
+## The checks
+
+| check | reads | finds |
+|---|---|---|
+| `schema` | any preset | the declared contract on the values as stored: a required field missing, a wrong type, an option not declared |
+| `regression-cells` | `econ-regression-tables`, `register-tables` | an se/t/p/CI row naming no coefficient (`se_dangling_ref`) or a non-coefficient (`se_refers_noncoef`), two se rows for one coefficient (`coef_many_se`), a parsed number that is not the printed one (`numeric_mismatch`), stars against the stated level (`stars_vs_level`) or the p-value (`stars_vs_p`), t against coefficient / se (`t_vs_coef_se`), the stated N against the printed N (`n_obs_vs_sample`), columns of one table with different Ns (`n_obs_varies`, a note), row indexes not from 0 (`row_index_gap`) |
+| `claims-vs-tables` | `register-claims`, needs the dataset's companion | a cited estimate no coefficient cell of the resolved column equals (`estimate_mismatch`), a cited exhibit no column matches (`exhibit_unlinked`) |
+
+Findings reach the reviewer on the card ("✗ 2 check findings — regression-cells: …"), on the cell
+each one names, and in the "check findings first" order of the entries; the Workflow panel links
+there. Parameters are declared per check (`t_tolerance`, `star_legend`, `ignore`) and typed.
+
 ## The contract
 
 `workflow_id` = `<id>@<sha8>` over the dataset unit and the steps with their pins, checks and
