@@ -91,11 +91,13 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                    filename: str | None = None, params: dict | None = None,
                    entries_key: str | None = None, spec: dict | None = None,
                    prompt_edited: bool = False,
-                   complete: CompleteFn | None = None, store=None) -> dict:
+                   complete: CompleteFn | None = None, store=None,
+                   run_id: str | None = None, step_id: str | None = None) -> dict:
     """``spec`` is the preset declaration the run was made with (gives ingest the declared
     core array and lets the result be validated for triage); ``params`` the parameter
     values it used (stored for provenance); ``prompt_edited`` whether the caller replaced
-    the generated prompt with its own text. Without a spec the schema row is consulted."""
+    the generated prompt with its own text. Without a spec the schema row is consulted.
+    ``run_id`` / ``step_id`` name the workflow run and step this extraction belongs to."""
     store = store or storage.get_store()
     if spec is None and schema_id:
         try:
@@ -143,13 +145,15 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     extraction = {"model": model, "resolved_model": llm.resolved_model,
                   "finish_reason": llm.finish_reason, "usage": llm.usage,
                   "n_pages": len(page_images), "prompt_sha256": prompt_sha256,
-                  "prompt_edited": bool(prompt_edited)}
+                  "prompt_edited": bool(prompt_edited),
+                  **({"run_id": run_id, "step_id": step_id} if run_id else {})}
     from . import parsed
     sha = parsed.pdf_sha256(pdf_bytes)
     doc_id = records.persist(conn, res, schema_id=schema_id, session_id=session_id,
                              owner_user_id=owner_user_id, source_job_id=source_job_id,
                              extraction=extraction, filename=filename, pdf_sha256=sha,
-                             prompt_sha256=prompt_sha256, prompt=prompt or None, params=params, issues=issues)
+                             prompt_sha256=prompt_sha256, prompt=prompt or None, params=params, issues=issues,
+                             run_id=run_id, step_id=step_id)
     paper_id = conn.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)).fetchone()[0]
     # End the implicit read transaction opened by the SELECT above, so attach_rects'

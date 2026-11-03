@@ -269,7 +269,10 @@ async function maybeAddPapersMode() {
     catch { /* leave null → generic flow below */ }
   }
   ADD_DATASET = { id: dsId, title: ds.title || "dataset", schema_id: schemaId,
-                  prompt: ds.prompt || "", model: ds.model || "" };
+                  prompt: ds.prompt || "", model: ds.model || "",
+                  // ?workflow=1: the papers go through the dataset's workflow — one run, planned
+                  // first (calls, credits), each paper posted with the run and step
+                  workflow: new URLSearchParams(location.search).get("workflow") === "1" };
   // derive task/presetId from the schema so the rest of the UI stays consistent
   const base = (schemaId || "extract@v1").replace(/@.*$/, "");
   if (base === "summarize") { task = "summarise"; }
@@ -292,6 +295,7 @@ async function maybeAddPapersMode() {
     b.id = "addbanner"; b.className = "add-banner";
     b.innerHTML = `Adding papers to <b>${esc(ADD_DATASET.title)}</b> — drop your PDFs below and Run. `
       + `They reuse this dataset’s model, prompt &amp; schema; open a step above to change any before running. `
+      + (ADD_DATASET.workflow ? `The papers go through the dataset’s <b>workflow</b>: the run is planned first (calls and credits), then every paper is extracted, checked and put up for review before a release. ` : "")
       + `<a href="/dataset?id=${esc(dsId)}">Back to dataset →</a>`;
     body.prepend(b);
   }
@@ -1234,6 +1238,30 @@ async function runBatch(indices, reset) {
   const runStart = new Date().toISOString();
   let anyQueued = false;
   const jobIds = [];                        // queued jobs of this round → tracked in review
+  // A dataset with a workflow: plan the run over the staged PDFs (what each step does, the
+  // calls, the credits), start it, then post each paper with the run and step. Papers the run
+  // could attach from the library need no upload.
+  let RUN = null;
+  if (ADD_DATASET && ADD_DATASET.workflow) {
+    try {
+      const hashes = await Promise.all(indices.map((i) => FILES[i]._sha ? Promise.resolve(FILES[i]._sha) : sha256Hex(FILES[i])));
+      indices.forEach((i, k) => (FILES[i]._sha = hashes[k]));
+    } catch (e) { $("#run").disabled = false; return setStatus(`could not read a PDF: ${e.message}`); }
+    const body = { new_pdfs: indices.map((i) => ({ sha256: FILES[i]._sha, filename: FILES[i].name })),
+                   use_credits: !!USE_CREDITS, model: USE_CREDITS ? (ADD_DATASET.model || null) : currentModel() };
+    let plan;
+    try { plan = await api.workflowPlan(ADD_DATASET.id, body); } catch (e) { $("#run").disabled = false; return setStatus(`could not plan the run: ${e.message}`); }
+    if ((plan.workflow.problems || []).length) { $("#run").disabled = false; return setStatus(`this workflow cannot run yet: ${plan.workflow.problems[0]}`); }
+    const ex = (plan.steps || []).find((s) => s.kind === "extract" || s.kind === "agent");
+    const cr = plan.credits || {};
+    setStatus(`run planned: ${plan.n_calls} model call${plan.n_calls === 1 ? "" : "s"}${cr.use_credits ? ` · ${cr.needed} credit${cr.needed === 1 ? "" : "s"}, you have ${cr.balance == null ? "?" : cr.balance}` : ""} — starting…`);
+    try { RUN = await api.workflowStart(ADD_DATASET.id, body); } catch (e) { $("#run").disabled = false; return setStatus(`could not start the run: ${e.message}`); }
+    RUN.step_id = ex ? ex.id : "extract";
+    const attached = new Set((RUN.papers || []).filter((p) => p.status === "attached").map((p) => p.pdf_sha256));
+    indices.forEach((i) => { if (attached.has(FILES[i]._sha)) STATUS[i] = { state: "done", res: { attached: true } }; });
+    indices = indices.filter((i) => !attached.has(FILES[i]._sha));
+    renderResults();
+  }
 
   // We forward to the review panel only AFTER every paper is submitted (see end of fn).
   // ?since picks up each paper's document as it lands; ?jobs lets the panel show each
@@ -1263,6 +1291,7 @@ async function runBatch(indices, reset) {
     if (task === "workflow" && isMasemPreset(presetId) && !ADD_DATASET) fd.append("params", JSON.stringify(readMasemParams()));
     fd.append("schema_id", schemaId);
     if (ADD_DATASET) fd.append("dataset_id", ADD_DATASET.id);   // server attaches the result
+    if (RUN) { fd.append("run_id", RUN.id); fd.append("step_id", RUN.step_id); }   // a paper of the workflow run
     if (USE_CREDITS) {
       fd.append("use_credits", "true");          // server runs on its own key
       // When re-extracting into a dataset, honor that dataset's model — the server keeps it
@@ -1295,7 +1324,10 @@ async function runBatch(indices, reset) {
   renderResults(true);
   // Forward ONCE, after every paper has been submitted: queued jobs survive navigation and
   // the review panel tracks them via ?jobs; any sync results are already in hand.
-  if (reset && (anyQueued || STATUS.some((s) => s.state === "done"))) {
+  if (reset && RUN) {
+    // the dataset page's Workflow panel follows the run: papers landing, checks, the gate
+    location.href = `/dataset?id=${encodeURIComponent(ADD_DATASET.id)}#workflow`;
+  } else if (reset && (anyQueued || STATUS.some((s) => s.state === "done"))) {
     if (ADD_DATASET) {
       // Add-papers: the server attaches each finished paper to the dataset, so jump to the
       // dataset's Data review and watch them fill in (?jobs tracks the queued ones).

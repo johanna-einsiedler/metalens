@@ -36,13 +36,26 @@ def fingerprint(conn: psycopg.Connection, dataset_id: str) -> str:
     """A hash of everything a dashboard reads from the LIVE dataset (record values, statuses,
     extraction provenance, paper metadata, which records belong to it). Any add, delete, edit
     or verification changes it; layout caches (rects, table context) do not."""
-    return conn.execute(
+    data = conn.execute(
         """SELECT md5(coalesce(string_agg(md5(concat_ws('|', r.id::text, r.entry_index::text,
                       COALESCE(r.screened_empty, false)::text, r.verification_status, r.field_values::text,
                       r.extraction->>'resolved_model', r.extraction->>'model', r.extraction->>'date',
                       p.title, p.doi, p.year::text, p.journal, p.authors::text)), '' ORDER BY r.id), ''))
            FROM record r LEFT JOIN paper p ON p.id = r.paper_id WHERE r.dataset_id = %s::uuid""",
         (dataset_id,)).fetchone()[0]
+    # what the dataset carries beyond its records: committed vocabularies and pages, the newest
+    # finished workflow run — a release must be able to freeze a change in any of them
+    extra = conn.execute(
+        """SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) FROM (
+             SELECT 'v:' || unit || ':' || "column" || ':' || version::text AS x FROM dataset_vocabulary
+               WHERE dataset_id = %s::uuid AND status = 'committed'
+             UNION ALL
+             SELECT 'p:' || "group" || ':' || key || ':' || version::text FROM dataset_page
+               WHERE dataset_id = %s::uuid AND status = 'committed'
+             UNION ALL
+             SELECT 'r:' || id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done') s""",
+        (dataset_id, dataset_id, dataset_id)).fetchone()[0]
+    return data if extra == "d41d8cd98f00b204e9800998ecf8427e" else f"{data}:{extra[:16]}"
 
 
 def _spec_sha(spec: dict | None) -> str:
@@ -63,13 +76,38 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
-    from . import crosscheck, pages, vocabulary
+    from . import checks, crosscheck, pages, vocabulary
     fz = crosscheck.frozen(conn, dataset_id)
     vocabs = vocabulary.snapshot(conn, dataset_id)
     pgs = pages.snapshot(conn, dataset_id)
+    wf = workflow_block(conn, dataset_id)
+    findings = checks.frozen(conn, dataset_id)
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
             "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}),
-            **({"vocabularies": vocabs} if vocabs else {}), **({"pages": pgs} if pgs else {})}
+            **({"vocabularies": vocabs} if vocabs else {}), **({"pages": pgs} if pgs else {}),
+            **({"workflow": wf} if wf else {}), **({"findings": findings} if findings else {})}
+
+
+def workflow_block(conn: psycopg.Connection, dataset_id: str) -> dict | None:
+    """The workflow the dataset is built with and the newest finished run: what a release and an
+    export record as the process behind the data."""
+    from . import workflow_spec as ws, workflows
+    d = records.get_dataset(conn, dataset_id) or {}
+    spec, implicit = workflows.resolve(conn, d)
+    run = workflows.last_done_run(conn, dataset_id)
+    steps = []
+    if run:
+        for sr in workflows.step_runs(conn, run["id"]):
+            rv = sr.get("review") or {}
+            steps.append({"id": sr["step_id"], "kind": sr["kind"], "status": sr["status"], "preset_schema_id": sr.get("preset_schema_id"),
+                          "preset_release": sr.get("preset_release"), "prompt_sha256": sr.get("prompt_sha256"), "n_calls": sr.get("n_calls"),
+                          "review": {k: rv.get(k) for k in ("mode", "unit", "blocks", "satisfied_at", "overridden_by") if k in rv},
+                          "outputs": {k: v for k, v in (sr.get("outputs") or {}).items() if k != "document_ids"}})
+    if implicit and run is None:
+        return None
+    return {"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1), "implicit": implicit,
+            "release": run.get("workflow_release") if run else None, "run_id": run["id"] if run else None,
+            "run_at": run.get("finished_at") if run else None, "engine": run.get("engine") if run else None, "steps": steps}
 
 
 def content_sha(snap: dict) -> str:
@@ -111,7 +149,8 @@ def diff_snapshots(prev: dict | None, new: dict) -> dict:
 
 # ── rows ─────────────────────────────────────────────────────────────────────
 _COLS = ("id::text, dataset_id::text, number, created_at, created_by::text, reason, notes, changes, fingerprint, "
-         "content_sha, spec_sha, schema_id, engine, stats, credibility, published_at, doi, zenodo_record_id, zenodo_url")
+         "content_sha, spec_sha, schema_id, engine, stats, credibility, published_at, doi, zenodo_record_id, zenodo_url, "
+         "workflow_run_id::text, gates")
 
 
 def _row(r, snap: dict | None = None) -> dict:
@@ -119,7 +158,7 @@ def _row(r, snap: dict | None = None) -> dict:
            "created_by": r[4], "reason": r[5], "notes": r[6], "changes": r[7], "fingerprint": r[8], "content_sha": r[9],
            "spec_sha": r[10], "schema_id": r[11], "engine": r[12], "stats": r[13], "credibility": r[14],
            "published_at": r[15].isoformat(timespec="seconds") if r[15] else None,
-           "doi": r[16], "zenodo_record_id": r[17], "zenodo_url": r[18]}
+           "doi": r[16], "zenodo_record_id": r[17], "zenodo_url": r[18], "workflow_run_id": r[19], "gates": r[20]}
     if snap is not None:
         out["snapshot"] = snap
     return out
@@ -154,7 +193,7 @@ def latest(conn: psycopg.Connection, dataset_id: str, *, with_snapshot: bool = F
 def public_row(rel: dict) -> dict:
     """What anyone who may see the dataset may know about a release."""
     return {k: rel.get(k) for k in ("number", "created_at", "reason", "notes", "changes", "content_sha", "stats", "credibility", "published_at",
-                                    "doi", "zenodo_url")}
+                                    "doi", "zenodo_url", "workflow_run_id", "gates")}
 
 
 def list_for_dataset(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
@@ -183,14 +222,17 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
     old_docs = {r["doc"] for r in (last["snapshot"]["records"] if last else [])}
     unverified = [r for r in snap["records"] if r.get("status") not in ("verified",)]
     cred = records.dataset_credibility(conn, dataset_id)
+    from . import workflows
+    gate = workflows.gate_report(conn, dataset_id)
     return {"changed": changed_since(conn, dataset_id, last), "next_number": _next_number(conn, dataset_id, last),
-            "latest": public_row(last) if last else None, "changes": changes,
+            "latest": public_row(last) if last else None, "changes": changes, "gate": gate,
             "warnings": {"unverified": sum(1 for r in unverified if r.get("status") != "flagged"),
                          "flagged": sum(1 for r in unverified if r.get("status") == "flagged"),
                          "unverified_in_new_papers": sum(1 for r in unverified if r["doc"] not in old_docs) if last else 0,
                          "empty": not snap["records"],
                          **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None),
-                         **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies"))},
+                         **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies")),
+                         **({"check_findings": snap["findings"]["n"]} if snap.get("findings") else {})},
             "credibility": {"tier": cred.get("tier"), "label": cred.get("label")}}
 
 
@@ -223,10 +265,28 @@ def _next_number(conn, dataset_id: str, last: dict | None) -> int:
     return int((records.get_dataset(conn, dataset_id) or {}).get("version") or 1)   # continue the old counter
 
 
+class GateClosed(Exception):
+    """The workflow's release gate holds: a gate step is not fresh, or a review gate wants verdicts."""
+
+    def __init__(self, gate: dict):
+        self.gate = gate
+        parts = [f"{b['step']} is {b['state']}" for b in gate.get("blocking") or []]
+        parts += [f"{g} awaits review" for g in gate.get("gates_blocking") or []]
+        super().__init__("The release gate holds: " + "; ".join(parts))
+
+
 def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual", notes: str | None = None,
-           created_by: str | None = None) -> dict | None:
-    """Cut a release of the dataset as it is now. Returns None for an unknown dataset."""
-    from . import __version__, exporter
+           created_by: str | None = None, allow_stale: bool = False, override_gates: bool = False) -> dict | None:
+    """Cut a release of the dataset as it is now. Returns None for an unknown dataset. Raises
+    ``GateClosed`` when the workflow's gate holds, unless the caller overrides it — recorded on
+    the release (``gates``), so an override is never silent."""
+    from . import __version__, exporter, workflows
+    gate = workflows.gate_report(conn, dataset_id)
+    stale_over = bool(gate.get("blocking")) and allow_stale
+    gates_over = bool(gate.get("gates_blocking")) and override_gates
+    if (gate.get("blocking") and not allow_stale) or (gate.get("gates_blocking") and not override_gates):
+        raise GateClosed(gate)
+    run = workflows.last_done_run(conn, dataset_id)
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"release:{dataset_id}",))
         snap = snapshot(conn, dataset_id)
@@ -239,8 +299,8 @@ def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual",
         rid = str(uuid.uuid4())
         conn.execute(
             """INSERT INTO dataset_release (id, dataset_id, number, created_by, reason, notes, changes, fingerprint,
-                                            content_sha, spec_sha, schema_id, engine, stats, credibility, snapshot)
-               VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                            content_sha, spec_sha, schema_id, engine, stats, credibility, snapshot, workflow_run_id, gates)
+               VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s)""",
             (rid, dataset_id, number, created_by if records._is_uuid(created_by or "") else None, reason,   # noqa: SLF001
              (notes or "").strip()[:4000] or None, Json(changes), fingerprint(conn, dataset_id), content_sha(snap),
              _spec_sha(snap.get("spec")), snap.get("schema_id"),
@@ -249,7 +309,10 @@ def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual",
              Json({"tier": cred.get("tier"), "label": cred.get("label"), "audited": cred.get("audited"), "n_records": cred.get("n_records")}),
              # stored in its own key order (the order of a preset's fields and inputs is meaningful to
              # readers); only the hashes use the canonical, sorted form
-             gzip.compress(json.dumps(snap, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"), mtime=0)))
+             gzip.compress(json.dumps(snap, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"), mtime=0),
+             run["id"] if run else None,
+             Json({"blocking": gate.get("blocking") or [], "gates_blocking": gate.get("gates_blocking") or [],
+                   "stale_overridden": stale_over, "gates_overridden": gates_over})))
         conn.execute("UPDATE dataset SET version = %s, updated_at = now() WHERE id = %s::uuid", (number, dataset_id))
     return get(conn, rid)
 
@@ -259,7 +322,8 @@ def ensure_current(conn: psycopg.Connection, dataset_id: str, *, reason: str, cr
     last = latest(conn, dataset_id)
     if last and not changed_since(conn, dataset_id, last):
         return last
-    return create(conn, dataset_id, reason=reason, created_by=created_by)
+    # nobody is asked here (a dashboard publish, a GitHub sync): the gate is passed and the release says so
+    return create(conn, dataset_id, reason=reason, created_by=created_by, allow_stale=True, override_gates=True)
 
 
 def mark_published(conn: psycopg.Connection, release_id: str) -> None:

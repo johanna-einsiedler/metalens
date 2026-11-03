@@ -140,10 +140,12 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             extraction: dict | None = None, filename: str | None = None,
             pdf_sha256: str | None = None, prompt_sha256: str | None = None,
             params: dict | None = None, issues: list | None = None,
-            prompt: str | None = None) -> str:
+            prompt: str | None = None, run_id: str | None = None,
+            step_id: str | None = None) -> str:
     """Persist a full ingest result in one transaction. Returns document id.
     ``prompt_sha256`` / ``params`` record exactly what the extraction ran with; ``prompt`` is
-    that text itself, so an export can carry it (None for imports)."""
+    that text itself, so an export can carry it (None for imports). ``run_id`` / ``step_id``
+    name the workflow run and step that produced the document, when one did."""
     with conn.transaction():
         if schema_id:
             upsert_schema(conn, schema_id)
@@ -154,14 +156,15 @@ def persist(conn: psycopg.Connection, res: IngestResult, *,
             """INSERT INTO extraction_document
                  (id, paper_id, schema_id, source_job_id, core_key, core_shape,
                   had_top_evidence, top_extras, paper_metadata_raw, owner_user_id,
-                  session_id, filename, pdf_sha256, prompt_sha256, params, issues, prompt)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s)""",
+                  session_id, filename, pdf_sha256, prompt_sha256, params, issues, prompt, run_id, step_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s::uuid, %s)""",
             (doc_id, paper_id, schema_id, source_job_id, res.core_key, res.core_shape,
              res.had_top_evidence, Json(res.top_extras),
              Json(res.paper_metadata_raw) if res.paper_metadata_raw is not None else None,
              owner_user_id, session_id, filename, pdf_sha256, prompt_sha256,
              Json(params) if params is not None else None,
-             Json(issues) if issues is not None else None, prompt),
+             Json(issues) if issues is not None else None, prompt,
+             run_id if _is_uuid(run_id or "") else None, step_id),
         )
 
         # records, keeping entry_index -> record_id
@@ -1604,7 +1607,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
                   d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
                   d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta,
-                  d.catalogue, d.zenodo_concept_doi, d.companion_dataset_id::text
+                  d.catalogue, d.zenodo_concept_doi, d.companion_dataset_id::text, d.workflow
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1651,6 +1654,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "citation_custom": bool(custom), "version": r[18] or 1,
             "zenodo_concept_doi": concept,         # always resolves to the newest release, once one was minted
             "companion_dataset_id": r[27],         # the dataset this one is cross-checked against (crosscheck.py)
+            "workflow": r[28],                      # the declared workflow, by contract (workflows.py); NULL = the preset's implicit one
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
@@ -1837,6 +1841,16 @@ def dataset_recipe(conn: psycopg.Connection, dataset_id: str, d: dict) -> dict:
     elif not shas and recipe["prompt"]:
         import hashlib
         recipe["prompt_sha256"] = hashlib.sha256(recipe["prompt"].encode("utf-8")).hexdigest()
+    # the process behind the data: the declared workflow (by contract) and the newest finished run
+    try:
+        from . import workflows
+        run = workflows.last_done_run(conn, dataset_id)
+        recipe["workflow"] = ({"id": run["workflow_id"], "contract": run["contract"], "release": run.get("workflow_release"),
+                               "run_id": run["id"], "run_at": run.get("finished_at")} if run
+                              else ({"id": d["workflow"].partition("@")[0], "contract": d["workflow"], "release": None, "run_id": None, "run_at": None}
+                                    if d.get("workflow") else None))
+    except Exception:  # noqa: BLE001 - the recipe never fails the page over a run
+        recipe["workflow"] = None
     return recipe
 
 
@@ -2272,6 +2286,21 @@ def assign_document_to_dataset(conn: psycopg.Connection, dataset_id: str,
     return n
 
 
+def replace_document_in_dataset(conn: psycopg.Connection, dataset_id: str, old_document_id: str,
+                                new_document_id: str) -> int:
+    """A paper re-extracted (under a newer contract, say): the new document takes the old one's
+    place in the dataset. The old document and its verification events stay in "All my papers";
+    only its records leave the dataset. Serialised like ``assign_document_to_dataset``."""
+    with conn.transaction():
+        sha_row = conn.execute("SELECT pdf_sha256 FROM extraction_document WHERE id = %s::uuid", (new_document_id,)).fetchone()
+        sha = sha_row[0] if sha_row else None
+        if sha:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))", (str(dataset_id), sha))
+        conn.execute("UPDATE record SET dataset_id = NULL WHERE document_id = %s::uuid AND dataset_id = %s::uuid",
+                     (old_document_id, dataset_id))
+    return assign_document_to_dataset(conn, dataset_id, new_document_id)
+
+
 def documents_by_hashes(conn: psycopg.Connection, hashes: list[str], *,
                         owner_user_id: str | None = None,
                         session_id: str | None = None,
@@ -2568,6 +2597,7 @@ def delete_user_data(conn: psycopg.Connection, user_id: str) -> dict:
     with conn.transaction():
         conn.execute("DELETE FROM personal_preset WHERE owner_user_id = %s::uuid", (user_id,))
         conn.execute("DELETE FROM dashboard WHERE owner_user_id = %s::uuid", (user_id,))
+        conn.execute("DELETE FROM workflow_run WHERE started_by = %s::uuid", (user_id,))
         conn.execute("DELETE FROM users WHERE id = %s::uuid", (user_id,))   # cascades sessions
     return {"documents": len(doc_ids), "datasets": len(ds_ids)}
 

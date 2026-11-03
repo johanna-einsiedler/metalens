@@ -1049,3 +1049,15 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .rp-pg { position: absolute; bottom: 6px; right: 6px; font: 600 10.5px/1 var(--font-mono); background: var(--accent); color: var(--on-accent, #fff); padding: 3px 6px; border-radius: 3px; z-index: 2; }
 .rp-hl { position: absolute; background: rgba(255, 213, 0, .35); border-radius: 2px; }
 .rp-hl-sel { background: color-mix(in srgb, var(--accent) 35%, transparent); box-shadow: 0 0 0 1.5px var(--accent); }
+
+/* the Workflow panel on the dataset page: one row per declared step, the run in progress */
+.wf-row { flex-wrap: wrap; gap: 6px; }
+.wf-kind { display: inline-block; width: 1.3em; text-align: center; color: var(--text-muted); }
+.wf-what code { font-size: 11.5px; }
+.wf-why { font-size: 12px; }
+.wf-run { flex-direction: column; align-items: flex-start; gap: 4px; }
+.wf-papers { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.wf-paper small { color: var(--text-muted); }
+.wf-paper.failed small { color: var(--error); }
+.wf-paper.done small, .wf-paper.attached small { color: var(--success); }
+.wf-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }

@@ -8,6 +8,29 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Workflows: the process a dataset is built with, run incrementally
+
+- A **workflow** (`paperlens/workflows/<id>.json`, `docs/WORKFLOWS.md`) declares which presets run,
+  the deterministic checks that follow, the preset's update steps and the release gate, with human
+  review declared per step (`none` or `all`, with `blocks: next | release`). Presets are pinned by
+  data contract; the workflow's own contract hashes the steps, their pins and the review
+  declarations, so a citation of a workflow version promises the process. A dataset without a
+  declared workflow runs its preset's implicit one-step workflow, so every dataset gets the same
+  Workflow panel.
+- **Update** on the dataset page plans a run over the staged PDFs — per step what it would do and
+  how many model calls — and starts it; credits for every planned call are spent at start and given
+  back per paper that never ran. The page posts each PDF with the run and step; a pipeline uploads
+  its files the same way (`source: supplied`, the only choice for an import-mode preset). The run
+  advances as papers land, survives the queue forgetting a job, and is reconciled every two minutes.
+- **Checks** (`paperlens/checks.py`): a registry of rules that write findings, never data or
+  verdicts; the first, `schema`, re-checks the declared contract on the values as stored. A check's
+  `on_fail: flag` puts the records it found in front of a reviewer.
+- **The release gate**: a release holds while a gate step is stale or missing or a review gate still
+  wants verdicts; the owner may release anyway, which the release records. The fingerprint now
+  moves when a vocabulary or page is committed or a run finishes. Releases, exports and the dataset
+  recipe carry the workflow contract and the run; a document remembers its run and step.
+- Bundled: `econ-regressions` (the Robustness-at-Scale tables, supplied) and `masem` (live).
+
 ### Extraction jobs: retries, refunds and the stage they are at
 
 - A transient provider failure (a rate limit, an overload, a 5xx, a timeout) re-queues the

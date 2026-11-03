@@ -417,6 +417,8 @@ class IngestBody(BaseModel):
     # (owned) document so page images and highlights carry over — a replace must never
     # lose the PDF just because the JSON came alone.
     pdf_from_document_id: str | None = None
+    run_id: str | None = None         # a paper of a workflow run's supplied step
+    step_id: str | None = None
 
 
 def _refresh_row_from_file(db, schema_id: str | None) -> None:
@@ -446,7 +448,8 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
             fn = db.execute("SELECT filename FROM extraction_document WHERE id = %s::uuid",
                             (body.pdf_from_document_id,)).fetchone()
             return _ingest_with_pdf(db, who, store.get(key), body.result, body.schema_id,
-                                    body.dataset_id, filename=fn[0] if fn else None)
+                                    body.dataset_id, filename=fn[0] if fn else None,
+                                    run_id=body.run_id, step_id=body.step_id)
         # no stored PDF on the old copy either → plain JSON import below
     run = presets.resolve_run(db, schema_id=body.schema_id)
     try:
@@ -467,7 +470,14 @@ def ingest_endpoint(body: IngestBody, db=Depends(get_db),
         storage.get_store().put(storage.raw_key(doc_id), raw.encode("utf-8"), "text/plain; charset=utf-8")
     except Exception:  # noqa: BLE001 - never fail an import over the debugging copy
         pass
-    if body.dataset_id:
+    if body.run_id:                       # a paper of a workflow run's supplied step, without its PDF
+        from . import workflows
+        try:
+            workflows.claim_job(db, body.run_id, body.step_id or "", f"doc:{doc_id}", who)
+        except workflows.RunRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        workflows.on_document(db, body.run_id, body.step_id, f"doc:{doc_id}", doc_id)
+    elif body.dataset_id:
         records.assign_document_to_dataset(db, body.dataset_id, doc_id)
     paper_id = db.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)
@@ -732,6 +742,8 @@ class DatasetCreate(BaseModel):
 class DatasetAdd(BaseModel):
     document_id: str | None = None
     record_ids: list[str] | None = None
+    run_id: str | None = None             # the workflow run and step this attach belongs to
+    step_id: str | None = None
 
 
 @app.post("/api/datasets")
@@ -1312,6 +1324,240 @@ def page_delete(pid: str, db=Depends(get_db), who: Principal = Depends(principal
     return {"deleted": pages.delete(db, pid)}
 
 
+# ── workflows: the process a dataset is built with, and its runs ────────────────
+class WorkflowPlanBody(BaseModel):
+    new_pdfs: list[dict] | None = None     # [{sha256, filename}] the page has staged
+    reextract: bool = False                # re-run papers under an older contract and replace them
+    use_credits: bool = False
+    model: str | None = None
+
+
+class WorkflowValidateBody(BaseModel):
+    spec: dict
+
+
+class RunResumeBody(BaseModel):
+    step_id: str | None = None
+    override: bool = False                 # go on although drawn records are unchecked (recorded on the gate)
+
+
+class RunCompleteBody(BaseModel):
+    step_id: str
+
+
+class RunRetryBody(BaseModel):
+    pdf_sha256: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+def _run_or_404(db, run_id: str, who: Principal) -> dict:
+    from . import workflows
+    run = workflows.get_run(db, run_id)
+    if run is None or not workflows.is_run_owner(run, who):
+        raise HTTPException(status_code=404, detail="Run not found.")
+    return run
+
+
+def _refused(exc) -> HTTPException:
+    return HTTPException(status_code=exc.status, detail={"message": str(exc), **exc.extra} if exc.extra else str(exc))
+
+
+@app.get("/api/workflows")
+def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict:
+    """The bundled workflows: what they run, pinned to which contracts."""
+    from . import workflow_spec as ws, workflows
+    out = []
+    for spec in workflows.load_all().values():
+        meta = spec.get("meta") or {}
+        if meta.get("hidden") or not b.shows_preset(meta):
+            continue
+        out.append({"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1), "title": meta.get("title"),
+                    "tagline": meta.get("tagline"), "has_card": ws.has_card(spec),
+                    "steps": [{"id": st["id"], "kind": st["kind"], "label": st.get("label"), "preset": st.get("preset"), "source": st.get("source"),
+                               "review": st.get("review"), "check": st.get("check")} for st in spec["steps"]],
+                    "presets": [p for _s, p in ws.pins(spec)]})
+    return {"workflows": out}
+
+
+@app.get("/api/workflows/{workflow_id}")
+def workflow_detail(workflow_id: str, db=Depends(get_db)) -> dict:
+    from . import workflow_spec as ws, workflows
+    spec = workflows.get_workflow(workflow_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    errs, warns = workflows.validate_for(db, spec)
+    return {"spec": spec, "contract": ws.workflow_id(spec), "spec_sha": ws.spec_sha(spec), "errors": errs, "warnings": warns,
+            "later": workflows.later_problems(spec), "card_md": (spec.get("card") or {}).get("text")}
+
+
+@app.post("/api/workflows/validate")
+def workflow_validate(body: WorkflowValidateBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import workflow_spec as ws, workflows
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Log in to validate a workflow.")
+    try:
+        spec = ws.normalize(body.spec)
+    except ws.WorkflowError as exc:
+        return {"ok": False, "errors": exc.errors, "warnings": [], "contract": None}
+    errs, warns = workflows.validate_for(db, spec)
+    return {"ok": not errs, "errors": errs, "warnings": warns, "later": workflows.later_problems(spec),
+            "contract": ws.workflow_id(spec) if not errs else None}
+
+
+@app.get("/api/datasets/{dataset_id}/workflow")
+def dataset_workflow(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The dataset page's Workflow panel: the declared steps with their state, the active run,
+    the past runs, the release gate. Anyone who may see the dataset sees the states; the owner
+    also sees the work a run would do and may start one."""
+    from . import workflows
+    owner = _dataset_gate(db, dataset_id, who)
+    return workflows.panel(db, dataset_id, who=who, owner=owner)
+
+
+@app.post("/api/datasets/{dataset_id}/workflow/plan")
+def dataset_workflow_plan(dataset_id: str, body: WorkflowPlanBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: what a run would do with the staged papers — per step the work and the calls, the
+    credits it needs, what cannot run yet."""
+    from . import workflows
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner plans a run.")
+    try:
+        return workflows.plan(db, dataset_id, who=who, new_pdfs=body.new_pdfs, reextract=body.reextract,
+                              use_credits=body.use_credits, model=body.model)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+
+@app.post("/api/datasets/{dataset_id}/workflow/runs")
+def dataset_workflow_start(dataset_id: str, body: WorkflowPlanBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner, signed in: start a run from the same inputs as the plan. Credits for every planned
+    call are spent now; the page then posts each staged PDF to /api/extract (or the pipeline
+    uploads its files to /api/ingest-pdf) with the run and step ids."""
+    from . import workflows
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner starts a run.")
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Log in to run a workflow.")
+    try:
+        return workflows.start(db, dataset_id, who=who, new_pdfs=body.new_pdfs, reextract=body.reextract,
+                               use_credits=body.use_credits, model=body.model)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+
+
+@app.get("/api/datasets/{dataset_id}/workflow/runs")
+def dataset_workflow_runs(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import workflows
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner sees the runs.")
+    return {"runs": [{k: v for k, v in r.items() if k not in ("workflow", "plan")} for r in workflows.list_runs(db, dataset_id)]}
+
+
+@app.get("/api/workflow-runs/{run_id}")
+def workflow_run_get(run_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The run with its steps, gates and papers — advanced first, so a poll never shows a run
+    that is waiting on nothing."""
+    from . import workflows
+    run = _run_or_404(db, run_id, who)
+    if run["status"] not in workflows.TERMINAL:
+        run = workflows.advance(db, run_id) or run
+    return workflows.run_view(db, run)
+
+
+@app.post("/api/workflow-runs/{run_id}/advance")
+def workflow_run_advance(run_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import workflows
+    _run_or_404(db, run_id, who)
+    return workflows.run_view(db, workflows.advance(db, run_id))
+
+
+@app.post("/api/workflow-runs/{run_id}/resume")
+def workflow_run_resume(run_id: str, body: RunResumeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import workflows
+    try:
+        return workflows.resume(db, run_id, who=who, step_id=body.step_id, override=body.override)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+
+
+@app.post("/api/workflow-runs/{run_id}/complete")
+def workflow_run_complete(run_id: str, body: RunCompleteBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The owner says a supplied step has everything it will get."""
+    from . import workflows
+    try:
+        return workflows.complete_uploads(db, run_id, who=who, step_id=body.step_id)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+
+
+@app.post("/api/workflow-runs/{run_id}/cancel")
+def workflow_run_cancel(run_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import workflows
+    try:
+        return workflows.cancel(db, run_id, who=who)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+
+
+@app.post("/api/workflow-runs/{run_id}/retry")
+def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Re-run the failed papers of a live step from the PDFs the run kept. A credit run uses
+    the server's key; an own-key run passes the key here, as /api/extract does."""
+    from . import workflows
+    try:
+        run, failed = workflows.failed_jobs(db, run_id, who=who, pdf_sha256=body.pdf_sha256)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+    if run["status"] in workflows.TERMINAL:
+        raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
+    steps = {st["id"]: st for st in run["workflow"]["steps"]}
+    store = storage.get_store()
+    out = {"retried": [], "skipped": []}
+    for j in failed:
+        st = steps.get(j["step_id"]) or {}
+        key = storage.run_pdf_key(run_id, j["pdf_sha256"])
+        if st.get("source") != "live" or not store.exists(key):
+            out["skipped"].append({"pdf_sha256": j["pdf_sha256"], "why": "no stored PDF (upload it again)" if st.get("source") == "live" else "a supplied paper: upload it again"})
+            continue
+        data = store.get(key)
+        run_spec = presets.resolve_run(db, schema_id=st.get("preset"))
+        if run["use_credits"]:
+            cmodel = run.get("model") or credits.credit_model()
+            model, api_key, base_url, use_credits = cmodel, "", None, True
+        else:
+            model, api_key, base_url, use_credits = body.model or "", body.api_key or "", body.base_url, False
+            if not api_key and not base_url:
+                raise HTTPException(status_code=422, detail="This run uses your own API key: pass it to retry.")
+        db.execute("UPDATE workflow_job SET status = 'running', tries = tries + 1, error = NULL, updated_at = now() WHERE id = %s::uuid", (j["id"],))
+        db.commit()
+        job_id = worker.enqueue("extract_job", base64.b64encode(data).decode(), run_spec.prompt, model=model, api_key=api_key, base_url=base_url,
+                                schema_id=st.get("preset"), session_id=who.session_id, owner_user_id=who.user_id, filename=j["filename"],
+                                params=run_spec.params, use_credits=use_credits, credit_user_id=who.user_id if use_credits else None,
+                                dataset_id=run["dataset_id"], run_id=run_id, step_id=j["step_id"], _expires=1800)
+        if job_id:
+            workflows.mark_queued(db, j["id"], job_id)
+        else:
+            try:
+                res = extract.run_extraction(db, data, run_spec.prompt, model=model, api_key=api_key or (credits.server_key_for(providers.get_provider(model, None)) or "" if use_credits else ""),
+                                             base_url=base_url, schema_id=st.get("preset"), session_id=who.session_id, owner_user_id=who.user_id,
+                                             filename=j["filename"], spec=run_spec.spec, params=run_spec.params, run_id=run_id, step_id=j["step_id"])
+                workflows.on_document(db, run_id, j["step_id"], j["pdf_sha256"], res["document_id"])
+            except Exception as exc:  # noqa: BLE001
+                workflows.on_job_failed(db, run_id, pdf_sha256=j["pdf_sha256"], error=str(exc)[:500], final=True)
+        out["retried"].append(j["pdf_sha256"])
+    return {**out, "run": workflows.run_view(db, workflows.get_run(db, run_id))}
+
+
+@app.get("/api/workflow-runs/{run_id}/issues")
+def workflow_run_issues(run_id: str, step: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """What the run's checks found."""
+    from . import checks
+    _run_or_404(db, run_id, who)
+    return {"findings": checks.for_run(db, run_id, step)}
+
+
 @app.get("/api/datasets/{dataset_id}/crosscheck")
 def dataset_crosscheck(dataset_id: str, release: int | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """The dataset checked against its companion (claims' point estimates against the tables'
@@ -1510,6 +1756,8 @@ class ReleaseBody(BaseModel):
     notes: str = ""
     doi: bool = False           # mint a DOI on Zenodo first (the ground truth), so the copies name it
     publish: str | None = None  # then publish the release: "github+metalens" | "github" | None (keep it here)
+    allow_stale: bool = False   # release although a gate step of the workflow is stale or missing (recorded)
+    override_gates: bool = False   # release although a review gate still wants verdicts (recorded)
 
 
 @app.post("/api/datasets/{dataset_id}/releases")
@@ -1523,7 +1771,11 @@ def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db
     last = releases.latest(db, dataset_id)
     if last and not releases.changed_since(db, dataset_id, last):
         raise HTTPException(status_code=409, detail=f"Nothing changed since release v{last['number']}.")
-    rel = releases.create(db, dataset_id, reason="manual", notes=body.notes, created_by=who.user_id)
+    try:
+        rel = releases.create(db, dataset_id, reason="manual", notes=body.notes, created_by=who.user_id,
+                              allow_stale=body.allow_stale, override_gates=body.override_gates)
+    except releases.GateClosed as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc), "gate": exc.gate})
     out: dict = {**releases.public_row(rel), "problems": []}
     # Zenodo first: it reserves the DOI the GitHub copy and the catalogue then name
     if body.doi:
@@ -2005,6 +2257,14 @@ def add_to_dataset(dataset_id: str, body: DatasetAdd, db=Depends(get_db),
         if not records.is_document_owner(db, body.document_id, who):
             raise HTTPException(status_code=403, detail="Not your document.")
         n = records.assign_document_to_dataset(db, dataset_id, body.document_id)
+        if body.run_id:
+            from . import workflows
+            sha = db.execute("SELECT pdf_sha256 FROM extraction_document WHERE id = %s::uuid", (body.document_id,)).fetchone()
+            try:
+                workflows.claim_job(db, body.run_id, body.step_id or "", (sha[0] if sha else None) or f"doc:{body.document_id}", who)
+            except workflows.RunRefused as exc:
+                raise HTTPException(status_code=exc.status, detail=str(exc))
+            workflows.on_document(db, body.run_id, body.step_id, sha[0] if sha else None, body.document_id, attached=True)
     else:
         if not records.records_all_owned(db, body.record_ids or [], who):
             raise HTTPException(status_code=403, detail="Not your records.")
@@ -2141,6 +2401,7 @@ class DatasetPatch(BaseModel):
     attribution: str | None = None         # named | anonymous
     citation: str | None = None            # custom citation text; "" resets to the suggested one
     companion_dataset_id: str | None = None   # the dataset this one is cross-checked against; "" clears it
+    workflow: str | None = None               # the workflow the dataset is built with ("<id>" or "<id>@<hash>"); "" clears it
 
 
 @app.patch("/api/datasets/{dataset_id}")
@@ -2153,8 +2414,26 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
     meta = {k: v for k, v in body.model_dump(exclude_unset=True).items()
             if k in ("description", "readme", "keywords", "attribution", "citation")}
     companion = "companion_dataset_id" in body.model_fields_set
-    if body.visibility is None and body.title is None and not meta and not companion:
+    wf_set = "workflow" in body.model_fields_set
+    if body.visibility is None and body.title is None and not meta and not companion and not wf_set:
         raise HTTPException(status_code=422, detail="Nothing to change.")
+    if wf_set:                            # the declared process: a bundled workflow pinning this dataset's preset
+        from . import workflow_spec as ws, workflows
+        wid = (body.workflow or "").strip() or None
+        if wid:
+            spec = workflows.get_workflow(wid)
+            if spec is None:
+                raise HTTPException(status_code=404, detail="Workflow not found.")
+            errs, _w = workflows.validate_for(db, spec)
+            if errs:
+                raise HTTPException(status_code=422, detail="This workflow does not validate here: " + "; ".join(errs[:3]))
+            d = records.get_dataset(db, dataset_id) or {}
+            base = (d.get("schema_id") or "").partition("@")[0]
+            if base and base not in {ws.preset_base(p) for _s, p in ws.pins(spec)}:
+                raise HTTPException(status_code=422, detail=f"This workflow does not extract with this dataset's preset ({base}).")
+            wid = ws.workflow_id(spec)
+        with db.transaction():
+            db.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE id = %s::uuid", (wid, dataset_id))
     if companion:                         # the other side of the same papers, checked row by row (crosscheck.py)
         from . import crosscheck
         cid = (body.companion_dataset_id or "").strip() or None
@@ -2694,6 +2973,8 @@ def extract_endpoint(
     use_credits: bool = Form(False),
     dataset_id: str | None = Form(None),
     params: str | None = Form(None),
+    run_id: str | None = Form(None),
+    step_id: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2707,6 +2988,34 @@ def extract_endpoint(
     land in it even though the browser has no document_id yet."""
     data = pdf.file.read()
     fname = pdf.filename or None
+    # a paper of a WORKFLOW RUN: the run's job row tags the document; its credits were spent at start
+    claim = None
+    pdf_sha = None
+    if run_id:
+        from . import workflows
+        if not (who.user_id or localmode.enabled()):
+            raise HTTPException(status_code=401, detail="Log in to run a workflow.")
+        pdf_sha = hashlib.sha256(data).hexdigest()
+        try:
+            claim = workflows.claim_job(db, run_id, step_id or "", pdf_sha, who, filename=fname)
+        except workflows.RunRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        dataset_id = dataset_id or claim["run"]["dataset_id"]
+        schema_id = schema_id or claim["step"].get("preset")
+        try:                                  # kept until the step is done: a retry needs no re-upload
+            storage.get_store().put(storage.run_pdf_key(run_id, pdf_sha), data, "application/pdf")
+        except Exception:  # noqa: BLE001, S110 - a retry then needs the upload again
+            pass
+    _tag = {"run_id": run_id, "step_id": step_id} if claim else {}
+
+    def _landed(result: dict) -> None:
+        if claim and isinstance(result, dict) and result.get("document_id"):
+            workflows.on_document(db, run_id, step_id, pdf_sha, result["document_id"])
+
+    def _lost(exc: Exception) -> None:
+        if claim:
+            workflows.on_job_failed(db, run_id, pdf_sha256=pdf_sha, error=str(exc)[:500], final=True)
+
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
 
@@ -2812,7 +3121,8 @@ def extract_endpoint(
         if not cmodel or not server_key:
             raise HTTPException(status_code=400,
                                 detail="Metalens credits aren’t available right now — use your own API key.")
-        if not credits.try_consume(db, who.user_id, model=cmodel):
+        prepaid = bool(claim and claim["prepaid"])
+        if not prepaid and not credits.try_consume(db, who.user_id, model=cmodel):
             raise HTTPException(status_code=402,
                                 detail="You have no Metalens credits left. Use your own API key instead.")
         job_id = worker.enqueue(
@@ -2820,8 +3130,10 @@ def extract_endpoint(
             model=cmodel, api_key="", base_url=None, use_text=use_text, schema_id=schema_id,
             session_id=who.session_id, owner_user_id=who.user_id, filename=fname,
             params=run.params, prompt_edited=run.prompt_edited,
-            use_credits=True, credit_user_id=who.user_id, dataset_id=dataset_id, _expires=1800)
+            use_credits=True, credit_user_id=who.user_id, dataset_id=dataset_id, _expires=1800, **_tag)
         if job_id:
+            if claim:
+                workflows.mark_queued(db, claim["job"]["id"], job_id)
             return {"queued": True, "job_id": job_id, "schema_id": schema_id}
         # Redis down → run synchronously (no Redis payload to protect anyway)
         try:
@@ -2829,14 +3141,15 @@ def extract_endpoint(
                 db, data, prompt, model=cmodel, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
                 owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited)
-            if dataset_id:
+                prompt_edited=run.prompt_edited, **_tag)
+            if dataset_id and not claim:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
+            _landed(result)
         except ValueError as exc:
-            credits.refund(db, who.user_id, model=cmodel)
+            credits.refund(db, who.user_id, model=cmodel); _lost(exc)
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception as exc:
-            credits.refund(db, who.user_id, model=cmodel)
+            credits.refund(db, who.user_id, model=cmodel); _lost(exc)
             raise HTTPException(status_code=502,
                                 detail=f"Extraction failed: {providers.extract_provider_message(exc)}")
         return {"queued": False, "credits": credits.summary(db, who.user_id), **result}
@@ -2849,8 +3162,10 @@ def extract_endpoint(
         params=run.params, prompt_edited=run.prompt_edited,
         # discard the job if no worker consumes it within 30 min (avoid running a
         # long-stale extraction the user has already abandoned — see delayed=… logs)
-        _expires=1800)
+        _expires=1800, **_tag)
     if job_id:
+        if claim:
+            workflows.mark_queued(db, claim["job"]["id"], job_id)
         return {"queued": True, "job_id": job_id, "schema_id": schema_id}
 
     # Synchronous fallback (Redis down): translate failures into clean responses.
@@ -2859,12 +3174,15 @@ def extract_endpoint(
             db, data, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited)
-        if dataset_id:
+                prompt_edited=run.prompt_edited, **_tag)
+        if dataset_id and not claim:
             records.assign_document_to_dataset(db, dataset_id, result["document_id"])
+        _landed(result)
     except ValueError as exc:                 # bad/empty PDF, unparseable model output
+        _lost(exc)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:                   # provider errors (bad key/model/quota)
+        _lost(exc)
         raise HTTPException(status_code=502,
                             detail=f"Extraction failed: {providers.extract_provider_message(exc)}")
     return {"queued": False, **result}
@@ -2872,10 +3190,23 @@ def extract_endpoint(
 
 def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | None,
                      dataset_id: str | None, *, filename: str | None,
-                     produced_by: str | None = None) -> dict:
+                     produced_by: str | None = None, run_id: str | None = None,
+                     step_id: str | None = None) -> dict:
     """The import pipeline with a PDF: render pages, locate the JSON's own evidence,
-    persist a full viewable document — /api/extract minus the model call."""
+    persist a full viewable document — /api/extract minus the model call. With ``run_id``
+    and ``step_id`` the document is a paper of a workflow run's supplied step."""
     import json as _json
+    claim = None
+    pdf_sha = None
+    if run_id:
+        from . import workflows
+        pdf_sha = hashlib.sha256(data).hexdigest()
+        try:
+            claim = workflows.claim_job(db, run_id, step_id or "", pdf_sha, who, filename=filename)
+        except workflows.RunRefused as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc))
+        dataset_id = dataset_id or claim["run"]["dataset_id"]
+        schema_id = schema_id or claim["step"].get("preset")
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")
     obj = result
@@ -2904,12 +3235,18 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
         res = extract.run_extraction(
             db, data, prompt="", schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=filename, complete=_supplied,
-            spec=run.spec)
+            spec=run.spec, **({"run_id": run_id, "step_id": step_id} if claim else {}))
     except ValueError as exc:                 # malformed canonical JSON (no records/evidence)
+        if claim:
+            workflows.on_job_failed(db, run_id, pdf_sha256=pdf_sha, error=str(exc)[:500], final=True)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        if claim:
+            workflows.on_job_failed(db, run_id, pdf_sha256=pdf_sha, error=str(exc)[:500], final=True)
         raise HTTPException(status_code=502, detail=f"Import failed: {exc}")
-    if dataset_id:
+    if claim:
+        workflows.on_document(db, run_id, step_id, pdf_sha, res["document_id"])
+    elif dataset_id:
         records.assign_document_to_dataset(db, dataset_id, res["document_id"])
     return {"queued": False, **res}
 
@@ -2921,6 +3258,8 @@ def ingest_pdf_endpoint(
     schema_id: str | None = Form(None),
     dataset_id: str | None = Form(None),
     produced_by: str | None = Form(None),
+    run_id: str | None = Form(None),
+    step_id: str | None = Form(None),
     db=Depends(get_db),
     who: Principal = Depends(principal),
 ) -> dict:
@@ -2934,7 +3273,7 @@ def ingest_pdf_endpoint(
     run stores its model, so an imported record can say where it came from; without it the
     record only says "imported"."""
     return _ingest_with_pdf(db, who, pdf.file.read(), result, schema_id, dataset_id,
-                            filename=pdf.filename, produced_by=produced_by)
+                            filename=pdf.filename, produced_by=produced_by, run_id=run_id, step_id=step_id)
 
 
 @app.get("/api/papers/provenance")

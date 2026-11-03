@@ -135,6 +135,21 @@ def build(conn, release: dict) -> dict[str, bytes]:
                                                         "unlinked": "no regression column matches the cited exhibit", "no_estimate": "nothing to check", "figure": "a figure"},
                                            "rows": fz["rows"]})
         meta["files"] = sorted(set(meta["files"]) | {"crosscheck.json"})
+    wf = (release.get("snapshot") or {}).get("workflow")
+    if wf:
+        meta["workflow"] = {k: wf.get(k) for k in ("id", "contract", "version", "release", "run_id", "run_at", "implicit", "engine")}
+        meta["workflow"]["steps"] = [{k: st.get(k) for k in ("id", "kind", "status", "preset_schema_id", "preset_release", "prompt_sha256", "n_calls", "review")}
+                                     for st in wf.get("steps") or []]
+    gates = release.get("gates")
+    if gates:
+        meta["release"]["gates"] = gates
+    findings = (release.get("snapshot") or {}).get("findings")
+    if findings:
+        meta["findings"] = {"run_id": findings.get("run_id"), "n": findings.get("n"), "by_severity": findings.get("by_severity"), "file": "findings.json"}
+        files["findings.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION,
+                                         "note": "what the workflow's deterministic checks found on the records of this release; findings never change a reviewer's verdict",
+                                         "run_id": findings.get("run_id"), "findings": findings.get("findings") or []})
+        meta["files"] = sorted(set(meta["files"]) | {"findings.json"})
     meta["files"] = sorted(set(meta["files"]) | {"tile-prompt.md"})
     files["release.json"] = json.dumps(meta, ensure_ascii=False, indent=1, default=str).encode("utf-8")
     files["README.md"] = _readme(meta).encode("utf-8")
@@ -154,6 +169,10 @@ def _readme(meta: dict) -> str:
         lines[2] += f" · DOI [{rel['doi']}](https://doi.org/{rel['doi']})"
     if ds.get("citation"):
         lines += ["## How to cite", "", ds["citation"] + (f" https://doi.org/{rel['doi']}" if rel.get("doi") else ""), ""]
+    wf = meta.get("workflow")
+    if wf and not wf.get("implicit"):
+        lines += [f"Built with workflow `{wf.get('contract')}`" + (f" (release v{wf['release']})" if wf.get("release") else "")
+                  + (f", run `{wf['run_id']}`" if wf.get("run_id") else "") + " — see `workflow` in `release.json`.", ""]
     lines += ["## Files", "",
               "- `release.json` — what this release is, and per row layout the columns it offers",
               *[f"- `{u['file']}` — one row per {u['label'].lower()} ({u['n_rows']} rows)" for u in meta["units"]],

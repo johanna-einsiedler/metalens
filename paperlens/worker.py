@@ -96,6 +96,7 @@ async def _extract_body(ctx: dict, pdf_b64: str, prompt: str, *, model: str = ""
                         credit_user_id: str | None = None,
                         dataset_id: str | None = None, params: dict | None = None,
                         prompt_edited: bool = False, credit_cost: int = 1,
+                        run_id: str | None = None, step_id: str | None = None,
                         run_extraction=None) -> dict:
     """Full PDF extraction as a durable job (render -> model call -> highlight -> records).
 
@@ -148,7 +149,8 @@ async def _extract_body(ctx: dict, pdf_b64: str, prompt: str, *, model: str = ""
             run_extraction, conn, pdf_bytes, prompt, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=session_id,
             owner_user_id=owner_user_id, source_job_id=ctx.get("job_id"),
-            filename=filename, params=params, prompt_edited=prompt_edited))
+            filename=filename, params=params, prompt_edited=prompt_edited,
+            **({"run_id": run_id, "step_id": step_id} if run_id else {})))
     except asyncio.CancelledError:               # aborted from the UI: nothing was delivered
         _refund(credit_cost)
         raise
@@ -156,6 +158,12 @@ async def _extract_body(ctx: dict, pdf_b64: str, prompt: str, *, model: str = ""
         if providers.is_transient(exc) and ctx.get("job_try", 1) < _EXTRACT_MAX_TRIES:
             raise Retry(defer=30 * int(ctx.get("job_try", 1)))
         _refund(credit_cost)
+        if run_id:                               # the run learns that this paper is lost
+            from . import workflows
+            try:
+                workflows.on_job_failed(conn, run_id, job_id=ctx.get("job_id"), error=providers.extract_provider_message(exc), final=True)
+            except Exception:  # noqa: BLE001 - the run's cron reconciles what this misses
+                pass
         raise
     else:
         # a run that made fewer calls than planned gives the unused credits back; a plain
@@ -172,9 +180,22 @@ async def _extract_body(ctx: dict, pdf_b64: str, prompt: str, *, model: str = ""
                 records.assign_document_to_dataset(conn, dataset_id, result["document_id"])
             except Exception:
                 pass
+        if run_id and isinstance(result, dict) and result.get("document_id"):
+            # the workflow run takes it from here (attaches, advances); the cron reconciles a miss
+            from . import workflows
+            try:
+                await loop.run_in_executor(None, functools.partial(
+                    workflows.on_document, conn, run_id, step_id, _sha(pdf_bytes), result["document_id"], job_id=ctx.get("job_id")))
+            except Exception as exc:  # noqa: BLE001
+                print(f"[workflow] run {run_id}: could not record the document: {exc}", flush=True)
         return result
     finally:
         conn.close()
+
+
+def _sha(pdf_bytes: bytes) -> str:
+    import hashlib
+    return hashlib.sha256(pdf_bytes).hexdigest()
 
 
 async def extract_job(ctx: dict, pdf_b64: str, prompt: str, **kw) -> dict:
@@ -207,6 +228,31 @@ async def sweep_anonymous_task(ctx: dict) -> dict:
         conn.close()
 
 
+async def workflow_tick_task(ctx: dict) -> dict:
+    """Every few minutes: a workflow run that has not moved for a while asks the queue about
+    the jobs it still waits for — landed, failed, or forgotten (results expire after an hour)."""
+    from . import workflows
+    conn = records.connect()
+    out = {"checked": 0, "landed": 0, "failed": 0, "lost": 0, "recovered": 0, "waiting": 0}
+    try:
+        for run, job in workflows.reconcile_candidates(conn):
+            out["checked"] += 1
+            try:
+                status = await _job_status(job["job_id"])
+            except Exception:  # noqa: BLE001
+                status = None
+            try:
+                what = workflows.apply_job_status(conn, run, job, status)
+                out[what] = out.get(what, 0) + 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"[workflow] reconcile {run['id']}/{job['pdf_sha256'][:8]}: {exc}", flush=True)
+        if out["checked"]:
+            print(f"[workflow] reconciled {out}", flush=True)
+        return out
+    finally:
+        conn.close()
+
+
 async def github_sync_task(ctx: dict) -> dict:
     """Hourly: merged pull requests become published datasets; GitHub-only datasets are
     imported (paperlens/github_sync.py)."""
@@ -227,6 +273,7 @@ async def github_sync_task(ctx: dict) -> dict:
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
+                 cron(workflow_tick_task, minute=set(range(1, 60, 2)), run_at_startup=False),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]
     redis_settings = redis_settings()
     allow_abort_jobs = True   # let the UI stop an in-progress extraction (Job.abort)

@@ -92,8 +92,13 @@ def test_an_abort_refunds_and_the_call_runs_off_the_loop(monkeypatch) -> None:
     assert out["document_id"] == "d" and seen["thread"] != threading.main_thread().name
     assert refunds == [("user-1", 2)]                                   # planned 3 calls, made 1
 
+    def slow(*a, **k):
+        import time
+        time.sleep(0.2)
+        return {"document_id": "d"}
+
     async def aborted():
-        task = asyncio.ensure_future(_body(monkeypatch, lambda *a, **k: (asyncio.sleep(0), {"document_id": "d"})[1], refunds=refunds))
+        task = asyncio.ensure_future(_body(monkeypatch, slow, refunds=refunds))
         await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

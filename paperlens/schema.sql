@@ -603,3 +603,126 @@ CREATE TABLE IF NOT EXISTS preset_release (
     UNIQUE (preset_id, number)
 );
 CREATE INDEX IF NOT EXISTS preset_release_schema_idx ON preset_release(schema_id);
+
+
+-- ── workflows: a versioned process run incrementally on a dataset ─────────────────────────
+-- A dataset may name the workflow it is built with (by contract: "<id>@<hash8>"); NULL means
+-- the implicit one-step workflow of its preset. A RUN freezes the workflow at start and walks
+-- its steps; per-paper jobs are rows here too, so the fan-in survives the queue forgetting a
+-- job (arq keeps results for an hour). Documents remember the run and step that produced them.
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS workflow text;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS run_id uuid;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS step_id text;
+CREATE INDEX IF NOT EXISTS extraction_document_run_idx ON extraction_document(run_id) WHERE run_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS workflow_run (
+    id               uuid PRIMARY KEY,
+    dataset_id       uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    workflow_id      text NOT NULL,                      -- the workflow's base id
+    contract         text NOT NULL,                      -- "<id>@<hash8>" at start
+    workflow         jsonb NOT NULL,                     -- the normalised spec, frozen at start
+    workflow_release integer,                            -- workflow_release.number whose spec matched; NULL = unreleased
+    plan             jsonb NOT NULL,                     -- the approved plan: papers, per-step work, calls
+    status           text NOT NULL DEFAULT 'planned',    -- planned | running | awaiting_review:<step> | needs_key:<step> | failed | done | cancelled
+    current_step     text,
+    started_by       uuid,
+    session_id       text,
+    model            text,
+    use_credits      boolean NOT NULL DEFAULT false,
+    credits_planned  integer NOT NULL DEFAULT 0,
+    credits_consumed integer NOT NULL DEFAULT 0,
+    credits_refunded integer NOT NULL DEFAULT 0,
+    engine           jsonb,                              -- {name, version, git_sha}
+    error            text,
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    updated_at       timestamptz NOT NULL DEFAULT now(),
+    finished_at      timestamptz
+);
+CREATE INDEX IF NOT EXISTS workflow_run_dataset_idx ON workflow_run(dataset_id, created_at DESC);
+-- one ACTIVE run per dataset
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_run_active_idx ON workflow_run(dataset_id)
+    WHERE status NOT IN ('failed', 'done', 'cancelled');
+
+CREATE TABLE IF NOT EXISTS workflow_step_run (
+    id               uuid PRIMARY KEY,
+    run_id           uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_id          text NOT NULL,
+    kind             text NOT NULL,
+    ordinal          integer NOT NULL,
+    status           text NOT NULL DEFAULT 'pending',    -- pending | running | awaiting_review | done | skipped | failed
+    inputs           jsonb NOT NULL DEFAULT '{}',        -- {record_ids_sha, events_max, document_ids, …}: the basis it ran on
+    outputs          jsonb NOT NULL DEFAULT '{}',        -- extract {document_ids, n_records, attached, failed}; check {n_checked, by_severity}
+    preset_schema_id text,
+    preset_release   integer,
+    prompt_sha256    text,
+    model            text,
+    usage            jsonb,
+    n_calls          integer NOT NULL DEFAULT 0,
+    credits          integer NOT NULL DEFAULT 0,
+    review           jsonb NOT NULL DEFAULT '{}',        -- the gate: {mode, unit, n_target, frame_n, seed, strata, satisfied_at, overridden_by}
+    superseded_by    uuid,
+    error            text,
+    started_at       timestamptz,
+    finished_at      timestamptz,
+    UNIQUE (run_id, step_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_job (
+    id          uuid PRIMARY KEY,
+    run_id      uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_id     text NOT NULL,
+    pdf_sha256  text NOT NULL,
+    filename    text,
+    job_id      text,                                    -- the queue's job id; NULL for inline runs and supplied documents
+    status      text NOT NULL DEFAULT 'pending',         -- pending | queued | running | done | attached | failed | cancelled
+    tries       integer NOT NULL DEFAULT 0,
+    document_id uuid REFERENCES extraction_document(id) ON DELETE SET NULL,
+    error       text,
+    credits     integer NOT NULL DEFAULT 0,
+    refunded    boolean NOT NULL DEFAULT false,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (run_id, step_id, pdf_sha256)
+);
+
+-- what a review gate drew: the records a person must give a verdict (never an event; every
+-- event consumer would otherwise have to learn to skip a machine's act)
+CREATE TABLE IF NOT EXISTS workflow_sample (
+    id          uuid PRIMARY KEY,
+    run_id      uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_run_id uuid NOT NULL REFERENCES workflow_step_run(id) ON DELETE CASCADE,
+    step_id     text NOT NULL,
+    record_id   uuid NOT NULL REFERENCES record(id) ON DELETE CASCADE,
+    document_id uuid REFERENCES extraction_document(id) ON DELETE CASCADE,
+    kind        text NOT NULL DEFAULT 'random',          -- random | supplement
+    stratum     jsonb,
+    ord         integer NOT NULL,
+    drawn_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (step_run_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS workflow_sample_record_idx ON workflow_sample(record_id);
+
+-- what a check step found: per run, recomputed each time, never data
+CREATE TABLE IF NOT EXISTS workflow_finding (
+    id                  uuid PRIMARY KEY,
+    run_id              uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_run_id         uuid NOT NULL REFERENCES workflow_step_run(id) ON DELETE CASCADE,
+    step_id             text NOT NULL,
+    "check"             text NOT NULL,
+    record_id           uuid REFERENCES record(id) ON DELETE CASCADE,
+    document_id         uuid REFERENCES extraction_document(id) ON DELETE CASCADE,
+    companion_record_id uuid REFERENCES record(id) ON DELETE SET NULL,
+    path                text,
+    code                text NOT NULL,
+    severity            text NOT NULL,                   -- error | warn | info
+    message             text NOT NULL,
+    detail              jsonb,
+    created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS workflow_finding_record_idx ON workflow_finding(record_id);
+CREATE INDEX IF NOT EXISTS workflow_finding_run_idx ON workflow_finding(run_id, step_id);
+
+-- a release remembers the run it was cut from and the gate states at the cut
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS workflow_run_id uuid;
+ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS gates jsonb;
+ALTER TABLE workflow_job ADD COLUMN IF NOT EXISTS replaces uuid;     -- the document this re-extraction takes the place of

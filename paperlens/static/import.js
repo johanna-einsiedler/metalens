@@ -20,6 +20,7 @@ const TABLES = {};     // schema id -> {table field: [column names]}, for reshap
 let EXISTING = null; // documents already in the chosen dataset: [{document_id, filename, title, doi}] (null = new dataset)
 const ACTION = {};   // json key -> "replace" | "skip" for papers already in the dataset (default replace)
 let PRESETS = [];
+let RUN_ID = null, RUN_STEP = "extract";   // the workflow run these uploads belong to (?run=&step=)
 let RUNNING = false;
 
 // strip .gemini.json / .json / .pdf so "aejapp_4_3_4.gemini.json" and "aejapp_4_3_4.pdf" pair
@@ -74,6 +75,15 @@ async function loadDatasets() {
   if (target) {
     sel.value = target.id; sel.onchange();
     if (target.schema_id) { autoSchema(target.schema_id, `the preset of “${target.title || "this dataset"}”`); $("#schema").dataset.user = "1"; }
+    // ?run=<id>&step=<id>: the uploads are the papers of a workflow run's supplied step
+    RUN_ID = new URLSearchParams(location.search).get("run") || null;
+    RUN_STEP = new URLSearchParams(location.search).get("step") || "extract";
+    if (RUN_ID) {
+      const note = document.createElement("p");
+      note.className = "muted"; note.style.cssText = "font-size:13px;margin:6px 0 0";
+      note.innerHTML = `These uploads are the papers of a <b>workflow run</b> of “${esc(target.title || "this dataset")}”: each lands in the run, and the run goes on once you mark the uploads complete on the dataset page. <a href="/dataset?id=${esc(target.id)}#workflow">Back to the dataset →</a>`;
+      sel.closest(".field, .row, div")?.appendChild(note);
+    }
   }
 }
 
@@ -558,6 +568,7 @@ async function run() {
         fd.append("result", JSON.stringify(r.json.canonical));
         if (schemaId) fd.append("schema_id", schemaId);
         if (target) fd.append("dataset_id", target);
+        if (RUN_ID && target) { fd.append("run_id", RUN_ID); fd.append("step_id", RUN_STEP); }   // a paper of a workflow run's supplied step
         res = await api.ingestPdf(fd);
       } else {
         // no PDF dropped: a replaced copy that HAS one lends it, so page images and
