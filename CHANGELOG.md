@@ -8,6 +8,20 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Pipelines and loops: k runs with a vote, follow-up steps by reference, re-runs on findings
+
+- A live extract step may run its preset `k` times per paper and merge the runs by a `vote`
+  (identity fields, per-field rules): the runs are hidden `role = run` documents, the final
+  carries their quotes labelled by run, and each record its support, the candidate values the
+  runs disagreed on (chips in the review, adopted as corrections), flags and a trace; a
+  `contested first` triage and a runs drill-down in the workspace.
+- A later extract step may read the runs instead of the paper (`input.previous`): a follow-up
+  preset whose prompt says `${previous}` and whose evidence cites the runs by reference, resolved
+  to their real quotes. The step it reads runs inside its pipeline; a paper costs k + 1 calls.
+- A `loop` step re-runs a live extract step for the papers a check still finds problems in, with
+  the findings fed into the prompt, up to `max_iterations`; a credit run pays again, an own-key
+  run pauses for the key. A run keeps its PDFs until it ends.
+
 ### Derive steps: dataset-level units made by the run, reviewed as drafts
 
 - A workflow's `derive` step makes a unit of rows over an extract step's records — a model call

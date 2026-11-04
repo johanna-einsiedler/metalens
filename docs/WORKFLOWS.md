@@ -30,7 +30,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   supplied` waits for the pipeline's uploads — the only choice for an import-mode preset),
   `check` (a rule from the registry in `paperlens/checks.py`; writes findings, never data),
   `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `release`
-  (`gate` lists the steps that must be fresh and reviewed). `loop`, `agent`, `k > 1`
+  (`gate` lists the steps that must be fresh and reviewed). `agent`
   and `input.previous` are grammar-valid and refused at plan time until their release, and so
   is a second extract step: a workflow runs one preset into one dataset for now (claims and
   tables stay two datasets joined by the companion cross-check); linked datasets come later.
@@ -89,6 +89,54 @@ the step has a verdict or the owner resumes with `override`, which the gate reco
 `blocks: release` lets the run finish and holds the release: `POST /api/datasets/{id}/releases`
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
+
+## Pipelines: k runs, a vote, a follow-up step
+
+A live extract step may run its preset several times per paper and merge the runs:
+
+```jsonc
+{"id": "claims", "kind": "extract", "preset": "register-claims@…", "source": "live",
+ "k": 3, "vote": {"identity": ["cause", "effect"], "fields": {"statement": "first", "tags": "union"}}}
+```
+
+Each run is a document of its own (`role = run`, hidden from every listing, never in a dataset,
+reading the final's PDF and pages); the vote matches entries across runs on the `identity`
+fields and fills each field by rule — `majority` (ties to the lowest run, flagged), `first`,
+`union`, `all`; lists, tables and sub-entries by union, text by first. The final document — the
+one the dataset holds and a person reviews — carries the union of the runs' quotes labelled by
+run (`Table 2 · majority (r1, r2)`), and every record carries what the engine knows about it:
+`support` (n of k runs), `candidates` (the values the runs disagreed on, one chip each in the
+review; adopting one is logged as a correction), `flags` (`contested:<field>`, `minority`,
+`tie:<field>`, `duplicate_in_run:<r>`). The `contested first` triage puts those first.
+
+A later extract step may read the runs instead of the paper — an adjudication:
+
+```jsonc
+{"id": "graph", "kind": "extract", "preset": "claim-graph@…", "source": "live", "input": {"previous": ["claims"]}}
+```
+
+Its preset is a follow-up preset: its prompt reads `${previous}` (the runs' outputs, entry by
+entry under `r1.claims[0]`, with their quotes) and cites evidence by reference (`{"ref":
+"r2.claims[3].sign", "field": "claims[0].sign"}`), never a quote of its own; the engine resolves
+every reference to the runs' real quotes (exact → row → table → entry), records the hop trace per
+record, and checks the refs (`bad_ref`, `unknown_source`, `dangling_ref`, `quoted_directly`,
+`unreferenced_row`, …). The step it reads is part of its pipeline: it plans no papers of its own,
+and the dataset holds the follow-up's documents. One follow-up per pipeline in this release. A
+paper of such a step costs k + 1 model calls (planned at the run's start); the jobs run under a
+longer timeout and report which call they are on.
+
+## Loops
+
+```jsonc
+{"id": "fix", "kind": "loop", "steps": ["tables", "numbers"], "until": {"check": "numbers", "max": 0}, "max_iterations": 2}
+```
+
+When the named check still finds problems (at or above its `severity`; more than `max` per
+paper) after the inner steps ran, the live extract step runs again for those papers with the
+findings fed into the prompt ("an earlier extraction of this paper was checked and these
+problems were found; fix them"), replacing their documents, then the check runs again — at most
+`max_iterations` times. A credit run spends the calls again; an own-key run pauses as
+`needs_key:<step>` until the owner gives the key. The run keeps its PDFs until it ends.
 
 ## Derive steps
 

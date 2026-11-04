@@ -140,8 +140,12 @@ def test_what_this_release_refuses_at_plan_time() -> None:
     doc = copy.deepcopy(GOOD)
     doc["steps"][0].update({"k": 2, "vote": {"identity": ["sample_id"]}})
     spec = ws.normalize(doc); assert ws.validate(spec)[0] == []
-    later = workflows.later_problems(spec)
-    assert len(later) == 1 and "vote engine" in later[0]
+    assert workflows.later_problems(spec) == []                                   # k runs and a vote run (the pipeline)
+    assert workflows.calls_per_paper(spec, spec["steps"][0]["id"]) == 2
+    doc = copy.deepcopy(GOOD); doc["steps"][0].update({"k": 2})
+    assert any("k > 1 needs vote" in e for e in ws.validate(ws.normalize(doc))[0])
+    doc = copy.deepcopy(GOOD); doc["steps"].insert(1, {"id": "bot", "kind": "agent", "preset": ECON})
+    assert any("agent" in m for m in workflows.later_problems(ws.normalize(doc)))
     doc = copy.deepcopy(GOOD); doc["steps"][0]["review"] = {"mode": "sample", "n": 5}
     assert workflows.later_problems(ws.normalize(doc)) == []                     # a sampled review runs
     doc = copy.deepcopy(GOOD); doc["steps"].insert(1, {"id": "second", "kind": "extract", "preset": ECON})

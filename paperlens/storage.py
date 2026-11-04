@@ -178,3 +178,13 @@ def run_prefix(run_id: str) -> str:
 def raw_key(doc_id: str) -> str:
     """The model's verbatim response (or the JSON that was imported), as text."""
     return f"raw/{doc_id}.txt"
+
+
+def call_raw_key(doc_id: str, index: int) -> str:
+    """A call chain's verbatim text of call ``index`` (0 = the first run), under the final document."""
+    return f"raw/{doc_id}/calls/{index}.txt"
+
+
+def chain_key(doc_id: str) -> str:
+    """A call chain's full trace (every hop from a final value back to a run's quote), as JSON."""
+    return f"chain/{doc_id}.json"

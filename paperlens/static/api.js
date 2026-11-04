@@ -119,6 +119,7 @@ export const api = {
   workflowReleaseDoi: (id, n) => req(`/api/workflows/${encodeURIComponent(id)}/releases/${n}/doi`, { method: "POST" }),
   setWorkflow: (id, workflow) => req(`/api/datasets/${id}`, { ...json({ workflow }), method: "PATCH" }),
   // derived units: what a workflow's derive steps make, reviewed as drafts
+  documentChain: (id) => req(`/api/documents/${id}/chain`),
   derivedList: (id) => req(`/api/datasets/${id}/derived`),
   derivedPlan: (id, step) => req(`/api/datasets/${id}/derived/${encodeURIComponent(step)}/plan`),
   derivedPropose: (id, step, body) => req(`/api/datasets/${id}/derived/${encodeURIComponent(step)}/propose`, json(body || {})),
