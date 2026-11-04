@@ -726,3 +726,29 @@ CREATE INDEX IF NOT EXISTS workflow_finding_run_idx ON workflow_finding(run_id, 
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS workflow_run_id uuid;
 ALTER TABLE dataset_release ADD COLUMN IF NOT EXISTS gates jsonb;
 ALTER TABLE workflow_job ADD COLUMN IF NOT EXISTS replaces uuid;     -- the document this re-extraction takes the place of
+
+-- ── workflow releases: a frozen, numbered, citable version of a curated workflow ──────────
+-- A workflow's contract is content-addressed ("<id>@<hash8>" over its steps, pins and review
+-- declarations); its wording and card are not, so a card needs its own version counter. A release
+-- freezes the whole normalised document (prompts and card inlined), the presets it pinned with the
+-- preset release each matched, and may carry a DOI of its own.
+CREATE TABLE IF NOT EXISTS workflow_release (
+    id                 uuid PRIMARY KEY,
+    workflow_id        text NOT NULL,
+    number             integer NOT NULL,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    created_by         uuid,
+    notes              text,
+    contract           text NOT NULL,                        -- "<id>@<hash8>" at the cut
+    spec               jsonb NOT NULL,                       -- the normalised document, frozen
+    spec_sha           text NOT NULL,                        -- sha256 of the canonical document: "changed since?"
+    presets            jsonb NOT NULL DEFAULT '[]',          -- [{step, schema_id, preset_release, concept_doi}]
+    engine             jsonb,
+    doi                text,
+    zenodo_record_id   bigint,
+    zenodo_url         text,
+    zenodo_concept_doi text,
+    doi_minted_at      timestamptz,
+    doi_minted_by      uuid,
+    UNIQUE (workflow_id, number)
+);

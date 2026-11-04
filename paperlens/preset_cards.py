@@ -112,7 +112,7 @@ def datasets_for(conn: psycopg.Connection, pid: str, spec: dict) -> list[dict]:
                  "doi": r["doi"] if _counts(r.get("doi")) else None} for r in releases.list_for_dataset(conn, d["id"])]
         out.append({"id": d["id"], "slug": d["slug"], "title": d["title"], "description": d["description"],
                     "github_source": d["github_source"], "published_url": d["published_url"], "created_at": d["created_at"],
-                    "credibility": {k: cred.get(k) for k in ("tier", "label", "n_records", "audited", "audited_pct", "agreement", "agreement_ci", "agreed")},
+                    "credibility": {k: cred.get(k) for k in ("tier", "label", "label_long", "n_records", "audited", "audited_pct", "agreement", "agreement_ci", "agreed", "sample")},
                     "n_records": d["n_records"], "n_papers": d["n_papers"], "versions": d["versions"], "releases": rels})
     return out
 
@@ -177,9 +177,19 @@ def rollup(datasets: list[dict]) -> dict:
             agreed += int(c["agreed"])
         elif c.get("agreement") is not None and c.get("audited"):
             agreed += round(float(c["agreement"]) * int(c["audited"]))
-    badge = records._badge_from_counts(n_records, audited, agreed)   # noqa: SLF001
+    # the random draws across the datasets, pooled: what the sampled-review estimate speaks for
+    draws = [d["credibility"]["sample"] for d in datasets if isinstance((d.get("credibility") or {}).get("sample"), dict)]
+    sample = None
+    if draws:
+        checked = sum(int(x.get("checked") or 0) for x in draws); disagreed = sum(int(x.get("disagreed") or 0) for x in draws)
+        sample = {"frame": sum(int(x.get("frame") or 0) for x in draws), "drawn": sum(int(x.get("drawn") or 0) for x in draws),
+                  "checked": checked, "pending": sum(int(x.get("pending") or 0) for x in draws), "disagreed": disagreed,
+                  "error_rate": round(disagreed / checked, 4) if checked else None,
+                  "error_ci": records._wilson(disagreed, checked) if checked else None,   # noqa: SLF001
+                  "steps": [st for x in draws for st in (x.get("steps") or [])]}
+    badge = records._badge_from_counts(n_records, audited, agreed, sample=sample)   # noqa: SLF001
     return {"n_datasets": len(datasets), "n_records": n_records, "n_papers": n_papers, "audited": audited, "agreed": agreed,
-            "disagreed": max(0, audited - agreed), **{k: badge[k] for k in ("tier", "audited_pct", "agreement", "agreement_ci", "label")}}
+            "disagreed": max(0, audited - agreed), **{k: badge.get(k) for k in ("tier", "audited_pct", "agreement", "agreement_ci", "label", "label_long", "sample")}}
 
 
 # ── the payloads ───────────────────────────────────────────────────────────────

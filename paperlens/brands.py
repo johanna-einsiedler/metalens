@@ -58,7 +58,7 @@ METALENS = Brand(
     tagline="AI-assisted data extraction from research papers, with human review.",
     logo="/static/logo.svg", landing="landing.html",
     credit_label="Metalens credits",
-    nav_shared=(("/dashboards", "Dashboards"), ("/catalog", "Data Catalogue"), ("/presets", "Presets")),
+    nav_shared=(("/dashboards", "Dashboards"), ("/catalog", "Data Catalogue"), ("/presets", "Presets"), ("/workflows", "Workflows")),
     nav_personal=(("/extract", "Process papers"), ("/import", "Import"), ("/workspace", "Data review")),
     links={"source": "https://github.com/johanna-einsiedler/metalens"},
 )

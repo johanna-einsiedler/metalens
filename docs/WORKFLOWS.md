@@ -90,6 +90,18 @@ the step has a verdict or the owner resumes with `override`, which the gate reco
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
 
+## Versions and citation
+
+A workflow with a card (`card.file`) is curated: it is listed on `/workflows`, has a card page
+(`/workflow?id=`), and moderators cut numbered releases of it (`POST /api/workflows/{id}/releases`,
+the "Release" form on the card). A release freezes the whole document — card and any derive
+prompt inlined — next to its contract and, per extract step, the preset release whose contract the
+pin matched; it may carry a DOI of its own (`…/releases/{n}/doi`, Zenodo, `requires` relations to
+the presets' concept DOIs, `isSourceOf` to the dataset releases built with it). The bundle
+(`…/releases/{n}/bundle`) is a loadable workflow folder: `workflow.json`, `card.md`, `steps.md`,
+`CITATION.cff`, `README.md`. A run records the release number whose document it matched exactly
+(`workflow_run.workflow_release`); the citation on the card names the concept DOI, else the page.
+
 ## Provenance
 
 A document remembers its run and step; a release remembers its run and the gate states; the
