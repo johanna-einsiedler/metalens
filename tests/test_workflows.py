@@ -245,15 +245,18 @@ def test_plan_attaches_what_the_owner_already_has_and_refuses_what_cannot_run(mo
     assert run["jobs"]["attached"] == 1 and run["status"] == "done"                 # nothing to wait for: attached and finished
     conn.rollback()
     assert conn.execute("SELECT count(*) FROM record WHERE dataset_id = %s::uuid AND document_id = %s::uuid", (ds_c, doc_d)).fetchone()[0] == 1
-    # what this release refuses: a sampled review, k > 1
+    # what this release refuses: an agent step (a sampled review and k runs with a vote run now)
+    ok = ws.normalize({"format": 1, "id": "later", "meta": {"title": "Later"},
+                       "steps": [{"id": "x", "kind": "extract", "preset": "masem-direct@eb5f0287", "k": 2, "vote": {"identity": ["sample_id"]},
+                                  "review": {"mode": "sample", "n": 3}}]})
+    assert workflows.later_problems(ok) == []
     spec = ws.normalize({"format": 1, "id": "later", "meta": {"title": "Later"},
-                         "steps": [{"id": "x", "kind": "extract", "preset": "masem-direct@eb5f0287", "k": 2, "vote": {"identity": ["sample_id"]},
-                                    "review": {"mode": "sample", "n": 3}}]})
+                         "steps": [{"id": "x", "kind": "agent", "preset": "masem-direct@eb5f0287"}]})
     monkeypatch.setattr(workflows, "get_workflow", lambda wid: spec if wid.startswith("later") else None)
     conn.execute("UPDATE dataset SET workflow = %s WHERE id = %s::uuid", (ws.workflow_id(spec), ds_c)); conn.commit()
     with pytest.raises(workflows.RunRefused) as info:
         workflows.start(conn, ds_c, who=who, new_pdfs=[{"sha256": "d" * 64, "filename": "d.pdf"}])
-    assert "vote engine" in str(info.value) and "sampled review" not in str(info.value)   # the sampler runs now
+    assert "agent" in str(info.value)
     conn.close()
 
 

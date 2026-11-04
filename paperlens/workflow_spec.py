@@ -43,10 +43,7 @@ MAX_K = 5
 MAX_LOOP = 3
 PIN_RE = re.compile(r"^([a-z][a-z0-9-]{1,63})@([0-9a-f]{8})$")
 UPDATE_KINDS = ("vocabulary", "pages", "crosscheck")   # the preset-level update steps, as workflow kinds
-LATER = {"k": "running a preset several times needs the vote engine (a later release)",
-         "input": "a step reading an earlier step's output needs the chain engine (a later release)",
-         "loop": "loops need the chain engine (a later release)",
-         "agent": "agent steps arrive in a later release"}
+LATER = {"agent": "agent steps arrive in a later release"}
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "card", "dataset", "steps", "implicit"},
@@ -356,6 +353,7 @@ def _validate_extract(st, at, E, W, *, resolver, pin_known, earlier, by_id) -> d
     if isinstance(k, int) and k > 1 and not vote:
         E(f"{at}: k > 1 needs vote.identity (how the runs are merged)")
     inp = st.get("input") or {}
+    followup = bool(pspec) and ps.is_followup(pspec)
     if not isinstance(inp, dict) or set(inp) - _ALLOWED_KEYS["input"]:
         E(f"{at}.input must be {{previous: [step ids]}}")
     else:
@@ -363,9 +361,22 @@ def _validate_extract(st, at, E, W, *, resolver, pin_known, earlier, by_id) -> d
         if not isinstance(prev, list) or any(not isinstance(p, str) for p in prev):
             E(f"{at}.input.previous must list step ids")
         else:
+            if len(prev) > 1:
+                E(f"{at}.input.previous: one earlier step in this release (the runs r1…rk are unambiguous only then)")
             for p in prev:
-                if p not in earlier or by_id.get(p, {}).get("kind") not in ("extract", "agent"):
+                ps_ = by_id.get(p, {})
+                if p not in earlier or ps_.get("kind") != "extract":
                     E(f"{at}.input.previous: {p!r} is not an earlier extract step")
+                elif ps_.get("source") == "supplied":
+                    E(f"{at}.input.previous: {p!r} is a supplied step; a follow-up reads live runs")
+                elif (ps_.get("input") or {}).get("previous"):
+                    E(f"{at}.input.previous: {p!r} reads earlier outputs itself; one follow-up per pipeline in this release")
+            if prev and st.get("source") == "supplied":
+                E(f"{at}: a step reading earlier outputs runs live (source: supplied makes no sense)")
+            if prev and pspec is not None and not followup:
+                E(f"{at}.input.previous: the preset's prompt must read ${{previous}} (a follow-up preset)")
+            if not prev and followup:
+                E(f"{at}: the preset reads ${{previous}} — declare input.previous (the step whose runs it reads)")
     if not isinstance(st.get("params", {}), dict):
         E(f"{at}.params must be an object")
     return pspec
@@ -450,8 +461,12 @@ def _validate_loop(st, at, E, W, *, earlier, by_id) -> None:
     if not isinstance(inner, list) or not inner or any(not isinstance(x, str) for x in inner):
         E(f"{at}.steps must list the earlier steps the loop repeats"); inner = []
     for x in inner:
-        if x not in earlier or by_id.get(x, {}).get("kind") not in ("extract", "check", "agent"):
+        if x not in earlier or by_id.get(x, {}).get("kind") not in ("extract", "check"):
             E(f"{at}.steps: {x!r} is not an earlier extract or check step")
+        elif by_id[x].get("kind") == "extract" and by_id[x].get("source") != "live":
+            E(f"{at}.steps: {x!r} is a supplied step; a loop re-runs live extractions")
+    if inner and not any(by_id.get(x, {}).get("kind") == "extract" for x in inner):
+        E(f"{at}.steps must include the extract step the loop re-runs")
     until = st.get("until")
     if not isinstance(until, dict) or until.get("check") not in inner or by_id.get(until.get("check"), {}).get("kind") != "check":
         E(f"{at}.until.check must name a check step inside the loop")

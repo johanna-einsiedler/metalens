@@ -7,6 +7,19 @@
 // `_rid` is the permanent id of a sub-entry / table row (evidence refers to rows by it):
 // internal, kept on every edit, never rendered.
 const SKIP = new Set(["evidence", "extraction_confidence", "_rid"]);
+// The definition the extractor was given for a field: type, allowed values, help — the
+// same facts the prompt's FIELDS line carries, for the hover card on the field's name.
+export function fieldDef(f) {
+  if (!f) return "";
+  const t = f.type || "string";
+  let opts = "";
+  if (Array.isArray(f.options)) opts = ": " + f.options.map((o) => (o && typeof o === "object" ? o.value : o)).join(" | ");
+  else if (typeof f.options === "string") opts = ": one of the preset's " + f.options.replace(/^\$\{|\}$/g, "") + " values";
+  if (t === "table" && Array.isArray(f.columns)) opts = ": columns " + f.columns.map((c) => c.name).join(", ");
+  return `${f.name} — ${t}${opts}${f.required ? ", required" : ""}${f.help ? `. ${f.help}` : ""}`
+    + (f.evidence && f.evidence !== "none" ? ` (evidence: ${f.evidence})` : "");
+}
+
 export function stripRowIds(node) {
   if (Array.isArray(node)) return node.map(stripRowIds);
   if (node && typeof node === "object") return Object.fromEntries(Object.entries(node).filter(([k]) => k !== "_rid").map(([k, v]) => [k, stripRowIds(v)]));
@@ -323,9 +336,27 @@ export function renderFields(defs, obj, basePath, opts) {
     const tip = fieldTip(f);
     return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
       + `<div class="rv-key${tip ? " rv-key-help" : ""}" data-path="${esc(path)}"${tip ? ` title="${esc(tip)}" data-tip="${esc(tip)}"` : ""}>${esc(f.label || formatKey(f.name))}${tip ? `<span class="rv-help" title="${esc(tip)}" data-tip="${esc(tip)}" tabindex="0">ⓘ</span>` : ""}</div>`
-      + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}</div></div>`;
+      + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}${basePath ? "" : renderCandidates(f, v, path, opts)}</div></div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;
+}
+
+// A field the runs of a call chain disagreed on: one chip per candidate value with the
+// number of runs behind it (hover for which). The shown value is the merged one; clicking
+// another chip adopts it — the workspace logs that as a correction. Nothing is drawn when
+// the runs agreed.
+export function renderCandidates(f, v, path, opts) {
+  const cands = opts && opts.candidates ? opts.candidates[f.name] : null;
+  if (!Array.isArray(cands) || cands.length < 2) return "";
+  const cur = JSON.stringify(v === undefined ? null : v);
+  return `<div class="rv-cands">` + cands.map((c) => {
+    const val = JSON.stringify(c.value === undefined ? null : c.value);
+    const same = val === cur;
+    const shown = c.value !== null && typeof c.value === "object" ? JSON.stringify(c.value) : String(c.value);
+    return `<button type="button" class="rv-cand${same ? " rv-cand-cur" : ""}" data-path="${esc(path)}" data-value="${esc(val)}"`
+      + ` title="${esc((c.runs || []).join(", "))}${same ? " — the merged value" : " — click to adopt (logged as a correction)"}"${same ? " disabled" : ""}>`
+      + `${esc(shown.length > 60 ? shown.slice(0, 57) + "…" : shown)}<span class="rv-cand-n">${(c.runs || []).length}</span></button>`;
+  }).join("") + `</div>`;
 }
 
 // A blank row of declared fields, typed like a seeded entry: [] for tables, multi and lists,

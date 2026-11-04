@@ -92,12 +92,20 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                    entries_key: str | None = None, spec: dict | None = None,
                    prompt_edited: bool = False,
                    complete: CompleteFn | None = None, store=None,
-                   run_id: str | None = None, step_id: str | None = None) -> dict:
+                   run_id: str | None = None, step_id: str | None = None,
+                   role: str = "final", group_id: str | None = None, pass_index: int | None = None,
+                   chain: dict | None = None, record_chain: dict | None = None,
+                   store_artifacts: bool = True) -> dict:
     """``spec`` is the preset declaration the run was made with (gives ingest the declared
     core array and lets the result be validated for triage); ``params`` the parameter
     values it used (stored for provenance); ``prompt_edited`` whether the caller replaced
     the generated prompt with its own text. Without a spec the schema row is consulted.
-    ``run_id`` / ``step_id`` name the workflow run and step this extraction belongs to."""
+    ``run_id`` / ``step_id`` name the workflow run and step this extraction belongs to.
+
+    A pipeline (chain.py) persists each of its documents through here: a run has
+    ``role="run"`` and ``store_artifacts=False`` (its quotes are located, but the PDF and page
+    images are stored once, under the final), the final carries the pipeline's provenance
+    (``chain``) and what the engine knows per entry (``record_chain``)."""
     store = store or storage.get_store()
     if spec is None and schema_id:
         try:
@@ -125,7 +133,7 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     for page, snippets in pdf_utils.recover_orphan_pages(llm.text, pdf_bytes).items():
         for s in snippets:
             evidence_items.append({"page": page, "snippet": s, "field": None, "source": None})
-    page_images, highlights, scanned = pdf_utils.pdf_to_pages_with_rects(pdf_bytes, evidence_items)
+    page_images, highlights, scanned = pdf_utils.pdf_to_pages_with_rects(pdf_bytes, evidence_items, render_pages=store_artifacts)
 
     # normalize -> records
     res = ingest(llm.text, entries_key=entries_key)
@@ -153,7 +161,8 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                              owner_user_id=owner_user_id, source_job_id=source_job_id,
                              extraction=extraction, filename=filename, pdf_sha256=sha,
                              prompt_sha256=prompt_sha256, prompt=prompt or None, params=params, issues=issues,
-                             run_id=run_id, step_id=step_id)
+                             run_id=run_id, step_id=step_id,
+                             role=role, group_id=group_id, pass_index=pass_index, chain=chain, record_chain=record_chain)
     paper_id = conn.execute(
         "SELECT paper_id FROM extraction_document WHERE id = %s", (doc_id,)).fetchone()[0]
     # End the implicit read transaction opened by the SELECT above, so attach_rects'
@@ -163,7 +172,8 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
 
     # durable artifacts: source PDF (enables re-highlight without re-calling the LLM)
     # + rendered page images (survive restarts; power click-to-source highlights)
-    store.put(storage.pdf_key(doc_id), pdf_bytes, "application/pdf")
+    if store_artifacts:
+        store.put(storage.pdf_key(doc_id), pdf_bytes, "application/pdf")
     # + the model's verbatim response: everything downstream is derived from it, and a
     # coder debugging "why is this value / evidence missing" needs the original, not the
     # reconstruction from stored rows
@@ -188,3 +198,30 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
             "n_highlights": len(highlights), "scanned_pages": scanned,
             "page_image_keys": page_keys, "doi": res.doi,
             "n_issues": len(issues) if issues else 0}
+
+
+def run(conn, pdf_bytes: bytes, prompt: str, *, pipeline: list[dict] | None = None, generate=None, progress=None, **kw) -> dict:
+    """Extract one paper the way its workflow step says: a plain single call (``run_extraction``,
+    byte for byte what it always was), or — when the step runs its preset k times and/or a later
+    step reads those runs — ``chain.run_pipeline``. ``pipeline`` lists the stages
+    (``workflows.pipeline_for``); ``generate`` and ``progress`` are the pipeline's hooks."""
+    if not pipeline:
+        return run_extraction(conn, pdf_bytes, prompt, **kw)
+    from . import chain
+    return chain.run_pipeline(conn, pdf_bytes, stages=pipeline, generate=generate, progress=progress, **kw)
+
+
+def with_feedback(prompt: str, findings: list[dict]) -> str:
+    """The prompt of a loop's second attempt: the same task, plus what the workflow's
+    deterministic check found in the earlier output of this paper, to be fixed this time."""
+    if not findings:
+        return prompt
+    lines = ["# PREVIOUS ATTEMPT (generated)", "",
+             ("An earlier extraction of this paper was checked deterministically and these problems were found. "
+              "Read the paper again and return a corrected extraction; do not repeat them:"), ""]
+    for f in findings[:60]:
+        where = f.get("path") or ""
+        lines.append(f"- {where + ': ' if where else ''}{f.get('message') or f.get('code')}" + (f" [{f['code']}]" if f.get("code") else ""))
+    if len(findings) > 60:
+        lines.append(f"- … and {len(findings) - 60} more")
+    return prompt.rstrip() + "\n\n---\n\n" + "\n".join(lines) + "\n"

@@ -39,6 +39,10 @@ SCALAR_TYPES = ("string", "text", "integer", "number", "boolean", "enum", "multi
 PARAM_TYPES = ("string", "text", "integer", "number", "boolean", "list", "table")
 CONF_SCOPES = ("paper", "entry", "child")
 GENERATED_SECTIONS = ("paper_metadata", "output_schema", "evidence", "confidence", "return_format")
+# A follow-up preset reads earlier outputs instead of the paper (a workflow step with
+# ``input.previous``): its prompt says ``${previous}``, and its generated sections are these
+# (``evidence`` = the by-reference rules, ``previous`` = the earlier outputs, filled at run time).
+FOLLOWUP_SECTIONS = ("output_schema", "evidence", "return_format", "previous")
 EVIDENCE_BY_KIND = {          # what each kind of thing may declare
     "scalar": ("value", "row", "none"),
     "table": ("table", "row", "none"),
@@ -491,10 +495,13 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
               "the JSON structure itself, and only a person keeps it in step with the declaration")
         # every ${x} in the author text must be a param or a generated section
         if isinstance(prompt.get("text"), str):
+            allowed = set(GENERATED_SECTIONS) | (set(FOLLOWUP_SECTIONS) if "previous" in _placeholders(prompt["text"]) else set())
             for ident in _placeholders(prompt["text"]):
-                if ident not in params and ident not in GENERATED_SECTIONS:
+                if ident not in params and ident not in allowed:
                     E(f"$.prompt.text references ${{{ident}}}, which is neither a declared "
                       f"parameter nor a generated section")
+            if "previous" in _placeholders(prompt["text"]) and meta.get("mode") == "import":
+                E("$.prompt.text: an import preset has no prompt, so it cannot read ${previous}")
 
     # fields ------------------------------------------------------------------
     seen: dict[str, str] = {}   # name -> where
@@ -878,8 +885,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E(f"{at}.anchor_param must name a list parameter")
         if display.get("entries", "cards") not in ("cards", "table"):
             E("$.display.entries must be 'cards' or 'table'")
-        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first", "checks_first"):
-            E("$.display.triage must be 'declaration', 'low_confidence_first' or 'checks_first'")
+        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first", "checks_first", "contested_first"):
+            E("$.display.triage must be 'declaration', 'low_confidence_first', 'checks_first' or 'contested_first'")
         if display.get("paper_panel", "open") not in ("open", "collapsed"):
             E("$.display.paper_panel must be 'open' or 'collapsed'")
         gr = display.get("grid_rows", "entries")
@@ -1580,8 +1587,102 @@ def generated_sections(spec: dict, params: dict | None = None) -> dict[str, str]
 def render_prompt(spec: dict, params: dict | None = None) -> str:
     """The final prompt: the author's text with ``${params}`` substituted, plus the enabled
     generated sections (substituted in place where the text says ``${section}``, else
-    appended in the fixed order)."""
+    appended in the fixed order). A follow-up preset (its text reads ``${previous}``) keeps
+    that placeholder literal here; ``render_followup`` fills it at run time."""
+    if is_followup(spec):
+        return render_followup(spec, params, "${previous}")
     return _render_prompt(spec, params)
+
+
+# ── follow-up presets: a prompt that reads earlier outputs instead of the paper ───────────
+
+def is_followup(spec: dict) -> bool:
+    """A preset whose prompt reads ``${previous}``: it runs as a workflow step with
+    ``input.previous`` over another step's runs, cites their outputs by reference and never
+    sees the PDF."""
+    text = ((spec or {}).get("prompt") or {}).get("text")
+    return isinstance(text, str) and "previous" in _placeholders(text)
+
+
+def followup_sections(spec: dict, params: dict | None = None) -> dict[str, str]:
+    """The generated sections of a follow-up preset: its output schema (no paper metadata, no
+    confidence — those come from the runs), the by-reference evidence rules and the return
+    format. ``previous`` is filled by the caller with the earlier outputs."""
+    params = params if params is not None else resolve_params(spec)
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    ent = spec.get("entries") or {}
+    key = ent.get("key", "records")
+    elabel = ent.get("label", "entry")
+    skel = derive_output_schema(spec, params)
+    skel.pop("paper_metadata", None)
+    for el in skel.get(key) or []:
+        if isinstance(el, dict):
+            el.pop("confidence", None)
+            for ch in ent.get("children") or []:
+                for row in el.get(ch["key"]) or []:
+                    if isinstance(row, dict):
+                        row.pop("confidence", None)
+    example = _example_path(spec)
+    skel["evidence"] = [{"ref": f"r1.{example}", "field": example}]
+    lines = ["# OUTPUT SCHEMA (generated — follow exactly)", "",
+             (f"Return exactly ONE JSON object with these top-level keys and no others: "
+              f"{', '.join(_q(k_) for k_ in skel)}."),
+             "Types are shown as placeholders; \"a|b\" means one of those values.", "",
+             json.dumps(skel, indent=2, ensure_ascii=False), "",
+             f'One element of "{key}" per {elabel}' + (f" — {ent['help']}" if ent.get("help") else "") + ".",
+             "", "FIELDS"]
+    if ent.get("fields"):
+        lines.append(f"{key}[]:")
+        lines += [_field_line(f, params, decl) for f in ent["fields"]]
+    for ch in ent.get("children") or []:
+        lines.append(f"{key}[].{ch['key']}[]:")
+        lines += [_field_line(f, params, decl) for f in ch.get("fields") or []]
+    lines += ["", ("Use JSON numbers for integer/number fields (never strings); use null when a value "
+                   "is not reported. Allowed values are exact and case-sensitive.")]
+    out = {"output_schema": "\n".join(lines)}
+    out["evidence"] = "\n".join([
+        "# EVIDENCE (generated — by reference)", "",
+        ("You have not read the paper; the earlier runs did. Provide a top-level \"evidence\" array "
+         "whose items have EXACTLY these two keys:"),
+        '  "ref"   — where the supporting value sits in an earlier output: "<source>.<key>[i]" for a',
+        '            whole entry, "<source>.<key>[i].<field>" for one value, "<source>.<key>[i].<child>[j].<field>"',
+        "            for a value of a sub-entry. <source> is r1, r2, … for the runs.",
+        "            A LIST of refs when several earlier entries support one value.",
+        f'  "field" — the path in YOUR output the ref supports ("{key}[i]" or "{key}[i].<field>", same grammar, no source).',
+        "",
+        "Never write \"snippet\" or \"page\": quotes are inherited from the referenced entries, and an item",
+        "that quotes directly is dropped. Cite every entry of your output at least once — an entry-level ref",
+        "inherits every quote of that earlier entry — and cite per value where the runs disagree. Never cite",
+        "a ref that does not exist above; never invent an entry no earlier output supports."])
+    out["return_format"] = "\n".join([
+        "# RETURN FORMAT (generated)", "",
+        ("Return EXACTLY ONE top-level JSON object — JSON only: no markdown fences, no prose before or "
+         "after, no comments, no trailing commas. It must parse with json.loads."),
+        ("Before returning, check: every evidence \"field\" path exists in your output and every \"ref\" exists "
+         "in the earlier outputs; required fields are non-null; allowed values come from the listed set; "
+         "numbers are JSON numbers.")])
+    out["previous"] = ""
+    return out
+
+
+def render_followup(spec: dict, params: dict | None, previous_text: str) -> str:
+    """A follow-up preset's prompt: the author's text with ``${params}`` and the follow-up
+    sections substituted (``${previous}`` = the earlier outputs), unreferenced sections
+    appended in the fixed order."""
+    params = resolve_params(spec, params) if params is not None else resolve_params(spec)
+    decl = (spec.get("prompt") or {}).get("params") or {}
+    text = (spec.get("prompt") or {}).get("text") or ""
+    sections = followup_sections(spec, params)
+    sections["previous"] = previous_text
+    used = set(_placeholders(text))
+    sub = {name: render_param(decl[name], params.get(name)) for name in decl}
+    for s_ in FOLLOWUP_SECTIONS:
+        sub[s_] = sections[s_]
+    body = string.Template(text).safe_substitute(sub)
+    tail = [sections[s_] for s_ in FOLLOWUP_SECTIONS if s_ not in used and s_ != "previous"]
+    if tail:
+        body = body.rstrip() + "\n\n---\n\n" + "\n\n---\n\n".join(tail)
+    return _collapse_blank_lines(body)
 
 
 # Markers around a substituted parameter while the prompt is rendered for segments_of: private-use

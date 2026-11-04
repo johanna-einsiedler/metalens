@@ -103,24 +103,57 @@ def validate_for(conn, spec: dict) -> tuple[list[str], list[str]]:
                        pin_known=lambda pin: records.get_schema(conn, pin) is not None)
 
 
+def consumed_steps(spec: dict) -> dict[str, str]:
+    """{step id: the later step that reads its runs} — an extract step named in a later step's
+    ``input.previous`` runs inside that step's pipeline (its documents are runs, never the
+    dataset's), so the planner, the jobs and the release gate treat it as part of the consumer."""
+    out = {}
+    for st in spec.get("steps") or []:
+        for p in ((st.get("input") or {}).get("previous") or []) if st.get("kind") == "extract" else []:
+            out[p] = st["id"]
+    return out
+
+
 def later_problems(spec: dict) -> list[str]:
     """What this release cannot run yet, named per step."""
     out = []
-    n_extract = 0
+    consumed = consumed_steps(spec)
+    finals = [st for st in spec.get("steps") or [] if st.get("kind") in ("extract", "agent") and st.get("id") not in consumed]
     for st in spec.get("steps") or []:
         sid, kind = st.get("id"), st.get("kind")
-        if kind in ("extract", "agent"):
-            n_extract += 1
-        if kind == "extract":
-            if (st.get("k") or 1) > 1:
-                out.append(f"step {sid!r}: {ws.LATER['k']}")
-            if (st.get("input") or {}).get("previous"):
-                out.append(f"step {sid!r}: {ws.LATER['input']}")
-        if kind in ("loop", "agent"):
+        if kind in ("agent",):
             out.append(f"step {sid!r}: {ws.LATER[kind]}")
-    if n_extract > 1:
-        out.append("several extract steps need linked datasets (a later release); this release runs one per workflow")
+    if len(finals) > 1:
+        out.append("several extract steps whose documents enter the dataset need linked datasets (a later release); "
+                   "this release runs one per workflow (a step read by a later step's input.previous is part of its pipeline)")
     return out
+
+
+def pipeline_for(spec: dict, step_id: str) -> list[dict] | None:
+    """The stages one paper of ``step_id`` runs through, or None for a plain single call:
+    ``[{step_id, schema_id, k, vote, previous, params}]`` — the step it reads (k runs of that
+    preset) first, then itself. ``/api/extract`` hands this to the job; the worker resolves the
+    prompts by contract."""
+    by_id = ws.steps_by_id(spec)
+    st = by_id.get(step_id)
+    if st is None or st.get("kind") != "extract":
+        return None
+    prev = (st.get("input") or {}).get("previous") or []
+    stages = []
+    for p in prev:
+        src = by_id.get(p) or {}
+        stages.append({"step_id": p, "schema_id": src.get("preset"), "k": int(src.get("k") or 1), "vote": src.get("vote"), "previous": False,
+                       "params": src.get("params") or {}})
+    stages.append({"step_id": step_id, "schema_id": st.get("preset"), "k": int(st.get("k") or 1), "vote": st.get("vote"), "previous": bool(prev),
+                   "params": st.get("params") or {}})
+    if len(stages) == 1 and stages[0]["k"] <= 1:
+        return None
+    return stages
+
+
+def calls_per_paper(spec: dict, step_id: str) -> int:
+    stages = pipeline_for(spec, step_id)
+    return sum(int(s["k"]) for s in stages) if stages else 1
 
 
 def workflows_for(conn, dataset: dict) -> list[dict]:
@@ -374,6 +407,7 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
         later.setdefault(sid, []).append(msg)
     out = []
     facts_by_step: dict[str, dict] = {}
+    consumed = consumed_steps(spec)
     for st in spec.get("steps") or []:
         sid, kind = st["id"], st["kind"]
         item: dict = {"id": sid, "kind": kind, "label": st.get("label") or sid, "state": "fresh", "because": [], "n_calls": 0}
@@ -382,11 +416,19 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
         if sid in later:
             item["state"] = "unsupported"; item["because"] = later[sid]
             out.append(item); continue
+        if kind == "extract" and sid in consumed:
+            # its runs are made inside the consumer's pipeline, per paper; nothing to plan on its own
+            item.update({"preset": st.get("preset"), "source": st.get("source"), "k": st.get("k") or 1, "pipeline_of": consumed[sid],
+                         "work": {"extract": 0, "attach": 0, "wait_for": 0, "present": 0, "old_contract": 0, "foreign": 0}, "items": [],
+                         "because": [f"runs inside the pipeline of {consumed[sid]!r} ({st.get('k') or 1} run{'s' if (st.get('k') or 1) != 1 else ''} per paper)"]})
+            facts_by_step[sid] = {"pin": st.get("preset"), "have": [], "old": [], "items": [], "work": item["work"]}
+            out.append(item); continue
         if kind in ("extract", "agent"):
             f = _extract_facts(conn, dataset_id, st, who=who, new_pdfs=new_pdfs, reextract=reextract)
             facts_by_step[sid] = f
-            item.update({"preset": f["pin"], "source": st.get("source"), "work": f["work"], "items": f["items"]})
-            item["n_calls"] = f["work"]["extract"] * (st.get("k") or 1) if st.get("source") == "live" else 0
+            item.update({"preset": f["pin"], "source": st.get("source"), "work": f["work"], "items": f["items"], "k": st.get("k") or 1,
+                         "calls_per_paper": calls_per_paper(spec, sid)})
+            item["n_calls"] = f["work"]["extract"] * calls_per_paper(spec, sid) if st.get("source") == "live" else 0
             if not f["have"] and not f["old"]:
                 item["state"] = "missing"; item["because"] = ["no paper extracted under this contract yet"]
             if f["work"]["extract"] or f["work"]["attach"] or f["work"]["wait_for"]:
@@ -453,6 +495,11 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                         item["state"] = "stale"; item["because"] = ["records or values changed since it ran"]
                     item["findings"] = {k: sr["outputs"].get(k) for k in ("n_checked", "findings", "by_severity", "by_code") if k in sr["outputs"]}
                     item["findings"]["first_document"] = _first_finding_document(conn, sr["id"])
+        elif kind == "loop":
+            sr = latest_step_run(conn, dataset_id, sid)
+            item["max_iterations"] = st.get("max_iterations", 1)
+            if sr is not None:
+                item["last"] = {k: (sr.get("outputs") or {}).get(k) for k in ("iteration", "papers_rerun", "stopped")}
         elif kind == "release":
             from . import releases
             last = releases.latest(conn, dataset_id)
@@ -585,7 +632,7 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
                            VALUES (%s::uuid, %s::uuid, %s, %s, %s, 'pending', %s::uuid, %s::uuid, %s)""",
                         (str(uuid.uuid4()), rid, s["id"], it["pdf_sha256"], it.get("filename"),
                          it.get("document_id") if it["action"] == "attach" else None, it.get("replaces"),
-                         1 if (use_credits and it["action"] in ("extract", "reextract")) else 0))
+                         calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract")) else 0))
     except psycopg.errors.UniqueViolation:
         if use_credits and n_calls:
             credits.refund(conn, uid, model=cmodel, n=n_calls, reason="workflow refund")
@@ -678,7 +725,6 @@ def on_document(conn, run_id: str, step_id: str, pdf_sha256: str | None, documen
                      (str(uuid.uuid4()), run_id, step_id, pdf_sha256 or f"doc:{document_id}", "attached" if attached else "done", document_id, job_id))
     _touch(conn, run_id)
     conn.commit()
-    _drop_run_pdf(run_id, pdf_sha256)
     if advance_run:
         advance(conn, run_id)
 
@@ -748,6 +794,9 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                     _set_sr(conn, sr["id"], status="running", started_at=_now()); sr["status"] = "running"
                 _touch(conn, run_id, status="running", current_step=sr["step_id"])
                 kind = st["kind"]
+                if kind == "extract" and sr["step_id"] in consumed_steps(spec):
+                    _set_sr(conn, sr["id"], status="done", finished_at=_now(), outputs={"pipeline_of": consumed_steps(spec)[sr["step_id"]], "document_ids": []})
+                    continue
                 if kind in ("extract", "agent"):
                     done = _advance_extract(conn, run, sr, st, complete_step == sr["step_id"])
                     if not done:
@@ -756,6 +805,9 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                     _advance_check(conn, run, sr, st, by_id)
                 elif kind == "derive":
                     if not _advance_derive(conn, run, sr, st):
+                        return get_run(conn, run_id)
+                elif kind == "loop":
+                    if not _advance_loop(conn, run, sr, st, by_id):
                         return get_run(conn, run_id)
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
@@ -768,6 +820,7 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                 elif kind == "release":
                     _set_sr(conn, sr["id"], status="done", finished_at=_now(), inputs=basis(conn, d_id))
                     _touch(conn, run_id, status="done", current_step=None, finished_at=_now())
+                    _drop_run_pdfs(run_id)
                     return get_run(conn, run_id)
                 else:
                     raise RuntimeError(ws.LATER.get(kind, f"{kind} steps cannot run in this release"))
@@ -779,10 +832,136 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                 if sr2 and sr2["status"] == "failed":
                     _touch(conn, run_id, status="failed", error=sr2.get("error"), finished_at=_now()); return get_run(conn, run_id)
             _touch(conn, run_id, status="done", current_step=None, finished_at=_now())
+            _drop_run_pdfs(run_id)
         except Exception as exc:  # noqa: BLE001 - never fail the run over a side effect
             _touch(conn, run_id, status="failed", error=str(exc)[:1000], finished_at=_now())
             _refund_unused(conn, run_id)
+            _drop_run_pdfs(run_id)
         return get_run(conn, run_id)
+
+
+def _drop_run_pdfs(run_id: str) -> None:
+    try:
+        from . import storage
+        storage.get_store().delete_prefix(storage.run_prefix(run_id))
+    except Exception:  # noqa: BLE001, S110 - the retention sweep catches what this misses
+        pass
+
+
+_SEV = {"info": 0, "warn": 1, "error": 2}
+
+
+def _advance_loop(conn, run: dict, sr: dict, st: dict, by_id: dict) -> bool:
+    """A loop: while the named check still finds problems in some papers, re-run the live
+    extract step for those papers with the findings fed back into the prompt, then the check
+    again — at most ``max_iterations`` times. True when the loop is done, False while the
+    re-extraction runs (or waits for the owner's key)."""
+    outputs = dict(sr.get("outputs") or {})
+    it = int(outputs.get("iteration") or 0)
+    check_id = (st.get("until") or {}).get("check")
+    ex_id = next((x for x in st.get("steps") or [] if by_id.get(x, {}).get("kind") == "extract"), None)
+    check_st = by_id.get(check_id) or {}
+    if not ex_id or not check_id:
+        _set_sr(conn, sr["id"], status="done", finished_at=_now(), outputs={**outputs, "stopped": "nothing to loop"})
+        return True
+    floor = _SEV.get(check_st.get("severity") or "error", 2)
+    rows = conn.execute(
+        """SELECT f.document_id::text, f.path, f.code, f.severity, f.message FROM workflow_finding f
+           WHERE f.run_id = %s::uuid AND f.step_id = %s AND f.document_id IS NOT NULL""", (run["id"], check_id)).fetchall()
+    by_doc: dict[str, list[dict]] = {}
+    for did, path, code, sev, msg in rows:
+        if _SEV.get(sev, 0) >= floor:
+            by_doc.setdefault(did, []).append({"path": path, "code": code, "severity": sev, "message": msg})
+    max_find = int((st.get("until") or {}).get("max") or 0)
+    bad = {did: fs for did, fs in by_doc.items() if len(fs) > max_find}
+    js = {j["document_id"]: j for j in jobs(conn, run["id"], ex_id) if j.get("document_id")}
+    todo = [js[did] for did in bad if did in js]
+    history = list(outputs.get("history") or [])
+    if not todo or it >= int(st.get("max_iterations") or 1):
+        _set_sr(conn, sr["id"], status="done", finished_at=_now(),
+                outputs={**outputs, "iteration": it, "stopped": "clean" if not todo else "max_iterations", "papers_left": len(todo), "history": history})
+        return True
+    feedback = {j["pdf_sha256"]: bad[j["document_id"]] for j in todo}
+    history.append({"iteration": it + 1, "papers": [j["pdf_sha256"] for j in todo], "findings": sum(len(v) for v in bad.values())})
+    _set_sr(conn, sr["id"], outputs={**outputs, "iteration": it + 1, "feedback": feedback, "papers_rerun": [j["pdf_sha256"] for j in todo], "history": history})
+    # the inner steps run again: the extract step's jobs for those papers, then the check
+    ex_sr = next((x for x in step_runs(conn, run["id"]) if x["step_id"] == ex_id), None)
+    ck_sr = next((x for x in step_runs(conn, run["id"]) if x["step_id"] == check_id), None)
+    if ex_sr:
+        _set_sr(conn, ex_sr["id"], status="running", finished_at=None)
+    if ck_sr:
+        _set_sr(conn, ck_sr["id"], status="pending", finished_at=None)
+    for j in todo:
+        _set_job(conn, j["id"], status="pending", replaces=j["document_id"], document_id=None, error=None)
+    if run["use_credits"]:
+        requeue_papers(conn, run, todo, feedback=feedback)
+    else:
+        if ex_sr:
+            _set_sr(conn, ex_sr["id"], status="needs_key")
+        _touch(conn, run["id"], status=f"needs_key:{ex_id}", current_step=ex_id)
+    return False
+
+
+def requeue_papers(conn, run: dict, job_rows: list[dict], *, who=None, api_key: str | None = None, base_url: str | None = None,
+                   model: str | None = None, feedback: dict | None = None) -> dict:
+    """Run these papers of a live step again from the PDFs the run kept: a retry of a failed
+    paper, or a loop's second attempt (``feedback`` = the check's findings per paper, fed into
+    the prompt). A credit run spends the pipeline's calls again on the server's key; an
+    own-key run needs the key given here."""
+    from . import chain, credits, extract, presets, storage, worker
+    store = storage.get_store()
+    steps = ws.steps_by_id(run["workflow"])
+    out = {"retried": [], "skipped": []}
+    uid = run.get("started_by")
+    sess = getattr(who, "session_id", None) or run.get("session_id")
+    for j in job_rows:
+        st = steps.get(j["step_id"]) or {}
+        key = storage.run_pdf_key(run["id"], j["pdf_sha256"])
+        if st.get("source") != "live" or not store.exists(key):
+            out["skipped"].append({"pdf_sha256": j["pdf_sha256"], "why": "no stored PDF (upload it again)" if st.get("source") == "live" else "a supplied paper: upload it again"})
+            _set_job(conn, j["id"], status="failed", error="no stored PDF")
+            continue
+        data = store.get(key)
+        pipeline = pipeline_for(run["workflow"], j["step_id"])
+        n_calls = chain.n_calls_of(pipeline) if pipeline else 1
+        run_spec = presets.resolve_run(conn, schema_id=st.get("preset"), params=st.get("params") or None)
+        if run["use_credits"]:
+            cmodel = run.get("model") or credits.credit_model()
+            if not (uid and credits.try_consume(conn, uid, model=cmodel, n=n_calls, reason="workflow loop")):
+                _set_job(conn, j["id"], status="failed", error="not enough credits for another attempt")
+                out["skipped"].append({"pdf_sha256": j["pdf_sha256"], "why": "not enough credits"})
+                continue
+            _touch(conn, run["id"], credits_consumed=run["credits"]["consumed"] + n_calls, credits_planned=run["credits"]["planned"] + n_calls)
+            run = get_run(conn, run["id"])
+            m, k_, b, uc = cmodel, "", None, True
+        else:
+            m, k_, b, uc = model or run.get("model") or "", api_key or "", base_url, False
+            if not k_ and not b:
+                raise RunRefused("This run uses your own API key: pass it to run the papers again.", 422, {"needs_key": j["step_id"]})
+        fb = (feedback or {}).get(j["pdf_sha256"]) or None
+        _set_job(conn, j["id"], status="running", tries=int(j.get("tries") or 0) + 1, error=None, credits=n_calls if uc else 0, refunded=False)
+        conn.commit()
+        import base64
+        job_id = worker.enqueue("extract_chain_job" if pipeline else "extract_job", base64.b64encode(data).decode(), run_spec.prompt,
+                                model=m, api_key=k_, base_url=b, schema_id=st.get("preset"), session_id=sess, owner_user_id=uid,
+                                filename=j["filename"], params=run_spec.params, use_credits=uc, credit_user_id=uid if uc else None,
+                                dataset_id=run["dataset_id"], run_id=run["id"], step_id=j["step_id"], credit_cost=n_calls,
+                                pipeline=pipeline, feedback=fb, _expires=1800)
+        if job_id:
+            mark_queued(conn, j["id"], job_id)
+        else:
+            try:
+                from . import providers
+                sk = k_ or (credits.server_key_for(providers.get_provider(m, None)) or "" if uc else "")
+                prompt = extract.with_feedback(run_spec.prompt, fb) if fb else run_spec.prompt
+                res = extract.run(conn, data, prompt, pipeline=pipeline, model=m, api_key=sk, base_url=b, schema_id=st.get("preset"),
+                                  session_id=sess, owner_user_id=uid, filename=j["filename"], spec=run_spec.spec, params=run_spec.params,
+                                  run_id=run["id"], step_id=j["step_id"])
+                on_document(conn, run["id"], j["step_id"], j["pdf_sha256"], res["document_id"], advance_run=False)
+            except Exception as exc:  # noqa: BLE001
+                on_job_failed(conn, run["id"], pdf_sha256=j["pdf_sha256"], error=str(exc)[:500], final=True)
+        out["retried"].append(j["pdf_sha256"])
+    return out
 
 
 def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> bool:
@@ -1029,6 +1208,13 @@ def resume(conn, run_id: str, *, who, step_id: str | None = None, override: bool
         _set_sr(conn, sr["id"], status="running")
         _touch(conn, run_id, status="running", model=model or run.get("model"))
         conn.commit()
+        if sr["kind"] == "extract":                        # a loop's second attempt on an own-key run
+            loop_sr = next((s for s in step_runs(conn, run_id) if s["kind"] == "loop" and sid in (ws.steps_by_id(run["workflow"]).get(s["step_id"]) or {}).get("steps", [])), None)
+            fb = ((loop_sr or {}).get("outputs") or {}).get("feedback") or {}
+            todo = [j for j in jobs(conn, run_id, sid) if j["status"] == "pending" and j["pdf_sha256"] in fb]
+            requeue_papers(conn, get_run(conn, run_id), todo, who=who, api_key=api_key, base_url=base_url, model=model, feedback=fb)
+            conn.commit()
+            return run_view(conn, advance(conn, run_id))
         return run_view(conn, run_step_job(conn, run_id, sid, api_key=api_key or "", base_url=base_url, model=model))
     if not run["status"].startswith("awaiting_review:"):
         raise RunRefused(f"The run is {run['status']}, not waiting for a review.", 409)

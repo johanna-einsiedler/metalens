@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Generator
 
 import base64
+import json
 import dataclasses
 import hashlib
 import hmac
@@ -29,7 +30,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, quotes, records, storage, worker, retention
+from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, quotes, records, storage, worker, retention, chain, preset_spec
 from .ingest import ingest
 from .principal import Principal
 
@@ -551,12 +552,41 @@ def document_view(document_id: str, db=Depends(get_db),
     v = records.document_view(db, document_id)
     if v is None:
         raise HTTPException(status_code=404, detail="Document not found.")
-    # Local backend: sign page urls so the owner's <img> tags fetch through the gate.
+    # Local backend: sign page urls so the owner's <img> tags fetch through the gate (a run of a
+    # pipeline shows its final's pages, so the token is the final's).
     if isinstance(storage.get_store(), storage.LocalObjectStore):
-        tok = _sign_artifact(document_id)
+        tok = _sign_artifact(v.get("pages_document_id") or document_id)
         for pg in v.get("pages", []):
             pg["url"] = f"{pg['url']}?t={tok}"
     return v
+
+
+@app.get("/api/documents/{document_id}/chain")
+def document_chain(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the pipeline behind a document — its provenance, each run with its records and
+    quotes (the drill-down), and the trace from every final value back to a run's quote."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    group = records.chain_group(db, document_id)
+    if group is None:
+        return {"group_id": None, "chain": None, "runs": [], "trace": {}}
+    runs = []
+    for r in group["runs"]:
+        v = records.document_view(db, r["document_id"]) or {}
+        runs.append({**r, "schema_id": v.get("schema_id"),
+                     "model": next((x.get("extraction", {}).get("resolved_model") for x in v.get("records") or [] if isinstance(x.get("extraction"), dict)), None),
+                     "records": [{"id": x["id"], "entry_index": x["entry_index"], "field_values": x["field_values"]} for x in v.get("records") or []],
+                     "evidence": [{"record_id": e["record_id"], "entry_index": e["entry_index"], "page": e["page"],
+                                   "field_path": e["field_path"], "snippet": e["snippet"], "source": e["source"]} for e in v.get("evidence") or []]})
+    trace = {}
+    try:
+        key = storage.chain_key(group["final_id"] or document_id)
+        store = storage.get_store()
+        if store.exists(key):
+            trace = (json.loads(store.get(key).decode("utf-8")) or {}).get("trace") or {}
+    except Exception:  # noqa: BLE001 - the trace is a convenience; the facts live on the records
+        trace = {}
+    return {"group_id": group["group_id"], "final_id": group["final_id"], "chain": group["chain"], "runs": runs, "trace": trace}
 
 
 @app.get("/api/documents/{document_id}/paper-documents")
@@ -593,7 +623,7 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
     store = storage.get_store()
-    key = storage.pdf_key(document_id)
+    key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
     if not store.exists(key):
         return {"rects": [], "found": False, "no_pdf": True}
     pdf_bytes = store.get(key)
@@ -653,7 +683,7 @@ def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
     store = storage.get_store()
-    key = storage.pdf_key(document_id)
+    key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
     if not store.exists(key):
         raise HTTPException(status_code=404, detail="No PDF is attached to this paper.")
     from . import marks
@@ -1553,6 +1583,13 @@ class RunRetryBody(BaseModel):
     base_url: str | None = None
 
 
+def _refuse_run(db, document_id: str | None) -> None:
+    """A run of a pipeline is evidence, not a reviewed document: it is read, never edited or
+    deleted on its own (its final carries the review and takes the runs with it)."""
+    if document_id and records.document_role(db, document_id) == "run":
+        raise HTTPException(status_code=409, detail="This is a run of a pipeline: review and edit its final document instead.")
+
+
 def _run_or_404(db, run_id: str, who: Principal) -> dict:
     from . import workflows
     run = workflows.get_run(db, run_id)
@@ -1816,41 +1853,12 @@ def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who:
         raise _refused(exc)
     if run["status"] in workflows.TERMINAL:
         raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
-    steps = {st["id"]: st for st in run["workflow"]["steps"]}
-    store = storage.get_store()
-    out = {"retried": [], "skipped": []}
-    for j in failed:
-        st = steps.get(j["step_id"]) or {}
-        key = storage.run_pdf_key(run_id, j["pdf_sha256"])
-        if st.get("source") != "live" or not store.exists(key):
-            out["skipped"].append({"pdf_sha256": j["pdf_sha256"], "why": "no stored PDF (upload it again)" if st.get("source") == "live" else "a supplied paper: upload it again"})
-            continue
-        data = store.get(key)
-        run_spec = presets.resolve_run(db, schema_id=st.get("preset"))
-        if run["use_credits"]:
-            cmodel = run.get("model") or credits.credit_model()
-            model, api_key, base_url, use_credits = cmodel, "", None, True
-        else:
-            model, api_key, base_url, use_credits = body.model or "", body.api_key or "", body.base_url, False
-            if not api_key and not base_url:
-                raise HTTPException(status_code=422, detail="This run uses your own API key: pass it to retry.")
-        db.execute("UPDATE workflow_job SET status = 'running', tries = tries + 1, error = NULL, updated_at = now() WHERE id = %s::uuid", (j["id"],))
-        db.commit()
-        job_id = worker.enqueue("extract_job", base64.b64encode(data).decode(), run_spec.prompt, model=model, api_key=api_key, base_url=base_url,
-                                schema_id=st.get("preset"), session_id=who.session_id, owner_user_id=who.user_id, filename=j["filename"],
-                                params=run_spec.params, use_credits=use_credits, credit_user_id=who.user_id if use_credits else None,
-                                dataset_id=run["dataset_id"], run_id=run_id, step_id=j["step_id"], _expires=1800)
-        if job_id:
-            workflows.mark_queued(db, j["id"], job_id)
-        else:
-            try:
-                res = extract.run_extraction(db, data, run_spec.prompt, model=model, api_key=api_key or (credits.server_key_for(providers.get_provider(model, None)) or "" if use_credits else ""),
-                                             base_url=base_url, schema_id=st.get("preset"), session_id=who.session_id, owner_user_id=who.user_id,
-                                             filename=j["filename"], spec=run_spec.spec, params=run_spec.params, run_id=run_id, step_id=j["step_id"])
-                workflows.on_document(db, run_id, j["step_id"], j["pdf_sha256"], res["document_id"])
-            except Exception as exc:  # noqa: BLE001
-                workflows.on_job_failed(db, run_id, pdf_sha256=j["pdf_sha256"], error=str(exc)[:500], final=True)
-        out["retried"].append(j["pdf_sha256"])
+    try:
+        out = workflows.requeue_papers(db, run, failed, who=who, api_key=body.api_key or None, base_url=body.base_url, model=body.model or None)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+    db.commit()
+    workflows.advance(db, run_id)
     return {**out, "run": workflows.run_view(db, workflows.get_run(db, run_id))}
 
 
@@ -2598,9 +2606,11 @@ def add_to_dataset(dataset_id: str, body: DatasetAdd, db=Depends(get_db),
 @app.delete("/api/documents/{document_id}")
 def delete_document(document_id: str, db=Depends(get_db),
                     who: Principal = Depends(principal)) -> dict:
-    """Owner-only: delete the document, its records/evidence, and its stored PDF + pages."""
+    """Owner-only: delete the document, its records/evidence, and its stored PDF + pages (a
+    pipeline's final takes its runs with it; a run alone cannot be deleted)."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=403, detail="Not authorized.")
+    _refuse_run(db, document_id)
     return records.delete_document(db, document_id)
 
 
@@ -2616,6 +2626,7 @@ def set_document_field(document_id: str, body: SetField, db=Depends(get_db),
     constant field once and have it apply to all entries. Logs a correction per record."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
+    _refuse_run(db, document_id)
     n = records.set_field_across_records(
         db, document_id, body.key, body.value, verifier_user_id=who.user_id,
         verifier_kind=("maintainer" if who.user_id else "community"))
@@ -2638,6 +2649,7 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
     that shares the paper."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=404, detail="Document not found.")
+    _refuse_run(db, document_id)
     row = db.execute("SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
                      (document_id,)).fetchone()
     if not row:
@@ -3007,10 +3019,12 @@ def records_provenance(body: ProvenanceBody, db=Depends(get_db),
 def delete_record(record_id: str, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Delete a single finding/record — owner only."""
-    if records.get_record(db, record_id) is None:
+    rec = records.get_record(db, record_id)
+    if rec is None:
         raise HTTPException(status_code=404, detail="Record not found.")
     if not records.records_all_owned(db, [record_id], who):
         raise HTTPException(status_code=403, detail="Not your record.")
+    _refuse_run(db, rec.get("document_id"))
     return records.delete_record(db, record_id)
 
 
@@ -3024,6 +3038,7 @@ def add_record(document_id: str, body: AddRecordBody, db=Depends(get_db),
     """Add a manual finding/record to a document — owner only."""
     if not records.is_document_owner(db, document_id, who):
         raise HTTPException(status_code=403, detail="Not your document.")
+    _refuse_run(db, document_id)
     try:
         return records.add_record(db, document_id, field_values=body.field_values,
                                   session_id=who.session_id, owner_user_id=who.user_id)
@@ -3069,6 +3084,7 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     mine = records.records_all_owned(db, [record_id], who)
     if not mine and (body.field_values is not None or body.patch or body.diff):
         raise HTTPException(status_code=403, detail="Only the owner can change the values of an entry.")
+    _refuse_run(db, (records.get_record(db, record_id) or {}).get("document_id"))
     kind = ("maintainer" if who.user_id else "community") if not mine else (body.verifier_kind or ("maintainer" if who.user_id else "community"))
     try:
         return records.verify_record(
@@ -3330,6 +3346,12 @@ def extract_endpoint(
         except Exception:  # noqa: BLE001, S110 - a retry then needs the upload again
             pass
     _tag = {"run_id": run_id, "step_id": step_id} if claim else {}
+    # a step that runs its preset k times, or reads an earlier step's runs: the pipeline of one
+    # paper, under the longer job; its calls were planned and paid at the run's start
+    pipeline = workflows.pipeline_for(claim["run"]["workflow"], step_id) if claim else None
+    n_calls = chain.n_calls_of(pipeline) if pipeline else 1
+    job_fn = "extract_chain_job" if pipeline else "extract_job"
+    _tag.update({"pipeline": pipeline, "credit_cost": n_calls} if pipeline else {})
 
     def _landed(result: dict) -> None:
         if claim and isinstance(result, dict) and result.get("document_id"):
@@ -3355,6 +3377,8 @@ def extract_endpoint(
             run = dataclasses.replace(run, params=inherited)
     prompt = run.prompt
     schema_id = run.schema_id
+    if run.spec and preset_spec.is_followup(run.spec) and not pipeline:
+        raise HTTPException(status_code=422, detail="This preset reads an earlier step's runs (${previous}): run it from a workflow whose step declares input.previous.")
     if not prompt.strip():
         pid = preset_id or (schema_id.split("@")[0] if schema_id else None)
         raise HTTPException(status_code=422, detail=(
@@ -3449,7 +3473,7 @@ def extract_endpoint(
             raise HTTPException(status_code=402,
                                 detail="You have no Metalens credits left. Use your own API key instead.")
         job_id = worker.enqueue(
-            "extract_job", base64.b64encode(data).decode(), prompt,
+            job_fn, base64.b64encode(data).decode(), prompt,
             model=cmodel, api_key="", base_url=None, use_text=use_text, schema_id=schema_id,
             session_id=who.session_id, owner_user_id=who.user_id, filename=fname,
             params=run.params, prompt_edited=run.prompt_edited,
@@ -3457,14 +3481,14 @@ def extract_endpoint(
         if job_id:
             if claim:
                 workflows.mark_queued(db, claim["job"]["id"], job_id)
-            return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+            return {"queued": True, "job_id": job_id, "schema_id": schema_id, "n_calls": n_calls}
         # Redis down → run synchronously (no Redis payload to protect anyway)
         try:
-            result = extract.run_extraction(
-                db, data, prompt, model=cmodel, api_key=server_key, base_url=None,
+            result = extract.run(
+                db, data, prompt, pipeline=pipeline, model=cmodel, api_key=server_key, base_url=None,
                 use_text=use_text, schema_id=schema_id, session_id=who.session_id,
                 owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited, **_tag)
+                prompt_edited=run.prompt_edited, **{k: v for k, v in _tag.items() if k not in ("pipeline", "credit_cost")})
             if dataset_id and not claim:
                 records.assign_document_to_dataset(db, dataset_id, result["document_id"])
             _landed(result)
@@ -3478,7 +3502,7 @@ def extract_endpoint(
         return {"queued": False, "credits": credits.summary(db, who.user_id), **result}
 
     job_id = worker.enqueue(
-        "extract_job", base64.b64encode(data).decode(), prompt,
+        job_fn, base64.b64encode(data).decode(), prompt,
         model=model, api_key=api_key, base_url=base_url, use_text=use_text,
         schema_id=schema_id, session_id=who.session_id, owner_user_id=who.user_id,
         filename=fname, dataset_id=dataset_id,
@@ -3489,15 +3513,15 @@ def extract_endpoint(
     if job_id:
         if claim:
             workflows.mark_queued(db, claim["job"]["id"], job_id)
-        return {"queued": True, "job_id": job_id, "schema_id": schema_id}
+        return {"queued": True, "job_id": job_id, "schema_id": schema_id, "n_calls": n_calls}
 
     # Synchronous fallback (Redis down): translate failures into clean responses.
     try:
-        result = extract.run_extraction(
-            db, data, prompt, model=model, api_key=api_key, base_url=base_url,
+        result = extract.run(
+            db, data, prompt, pipeline=pipeline, model=model, api_key=api_key, base_url=base_url,
             use_text=use_text, schema_id=schema_id, session_id=who.session_id,
             owner_user_id=who.user_id, filename=fname, spec=run.spec, params=run.params,
-                prompt_edited=run.prompt_edited, **_tag)
+            prompt_edited=run.prompt_edited, **{k: v for k, v in _tag.items() if k not in ("pipeline", "credit_cost")})
         if dataset_id and not claim:
             records.assign_document_to_dataset(db, dataset_id, result["document_id"])
         _landed(result)

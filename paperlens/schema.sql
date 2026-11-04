@@ -776,3 +776,18 @@ CREATE TABLE IF NOT EXISTS dataset_derived (
     committed_at  timestamptz,
     UNIQUE (dataset_id, step, version)
 );
+
+-- ── pipelines: k runs and follow-up calls per paper, one reviewed document ───────────────
+-- A workflow's extract step may run its preset k times (and a later step may read those runs
+-- instead of the paper). Every call's output is a document: the runs are `role = 'run'`
+-- (hidden from listings, never in a dataset, no PDF or page images of their own — they read
+-- the group's final's), the reviewed document is `role = 'final'`; a group shares `group_id`.
+-- `chain` on the final holds the provenance of every call; on a record it holds what the
+-- engine knows about THAT entry (support, candidates, flags, trace) — a sibling of
+-- `extraction`, so release fingerprints and exports keep seeing only the model.
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS group_id   uuid;
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS pass_index integer;             -- 0..k-1 for runs, NULL for the final
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS role       text NOT NULL DEFAULT 'final';   -- final | run
+ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS chain      jsonb;
+CREATE INDEX IF NOT EXISTS extraction_document_group_idx ON extraction_document(group_id) WHERE group_id IS NOT NULL;
+ALTER TABLE record ADD COLUMN IF NOT EXISTS chain jsonb;

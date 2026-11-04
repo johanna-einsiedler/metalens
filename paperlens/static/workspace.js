@@ -32,7 +32,9 @@ let JOBS = {};   // job_id -> {status:'pending'|'complete'|'failed', document_id
 let JOBS_POLLED = false;   // suppress "extracting…" placeholders until we've checked real status once
 let ACCOUNT = false;  // logged in? (exports need no account; kept for owner-only actions)
 let VM = null, EV = null;   // the preset's view model + the evidence index for the loaded document
-let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
+let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged | checks | contested
+let RO = false;             // a run of a pipeline: read, never edited (its final carries the review)
+let CHAIN_RUNS = null;      // the drill-down payload of the open document's pipeline, fetched once
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 let QUEUE = null;                                        // ?queue=<run>:<step>: a review gate's worklist — the drawn records, in draw order
@@ -353,6 +355,16 @@ async function init() {
       </div>`;
     $("#panelbody").innerHTML = "";
     return;
+  }
+  // a document asked for by id but absent from the list — a RUN of a pipeline, opened from its
+  // final's trace or runs tab — gets a tab of its own (read-only, see load())
+  if (wantDoc && !DOCS.some((d) => d.document_id === wantDoc)) {
+    try {
+      const v = await api.documentView(wantDoc);
+      if (v && v.read_only) DOCS.unshift({ document_id: wantDoc, n_records: (v.records || []).filter((r) => !r.screened_empty).length,
+                                           filename: `${v.filename || (v.paper && v.paper.title) || "document"} · run ${(v.pass_index ?? 0) + 1}`,
+                                           title: v.paper && v.paper.title, screened: false });
+    } catch { /* not ours or gone: the list's first document opens */ }
   }
   DOCID = (wantDoc && DOCS.some((d) => d.document_id === wantDoc)) ? wantDoc : DOCS[0].document_id;
   renderDocTabs();
@@ -733,8 +745,12 @@ async function load(docId) {
   }
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
+  RO = !!DATA.read_only; CHAIN_RUNS = null;
+  document.body.classList.toggle("ro", RO);
   const stored = (() => { try { return localStorage.getItem("metalens_triage"); } catch { return null; } })();
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
+  if (!TRIAGE_FROM_URL && !stored && VM.triage === "contested_first" && hasChain()) TRIAGE = "contested";
+  if (TRIAGE === "contested" && !hasChain()) TRIAGE = "low_conf";
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "checks_first" && (DATA.findings || []).length) TRIAGE = "checks";
   if (TRIAGE === "checks" && !(DATA.findings || []).length) TRIAGE = "low_conf";   // nothing found here: the next best order
   renderPages($("#pages"), DATA.pages, DATA.evidence);
@@ -1018,7 +1034,8 @@ function renderPanel() {
   const triage = (DATA.records || []).length > 1
     ? `<select class="triage" id="triage" title="order of the entries">`
       + [["order", "document order"], ["low_conf", "needs attention first"], ["unverified", "unverified first"], ["flagged", "flagged first"],
-         ...((DATA.findings || []).length ? [["checks", "check findings first"]] : [])]
+         ...((DATA.findings || []).length ? [["checks", "check findings first"]] : []),
+         ...(hasChain() ? [["contested", "contested first"]] : [])]
         .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
   panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
     + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
@@ -1163,12 +1180,23 @@ function renderRecordCard(panel, rec) {
   card.className = "record"; card.dataset.rid = rec.id;
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
   const myIssues = (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
+  const ch = rec.chain || null;
+  const nCont = ch ? Object.values(ch.candidates || {}).filter((c) => Array.isArray(c) && c.length > 1).length : 0;
+  const chainSum = ch && ch.support && ch.support.k
+    ? `<span class="chain-sum ${supportClass(ch.support)}" title="how many of the pipeline's runs produced this ${esc(VM.entries.label.toLowerCase())}">${ch.support.n} of ${ch.support.k} runs${nCont ? ` · ${nCont} field${nCont === 1 ? "" : "s"} contested` : ""}</span>`
+      + (ch.flags || []).filter((f) => !/^contested:/.test(f)).map((f) => `<span class="chain-flag" title="flagged by the pipeline">${esc(f)}</span>`).join("")
+    : "";
   card.innerHTML =
     `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
     + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+    + chainSum
+    + (ch && (ch.trace || (ch.runs || []).length) ? `<button class="histbtn tracebtn" title="where every value comes from: the run and the quote">⛓ trace</button>` : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
+    + (RO ? `<div class="ro-banner">Run ${(DATA.pass_index ?? 0) + 1} of a pipeline — read-only. `
+        + (DATA.pages_document_id && DATA.pages_document_id !== DATA.document_id
+            ? `<a href="/workspace?doc=${encodeURIComponent(DATA.pages_document_id)}">the reviewed document ↗</a>` : "") + `</div>` : "")
     + citedByHtml(rec)
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + checkNoteHtml(rec)
@@ -1177,9 +1205,71 @@ function renderRecordCard(panel, rec) {
     + `<div class="verify verify-foot"><span class="verify-lead muted">Checked every field?</span>`
     + `<button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">✓ verify</button>`
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag</button></div>`
-    + `<div class="histbody" hidden></div>`;
+    + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
+}
+
+function hasChain() { return (DATA.records || []).some((r) => r.chain && r.chain.support); }
+
+// green / yellow / red for how many runs stand behind an entry
+function supportClass(sup) {
+  if (!sup || !sup.k) return "";
+  return sup.n >= sup.k ? "s-all" : 2 * sup.n > sup.k ? "s-majority" : "s-minority";
+}
+
+// Where every value of a pipelined entry comes from: the follow-up's reference, the run it
+// names, the quote behind it. Hop chips open the run (read-only, at that entry).
+function toggleTrace(card, rec) {
+  const body = card.querySelector(".tracebody");
+  if (!body) return;
+  if (!body.hidden) { body.hidden = true; return; }
+  body.hidden = false;
+  const ch = rec.chain || {};
+  const rows = [];
+  const runLink = (r, label) => r && r.document_id
+    ? `<a class="trace-hop" href="/workspace?doc=${encodeURIComponent(r.document_id)}" title="open this run (read-only)">${esc(label)}</a>`
+    : `<span class="trace-hop">${esc(label)}</span>`;
+  const byLabel = Object.fromEntries((ch.runs || []).map((r) => [r.label, r]));
+  for (const t of ch.trace || []) {
+    const src = t.source || {};
+    const field = String(t.field || "").replace(/^[^.]*\[\d+\]\.?/, "") || VM.entries.label.toLowerCase();
+    rows.push(`<div class="trace-row"><b>${esc(field)}</b> ← ${t.ref ? `<code>${esc(t.ref)}</code>` : "<i>same identity</i>"}`
+      + ` ← ${runLink(byLabel[src.label] || src, src.label || "?")}`
+      + (t.kind ? ` <span class="muted">(${esc(t.kind)}${t.n_quotes != null ? `, ${t.n_quotes} quote${t.n_quotes === 1 ? "" : "s"}` : ""}${(t.pages || []).length ? `, p.${t.pages.join(", ")}` : ""})</span>` : "") + `</div>`);
+  }
+  if (!rows.length) {
+    for (const r of ch.runs || []) rows.push(`<div class="trace-row">${runLink(r, r.label)} <span class="muted">has this ${esc(VM.entries.label.toLowerCase())}${r.entry_index != null ? ` as #${r.entry_index + 1}` : ""}</span></div>`);
+  }
+  body.innerHTML = rows.length ? rows.join("") : '<span class="muted">no trace recorded</span>';
+}
+
+// Each run's version of this entry, side by side: identity fields, then the fields the runs
+// disagreed on (highlighted), with links to the run itself and its verbatim model response.
+async function loadRuns(host, rec) {
+  host.dataset.loaded = "1";
+  host.innerHTML = '<span class="muted">loading…</span>';
+  try {
+    if (!CHAIN_RUNS) CHAIN_RUNS = await api.documentChain(DATA.document_id);
+  } catch (e) { host.innerHTML = `<span class="muted">${esc(e.message)}</span>`; return; }
+  const ch = rec.chain || {};
+  const contested = Object.keys(ch.candidates || {});
+  const identity = ((DATA.chain || {}).identity) || [];
+  const cols = [...new Set([...identity, ...contested])].filter((n) => VM.fieldIndex.has(n));
+  const rows = (ch.runs || []).map((r) => {
+    const run = (CHAIN_RUNS.runs || []).find((x) => x.document_id === r.document_id) || {};
+    const entry = (run.records || []).find((x) => x.entry_index === r.entry_index) || null;
+    const cells = cols.map((n) => {
+      const v = entry ? entry.field_values[n] : undefined;
+      const differs = contested.includes(n) && v !== undefined && JSON.stringify(v) !== JSON.stringify((rec.field_values || {})[n]);
+      return `<td class="${differs ? "differs" : ""}">${v === undefined || v === null ? "—" : esc(typeof v === "object" ? JSON.stringify(v) : String(v))}</td>`;
+    }).join("");
+    return `<tr><td><b>${esc(r.label)}</b>${run.model ? `<br><span class="muted">${esc(run.model)}</span>` : ""}</td>${cells}`
+      + `<td><a href="/workspace?doc=${encodeURIComponent(r.document_id)}${entry ? `&rec=${encodeURIComponent(entry.id)}` : ""}" title="open the run (read-only)">open ↗</a>`
+      + ` · <a href="/api/documents/${encodeURIComponent(r.document_id)}/raw" target="_blank" rel="noopener" title="the run's verbatim model response">response</a></td></tr>`;
+  });
+  host.innerHTML = `<table><tr><th>run</th>${cols.map((n) => `<th>${esc((VM.fieldIndex.get(n).field || {}).label || formatKey(n))}</th>`).join("")}<th></th></tr>${rows.join("")}</table>`
+    + (ch.support && ch.support.k && ch.support.n < ch.support.k ? `<p class="muted" style="font-size:12px">${ch.support.k - ch.support.n} run${ch.support.k - ch.support.n === 1 ? "" : "s"} did not produce this ${esc(VM.entries.label.toLowerCase())}.</p>` : "");
 }
 
 // Legacy documents: whatever ratings the old per-sample block carried, as badges.
@@ -1218,7 +1308,7 @@ function renderEntryBody(rec) {
   const crit = criteriaSpec();
   if (crit) return renderCriteriaBody(rec, crit);
   const fv = rec.field_values || {};
-  const eopts = { editable: true };
+  const eopts = { editable: !RO, candidates: (rec.chain || {}).candidates || null };
   const tabs = VM.tabs.map((t) => {
     const defs = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
     const children = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "child_key").map((x) => x.child);
@@ -1249,6 +1339,12 @@ function renderEntryBody(rec) {
   if (other.length) {
     const extra = {}; other.forEach((k) => (extra[k] = fv[k]));
     tabs.push({ t: { id: "_extra", label: "Other" }, html: `<p class="muted" style="font-size:12px;margin:0 0 6px">Returned by the model but not declared by the preset.</p>${renderValue(extra, eopts)}` });
+  }
+  // a pipeline: each run's version of this entry, loaded when the tab is opened
+  const runs = (rec.chain || {}).runs || [];
+  if (runs.length && runs[0].document_id) {
+    tabs.push({ t: { id: "_runs", label: `Runs (${runs.length}${rec.chain.support && rec.chain.support.k ? `/${rec.chain.support.k}` : ""})` },
+                html: `<div class="runsbody" data-rid="${esc(rec.id)}"><span class="muted">open the tab to load the runs…</span></div>` });
   }
   if (tabs.length === 1) return `<div class="subpanels"><div class="subpanel" data-vi="0">${tabs[0].html}</div></div>`;
   const strip = tabs.map(({ t }, i) => {
@@ -1634,20 +1730,31 @@ async function doSave() {
 }
 
 function wireCard(card, rec) {
-  const hb = card.querySelector(".histbtn");
+  const hb = card.querySelector(".histbtn:not(.tracebtn)");
   if (hb) hb.onclick = () => toggleHistory(card, rec);
+  const tb = card.querySelector(".tracebtn");
+  if (tb) tb.onclick = () => toggleTrace(card, rec);
   const rd = card.querySelector(".recdel");
   if (rd) rd.onclick = () => doDeleteRecord(rec);
   card.querySelectorAll(".subtab").forEach((b) => (b.onclick = () => {
     const vi = b.dataset.vi;
     card.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === b));
     card.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("hidden", p.dataset.vi !== vi));
+    const rb = card.querySelector(`.subpanel[data-vi="${vi}"] .runsbody`);
+    if (rb && !rb.dataset.loaded) loadRuns(rb, rec);
   }));
   wireConfBadges(card);
   wireSiblingLinks(card);
   if (VM.legacy) linkValueCells(card, recordEvidence(rec));
   else linkCells(card, rec);
-  card.querySelectorAll(".vbtn").forEach((b) =>
+  // a candidate chip: the value one or more runs produced instead — adopting it is a
+  // correction like any edit (original = the merged value, final = the chip)
+  if (!RO) card.querySelectorAll(".rv-cand:not([disabled])").forEach((b) => (b.onclick = async () => {
+    let val; try { val = JSON.parse(b.dataset.value); } catch { val = b.dataset.value; }
+    await saveFieldEdit(rec, card, b.dataset.path, val, curVal(rec, b.dataset.path));
+    rerenderCard(card, rec);
+  }));
+  if (!RO) card.querySelectorAll(".vbtn").forEach((b) =>
     (b.onclick = () => sendVerify(card, rec, b.dataset.status)));
   // free-text/number cells + typed dropdown & multi-select controls → the verify layer
   const rv = criteriaSpec();
