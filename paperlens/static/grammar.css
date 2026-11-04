@@ -543,3 +543,12 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .cell-finding { box-shadow: inset 0 -2px 0 var(--conf-low); }
 .cell-finding.cf-warn { box-shadow: inset 0 -2px 0 var(--conf-med-bd); }
 .cell-finding.cf-info { box-shadow: none; text-decoration: underline dotted var(--border); }
+
+/* the review queue bar above the panel: a gate's worklist and its progress */
+.queuebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 6px 10px; margin: 0 0 8px; font-size: 12.5px;
+  border: 1px solid var(--accent-3); border-radius: var(--radius-sm); background: var(--accent-wash); }
+.queuebar[hidden] { display: none; }
+.qb-label { font-weight: 600; }
+.qb-progress { width: 120px; height: 8px; }
+.qb-all { margin-left: auto; font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.qb-exit { font-size: 12px; }

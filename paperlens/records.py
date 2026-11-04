@@ -1067,12 +1067,23 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
         if not disagreed:
             agreed += 1
 
-    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed), "agreed": agreed}
+    # a workflow's random draws and its deterministic checks say more than the audited share
+    sample = checks_summary = None
+    try:
+        from . import checks as _checks
+        from . import review_gate
+        sample = review_gate.dataset_sample(conn, dataset_id)
+        checks_summary = _checks.summary_for_dataset(conn, dataset_id)
+    except Exception:  # noqa: BLE001, S110 - the badge never fails over the workflow tables
+        pass
+    return {"dataset_id": dataset_id, **_badge_from_counts(total, audited, agreed, sample=sample, checks=checks_summary), "agreed": agreed}
 
 
-def _badge_from_counts(total: int, audited: int, agreed: int) -> dict:
+def _badge_from_counts(total: int, audited: int, agreed: int, *, sample: dict | None = None, checks: dict | None = None) -> dict:
     """The single source of badge truth — used by the per-dataset credibility call
-    AND the batched public-datasets query, so the two can never drift."""
+    AND the batched public-datasets query, so the two can never drift. ``sample`` is the
+    dataset's random-draw estimate (``review_gate.dataset_sample``), ``checks`` what its
+    deterministic checks found; both refine the label, neither changes the tier."""
     if audited == 0:
         tier = "ai_only"
     elif total > 0 and audited >= total:
@@ -1084,18 +1095,52 @@ def _badge_from_counts(total: int, audited: int, agreed: int) -> dict:
         "audited_pct": round(100 * audited / total, 1) if total else 0.0,
         "agreement": round(agreed / audited, 4) if audited else None,
         "agreement_ci": _wilson(agreed, audited),
-        "label": _badge_label(tier, total, audited, agreed),
+        "label": _badge_label(tier, total, audited, agreed, sample=sample, checks=checks),
+        "label_long": _badge_label_long(tier, total, audited, agreed, sample=sample, checks=checks),
+        **({"sample": sample} if sample else {}), **({"checks": checks} if checks else {}),
     }
 
 
-def _badge_label(tier: str, total: int, audited: int, agreed: int) -> str:
+def _pct(k: int, n: int) -> int:
+    return round(100 * k / n) if n else 0
+
+
+def _badge_label(tier: str, total: int, audited: int, agreed: int, *, sample: dict | None = None, checks: dict | None = None) -> str:
     if tier == "ai_only":
-        return "AI-only"
-    pct = round(100 * audited / total) if total else 0
-    agree = round(100 * agreed / audited) if audited else 0
+        if checks and checks.get("findings"):
+            return f"AI-only · {checks['findings']} check finding{'s' if checks['findings'] != 1 else ''}"
+        return "AI-only · checks passed" if checks else "AI-only"
+    agree = _pct(agreed, audited)
     if tier == "human_verified":
         return f"Human-verified · {agree}% agree"
-    return f"{pct}% audited · {agree}% agree"
+    if sample and sample.get("checked"):
+        if sample.get("pending"):
+            return f"Sampled {sample['checked']} of {sample['drawn']} · {_pct(sample['checked'] - sample['disagreed'], sample['checked'])}% agree"
+        return f"Sampled {sample['drawn']}/{sample['frame']} · {_pct(sample['checked'] - sample['disagreed'], sample['checked'])}% agree"
+    return f"{_pct(audited, total)}% audited · {agree}% agree"
+
+
+def _badge_label_long(tier: str, total: int, audited: int, agreed: int, *, sample: dict | None = None, checks: dict | None = None) -> str:
+    """The sentence behind the chip: how the figures came about."""
+    parts = []
+    if sample and sample.get("drawn"):
+        strat = sorted({f for st in sample.get("steps") or [] for f in (st.get("stratify") or [])})
+        parts.append(f"{sample['drawn']} of {sample['frame']} records drawn at random{' (stratified by ' + ', '.join(strat) + ')' if strat else ''}, "
+                     f"{sample['checked']} checked, {sample['disagreed']} disagreed"
+                     + (f" → estimated error rate {100 * sample['error_rate']:.1f}% (95% CI {100 * sample['error_ci'][0]:.1f}–{100 * sample['error_ci'][1]:.1f}%) "
+                        f"for the {sample['frame']} records of the sampled steps." if sample.get("checked") and sample.get("error_ci") else "."))
+    if checks:
+        sev = checks.get("by_severity") or {}
+        parts.append(f"Deterministic checks: {checks.get('findings', 0)} finding{'s' if checks.get('findings', 0) != 1 else ''}"
+                     + (f" ({', '.join(f'{n} {k}' for k, n in sorted(sev.items()))})" if sev else "") + ".")
+    if tier == "ai_only":
+        parts.append("No record was reviewed by a person.")
+    elif tier == "human_verified":
+        parts.append(f"Every record was reviewed by a person; {_pct(agreed, audited)}% agreed with the extraction.")
+    else:
+        parts.append(f"Overall {_pct(audited, total)}% of records audited · {_pct(agreed, audited)}% agree"
+                     + ("" if sample and sample.get("drawn") else ", audited at the reviewer's choice, not a random sample") + ".")
+    return " ".join(parts)
 
 
 # ── views (Phase 4: the observatory is a saved view over records) ─────────────
@@ -1425,16 +1470,17 @@ def public_datasets_with_badges(conn: psycopg.Connection,
           SELECT record_id,
                  bool_or(status = 'flagged' OR EXISTS (
                    SELECT 1 FROM jsonb_array_elements(coalesce(diff, '[]'::jsonb)) e
-                   WHERE e->>'original_value' IS DISTINCT FROM e->>'final_value')) AS disagreed
-          FROM verification_event GROUP BY record_id
+                   WHERE e->>'original_value' IS DISTINCT FROM e->>'final_value')) AS disagreed,
+                 (array_agg(status ORDER BY created_at DESC, id DESC) FILTER (WHERE status IN ('verified', 'flagged', 'unverified')))[1] AS last_verdict
+          FROM verification_event WHERE record_id IS NOT NULL GROUP BY record_id
         ),
         rec AS (
           SELECT r.dataset_id,
                  count(*) AS n_records,
-                 count(*) FILTER (WHERE ev.record_id IS NOT NULL) AS audited,
-                 count(*) FILTER (WHERE ev.record_id IS NOT NULL AND NOT ev.disagreed) AS agreed
+                 count(*) FILTER (WHERE ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified') AS audited,
+                 count(*) FILTER (WHERE ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified' AND NOT ev.disagreed) AS agreed
           FROM record r LEFT JOIN ev ON ev.record_id = r.id
-          WHERE r.dataset_id IS NOT NULL
+          WHERE r.dataset_id IS NOT NULL AND NOT COALESCE(r.screened_empty, false)
           GROUP BY r.dataset_id
         )
         SELECT d.id, d.slug, d.title, d.description, d.schema_id,
@@ -1455,8 +1501,9 @@ def public_datasets_with_badges(conn: psycopg.Connection,
         (q, q, bases, bases, bases, q, q, limit, offset),
     ).fetchall()
     out = []
+    samples = _samples_for(conn, [str(r[0]) for r in rows])
     for (did, slug, title, desc, schema_id, n, audited, agreed, cite, kw, pr, ghs, pmeta, fsha) in rows:
-        badge = _badge_from_counts(int(n), int(audited), int(agreed))
+        badge = _badge_from_counts(int(n), int(audited), int(agreed), sample=samples.get(str(did)))
         if ghs and isinstance(pmeta, dict) and isinstance(pmeta.get("credibility"), dict):
             badge = {**badge, **{k: v for k, v in pmeta["credibility"].items() if k != "dataset_id"}}   # as published
         out.append({
@@ -1464,6 +1511,26 @@ def public_datasets_with_badges(conn: psycopg.Connection,
             "schema_id": schema_id, "cite_as": cite, "keywords": list(kw or []),
             "published_url": dataset_github_url(slug) if (fsha or pr or ghs) else None,   # a GitHub copy exists
             "github_source": bool(ghs), "credibility": badge})
+    return out
+
+
+def _samples_for(conn: psycopg.Connection, dataset_ids: list[str]) -> dict[str, dict]:
+    """The random-draw estimate per listed dataset (the catalogue's chips), one call each — the
+    list is short and the draws are rare."""
+    out: dict[str, dict] = {}
+    if not dataset_ids:
+        return out
+    try:
+        from . import review_gate
+        with_draws = {str(r[0]) for r in conn.execute(
+            """SELECT DISTINCT r.dataset_id FROM workflow_run r JOIN workflow_step_run sr ON sr.run_id = r.id
+               WHERE r.dataset_id = ANY(%s::uuid[]) AND sr.review ->> 'mode' = 'sample'""", (dataset_ids,)).fetchall()}
+        for did in with_draws:
+            smp = review_gate.dataset_sample(conn, did)
+            if smp:
+                out[did] = smp
+    except Exception:  # noqa: BLE001, S110 - the catalogue never fails over the workflow tables
+        pass
     return out
 
 

@@ -118,9 +118,6 @@ def later_problems(spec: dict) -> list[str]:
                 out.append(f"step {sid!r}: {ws.LATER['input']}")
         if kind in ("derive", "loop", "agent"):
             out.append(f"step {sid!r}: {ws.LATER[kind]}")
-        rv = st.get("review") or {}
-        if rv.get("mode") == "sample":
-            out.append(f"step {sid!r}: a sampled review arrives in a later release — declare 'all' or 'none' for now")
     if n_extract > 1:
         out.append("several extract steps need linked datasets (a later release); this release runs one per workflow")
     return out

@@ -1061,3 +1061,6 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .wf-paper.failed small { color: var(--error); }
 .wf-paper.done small, .wf-paper.attached small { color: var(--success); }
 .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+.ds-gates .ds-gate.hold { font-weight: 600; }
+.ds-override { display: block; font-size: 12.5px; margin: 4px 0 6px; }

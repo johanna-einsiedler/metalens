@@ -38,12 +38,16 @@
       "id": "tables",
       "kind": "extract",
       "label": "Regression tables",
-      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF",
+      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF; thirty new columns drawn at random, stratified by table, are reviewed before a release",
       "preset": "econ-regression-tables@67780825",
       "source": "supplied",
       "review": {
-        "mode": "all",
+        "mode": "sample",
         "unit": "entry",
+        "n": 30,
+        "stratify": [
+          "table_number"
+        ],
         "blocks": "release"
       }
     },

@@ -128,7 +128,9 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     assert view["status"] == "done", view
     steps = {s["step_id"]: s for s in view["steps"]}
     assert steps["tables"]["status"] == "done" and steps["tables"]["outputs"]["n_papers"] == 2 and steps["tables"]["outputs"]["n_records"] == 4
-    assert steps["tables"]["review"]["mode"] == "all" and steps["tables"]["review"]["total"] == 4 and steps["tables"]["review"]["satisfied"] is False
+    # the econ workflow draws thirty columns; two papers of two columns are fewer, so every column is drawn
+    assert steps["tables"]["review"]["mode"] == "sample" and steps["tables"]["review"]["total"] == 4 and steps["tables"]["review"]["satisfied"] is False
+    assert steps["tables"]["review"]["exhaustive"] is True and steps["tables"]["review"]["stratify"] == ["table_number"]
     assert steps["contract"]["status"] == "done" and steps["contract"]["outputs"]["n_checked"] == 6    # the whole dataset, three papers
     assert view["jobs"]["cancelled"] == 1 and next(p for p in view["papers"] if p["status"] == "cancelled")["error"] == "not uploaded"
     conn.rollback()
@@ -150,7 +152,7 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     rel = releases.latest(conn, ds, with_snapshot=True)
     wf = rel["snapshot"]["workflow"]
     assert wf["id"] == "econ-regressions" and wf["run_id"] == rid and wf["implicit"] is False
-    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "numbers", "release"] and wf["steps"][0]["review"]["mode"] == "all"
+    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "numbers", "release"] and wf["steps"][0]["review"]["mode"] == "sample"
     # the recipe, the release files and the JSON export say which process made the data
     ov = records.dataset_overview(conn, ds)
     assert ov["recipe"]["workflow"]["run_id"] == rid and ov["recipe"]["workflow"]["contract"].startswith("econ-regressions@")
@@ -251,7 +253,7 @@ def test_plan_attaches_what_the_owner_already_has_and_refuses_what_cannot_run(mo
     conn.execute("UPDATE dataset SET workflow = %s WHERE id = %s::uuid", (ws.workflow_id(spec), ds_c)); conn.commit()
     with pytest.raises(workflows.RunRefused) as info:
         workflows.start(conn, ds_c, who=who, new_pdfs=[{"sha256": "d" * 64, "filename": "d.pdf"}])
-    assert "vote engine" in str(info.value) and "sampled review" in str(info.value)
+    assert "vote engine" in str(info.value) and "sampled review" not in str(info.value)   # the sampler runs now
     conn.close()
 
 

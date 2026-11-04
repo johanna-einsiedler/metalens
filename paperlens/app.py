@@ -1550,6 +1550,25 @@ def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who:
     return {**out, "run": workflows.run_view(db, workflows.get_run(db, run_id))}
 
 
+@app.get("/api/workflow-runs/{run_id}/queue/{step_id}")
+def workflow_run_queue(run_id: str, step_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A review gate as a worklist: the drawn (or all) records of the step in order, with their
+    verdicts, the documents they sit in, the progress and what comes next. The owner's, or a
+    reader's of a public dataset (states only)."""
+    from . import review_gate, workflows
+    run = workflows.get_run(db, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    if not workflows.is_run_owner(run, who):
+        d = records.get_dataset(db, run["dataset_id"]) or {}
+        if d.get("visibility") != "public":
+            raise HTTPException(status_code=404, detail="Run not found.")
+    sr = next((s for s in workflows.step_runs(db, run_id) if s["step_id"] == step_id), None)
+    if sr is None:
+        raise HTTPException(status_code=404, detail="Step not found.")
+    return review_gate.queue(db, run, sr)
+
+
 @app.get("/api/workflow-runs/{run_id}/issues")
 def workflow_run_issues(run_id: str, step: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """What the run's checks found."""

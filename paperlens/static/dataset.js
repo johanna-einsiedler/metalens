@@ -241,7 +241,8 @@ async function loadReleases() {
     + (OWNER && !ANON && ZEN.allowed && !testDoi(x) && (x.published_at || OV.published_url) ? ` <button type="button" class="btn btn-ghost btn-sm" data-doigh="${x.number}" title="send this DOI to the GitHub copy of the release (a small pull request), if it does not have it yet">DOI → GitHub</button>` : "")
     : (OWNER && !ANON && ZEN.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-reldoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${ZEN.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : "");
   host.innerHTML = list.length ? list.map((x, k) => `<div class="ds-dashrow"><b>v${x.number}</b> ${pubState(x, k)}${doiState(x)} <span class="muted">· ${esc(fmtDate(x.created_at))} · ${esc(changesInWords(x.changes))}`
-    + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}">${esc((x.credibility || {}).label || "")}</span>`
+    + ` · <span class="badge tier-${esc((x.credibility || {}).tier || "ai_only")}" title="${esc((x.credibility || {}).label_long || "")}">${esc((x.credibility || {}).label || "")}</span>`
+    + ((x.gates || {}).gates_overridden || (x.gates || {}).stale_overridden ? ` <span class="badge" title="the owner released although the workflow's gate held">gate overridden</span>` : "")
     + ` · <span title="sha256 of the release's content">${esc((x.content_sha || "").slice(0, 8))}</span>`
     + ` · <a href="#" data-relzip="${x.number}" title="this release as static files (tables, evidence, metadata): what a dashboard you write yourself reads">⬇ files</a></span>${x.notes ? `<div class="muted" style="margin:2px 0 0 0">${esc(x.notes)}</div>` : ""}</div>`).join("")
     : "No release yet. Dashboards you publish will pin one.";
@@ -335,8 +336,18 @@ async function openReleaseForm() {
   if (w.flagged) warn.push(`${plural(w.flagged, "entry is", "entries are")} flagged.`);
   if (w.crosscheck_mismatch) warn.push(`${plural(w.crosscheck_mismatch, "point estimate disagrees", "point estimates disagree")} with the companion dataset's table cells: the release freezes that verdict.`);
   if (w.companion_moved) warn.push("The companion dataset changed since the last release; the cross-check is redone against its latest release.");
+  if (w.check_findings) warn.push(`${plural(w.check_findings, "check finding is", "check findings are")} frozen with the release.`);
+  const gate = p.gate || {}, gates = gate.gates || [];
+  const open = gates.filter((g) => !g.satisfied), holding = gate.blocking || [];
+  const gateRows = [...holding.map((b) => `<li class="ds-gate hold">${esc(b.step)} is ${esc(b.state)}${(b.because || []).length ? ` — ${esc(b.because.join("; "))}` : ""}</li>`),
+    ...open.map((g) => `<li class="ds-gate${g.blocks === "release" ? " hold" : ""}">Gate · ${esc(g.step_id)}: ${g.checked} of ${g.total} checked${g.disagreed ? `, ${g.disagreed} disagreed` : ""}${g.blocks === "release" ? "" : " (holds the run, not the release)"}`
+      + ` <a href="/workspace?queue=${esc(g.run_id)}:${esc(g.step_id)}">review ${g.pending} →</a></li>`)];
+  const blocked = holding.length || open.some((g) => g.blocks === "release");
   host.innerHTML = `<div class="ds-relform"><b>Release v${p.next_number}</b> <span class="muted">· ${esc(changesInWords(p.changes))}</span>`
-    + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}">${esc(p.credibility.label || "")}</span></div>`
+    + `<div style="margin:6px 0">Badge that will be frozen with it: <span class="badge tier-${esc(p.credibility.tier || "ai_only")}" title="${esc(p.credibility.label_long || "")}">${esc(p.credibility.label || "")}</span>`
+    + (p.credibility.label_long ? `<div class="muted" style="font-size:12.5px;margin-top:2px">${esc(p.credibility.label_long)}</div>` : "") + `</div>`
+    + (gateRows.length ? `<ul class="ds-relwarn ds-gates">${gateRows.join("")}</ul>` : "")
+    + (blocked ? `<label class="ds-override"><input type="checkbox" id="ds-rel-override"/> Release anyway — the release records that the gate was overridden</label>` : "")
     + (warn.length ? `<ul class="ds-relwarn">${warn.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "")
     + `<textarea id="ds-rel-notes" rows="2" maxlength="4000" placeholder="Release notes (optional): what is new in this release?"></textarea>`
     + (ANON ? "" : publishChoices(p))
@@ -366,7 +377,9 @@ async function openReleaseForm() {
     try {
       const choice = (document.querySelector('input[name="ds-relpub"]:checked') || {}).value || "none";
       msg.textContent = choice === "none" ? "Creating the release…" : choice === "doi" ? "Creating the release, minting its DOI, publishing…" : "Creating the release and publishing…";
-      const rel = await api.createRelease(id, { notes: $("#ds-rel-notes").value, doi: choice === "doi", publish: choice === "none" ? null : choice === "doi" ? "github+metalens" : choice });
+      const over = !!($("#ds-rel-override") && $("#ds-rel-override").checked);
+      const rel = await api.createRelease(id, { notes: $("#ds-rel-notes").value, doi: choice === "doi", publish: choice === "none" ? null : choice === "doi" ? "github+metalens" : choice,
+                                               allow_stale: over, override_gates: over });
       if ((rel.problems || []).length) alert(`Release v${rel.number} was created, but:\n${rel.problems.join("\n")}`);
       if (choice !== "none") OV = await api.datasetOverview(id);
       const done = [];
@@ -506,7 +519,7 @@ function renderWorkflowCard(host, w) {
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
     const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
-    const gate = st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked</span>${mine && st.gate.pending ? ` <a href="/workspace?project=${esc(id)}">review ${st.gate.pending} →</a>` : ""}` : "";
+    const gate = st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
     return `<div class="ds-dashrow wf-row"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b> ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
@@ -518,7 +531,7 @@ function renderWorkflowCard(host, w) {
       ${mine ? `<div class="wf-actions">
         ${waiting ? `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(id)}&run=${esc(run.id)}&step=${esc(ex.id || "extract")}">Upload the pipeline's files</a>
                      <button class="btn btn-ghost btn-sm" id="wf-complete" title="the papers never uploaded are dropped from the plan and the run goes on">Uploads complete</button>` : ""}
-        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
+        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
         ${!/^(done|failed|cancelled)$/.test(run.status) ? `<button class="btn btn-ghost btn-sm" id="wf-cancel">Cancel run</button>` : ""}
       </div>` : ""}</div>`;
   })() : "";

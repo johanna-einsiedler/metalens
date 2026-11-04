@@ -233,7 +233,7 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
                          **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None),
                          **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies")),
                          **({"check_findings": snap["findings"]["n"]} if snap.get("findings") else {})},
-            "credibility": {"tier": cred.get("tier"), "label": cred.get("label")}}
+            "credibility": {k: cred.get(k) for k in ("tier", "label", "label_long", "audited", "agreed", "n_records", "sample", "checks") if cred.get(k) is not None}}
 
 
 def _crosscheck_warnings(now: dict | None, before: dict | None) -> dict:
@@ -306,7 +306,7 @@ def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual",
              _spec_sha(snap.get("spec")), snap.get("schema_id"),
              Json({"name": "metalens", "version": __version__, "git_sha": exporter._git_sha()}),   # noqa: SLF001
              Json({"n_papers": changes["n_papers"], "n_records": changes["n_records"], "n_evidence": len(snap["evidence"])}),
-             Json({"tier": cred.get("tier"), "label": cred.get("label"), "audited": cred.get("audited"), "n_records": cred.get("n_records")}),
+             Json({k: cred.get(k) for k in ("tier", "label", "label_long", "audited", "agreed", "n_records", "sample", "checks") if cred.get(k) is not None}),
              # stored in its own key order (the order of a preset's fields and inputs is meaningful to
              # readers); only the hashes use the canonical, sorted form
              gzip.compress(json.dumps(snap, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"), mtime=0),

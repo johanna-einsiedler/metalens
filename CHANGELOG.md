@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Sampled review, the review queue, and an honest badge
+
+- A step may declare `review: {mode: sample, n | share, seed, stratify, unit}`: when it completes,
+  that many of its new records are drawn at random (proportional strata, whole papers when the
+  unit is `paper`, everything when the output is smaller), the draw is stored, and the gate is
+  satisfied when every drawn record has a verdict. A record is checked when its last verdict after
+  the draw is verified or flagged, disagreed when a flag or a value-changing correction followed.
+- The **review queue** (`/workspace?queue=<run>:<step>`, from the Workflow panel and the release
+  form): the sidebar lists only the drawn papers, the panel only the drawn entries in draw order,
+  a verdict moves to the next pending one across papers, and the done state resumes the run or
+  opens the release.
+- The **badge** says how its figures came about: "Sampled 30/412 · 93% agree" for a dataset with
+  draws, the estimated error rate with its 95% interval in the long label (the chip's tooltip, the
+  release form, the frozen release), the deterministic checks' findings for an AI-only dataset,
+  and "audited at the reviewer's choice, not a random sample" when verdicts were ad hoc. The
+  catalogue now counts exactly as the dataset page does (a withdrawn verdict is no audit, screened
+  papers do not count).
+- The release form lists each open gate with a link into its queue; "Release anyway" is an explicit
+  tick, recorded on the release. `econ-regressions` reviews a sample of thirty columns per run.
+
 ### Checks on the review cards: regression cells and claims against tables
 
 - Two more checks in the registry: `regression-cells` (every standard error names its coefficient,

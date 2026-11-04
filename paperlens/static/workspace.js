@@ -35,6 +35,8 @@ let VM = null, EV = null;   // the preset's view model + the evidence index for 
 let TRIAGE = "order";       // entry nav order: order | low_conf | unverified | flagged
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
+let QUEUE = null;                                        // ?queue=<run>:<step>: a review gate's worklist — the drawn records, in draw order
+let QUEUE_ALL = false;                                   // show every entry of the open paper, not only the drawn ones
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 let TRIAGE_FROM_URL = false;                             // ?triage=checks from the Workflow panel: this visit's order, over the preset's default
 try { const t = new URLSearchParams(location.search).get("triage"); if (t) { TRIAGE = t; TRIAGE_FROM_URL = true; } } catch { /* */ }
@@ -296,6 +298,18 @@ async function init() {
   const jobsParam = q.get("jobs");    // comma list of this round's job ids → track pending/errors
   FOCUS_REC = q.get("rec") || null;   // focus + flash a specific record (from a chart)
   let wantDoc = q.get("doc");
+  // a review gate's worklist: the dataset's papers that carry drawn records, the first pending one open
+  const queueParam = q.get("queue");
+  if (queueParam && queueParam.includes(":")) {
+    const [qr, qs] = queueParam.split(":");
+    try {
+      QUEUE = await api.workflowQueue(qr, qs);
+      QUEUE.byDoc = new Map();
+      for (const it of QUEUE.items || []) { if (!QUEUE.byDoc.has(it.document_id)) QUEUE.byDoc.set(it.document_id, []); QUEUE.byDoc.get(it.document_id).push(it); }
+      QUEUE.ids = new Set((QUEUE.items || []).map((it) => it.record_id));
+      if (!PROJECT) PROJECT = QUEUE.dataset_id;
+    } catch (e) { $("#pages").innerHTML = `<p class="muted">could not load the review queue: ${esc(e.message)}</p>`; return; }
+  }
   // ?rec without ?doc (a chart deep-link) → resolve the record's document first
   if (FOCUS_REC && !wantDoc && !PROJECT && !docsParam && !sinceParam) {
     try { const rd = await api.record(FOCUS_REC); wantDoc = rd.record && rd.record.document_id; } catch { /* */ }
@@ -323,6 +337,13 @@ async function init() {
   // with ?since, so we reload the round's documents as jobs complete.
   if (jobsParam) startJobTracking(jobsParam.split(",").filter(Boolean), sinceParam);
   else if (sinceParam) startRoundPoll(sinceParam);
+  if (QUEUE) {
+    const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
+    DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
+    const firstPending = (QUEUE.documents || []).find((d) => d.n_checked < d.n_items);
+    if (!wantDoc && firstPending) wantDoc = firstPending.document_id;
+    renderQueueBar();
+  }
   if (!DOCS.length) {
     renderDocTabs();
     $("#pages").innerHTML = `<div class="empty-state">
@@ -555,7 +576,7 @@ function renderDocTabs() {
     const shade = docShade(d);
     const active = tabActive(d);
     return `<button class="doctab${active ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
-      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${d.n_records}</span></button>`
+      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${queueDoc(d.document_id) ? `${queueDoc(d.document_id).n_checked}/${queueDoc(d.document_id).n_items}` : d.n_records}</span></button>`
       + (active ? docSubList() : "");                      // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
@@ -578,8 +599,52 @@ function renderDocTabs() {
   strip.querySelectorAll(".jobstop[data-jobid]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cancelJob(b.dataset.jobid, b); }));
 }
 
+// ── the review queue: a gate's drawn records as a worklist ────────────────────────────────────
+function queueDoc(docId) { return QUEUE && (QUEUE.documents || []).find((d) => d.document_id === docId); }
+function renderQueueBar() {
+  const bar = $("#queuebar"); if (!bar) return;
+  if (!QUEUE) { bar.hidden = true; return; }
+  const p = QUEUE.progress || {};
+  const done = p.pending === 0;
+  const exit = `/workspace?project=${encodeURIComponent(QUEUE.dataset_id)}`;
+  const what = QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`;
+  bar.hidden = false;
+  bar.innerHTML = `<span class="qb-label">Review queue · <b>${esc(QUEUE.step)}</b></span>
+    <span class="qb-count"><b>${p.checked}</b> of ${p.drawn} checked${p.disagreed ? ` · ${p.disagreed} disagreed` : ""} <span class="muted">· ${esc(what)}</span></span>
+    <progress class="qb-progress" max="${p.drawn || 1}" value="${p.checked || 0}"></progress>
+    ${done ? (QUEUE.next && QUEUE.next.action === "resume"
+        ? `<button type="button" class="btn btn-primary btn-sm" id="qb-resume">Resume run</button>`
+        : `<a class="btn btn-primary btn-sm" href="/dataset?id=${encodeURIComponent(QUEUE.dataset_id)}#workflow">Done — release →</a>`) : ""}
+    <label class="qb-all muted"><input type="checkbox" id="qb-all"${QUEUE_ALL ? " checked" : ""}/> every entry of the paper</label>
+    <a class="qb-exit muted" href="${exit}" title="leave the queue">exit queue</a>`;
+  const rs = $("#qb-resume");
+  if (rs) rs.onclick = async () => {
+    rs.disabled = true;
+    try { await api.workflowResume(QUEUE.run_id, {}); location.href = `/dataset?id=${encodeURIComponent(QUEUE.dataset_id)}#workflow`; }
+    catch (e) { alert(e.message); rs.disabled = false; }
+  };
+  $("#qb-all").onchange = (e) => { QUEUE_ALL = e.target.checked; load(DOCID); };
+}
+function queueVerdict(rec, status) {
+  const it = (QUEUE.items || []).find((x) => x.record_id === rec.id);
+  if (it && !it.checked) {
+    it.checked = status === "verified" || status === "flagged"; it.status = status;
+    if (it.checked) { QUEUE.progress.checked += 1; QUEUE.progress.pending -= 1; if (status === "flagged") QUEUE.progress.disagreed += 1; }
+    const d = queueDoc(rec.document_id || DOCID); if (d && it.checked) d.n_checked += 1;
+  }
+  renderQueueBar();
+  renderDocTabs();
+  // the next pending entry of this paper, else the next paper with one
+  const pendingHere = (DATA.records || []).some((r) => QUEUE.ids.has(r.id) && r.verification_status !== "verified" && r.verification_status !== "flagged");
+  if (pendingHere) { if (AUTOADV) nextEntry(true); return; }
+  const nextDoc = (QUEUE.documents || []).find((d) => d.n_checked < d.n_items);
+  if (nextDoc && nextDoc.document_id !== DOCID) selectDoc(nextDoc.document_id);
+}
+
 // The sidebar's colour for a paper: green once every entry is verified, orange while any is flagged.
 function docShade(d) {
+  const qd = queueDoc(d.document_id);
+  if (qd) return qd.n_checked >= qd.n_items ? "reviewed" : "";
   if ((d.n_flagged || 0) > 0) return "flagged";
   return d.n_records > 0 && (d.n_verified || 0) >= d.n_records ? "reviewed" : "";
 }
@@ -659,6 +724,13 @@ async function load(docId) {
   DATA._sentinel = (DATA.records || []).find((r) => r.screened_empty) || null;
   DATA._screened = !!DATA._sentinel;
   DATA.records = (DATA.records || []).filter((r) => !r.screened_empty);
+  if (QUEUE) {
+    DATA._all = DATA.records;
+    const ord = new Map((QUEUE.byDoc.get(docId) || []).map((it) => [it.record_id, it.ord]));
+    const drawn = DATA.records.filter((r) => ord.has(r.id)).sort((a, b) => ord.get(a.id) - ord.get(b.id));
+    DATA.records = QUEUE_ALL ? [...drawn, ...DATA.records.filter((r) => !ord.has(r.id))] : drawn;
+    TRIAGE = "order";
+  }
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
   const stored = (() => { try { return localStorage.getItem("metalens_triage"); } catch { return null; } })();
@@ -1676,6 +1748,7 @@ async function sendVerify(card, rec, status, notes) {
     rec.verification_status = status;
     setStatus(card, status);
     refreshNavState();
+    if (QUEUE) { queueVerdict(rec, status); return; }
     if (AUTOADV && (DATA.records || []).length > 1) nextEntry(true);
   }
   catch (e) { alert("verify failed: " + e.message); }
