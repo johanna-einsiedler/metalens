@@ -507,6 +507,8 @@ function renderWorkflowCard(host, w) {
   const wf = w.workflow, run = w.current_run, mine = OWNER && !ANON;
   const ex = (w.steps || []).find((s) => s.kind === "extract" || s.kind === "agent") || {};
   const supplied = ex.source === "supplied";
+  // every supplied step whose documents enter a dataset (one per role in a group): an upload button each, all completed together
+  const suppliedSteps = (w.steps || []).filter((s) => (s.kind === "extract" || s.kind === "agent") && s.source === "supplied" && !s.pipeline_of);
   const line = (st) => {
     const because = (st.because || []).join("; ");
     let what = "";
@@ -527,7 +529,6 @@ function renderWorkflowCard(host, w) {
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
-    const suppliedSteps = (w.steps || []).filter((s) => (s.kind === "extract" || s.kind === "agent") && s.source === "supplied" && !s.pipeline_of);
     const uploads = waiting ? suppliedSteps.map((s) => `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(s.dataset_id || id)}&run=${esc(run.id)}&step=${esc(s.id)}">Upload the ${esc(s.role ? s.role + " " : "")}files</a>`).join(" ") : "";
     const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key` : run.status;
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
