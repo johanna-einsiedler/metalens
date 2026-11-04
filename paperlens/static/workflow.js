@@ -15,7 +15,7 @@ const name = (a) => [a.given, a.family].filter(Boolean).join(" ");
 const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const testDoi = (d) => /^10\.5072\//.test(d || "");
 const md = (text) => (text && text.trim() ? `<div class="md">${renderMarkdown(text)}</div>` : "");
-const KIND = { extract: "⬚ extract", agent: "⬚ agent", check: "✓ check", derive: "Σ derive", vocabulary: "🏷 vocabulary", pages: "📖 pages", crosscheck: "↔ cross-check", loop: "↻ loop", release: "⛁ release" };
+const KIND = { extract: "⬚ extract", agent: "⬚ agent", check: "✓ check", derive: "Σ derive", vocabulary: "🏷 vocabulary", pages: "📖 pages", crosscheck: "↔ cross-check", loop: "↻ loop", review: "👁 review", release: "⛁ release" };
 
 export async function init(id) {
   ID = id;
@@ -51,11 +51,12 @@ function stepsHtml(c) {
   return `<ol class="wc-steps">${(c.steps || []).map((s) => {
     const pc = s.preset_card;
     const what = s.kind === "extract" || s.kind === "agent"
-      ? `${s.source === "supplied" ? "results made outside Metalens are uploaded into the run" : "one model call per paper on the worker"} · preset ${pc ? `<a href="${esc(pc.url)}">${esc(pc.title)}</a>` : ""} <code>${esc(s.preset || "")}</code>${pc && pc.live_schema_id && pc.live_schema_id !== s.preset ? ` <span class="muted">(the live preset is now <code>${esc(pc.live_schema_id)}</code>)</span>` : ""}${s.k > 1 ? ` · ${s.k} runs, voted` : ""}${(s.reads || []).length ? ` · reads ${s.reads.join(", ")}` : ""}`
+      ? `${s.dataset ? `into the <b>${esc(s.dataset)}</b> dataset · ` : ""}${s.source === "supplied" ? "results made outside Metalens are uploaded into the run" : "one model call per paper on the worker"} · preset ${pc ? `<a href="${esc(pc.url)}">${esc(pc.title)}</a>` : ""} <code>${esc(s.preset || "")}</code>${pc && pc.live_schema_id && pc.live_schema_id !== s.preset ? ` <span class="muted">(the live preset is now <code>${esc(pc.live_schema_id)}</code>)</span>` : ""}${s.k > 1 ? ` · ${s.k} runs, voted` : ""}${(s.reads || []).length ? ` · reads ${s.reads.join(", ")}` : ""}`
       : s.kind === "check" ? `<code>${esc(s.check)}</code> over ${(s.over || []).join(", ")} — ${esc((s.check_info || {}).label || "")} · on a finding at or above <code>${esc(s.severity || "error")}</code>: ${esc(s.on_fail || "note")}${(s.check_info || {}).needs_companion ? " · needs the dataset's companion" : ""}`
       : s.kind === "vocabulary" ? `vocabulary of <code>${esc(s.column || "")}</code>`
       : s.kind === "pages" ? `pages of <code>${esc(s.group || "")}</code> keyed by <code>${esc(s.keyed_by || "")}</code>`
       : s.kind === "crosscheck" ? "the claims-vs-tables check against the companion dataset"
+      : s.kind === "review" ? `a joint review over ${(s.over || []).join(", ")}: each paper's documents of those steps in one worklist`
       : s.kind === "release" ? `gate on ${(s.gate || []).join(", ") || "nothing"}: the release holds while a gate step is stale or awaits review`
       : esc(s.kind);
     return `<li class="ds-dashrow wc-step"><span class="wc-kind">${KIND[s.kind] || esc(s.kind)}</span> <b>${esc(s.label || s.id)}</b> <code class="muted">${esc(s.id)}</code>

@@ -320,7 +320,12 @@ async function init() {
   // ALL of the user's documents — the most recent (last run) is auto-selected below,
   // and if there are none the empty-state shows a "Turn a paper into data" button.
   try {
-    if (PROJECT) {
+    if (QUEUE && (QUEUE.datasets || []).length > 1) {
+      // a joint review stage: the worklist spans the group's datasets (a paper's tables, then its claims)
+      const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => r.documents || []).catch(() => [])));
+      DOCS = lists.flat();
+      try { const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
+    } else if (PROJECT) {
       DOCS = (await api.documents({ dataset: PROJECT })).documents || [];
       try { const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
     } else if (docsParam) {
@@ -619,7 +624,8 @@ function renderQueueBar() {
   const p = QUEUE.progress || {};
   const done = p.pending === 0;
   const exit = `/workspace?project=${encodeURIComponent(QUEUE.dataset_id)}`;
-  const what = QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`;
+  const what = (QUEUE.joint && p.papers ? `${p.papers_done || 0} of ${p.papers} paper${p.papers === 1 ? "" : "s"} done · ` : "")
+    + (QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`);
   bar.hidden = false;
   bar.innerHTML = `<span class="qb-label">Review queue · <b>${esc(QUEUE.step)}</b></span>
     <span class="qb-count"><b>${p.checked}</b> of ${p.drawn} checked${p.disagreed ? ` · ${p.disagreed} disagreed` : ""} <span class="muted">· ${esc(what)}</span></span>

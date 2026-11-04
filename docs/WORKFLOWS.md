@@ -90,6 +90,33 @@ the step has a verdict or the owner resumes with `override`, which the gate reco
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
 
+## Linked datasets and a joint review
+
+A workflow may extract two sides of the same papers into two datasets — the regression tables
+and the claims of economics articles — when each extract step names its dataset role:
+
+```jsonc
+{"id": "tables", "kind": "extract", "dataset": "tables", "preset": "econ-regression-tables@…", "source": "supplied"},
+{"id": "claims", "kind": "extract", "dataset": "claims", "preset": "register-claims@…", "source": "supplied"},
+{"id": "links",  "kind": "check", "check": "claims-vs-tables", "over": ["claims"]},
+{"id": "joint",  "kind": "review", "over": ["tables", "claims"], "review": {"mode": "all", "unit": "paper", "blocks": "release"}}
+```
+
+Declaring such a workflow on a dataset makes it a member of a **dataset group** in the role whose
+preset it uses; the other roles are linked from the dataset page ("link or create…": one of your
+datasets under that role's preset, or an empty new one). The members share the group id and the
+workflow; a check that needs a companion finds it in the group. A run starts from any member and
+spans the group: a new paper needs one file per role (the Import page tagged with the run and the
+step lands each in its dataset), every step is judged against the dataset it writes to or reads,
+and the Workflow panel of every member shows the same run.
+
+A `review` step is a joint review stage: one gate over the documents the run made in the steps it
+names, whose worklist walks each paper's documents together — the paper's regression columns,
+then its claims with their verdicts against the tables — in the workspace queue, across both
+datasets. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws papers. A
+release of one member releases the others with it (each under its own number and gate; the
+response lists them), so the two datasets stay in step.
+
 ## Pipelines: k runs, a vote, a follow-up step
 
 A live extract step may run its preset several times per paper and merge the runs:

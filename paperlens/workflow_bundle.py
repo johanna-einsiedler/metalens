@@ -40,6 +40,8 @@ def steps_markdown(spec: dict, presets: list[dict] | None = None) -> str:
         if kind in ("extract", "agent"):
             pin = st.get("preset")
             p = by_pin.get(pin) or {}
+            if st.get("dataset"):
+                lines.append(f"- dataset role: `{st['dataset']}` (the group's dataset of that role)")
             lines.append(f"- preset: `{pin}`" + (f" — preset release v{p['preset_release']}" if p.get("preset_release") else " — no preset release matches this contract")
                          + (f", concept DOI {p['concept_doi']}" if p.get("concept_doi") else ""))
             lines.append(f"- source: {'the preset runs on the worker, one model call per paper' if st.get('source') == 'live' else 'results made outside Metalens are uploaded into the run'}")
@@ -65,6 +67,8 @@ def steps_markdown(spec: dict, presets: list[dict] | None = None) -> str:
             lines.append(f"- pages of group `{st.get('group')}`, keyed by `{st.get('keyed_by')}`")
         elif kind == "crosscheck":
             lines.append("- the claims-vs-tables check against the dataset's companion")
+        elif kind == "review":
+            lines.append(f"- a joint review stage over {', '.join(st.get('over') or [])}: each drawn paper's documents of those steps, in one worklist")
         elif kind == "release":
             lines.append(f"- gate: {', '.join(st.get('gate') or []) or 'none'} — a release holds while a gate step is stale or awaits review")
         if kind in ws.REVIEWED_KINDS:

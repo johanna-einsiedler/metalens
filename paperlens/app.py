@@ -1756,6 +1756,55 @@ def dataset_workflow(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     return workflows.panel(db, dataset_id, who=who, owner=owner)
 
 
+class GroupLinkBody(BaseModel):
+    role: str
+    dataset_id: str | None = None          # an existing dataset of mine under the role's preset
+    create: bool = False                   # else: make an empty one
+    title: str | None = None
+
+
+@app.get("/api/datasets/{dataset_id}/group")
+def dataset_group(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The dataset group this dataset belongs to (the workflow's dataset roles and their datasets),
+    and — for the owner — the datasets that could fill an unlinked role."""
+    from . import workflow_spec as ws, workflows
+    owner = _dataset_gate(db, dataset_id, who)
+    d = records.get_dataset(db, dataset_id) or {}
+    spec, _implicit = workflows.resolve(db, d)
+    roles = ws.roles(spec)
+    grp = workflows.group_of(db, d) or {"id": d.get("group_id"), "role": d.get("group_role"), "roles": {}}
+    out = {"id": grp.get("id"), "role": grp.get("role"), "roles": []}
+    for role, info in roles.items():
+        linked = grp["roles"].get(role)
+        item = {"role": role, "step": info["step"], "label": info["label"], "preset": info["preset"], "dataset": linked, "candidates": []}
+        if owner and not linked:
+            base = ws.preset_base(info["preset"])
+            item["candidates"] = [{"id": r[0], "title": r[1]} for r in db.execute(
+                """SELECT id::text, title FROM dataset WHERE split_part(schema_id, '@', 1) = %s AND group_id IS NULL AND id <> %s::uuid
+                     AND ((%s::uuid IS NOT NULL AND owner_user_id = %s::uuid) OR (%s::text IS NOT NULL AND session_id = %s))
+                   ORDER BY created_at DESC LIMIT 50""",
+                (base, dataset_id, who.user_id if records._is_uuid(who.user_id or "") else None, who.user_id if records._is_uuid(who.user_id or "") else None,   # noqa: SLF001
+                 who.session_id, who.session_id)).fetchall()]
+        out["roles"].append(item)
+    return out
+
+
+@app.post("/api/datasets/{dataset_id}/group/link")
+def dataset_group_link(dataset_id: str, body: GroupLinkBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: fill a role of the group — link one of my datasets under that role's preset, or
+    create an empty one. The linked dataset takes the same workflow."""
+    from . import workflows
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner links datasets.")
+    d = records.get_dataset(db, dataset_id) or {}
+    try:
+        grp = workflows.link_role(db, d, body.role, other_id=body.dataset_id if not body.create else None, create_title=body.title, who=who)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+    db.commit()
+    return grp
+
+
 @app.post("/api/datasets/{dataset_id}/workflow/plan")
 def dataset_workflow_plan(dataset_id: str, body: WorkflowPlanBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner: what a run would do with the staged papers — per step the work and the calls, the
@@ -2084,6 +2133,7 @@ def external_dashboards_delete(ext_id: str, db=Depends(get_db), who: Principal =
 
 
 class ReleaseBody(BaseModel):
+    group: bool = True                     # release the other datasets of the group with this one
     notes: str = ""
     doi: bool = False           # mint a DOI on Zenodo first (the ground truth), so the copies name it
     publish: str | None = None  # then publish the release: "github+metalens" | "github" | None (keep it here)
@@ -2108,6 +2158,27 @@ def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db
     except releases.GateClosed as exc:
         raise HTTPException(status_code=409, detail={"message": str(exc), "gate": exc.gate})
     out: dict = {**releases.public_row(rel), "problems": []}
+    # the other datasets of the group are frozen with it (each under its own number and gate)
+    from . import workflows
+    grp = workflows.group_of(db, records.get_dataset(db, dataset_id) or {})
+    if grp and body.group:
+        out["group"] = []
+        for role, info in grp["roles"].items():
+            if info["dataset_id"] == dataset_id:
+                out["group"].append({"role": role, "dataset_id": dataset_id, "number": rel["number"]})
+                continue
+            try:
+                other_last = releases.latest(db, info["dataset_id"])
+                if other_last and not releases.changed_since(db, info["dataset_id"], other_last):
+                    out["group"].append({"role": role, "dataset_id": info["dataset_id"], "number": other_last["number"], "unchanged": True})
+                    continue
+                orel = releases.create(db, info["dataset_id"], reason="group", notes=body.notes, created_by=who.user_id,
+                                       allow_stale=body.allow_stale, override_gates=body.override_gates)
+                out["group"].append({"role": role, "dataset_id": info["dataset_id"], "number": orel["number"]})
+            except releases.GateClosed as exc:
+                out["problems"].append(f"{role}: not released — {exc}")
+            except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
+                out["problems"].append(f"{role}: not released — {exc}")
     # Zenodo first: it reserves the DOI the GitHub copy and the catalogue then name
     if body.doi:
         from . import auth, zenodo
@@ -2766,9 +2837,9 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
             base = (d.get("schema_id") or "").partition("@")[0]
             if base and base not in {ws.preset_base(p) for _s, p in ws.pins(spec)}:
                 raise HTTPException(status_code=422, detail=f"This workflow does not extract with this dataset's preset ({base}).")
-            wid = ws.workflow_id(spec)
-        with db.transaction():
-            db.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE id = %s::uuid", (wid, dataset_id))
+            workflows.declare(db, d, spec)
+        else:
+            workflows.declare(db, records.get_dataset(db, dataset_id) or {"id": dataset_id}, None)
     if companion:                         # the other side of the same papers, checked row by row (crosscheck.py)
         from . import crosscheck
         cid = (body.companion_dataset_id or "").strip() or None
@@ -3339,7 +3410,7 @@ def extract_endpoint(
             claim = workflows.claim_job(db, run_id, step_id or "", pdf_sha, who, filename=fname)
         except workflows.RunRefused as exc:
             raise HTTPException(status_code=exc.status, detail=str(exc))
-        dataset_id = dataset_id or claim["run"]["dataset_id"]
+        dataset_id = workflows.dataset_for_step(db, claim["run"], step_id or "")
         schema_id = schema_id or claim["step"].get("preset")
         try:                                  # kept until the step is done: a retry needs no re-upload
             storage.get_store().put(storage.run_pdf_key(run_id, pdf_sha), data, "application/pdf")
@@ -3552,7 +3623,7 @@ def _ingest_with_pdf(db, who: Principal, data: bytes, result, schema_id: str | N
             claim = workflows.claim_job(db, run_id, step_id or "", pdf_sha, who, filename=filename)
         except workflows.RunRefused as exc:
             raise HTTPException(status_code=exc.status, detail=str(exc))
-        dataset_id = dataset_id or claim["run"]["dataset_id"]
+        dataset_id = workflows.dataset_for_step(db, claim["run"], step_id or "")
         schema_id = schema_id or claim["step"].get("preset")
     if dataset_id and not records.is_dataset_owner(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You don't own that dataset.")

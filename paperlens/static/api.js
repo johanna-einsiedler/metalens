@@ -118,6 +118,8 @@ export const api = {
   createWorkflowRelease: (id, body) => req(`/api/workflows/${encodeURIComponent(id)}/releases`, json({ notes: "", ...(body || {}) })),
   workflowReleaseDoi: (id, n) => req(`/api/workflows/${encodeURIComponent(id)}/releases/${n}/doi`, { method: "POST" }),
   setWorkflow: (id, workflow) => req(`/api/datasets/${id}`, { ...json({ workflow }), method: "PATCH" }),
+  datasetGroup: (id) => req(`/api/datasets/${id}/group`),
+  linkGroupRole: (id, body) => req(`/api/datasets/${id}/group/link`, json(body)),
   // derived units: what a workflow's derive steps make, reviewed as drafts
   documentChain: (id) => req(`/api/documents/${id}/chain`),
   derivedList: (id) => req(`/api/datasets/${id}/derived`),

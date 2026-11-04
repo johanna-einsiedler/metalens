@@ -1,0 +1,249 @@
+{
+  "format": 1,
+  "id": "econ",
+  "version": 1,
+  "meta": {
+    "title": "Economics articles: tables and claims",
+    "tagline": "The regression tables and the claims of the same papers, two linked datasets, one process: uploaded from the pipeline, checked against each other, reviewed paper by paper, released together.",
+    "description": "One workflow over two datasets of the Robustness-at-Scale pipeline: every new paper's tables and claims files enter the group together, each side is re-checked against its contract, the printed cells against each other, the cited estimates against the paper's own tables, the claims' concepts are harmonised into corpus edges, and a joint review walks both sides of each paper before the two datasets are released as one.",
+    "authors": [
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
+    ],
+    "keywords": [
+      "regression tables",
+      "claims",
+      "cross-check",
+      "economics",
+      "linked datasets"
+    ],
+    "license": "CC-BY-4.0",
+    "brands": [
+      "metalens"
+    ]
+  },
+  "card": {
+    "file": "econ.card.md"
+  },
+  "dataset": {
+    "unit": "paper",
+    "key": "pdf_sha256"
+  },
+  "steps": [
+    {
+      "id": "tables",
+      "kind": "extract",
+      "label": "Regression tables",
+      "dataset": "tables",
+      "preset": "econ-regression-tables@67780825",
+      "source": "supplied",
+      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF"
+    },
+    {
+      "id": "claims",
+      "kind": "extract",
+      "label": "Claims and their results",
+      "dataset": "claims",
+      "preset": "register-claims@f7387875",
+      "source": "supplied",
+      "help": "the claims the paper states and the results that carry them, transcribed by the pipeline and uploaded with the same PDF"
+    },
+    {
+      "id": "contract_tables",
+      "kind": "check",
+      "label": "Contract check (tables)",
+      "check": "schema",
+      "over": [
+        "tables"
+      ],
+      "on_fail": "note"
+    },
+    {
+      "id": "numbers",
+      "kind": "check",
+      "label": "Number check",
+      "check": "regression-cells",
+      "over": [
+        "tables"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "every standard error names its coefficient, the parsed number is the printed one, stars agree with the level and the p-value, t with coefficient over se, the stated N with the printed N"
+    },
+    {
+      "id": "contract_claims",
+      "kind": "check",
+      "label": "Contract check (claims)",
+      "check": "schema",
+      "over": [
+        "claims"
+      ],
+      "on_fail": "note"
+    },
+    {
+      "id": "links",
+      "kind": "check",
+      "label": "Estimates against the tables",
+      "check": "claims-vs-tables",
+      "over": [
+        "claims"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "each cited point estimate against the coefficient cells of the same paper's tables (the group's tables dataset); a resolved column with no matching cell is an error, an exhibit no column matches a warning"
+    },
+    {
+      "id": "edges",
+      "kind": "derive",
+      "label": "Corpus edges",
+      "help": "one row per (cause, effect) concept pair across the corpus: a model call maps each claim's wording to a shared concept, a deterministic merge groups the claims into edges with their majority sign and the studies behind them",
+      "over": "claims",
+      "input": {
+        "unit": "entries",
+        "columns": [
+          "claim_id",
+          "cause",
+          "effect",
+          "cause_construct",
+          "effect_construct",
+          "sign",
+          "statement",
+          "_study"
+        ],
+        "filter": [
+          {
+            "column": "type",
+            "op": "eq",
+            "value": "edge"
+          }
+        ]
+      },
+      "identity": [
+        "cause_concept",
+        "effect_concept"
+      ],
+      "group_by": "_study",
+      "calls": [
+        {
+          "id": "harmonise",
+          "kind": "llm",
+          "prompt": {
+            "file": "econ-claims.edges.harmonise.md"
+          }
+        },
+        {
+          "id": "merge",
+          "kind": "transform",
+          "op": "group",
+          "by": [
+            "cause_concept",
+            "effect_concept"
+          ],
+          "fields": {
+            "n_claims": "count",
+            "n_papers": "n_papers",
+            "sign": "majority",
+            "signs": {
+              "op": "all",
+              "column": "sign"
+            },
+            "studies": {
+              "op": "union",
+              "column": "_study"
+            }
+          }
+        }
+      ],
+      "output": {
+        "label": "Corpus edge",
+        "fields": [
+          {
+            "name": "cause_concept",
+            "type": "string",
+            "required": true,
+            "label": "Cause",
+            "help": "the shared concept the claim's cause maps to (snake_case)"
+          },
+          {
+            "name": "effect_concept",
+            "type": "string",
+            "required": true,
+            "label": "Effect",
+            "help": "the shared concept the claim's effect maps to"
+          },
+          {
+            "name": "sign",
+            "type": "enum",
+            "options": [
+              "+",
+              "-",
+              "0",
+              "mixed"
+            ],
+            "label": "Sign",
+            "help": "per claim as stated; per edge the majority across its claims"
+          },
+          {
+            "name": "n_claims",
+            "type": "integer",
+            "label": "Claims",
+            "help": "how many claims the edge rests on"
+          },
+          {
+            "name": "n_papers",
+            "type": "integer",
+            "label": "Papers",
+            "help": "how many articles state it"
+          },
+          {
+            "name": "signs",
+            "type": "list",
+            "label": "Signs stated",
+            "help": "every claim's sign, in order"
+          },
+          {
+            "name": "studies",
+            "type": "list",
+            "label": "Studies",
+            "help": "the articles, as first author and year"
+          }
+        ]
+      },
+      "review": {
+        "mode": "all",
+        "unit": "entry",
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "joint",
+      "kind": "review",
+      "label": "Joint review",
+      "over": [
+        "tables",
+        "claims"
+      ],
+      "help": "every new paper on both sides: its regression columns, then its claims with their verdicts against the tables, in one worklist",
+      "review": {
+        "mode": "all",
+        "unit": "paper",
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "release",
+      "kind": "release",
+      "label": "Release",
+      "gate": [
+        "tables",
+        "claims",
+        "edges",
+        "joint"
+      ]
+    }
+  ]
+}

@@ -31,9 +31,10 @@ from . import preset_spec as ps
 
 WORKFLOWS_DIR = Path(__file__).parent / "workflows"
 FORMAT = 1
-KINDS = ("extract", "check", "derive", "vocabulary", "pages", "crosscheck", "loop", "release", "agent")
+KINDS = ("extract", "check", "derive", "vocabulary", "pages", "crosscheck", "loop", "release", "agent", "review")
 DATA_KINDS = ("extract", "derive", "agent")           # steps whose output a release gate may name
-REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent")
+GATE_KINDS = ("extract", "derive", "agent", "review") # …plus a joint review stage
+REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent", "review")
 DRAFT_KINDS = ("derive", "vocabulary", "pages")        # steps whose output is a draft a person commits
 REVIEW_MODES = ("none", "all", "sample")
 REVIEW_UNITS = ("entry", "paper")
@@ -51,8 +52,9 @@ _ALLOWED_KEYS = {
     "card": {"file", "text"},
     "dataset": {"unit", "key"},
     "step": {"id", "kind", "label", "help", "review"},
-    "extract": {"preset", "source", "k", "vote", "input", "params"},
-    "agent": {"preset", "source"},
+    "extract": {"preset", "source", "k", "vote", "input", "params", "dataset"},
+    "agent": {"preset", "source", "dataset"},
+    "review_step": {"over"},
     "vote": {"identity", "fields"},
     "input": {"previous"},
     "check": {"check", "over", "on_fail", "severity", "params"},
@@ -181,14 +183,14 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
         if kind in REVIEWED_KINDS:
             rv = st.get("review")
             rv = dict(rv) if isinstance(rv, dict) else {}
-            rv.setdefault("mode", "all" if kind in DRAFT_KINDS else "none")
-            rv.setdefault("unit", "entry")
+            rv.setdefault("mode", "all" if kind in DRAFT_KINDS or kind == "review" else "none")
+            rv.setdefault("unit", "paper" if kind == "review" else "entry")
             rv.setdefault("blocks", "release")
             rv.setdefault("oversample_flagged", False)
             st["review"] = rv
     if not any(isinstance(st, dict) and st.get("kind") == "release" for st in steps):
         steps.append({"id": "release", "kind": "release", "label": "Release",
-                      "gate": [st["id"] for st in steps if isinstance(st, dict) and st.get("kind") in DATA_KINDS and isinstance(st.get("id"), str)]})
+                      "gate": [st["id"] for st in steps if isinstance(st, dict) and st.get("kind") in GATE_KINDS and isinstance(st.get("id"), str)]})
     return spec
 
 
@@ -272,7 +274,7 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
         if kind not in KINDS:
             E(f"{at}.kind must be one of {', '.join(KINDS)}"); continue
         for k in st:
-            if k not in _ALLOWED_KEYS["step"] and k not in _ALLOWED_KEYS[kind]:
+            if k not in _ALLOWED_KEYS["step"] and k not in _ALLOWED_KEYS["review_step" if kind == "review" else kind]:
                 E(f"{at}: unknown key {k!r} for a {kind} step")
         if kind == "release" and i != len(steps) - 1:
             E(f"{at}: the release step must be the last step")
@@ -293,14 +295,24 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
             ps._validate_update_step({"type": kind, **{k: st[k] for k in ("unit", "column", "group", "keyed_by") if k in st}}, E, at)
         elif kind == "loop":
             _validate_loop(st, at, E, W, earlier=earlier, by_id=by_id)
+        elif kind == "review":
+            over = st.get("over")
+            if not isinstance(over, list) or not over or any(not isinstance(o, str) for o in over):
+                E(f"{at}.over must list the extract steps the stage reviews together"); over = []
+            for o in over:
+                if o not in earlier or by_id.get(o, {}).get("kind") not in ("extract", "agent"):
+                    E(f"{at}.over: {o!r} is not an earlier extract step")
+            for kk in st:
+                if kk not in _ALLOWED_KEYS["step"] | _ALLOWED_KEYS["review_step"]:
+                    E(f"{at}: unknown key {kk!r}")
         elif kind == "release":
             gate = st.get("gate")
             if not isinstance(gate, list) or not all(isinstance(g, str) for g in gate):
                 E(f"{at}.gate must list step ids")
             else:
                 for g in gate:
-                    if g not in by_id or by_id[g].get("kind") not in DATA_KINDS:
-                        E(f"{at}.gate: {g!r} is not an earlier extract or derive step")
+                    if g not in by_id or by_id[g].get("kind") not in GATE_KINDS:
+                        E(f"{at}.gate: {g!r} is not an earlier extract, derive or review step")
         if kind in REVIEWED_KINDS:
             _validate_review(st.get("review"), st, presets_of.get(sid) if sid else None, f"{at}.review", E, W)
     rel = [st for st in steps if isinstance(st, dict) and st.get("kind") == "release"]
@@ -379,6 +391,9 @@ def _validate_extract(st, at, E, W, *, resolver, pin_known, earlier, by_id) -> d
                 E(f"{at}: the preset reads ${{previous}} — declare input.previous (the step whose runs it reads)")
     if not isinstance(st.get("params", {}), dict):
         E(f"{at}.params must be an object")
+    role = st.get("dataset")
+    if role is not None and not (isinstance(role, str) and re.match(r"^[a-z][a-z0-9_]{0,31}$", role)):
+        E(f"{at}.dataset must be a short lowercase role name (tables, claims, …)")
     return pspec
 
 
@@ -572,6 +587,18 @@ def release_step(spec: dict) -> dict | None:
 def gate_steps(spec: dict) -> list[str]:
     rel = release_step(spec)
     return list((rel or {}).get("gate") or [])
+
+
+def roles(spec: dict) -> dict[str, dict]:
+    """{role: {step, preset}} for the extract steps whose documents enter a dataset of their own
+    (a step read by a later step's input.previous runs inside that step's pipeline and has none)."""
+    consumed = {p for st in spec.get("steps") or [] if isinstance(st, dict) and st.get("kind") == "extract"
+                for p in ((st.get("input") or {}).get("previous") or [])}
+    out: dict[str, dict] = {}
+    for st in spec.get("steps") or []:
+        if isinstance(st, dict) and st.get("kind") in ("extract", "agent") and st.get("id") not in consumed and st.get("dataset"):
+            out[st["dataset"]] = {"step": st["id"], "preset": st.get("preset"), "label": st.get("label") or st["id"]}
+    return out
 
 
 def pins(spec: dict) -> list[tuple[str, str]]:
