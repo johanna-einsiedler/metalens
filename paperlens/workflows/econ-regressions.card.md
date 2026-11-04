@@ -10,7 +10,7 @@ An empirical economics article reports its results as regression tables. The Rob
 
 ## Review
 
-Every column of a new paper is reviewed before the release (`mode: all`). The reviewer sees the column as the printed table, corrects cells in place, and verifies or flags the column. A sampled review — thirty columns drawn at random, stratified by table — is declared in a later version of this workflow once the sampler is available.
+Thirty of the new columns are drawn at random, stratified by table (`mode: sample`, `n: 30`), and reviewed before the release; when a run adds fewer, every column is reviewed. The reviewer sees each drawn column as the printed table, corrects cells in place, and verifies or flags it. A flag or a value-changing correction counts as a disagreement; the badge reports the draw, the checked share and the estimated error rate with its interval for the columns the draw speaks for.
 
 ## Versions
 

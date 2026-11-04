@@ -118,9 +118,6 @@ def later_problems(spec: dict) -> list[str]:
                 out.append(f"step {sid!r}: {ws.LATER['input']}")
         if kind in ("derive", "loop", "agent"):
             out.append(f"step {sid!r}: {ws.LATER[kind]}")
-        rv = st.get("review") or {}
-        if rv.get("mode") == "sample":
-            out.append(f"step {sid!r}: a sampled review arrives in a later release — declare 'all' or 'none' for now")
     if n_extract > 1:
         out.append("several extract steps need linked datasets (a later release); this release runs one per workflow")
     return out
@@ -405,8 +402,12 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
         elif kind == "check":
             over = st.get("over") or []
             src = facts_by_step.get(over[0]) if over else None
+            needs_companion = bool((checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"))
+            item["check"] = st.get("check")
             if src is None or (not src["have"] and not src["old"]):
                 item["state"] = "blocked"; item["because"] = [f"{over[0] if over else 'its input'} has no documents yet"]
+            elif needs_companion and not (records.get_dataset(conn, dataset_id) or {}).get("companion_dataset_id"):
+                item["state"] = "blocked"; item["because"] = ["no companion dataset set (Advanced on the dataset page)"]
             else:
                 sr = latest_step_run(conn, dataset_id, sid)
                 if sr is None:
@@ -419,12 +420,24 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                     elif (was.get("events_max") or "") != (now.get("events_max") or ""):
                         item["state"] = "stale"; item["because"] = ["corrections after it ran"]
                     item["findings"] = {k: sr["outputs"].get(k) for k in ("n_checked", "findings", "by_severity", "by_code") if k in sr["outputs"]}
+                    item["findings"]["first_document"] = _first_finding_document(conn, sr["id"])
                     item["last_run"] = sr["run_id"]
             if sid in open_by_step:
                 item["gate"] = open_by_step[sid]
         elif kind in ws.UPDATE_KINDS:
             item.update(update_step_state(conn, dataset_id, st))
             item.setdefault("because", [])
+            if kind == "crosscheck" and item["state"] != "missing":      # runs as the claims-vs-tables check
+                sr = latest_step_run(conn, dataset_id, sid)
+                if sr is None:
+                    item["state"] = "missing"; item["because"] = ["never run"]
+                else:
+                    now = basis(conn, dataset_id)
+                    was = sr.get("inputs") or {}
+                    if was.get("record_ids_sha") != now["record_ids_sha"] or (was.get("events_max") or "") != (now.get("events_max") or ""):
+                        item["state"] = "stale"; item["because"] = ["records or values changed since it ran"]
+                    item["findings"] = {k: sr["outputs"].get(k) for k in ("n_checked", "findings", "by_severity", "by_code") if k in sr["outputs"]}
+                    item["findings"]["first_document"] = _first_finding_document(conn, sr["id"])
         elif kind == "release":
             from . import releases
             last = releases.latest(conn, dataset_id)
@@ -439,6 +452,15 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             item["release"] = {"number": last["number"], "created_at": last["created_at"]} if last else None
         out.append(item)
     return out
+
+
+def _first_finding_document(conn, step_run_id: str) -> str | None:
+    """The document the review should open on: the one with the most serious findings of the step."""
+    row = conn.execute(
+        """SELECT document_id::text FROM workflow_finding WHERE step_run_id = %s::uuid AND document_id IS NOT NULL
+           GROUP BY document_id ORDER BY sum(CASE severity WHEN 'error' THEN 2 WHEN 'warn' THEN 1 ELSE 0 END) DESC, document_id LIMIT 1""",
+        (step_run_id,)).fetchone()
+    return row[0] if row else None
 
 
 def gate_report(conn, dataset_id: str, spec: dict | None = None) -> dict:
@@ -715,6 +737,11 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                         return get_run(conn, run_id)
                 elif kind == "check":
                     _advance_check(conn, run, sr, st, by_id)
+                elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
+                    # the preset-level cross-check step is the claims-vs-tables check over the extract step
+                    first = next((x["id"] for x in spec["steps"] if x.get("kind") in ("extract", "agent")), None)
+                    _advance_check(conn, run, sr, {"id": sr["step_id"], "kind": "check", "check": "claims-vs-tables", "over": [first] if first else [],
+                                                   "on_fail": "note", "severity": "error", "params": {}}, by_id)
                 elif kind in ws.UPDATE_KINDS:
                     state = update_step_state(conn, d_id, st)
                     _set_sr(conn, sr["id"], status="done", outputs=state, inputs=basis(conn, d_id), finished_at=_now())
@@ -824,6 +851,13 @@ def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
     for o in over:
         src = by_id.get(o) or {}
         inputs.append(checks.load_input(conn, d_id, src.get("preset")))
+    if (checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"):
+        comp = checks.companion_input(conn, d_id)
+        if comp is None:
+            _set_sr(conn, sr["id"], status="skipped", outputs={"skipped": "no companion dataset set"}, finished_at=_now())
+            return
+        if inputs:
+            inputs[0]["companion"] = comp
     res = checks.run_step(conn, run["id"], sr["id"], st, inputs)
     status = res.pop("status")
     flagged = res.pop("flagged_record_ids", [])

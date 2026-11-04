@@ -878,8 +878,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                         E(f"{at}.anchor_param must name a list parameter")
         if display.get("entries", "cards") not in ("cards", "table"):
             E("$.display.entries must be 'cards' or 'table'")
-        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first"):
-            E("$.display.triage must be 'declaration' or 'low_confidence_first'")
+        if display.get("triage", "declaration") not in ("declaration", "low_confidence_first", "checks_first"):
+            E("$.display.triage must be 'declaration', 'low_confidence_first' or 'checks_first'")
         if display.get("paper_panel", "open") not in ("open", "collapsed"):
             E("$.display.paper_panel must be 'open' or 'collapsed'")
         gr = display.get("grid_rows", "entries")

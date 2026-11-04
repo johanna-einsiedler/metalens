@@ -36,10 +36,29 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   tables stay two datasets joined by the companion cross-check); linked datasets come later.
 - **Review** is an attribute of a step: `mode: none | all | sample`, `unit: entry | paper`,
   `blocks: next | release` (default `release`: later steps run, only the release waits). A
-  draft-producing step defaults to `all`, an extract step to `none`. `sample` (with `n` or
-  `share`, `seed`, `stratify`) arrives with the review-modes release.
+  draft-producing step defaults to `all`, an extract step to `none`. `sample` draws `n` records
+  (or a `share`) from the step's new output at random, with a `seed` (default: from the run and
+  step) and `stratify` fields (proportional quotas, at least one per stratum when the size allows,
+  `unit: paper` draws whole papers); when the output is smaller than the size, every record is
+  drawn. The draw is stored (`workflow_sample`); a drawn record is checked when its last verdict
+  after the draw is verified or flagged, and disagreed when a flag or a value-changing correction
+  followed the draw. The dataset's badge reports the draws: "Sampled 30/412 · 93% agree", with the
+  estimated error rate and its 95% interval in the long label, next to the audited share; a
+  record verified outside a draw never enters the estimate.
 - **A check's `on_fail`**: `note` records findings; `flag` puts every record with a finding at or
   above `severity` in front of a reviewer (a release-blocking gate); `fail` fails the run.
+
+## The checks
+
+| check | reads | finds |
+|---|---|---|
+| `schema` | any preset | the declared contract on the values as stored: a required field missing, a wrong type, an option not declared |
+| `regression-cells` | `econ-regression-tables`, `register-tables` | an se/t/p/CI row naming no coefficient (`se_dangling_ref`) or a non-coefficient (`se_refers_noncoef`), two se rows for one coefficient (`coef_many_se`), a parsed number that is not the printed one (`numeric_mismatch`), stars against the stated level (`stars_vs_level`) or the p-value (`stars_vs_p`), t against coefficient / se (`t_vs_coef_se`), the stated N against the printed N (`n_obs_vs_sample`), columns of one table with different Ns (`n_obs_varies`, a note), row indexes not from 0 (`row_index_gap`) |
+| `claims-vs-tables` | `register-claims`, needs the dataset's companion | a cited estimate no coefficient cell of the resolved column equals (`estimate_mismatch`), a cited exhibit no column matches (`exhibit_unlinked`) |
+
+Findings reach the reviewer on the card ("✗ 2 check findings — regression-cells: …"), on the cell
+each one names, and in the "check findings first" order of the entries; the Workflow panel links
+there. Parameters are declared per check (`t_tolerance`, `star_legend`, `ignore`) and typed.
 
 ## The contract
 
@@ -59,6 +78,11 @@ given back per paper that never ran. The page posts each PDF to `POST /api/extra
 run advances as papers land: checks run, gates open, the release step closes the run. One run
 per dataset at a time; a run that has not moved for ten minutes is reconciled with the queue
 every two minutes (`workflow_tick_task`).
+
+A gate's items are a worklist: `GET /api/workflow-runs/{rid}/queue/{step}` lists them in draw
+order with their verdicts; `/workspace?queue=<run>:<step>` works through them — the sidebar lists
+only the drawn papers, the panel only the drawn entries, a verdict advances to the next pending
+one across papers, and the done state resumes the run or opens the release.
 
 A review gate with `blocks: next` pauses the run (`awaiting_review:<step>`) until every record of
 the step has a verdict or the owner resumes with `override`, which the gate records. A gate with

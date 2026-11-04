@@ -128,7 +128,9 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     assert view["status"] == "done", view
     steps = {s["step_id"]: s for s in view["steps"]}
     assert steps["tables"]["status"] == "done" and steps["tables"]["outputs"]["n_papers"] == 2 and steps["tables"]["outputs"]["n_records"] == 4
-    assert steps["tables"]["review"]["mode"] == "all" and steps["tables"]["review"]["total"] == 4 and steps["tables"]["review"]["satisfied"] is False
+    # the econ workflow draws thirty columns; two papers of two columns are fewer, so every column is drawn
+    assert steps["tables"]["review"]["mode"] == "sample" and steps["tables"]["review"]["total"] == 4 and steps["tables"]["review"]["satisfied"] is False
+    assert steps["tables"]["review"]["exhaustive"] is True and steps["tables"]["review"]["stratify"] == ["table_number"]
     assert steps["contract"]["status"] == "done" and steps["contract"]["outputs"]["n_checked"] == 6    # the whole dataset, three papers
     assert view["jobs"]["cancelled"] == 1 and next(p for p in view["papers"] if p["status"] == "cancelled")["error"] == "not uploaded"
     conn.rollback()
@@ -150,7 +152,7 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     rel = releases.latest(conn, ds, with_snapshot=True)
     wf = rel["snapshot"]["workflow"]
     assert wf["id"] == "econ-regressions" and wf["run_id"] == rid and wf["implicit"] is False
-    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "release"] and wf["steps"][0]["review"]["mode"] == "all"
+    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "numbers", "release"] and wf["steps"][0]["review"]["mode"] == "sample"
     # the recipe, the release files and the JSON export say which process made the data
     ov = records.dataset_overview(conn, ds)
     assert ov["recipe"]["workflow"]["run_id"] == rid and ov["recipe"]["workflow"]["contract"].startswith("econ-regressions@")
@@ -251,7 +253,7 @@ def test_plan_attaches_what_the_owner_already_has_and_refuses_what_cannot_run(mo
     conn.execute("UPDATE dataset SET workflow = %s WHERE id = %s::uuid", (ws.workflow_id(spec), ds_c)); conn.commit()
     with pytest.raises(workflows.RunRefused) as info:
         workflows.start(conn, ds_c, who=who, new_pdfs=[{"sha256": "d" * 64, "filename": "d.pdf"}])
-    assert "vote engine" in str(info.value) and "sampled review" in str(info.value)
+    assert "vote engine" in str(info.value) and "sampled review" not in str(info.value)   # the sampler runs now
     conn.close()
 
 
@@ -352,4 +354,58 @@ def test_cancel_and_reconcile(monkeypatch) -> None:
     from paperlens import retention
     retention.forget_session(conn, sess)
     assert conn.execute("SELECT count(*) FROM workflow_run WHERE dataset_id = %s::uuid", (ds,)).fetchone()[0] == 0
+    conn.close()
+
+
+def test_findings_reach_the_document_view_and_the_claims_check_reads_the_companion(monkeypatch) -> None:
+    _skip()
+    _force_local(monkeypatch)
+    conn = records.connect(); records.init_db(conn)
+    sess = f"wf-{uuid.uuid4().hex[:6]}"
+    c, H = _client(sess)
+    # a tables dataset on the econ workflow (the fixture paper, DOI 10.1/t, Table 3 col (1) = -1.292):
+    # the number check finds a dangling standard error in the paper added next
+    ds_t, _d = _seed(conn, copy.deepcopy(RESULT), "econ-regression-tables", sess)
+    assert c.patch(f"/api/datasets/{ds_t}", headers=H, json={"workflow": "econ-regressions"}).status_code == 200
+    pdf = _pdf("t1")
+    run = c.post(f"/api/datasets/{ds_t}/workflow/runs", headers=H, json={"new_pdfs": [{"sha256": _sha(pdf), "filename": "t1.pdf"}]}).json()
+    bad = _result("t1", n=1); bad["regressions"][0]["cells"][1]["refers_to"] = 9
+    r = c.post("/api/ingest-pdf", headers=H, files={"pdf": ("t1.pdf", pdf, "application/pdf")},
+               data={"result": json.dumps(bad), "run_id": run["id"], "step_id": "tables"})
+    assert r.status_code == 200, r.text
+    doc = r.json()["document_id"]
+    view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
+    assert view["status"] == "done"
+    steps = {s["step_id"]: s for s in view["steps"]}
+    assert steps["numbers"]["outputs"]["findings"] == 1 and steps["numbers"]["outputs"]["by_code"] == {"se_dangling_ref": 1}
+    dv = c.get(f"/api/documents/{doc}/view", headers=H).json()
+    assert [(f["check"], f["code"], f["path"]) for f in dv["findings"]] == [("regression-cells", "se_dangling_ref", "cells[1].refers_to")]
+    conn.rollback()
+    by = {s["id"]: s for s in c.get(f"/api/datasets/{ds_t}/workflow", headers=H).json()["steps"]}
+    assert by["numbers"]["findings"]["findings"] == 1 and by["numbers"]["state"] == "fresh"
+    # a claims dataset on the claims workflow: the cross-check needs the companion
+    from test_register_presets import CLAIMS
+    ds_c, _dc = _seed(conn, copy.deepcopy(CLAIMS), "register-claims", sess)
+    assert c.patch(f"/api/datasets/{ds_c}", headers=H, json={"workflow": "econ-claims"}).status_code == 200
+    by = {s["id"]: s for s in c.get(f"/api/datasets/{ds_c}/workflow", headers=H).json()["steps"]}
+    assert by["links"]["state"] == "blocked" and "no companion" in by["links"]["because"][0]
+    assert c.patch(f"/api/datasets/{ds_c}", headers=H, json={"companion_dataset_id": ds_t}).status_code == 200, "the econ tables are a registered companion"
+    run = c.post(f"/api/datasets/{ds_c}/workflow/runs", headers=H, json={}).json()
+    view = c.post(f"/api/workflow-runs/{run['id']}/complete", headers=H, json={"step_id": "claims"}).json()   # nothing new to upload: run the checks
+    assert view["status"] == "done", view
+    steps = {s["step_id"]: s for s in view["steps"]}
+    # S1 cites Table 3 col (1) = -1.292 (the seeded econ table has it) and Table 4 col (1) (no such column)
+    assert steps["links"]["outputs"]["by_code"] == {"exhibit_unlinked": 1}, steps["links"]["outputs"]
+    findings = c.get(f"/api/workflow-runs/{run['id']}/issues", headers=H).json()["findings"]
+    assert findings[0]["path"] == "results[1].source_table" and findings[0]["severity"] == "warn"
+    # a release of the claims dataset carries the findings file
+    for (rec_id,) in conn.execute("SELECT id FROM record WHERE dataset_id = %s::uuid", (ds_c,)).fetchall():
+        records.verify_record(conn, str(rec_id), status="verified")
+    conn.commit()
+    r = c.post(f"/api/datasets/{ds_c}/releases", headers=H, json={"notes": "with findings"})
+    assert r.status_code == 200, r.text
+    from paperlens import release_export
+    files = release_export.build(conn, releases.latest(conn, ds_c, with_snapshot=True))
+    assert "findings.json" in files and json.loads(files["findings.json"])["findings"][0]["code"] == "exhibit_unlinked"
+    assert json.loads(files["release.json"])["findings"]["by_severity"] == {"warn": 1}
     conn.close()

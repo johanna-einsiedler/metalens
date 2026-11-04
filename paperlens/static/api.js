@@ -112,6 +112,7 @@ export const api = {
   workflowCancel: (rid) => req(`/api/workflow-runs/${rid}/cancel`, { method: "POST" }),
   workflowRetry: (rid, body) => req(`/api/workflow-runs/${rid}/retry`, json(body || {})),
   workflowIssues: (rid, step) => req(`/api/workflow-runs/${rid}/issues${step ? `?step=${encodeURIComponent(step)}` : ""}`),
+  workflowQueue: (rid, step) => req(`/api/workflow-runs/${rid}/queue/${encodeURIComponent(step)}`),
   setWorkflow: (id, workflow) => req(`/api/datasets/${id}`, { ...json({ workflow }), method: "PATCH" }),
   pagePropose: (id, body) => req(`/api/datasets/${id}/pages/propose`, json(body)),
   pageReview: (pid) => req(`/api/pages/${pid}/review`),

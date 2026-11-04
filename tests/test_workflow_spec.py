@@ -143,7 +143,7 @@ def test_what_this_release_refuses_at_plan_time() -> None:
     later = workflows.later_problems(spec)
     assert len(later) == 1 and "vote engine" in later[0]
     doc = copy.deepcopy(GOOD); doc["steps"][0]["review"] = {"mode": "sample", "n": 5}
-    assert any("sampled review" in m for m in workflows.later_problems(ws.normalize(doc)))
+    assert workflows.later_problems(ws.normalize(doc)) == []                     # a sampled review runs
     doc = copy.deepcopy(GOOD); doc["steps"].insert(1, {"id": "second", "kind": "extract", "preset": ECON})
     assert any("linked datasets" in m for m in workflows.later_problems(ws.normalize(doc)))
 
