@@ -3,14 +3,16 @@
 // merge, detach, place the left-out) → commit → later "N values unresolved" → propose for those → apply.
 import { api } from "/static/api.js";
 import { esc } from "/static/grammar.js";
-import { getKey, setKey } from "/static/keys.js";
+import { modelChoice, renderModelPanel } from "/static/modelpanel.js";
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const DATASET_ID = params.get("dataset");
 let VID = params.get("id"), DS = null, TABLE = null, LIST = [], V = null, DRAFT = null, VALUES = [], CFG = null, MODELS = {}, RESIDUAL = null;
-const PROVIDER_LABEL = { openai: "OpenAI", google: "Google", anthropic: "Anthropic", deepseek: "DeepSeek", mistral: "Mistral" };
 const byIdx = () => Object.fromEntries(VALUES.map((v) => [v.idx, v]));
+
+const VOC_PANEL = { get prefix() { return "voc"; }, get cfg() { return CFG; }, get models() { return MODELS; }, creditsNote: "one credit per pass",
+  note: "The model sees the column's distinct phrases, how often each occurs and one quoted sentence per phrase — never the PDFs. It proposes; you decide." };
 
 async function init() {
   if (!DATASET_ID) { $("#voc-app").innerHTML = `<p class="muted">Open this page from a dataset.</p>`; return; }
@@ -50,10 +52,10 @@ async function renderStart() {
   opts.sort((a, b) => (a.prose - b.prose) || b.distinct - a.distinct);   // phrases that recur first; free text (a "why", a statement) last
   $("#voc-col").innerHTML = opts.map((o) => `<option value="${esc(o.unit)}|${esc(o.column)}">${esc(o.label)}</option>`).join("") || `<option value="">no text column</option>`;
   const pre = [params.get("unit"), params.get("column")].join("|"); if (opts.some((o) => `${o.unit}|${o.column}` === pre)) $("#voc-col").value = pre;
-  renderModelPanel($("#voc-model"));
+  renderModelPanel($("#voc-model"), VOC_PANEL);
   $("#voc-propose").onclick = async () => {
     const [unit, column] = ($("#voc-col").value || "|").split("|"); if (!column) return;
-    const choice = modelChoice(); if (!choice) return;
+    const choice = modelChoice("voc"); if (!choice) return;
     $("#voc-propose").disabled = true; $("#voc-msg").textContent = "Asking the model to group the phrases… 20–90 seconds.";
     try {
       const r = await api.proposeVocabulary(DATASET_ID, { unit, column, ...choice });
@@ -62,32 +64,6 @@ async function renderStart() {
       await openVocabulary(r.vocabulary.id);
     } catch (e) { $("#voc-msg").textContent = e.message; $("#voc-propose").disabled = false; }
   };
-}
-
-function renderModelPanel(host) {
-  const bal = CFG && CFG.credits ? CFG.credits.balance || 0 : 0;
-  const credits = !!(CFG && CFG.logged_in && CFG.offered && bal > 0);
-  const provs = Object.keys(MODELS);
-  host.innerHTML = `<div class="cmp-modes">`
-    + (credits ? `<label class="cs-opt"><input type="radio" name="voc-mode" value="credits" checked/> <span>Use a credit <b>(${bal} left)</b> <span class="muted">· ${esc(CFG.model || "")} · one credit per pass</span></span></label>` : "")
-    + `<label class="cs-opt"><input type="radio" name="voc-mode" value="own"${credits ? "" : " checked"}/> <span>My own API key</span></label>`
-    + `<label class="cs-opt"><input type="radio" name="voc-mode" value="local"/> <span>A local / self-hosted model</span></label></div>`
-    + `<div id="voc-own" class="cmp-fields"><div class="select-wrap"><select id="voc-prov">${provs.map((p) => `<option value="${esc(p)}">${esc(PROVIDER_LABEL[p] || p)}</option>`).join("")}</select></div>`
-    + `<div class="select-wrap"><select id="voc-mdl"></select></div><input id="voc-key" type="password" placeholder="your API key (used once, never stored)" autocomplete="off"/></div>`
-    + `<div id="voc-local" class="cmp-fields" hidden><input id="voc-url" type="url" placeholder="server URL, e.g. https://models.example.org:8000"/><input id="voc-lmdl" placeholder="model name"/></div>`
-    + `<p class="muted cmp-note">The model sees the column's distinct phrases, how often each occurs and one quoted sentence per phrase — never the PDFs. It proposes; you decide.</p>`;
-  const fill = () => { const p = $("#voc-prov").value; $("#voc-mdl").innerHTML = (MODELS[p] || []).map((m) => `<option value="${esc(m.value)}">${esc(m.label)}</option>`).join(""); $("#voc-key").value = getKey(p); };
-  if (provs.length) { $("#voc-prov").onchange = fill; fill(); }
-  $("#voc-key").oninput = () => setKey($("#voc-prov").value, $("#voc-key").value.trim());
-  try { $("#voc-url").value = localStorage.getItem("metalens_local_base_url") || ""; $("#voc-lmdl").value = localStorage.getItem("metalens_local_model") || ""; } catch { /* no storage */ }
-  const sync = () => { const m = $('input[name="voc-mode"]:checked').value; $("#voc-own").hidden = m !== "own"; $("#voc-local").hidden = m !== "local"; };
-  document.querySelectorAll('input[name="voc-mode"]').forEach((r) => (r.onchange = sync)); sync();
-}
-function modelChoice() {
-  const m = ($('input[name="voc-mode"]:checked') || {}).value;
-  const c = m === "credits" ? { use_credits: true } : m === "local" ? { model: $("#voc-lmdl").value.trim(), base_url: $("#voc-url").value.trim(), api_key: "" } : { model: $("#voc-mdl").value, api_key: $("#voc-key").value.trim() };
-  if (!c.use_credits && !c.api_key && !c.base_url) { alert("A proposal needs a model: enter your own API key or a local model server."); return null; }
-  return c;
 }
 
 // ── one vocabulary: review a draft, or look at / extend a committed one ─────────────────────
@@ -165,10 +141,10 @@ function renderVocabulary() {
 // ── the residual pass on a committed vocabulary ────────────────────────────────────────────
 async function residual() {
   const box = $("#voc-residual-model"); box.hidden = false;
-  renderModelPanel(box);
+  renderModelPanel(box, VOC_PANEL);
   box.insertAdjacentHTML("beforeend", `<div class="wf-actions"><button type="button" class="btn btn-primary btn-sm" id="voc-residual-go">Ask the model</button> <span class="muted" id="voc-rmsg"></span></div>`);
   $("#voc-residual-go").onclick = async () => {
-    const choice = modelChoice(); if (!choice) return;
+    const choice = modelChoice("voc"); if (!choice) return;
     $("#voc-residual-go").disabled = true; $("#voc-rmsg").textContent = "Asking the model… 10–60 seconds.";
     try {
       const r = await api.proposeVocabulary(DATASET_ID, { unit: V.unit, column: V.column, vocabulary_id: VID, ...choice });

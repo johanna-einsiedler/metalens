@@ -213,7 +213,7 @@ def items(conn: psycopg.Connection, step_run: dict) -> list[dict]:
     """The records a gate asks about, in queue order, each with its verdict."""
     header = step_run.get("review") or {}
     mode = header.get("mode", "none")
-    if mode == "none":
+    if mode == "none" or header.get("draft"):
         return []
     if mode == "sample":
         rows = conn.execute(
@@ -256,6 +256,18 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
     if mode == "none" or not header:
         return {"mode": "none", "blocks": header.get("blocks", "release"), "total": 0, "checked": 0, "pending": 0, "disagreed": 0,
                 "satisfied": True, "satisfied_at": header.get("satisfied_at"), "overridden_by": None}
+    draft = header.get("draft")
+    if draft:                                                   # a draft step: the review IS the commit
+        from . import derived
+        d = derived.get(conn, draft.get("id")) if draft.get("kind") == "derived" else None
+        done = bool(d and d["status"] == "committed")
+        if done and not header.get("satisfied_at"):
+            header["satisfied_at"] = d.get("committed_at") or _now()
+            conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), step_run["id"]))
+            step_run["review"] = header
+        return {"mode": mode, "blocks": header.get("blocks", "release"), "unit": "draft", "total": 1, "checked": int(done), "pending": int(not done),
+                "disagreed": 0, "satisfied": done or bool(header.get("overridden_by")), "satisfied_at": header.get("satisfied_at"),
+                "overridden_by": header.get("overridden_by"), "documents": [], "draft": {**draft, "status": d["status"] if d else "missing"}}
     its = items(conn, step_run)
     checked = sum(1 for i in its if i["checked"])
     pending = len(its) - checked
@@ -311,8 +323,13 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
     """The gate of one step as a worklist: its items in draw order with their verdicts, the
     documents they sit in, the progress, and what comes next when every item has a verdict."""
     header = step_run.get("review") or {}
-    its = items(conn, step_run)
     st = state(conn, step_run)
+    if header.get("draft"):
+        return {"run_id": run["id"], "dataset_id": run["dataset_id"], "step": step_run["step_id"], "kind": step_run["kind"], "mode": st["mode"],
+                "unit": "draft", "blocks": st["blocks"], "draft": st.get("draft"), "items": [], "documents": [],
+                "progress": {"drawn": 1, "checked": st["checked"], "pending": st["pending"], "disagreed": 0}, "satisfied": st["satisfied"],
+                "next": "release" if st["blocks"] == "release" else "resume", "run_status": run["status"]}
+    its = items(conn, step_run)
     docs: dict[str, dict] = {}
     for it in its:
         d = docs.setdefault(it.get("document_id") or "", {"document_id": it.get("document_id"), "n_items": 0, "n_checked": 0, "first_ord": it["ord"]})

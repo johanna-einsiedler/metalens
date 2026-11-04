@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Derive steps: dataset-level units made by the run, reviewed as drafts
+
+- A workflow's `derive` step makes a unit of rows over an extract step's records — a model call
+  over the rows, a deterministic `group` transform, or both — with `_id` and `sources` on every
+  row. The run makes the draft (transform-only steps free, model calls on the worker with credits,
+  or paused as `needs_key:<step>` until the owner gives a key), and the draft is reviewed as a
+  change on `/derived`: kept / revised / new / removed per row, the new records behind each change,
+  accept / reject, commit. The committed unit joins the analysis units, releases freeze it and
+  exports write `tables/<step>.json`; `econ-claims` gained an `edges` step.
+- The model picker of the vocabulary, pages, derived and dashboard-editor pages is one module.
+
 ### Workflow cards and releases: a citable version of the process
 
 - `/workflows` lists every curated workflow (one with a card) and `/workflow?id=` is its card:

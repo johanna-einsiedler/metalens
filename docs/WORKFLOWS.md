@@ -30,7 +30,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   supplied` waits for the pipeline's uploads — the only choice for an import-mode preset),
   `check` (a rule from the registry in `paperlens/checks.py`; writes findings, never data),
   `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `release`
-  (`gate` lists the steps that must be fresh and reviewed). `derive`, `loop`, `agent`, `k > 1`
+  (`gate` lists the steps that must be fresh and reviewed). `loop`, `agent`, `k > 1`
   and `input.previous` are grammar-valid and refused at plan time until their release, and so
   is a second extract step: a workflow runs one preset into one dataset for now (claims and
   tables stay two datasets joined by the companion cross-check); linked datasets come later.
@@ -89,6 +89,46 @@ the step has a verdict or the owner resumes with `override`, which the gate reco
 `blocks: release` lets the run finish and holds the release: `POST /api/datasets/{id}/releases`
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
+
+## Derive steps
+
+A `derive` step makes a unit of rows over the records of an extract step — a taxonomy of the
+claims, the edges of a corpus graph, the columns per table — by a chain of calls:
+
+```jsonc
+{"id": "edges", "kind": "derive", "over": "claims",
+ "input": {"unit": "entries", "columns": ["cause", "effect", "sign", "_study"], "filter": [{"column": "type", "op": "eq", "value": "edge"}]},
+ "identity": ["cause_concept", "effect_concept"], "group_by": "_study",
+ "calls": [{"id": "harmonise", "kind": "llm", "prompt": {"file": "edges.harmonise.md"}},
+           {"id": "merge", "kind": "transform", "op": "group", "by": ["cause_concept", "effect_concept"],
+            "fields": {"n_claims": "count", "n_papers": "n_papers", "sign": "majority", "studies": {"op": "union", "column": "_study"}}}],
+ "output": {"label": "Corpus edge", "fields": [{"name": "cause_concept", "type": "string", "required": true}, "…"]},
+ "review": {"mode": "all", "blocks": "release"}}
+```
+
+`input` names the unit of the extract step's preset (`entries`, a table field, a child), the
+columns the calls read (default: every non-system column plus `_study`) and a filter (`eq | ne |
+in | not_in | empty | not_empty`). A model call (`kind: llm`) reads `${rows}` (the first call: the
+input rows, one line each under a short id, `[NEW]` on records added since the committed version)
+or `${previous}` (a later call: the earlier call's rows), plus `${existing}` (the committed rows),
+`${output_schema}`, `${dataset}` and `${new_count}`; over 60 000 characters the rows are split by
+`group_by` (default: per paper) and the chunks' answers merged on the `identity`, at most 24 calls.
+A transform (`op: group`) groups what it reads by `by` and fills the other output fields by rule —
+`count`, `n_papers`, `first`, `majority`, `union`, `all`, `sum`, `mean`, `min`, `max` (a rule may
+name its column: `{"op": "union", "column": "_study"}`). Every output row carries `_id` (a hash of
+the identity fields, stable across versions) and `sources` (the record ids it was made from; a row
+without one is dropped, as a page section without a source is).
+
+A draft is reviewed as a change against the committed version on `/derived?dataset=…`: per row a
+computed verdict (kept · revised · new · removed), the cells that changed, the sources split into the
+records new since the commit and carried ones, accept / reject per row, then the commit. `review.mode:
+none` commits the draft at once; `all` holds the release (or the run, `blocks: next`) until the
+commit. A transform-only step runs inside the run, free; model calls run on the worker with the
+server key when the run spends credits (planned per chunk, refunded on failure), inline when there is
+no queue, and otherwise the run pauses as `needs_key:<step>` until the owner gives a key on the
+derived page (used once, never stored). The committed unit is listed with the dataset's analysis
+units, frozen into releases (`derived` in the snapshot) and exported as `tables/<step>.json` with
+its sources' quotes as evidence. Correcting a record after the unit was made makes it stale.
 
 ## Versions and citation
 

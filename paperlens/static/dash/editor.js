@@ -6,7 +6,7 @@
 // which repairs, recomputes sufficiency from the data and tells which questions stay unanswered.
 import { api } from "/static/api.js";
 import { esc } from "/static/grammar.js";
-import { getKey, setKey } from "/static/keys.js";
+import { modelChoice as choice, renderModelPanel as renderPanel } from "/static/modelpanel.js";
 import { loadTable, OP_WORDS, setValueLabels, setColumnLabels, displayValue, MANY } from "/static/dash/table.js";
 import { createEvidence } from "/static/dash/evidence.js";
 import { renderBlock } from "/static/dash/blocks.js";
@@ -22,7 +22,6 @@ let QUESTIONS = [""], LOCKED = new Set(), BUSY = false;
 let SELECTED = -1, MORE = false;      // the block in the inspector; whether its "More" section is open
 const TABLES = new Map(), EVIDENCE = new Map();
 const tplOf = (id) => REG.templates.find((t) => t.id === id);
-const PROVIDER_LABEL = { openai: "OpenAI", google: "Google Gemini", anthropic: "Anthropic", deepseek: "DeepSeek", mistral: "Mistral" };
 
 async function tableFor(unit) {
   if (!TABLES.has(unit)) { const t = await loadTable(DATASET_ID, unit); TABLES.set(unit, t); EVIDENCE.set(unit, createEvidence(t, $("#dash-panel"))); }
@@ -49,31 +48,10 @@ function renderQuestions() {
 }
 
 function renderModelPanel() {
-  const bal = CFG && CFG.credits ? CFG.credits.balance || 0 : 0;
-  const credits = !!(CFG && CFG.logged_in && CFG.offered && bal > 0);
-  const provs = Object.keys(MODELS);
-  $("#cmp-model").innerHTML = `<div class="cmp-modes">`
-    + (credits ? `<label class="cs-opt"><input type="radio" name="cmp-mode" value="credits" checked/> <span>Use a credit <b>(${bal} left)</b> <span class="muted">· ${esc(CFG.model || "")} · one credit per dashboard, revisions are free</span></span></label>` : "")
-    + `<label class="cs-opt"><input type="radio" name="cmp-mode" value="own"${credits ? "" : " checked"}/> <span>My own API key</span></label>`
-    + `<label class="cs-opt"><input type="radio" name="cmp-mode" value="local"/> <span>A local / self-hosted model</span></label></div>`
-    + `<div id="cmp-own" class="cmp-fields"><div class="select-wrap"><select id="cmp-prov">${provs.map((p) => `<option value="${esc(p)}">${esc(PROVIDER_LABEL[p] || p)}</option>`).join("")}</select></div>`
-    + `<div class="select-wrap"><select id="cmp-mdl"></select></div><input id="cmp-key" type="password" placeholder="your API key (used once, never stored)" autocomplete="off"/></div>`
-    + `<div id="cmp-local" class="cmp-fields" hidden><input id="cmp-url" type="url" placeholder="server URL, e.g. https://models.example.org:8000"/>`
-    + `<input id="cmp-lmdl" placeholder="model name"/></div>`
-    + `<p class="muted cmp-note">The model sees your questions, the column names and a few sample values per column, never the PDFs. It proposes a structure; nothing is drawn until you approve it.</p>`;
-  const fillModels = () => { const p = $("#cmp-prov").value; $("#cmp-mdl").innerHTML = (MODELS[p] || []).map((m) => `<option value="${esc(m.value)}">${esc(m.label)}</option>`).join(""); $("#cmp-key").value = getKey(p); };
-  if (provs.length) { $("#cmp-prov").onchange = fillModels; fillModels(); }
-  $("#cmp-key").oninput = () => setKey($("#cmp-prov").value, $("#cmp-key").value.trim());
-  try { $("#cmp-url").value = localStorage.getItem("metalens_local_base_url") || ""; $("#cmp-lmdl").value = localStorage.getItem("metalens_local_model") || ""; } catch { /* no storage */ }
-  const sync = () => { const m = $('input[name="cmp-mode"]:checked').value; $("#cmp-own").hidden = m !== "own"; $("#cmp-local").hidden = m !== "local"; };
-  document.querySelectorAll('input[name="cmp-mode"]').forEach((r) => (r.onchange = sync)); sync();
+  renderPanel($("#cmp-model"), { prefix: "cmp", cfg: CFG, models: MODELS, creditsNote: "one credit per dashboard, revisions are free",
+    note: "The model sees your questions, the column names and a few sample values per column, never the PDFs. It proposes a structure; nothing is drawn until you approve it." });
 }
-function modelChoice() {
-  const m = $('input[name="cmp-mode"]:checked').value;
-  if (m === "credits") return { use_credits: true };
-  if (m === "local") return { model: $("#cmp-lmdl").value.trim(), base_url: $("#cmp-url").value.trim(), api_key: "" };
-  return { model: $("#cmp-mdl").value, api_key: $("#cmp-key").value.trim() };
-}
+function modelChoice() { return choice("cmp", { quiet: true }) || { use_credits: false, api_key: "", base_url: "" }; }
 
 async function propose(feedback) {
   if (BUSY) return;

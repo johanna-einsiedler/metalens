@@ -68,11 +68,135 @@
       "severity": "error"
     },
     {
+      "id": "edges",
+      "kind": "derive",
+      "label": "Corpus edges",
+      "help": "one row per (cause, effect) concept pair across the corpus: a model call maps each claim's wording to a shared concept, a deterministic merge groups the claims into edges with their majority sign and the studies behind them",
+      "over": "claims",
+      "input": {
+        "unit": "entries",
+        "columns": [
+          "claim_id",
+          "cause",
+          "effect",
+          "cause_construct",
+          "effect_construct",
+          "sign",
+          "statement",
+          "_study"
+        ],
+        "filter": [
+          {
+            "column": "type",
+            "op": "eq",
+            "value": "edge"
+          }
+        ]
+      },
+      "identity": [
+        "cause_concept",
+        "effect_concept"
+      ],
+      "group_by": "_study",
+      "calls": [
+        {
+          "id": "harmonise",
+          "kind": "llm",
+          "prompt": {
+            "file": "econ-claims.edges.harmonise.md"
+          }
+        },
+        {
+          "id": "merge",
+          "kind": "transform",
+          "op": "group",
+          "by": [
+            "cause_concept",
+            "effect_concept"
+          ],
+          "fields": {
+            "n_claims": "count",
+            "n_papers": "n_papers",
+            "sign": "majority",
+            "signs": {
+              "op": "all",
+              "column": "sign"
+            },
+            "studies": {
+              "op": "union",
+              "column": "_study"
+            }
+          }
+        }
+      ],
+      "output": {
+        "label": "Corpus edge",
+        "fields": [
+          {
+            "name": "cause_concept",
+            "type": "string",
+            "required": true,
+            "label": "Cause",
+            "help": "the shared concept the claim's cause maps to (snake_case)"
+          },
+          {
+            "name": "effect_concept",
+            "type": "string",
+            "required": true,
+            "label": "Effect",
+            "help": "the shared concept the claim's effect maps to"
+          },
+          {
+            "name": "sign",
+            "type": "enum",
+            "options": [
+              "+",
+              "-",
+              "0",
+              "mixed"
+            ],
+            "label": "Sign",
+            "help": "per claim as stated; per edge the majority across its claims"
+          },
+          {
+            "name": "n_claims",
+            "type": "integer",
+            "label": "Claims",
+            "help": "how many claims the edge rests on"
+          },
+          {
+            "name": "n_papers",
+            "type": "integer",
+            "label": "Papers",
+            "help": "how many articles state it"
+          },
+          {
+            "name": "signs",
+            "type": "list",
+            "label": "Signs stated",
+            "help": "every claim's sign, in order"
+          },
+          {
+            "name": "studies",
+            "type": "list",
+            "label": "Studies",
+            "help": "the articles, as first author and year"
+          }
+        ]
+      },
+      "review": {
+        "mode": "all",
+        "unit": "entry",
+        "blocks": "release"
+      }
+    },
+    {
       "id": "release",
       "kind": "release",
       "label": "Release",
       "gate": [
-        "claims"
+        "claims",
+        "edges"
       ]
     }
   ]

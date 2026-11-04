@@ -46,7 +46,6 @@ UPDATE_KINDS = ("vocabulary", "pages", "crosscheck")   # the preset-level update
 LATER = {"k": "running a preset several times needs the vote engine (a later release)",
          "input": "a step reading an earlier step's output needs the chain engine (a later release)",
          "loop": "loops need the chain engine (a later release)",
-         "derive": "dataset-level derive steps arrive in a later release",
          "agent": "agent steps arrive in a later release"}
 
 _ALLOWED_KEYS = {
@@ -60,7 +59,7 @@ _ALLOWED_KEYS = {
     "vote": {"identity", "fields"},
     "input": {"previous"},
     "check": {"check", "over", "on_fail", "severity", "params"},
-    "derive": {"over", "scope", "identity", "calls", "output", "group_by", "input"},
+    "derive": {"over", "identity", "calls", "output", "group_by", "input"},
     "call": {"id", "kind", "prompt", "op", "by", "fields", "model"},
     "vocabulary": {"unit", "column"},
     "pages": {"group", "keyed_by"},
@@ -172,6 +171,8 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
             if isinstance(st.get("over"), str):
                 st["over"] = [st["over"]]
         if kind == "derive":
+            inp = st.get("input")
+            st["input"] = {"unit": "entries", **(inp if isinstance(inp, dict) else {})}
             for call in st.get("calls") or []:
                 if isinstance(call, dict) and isinstance(call.get("prompt"), dict) and call["prompt"].get("file") and not call["prompt"].get("text"):
                     if base_dir is None:
@@ -290,7 +291,7 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
         elif kind == "check":
             _validate_check(st, at, E, W, earlier=earlier, by_id=by_id, presets_of=presets_of)
         elif kind == "derive":
-            _validate_derive(st, at, E, W, earlier=earlier, by_id=by_id)
+            _validate_derive(st, at, E, W, earlier=earlier, by_id=by_id, presets_of=presets_of)
         elif kind in UPDATE_KINDS:
             ps._validate_update_step({"type": kind, **{k: st[k] for k in ("unit", "column", "group", "keyed_by") if k in st}}, E, at)
         elif kind == "loop":
@@ -399,7 +400,8 @@ def _validate_check(st, at, E, W, *, earlier, by_id, presets_of) -> None:
     checks.validate_step(st, at, E, W, presets_of={o: presets_of.get(o) for o in over})
 
 
-def _validate_derive(st, at, E, W, *, earlier, by_id) -> None:
+def _validate_derive(st, at, E, W, *, earlier, by_id, presets_of) -> None:
+    from . import derived
     over = st.get("over")
     if not isinstance(over, str) or over not in earlier or by_id.get(over, {}).get("kind") not in ("extract", "agent"):
         E(f"{at}.over must name an earlier extract step")
@@ -438,6 +440,9 @@ def _validate_derive(st, at, E, W, *, earlier, by_id) -> None:
             names.add(f["name"])
         if isinstance(ident, list) and any(x not in names for x in ident if isinstance(x, str)):
             E(f"{at}.identity must name output fields")
+    if isinstance(over, str) and over in earlier:
+        vocab_cols = [by_id[x].get("column") for x in earlier if by_id.get(x, {}).get("kind") == "vocabulary" and by_id[x].get("column")]
+        derived.validate(st, at, E, W, pspec=presets_of.get(over), vocab_columns=vocab_cols)
 
 
 def _validate_loop(st, at, E, W, *, earlier, by_id) -> None:

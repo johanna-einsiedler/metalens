@@ -392,8 +392,15 @@ def test_findings_reach_the_document_view_and_the_claims_check_reads_the_compani
     assert c.patch(f"/api/datasets/{ds_c}", headers=H, json={"companion_dataset_id": ds_t}).status_code == 200, "the econ tables are a registered companion"
     run = c.post(f"/api/datasets/{ds_c}/workflow/runs", headers=H, json={}).json()
     view = c.post(f"/api/workflow-runs/{run['id']}/complete", headers=H, json={"step_id": "claims"}).json()   # nothing new to upload: run the checks
+    # the corpus-edges step makes model calls: on an own key the run pauses for it, then goes on
+    assert view["status"] == "needs_key:edges", view
+    from paperlens import derived, providers
+    monkeypatch.setattr(providers, "generate_text", lambda model, key, prompt, **kw: json.dumps(
+        {"rows": [{"cause_concept": "import_competition", "effect_concept": "employment", "sign": "-", "sources": ["r1"]}]}))
+    view = c.post(f"/api/workflow-runs/{run['id']}/resume", headers=H, json={"api_key": "k-test", "model": "test-model"}).json()
     assert view["status"] == "done", view
     steps = {s["step_id"]: s for s in view["steps"]}
+    assert steps["edges"]["status"] == "done" and steps["edges"]["n_calls"] == 1 and steps["edges"]["review"]["draft"]["status"] == "draft"
     # S1 cites Table 3 col (1) = -1.292 (the seeded econ table has it) and Table 4 col (1) (no such column)
     assert steps["links"]["outputs"]["by_code"] == {"exhibit_unlinked": 1}, steps["links"]["outputs"]
     findings = c.get(f"/api/workflow-runs/{run['id']}/issues", headers=H).json()["findings"]
@@ -402,6 +409,10 @@ def test_findings_reach_the_document_view_and_the_claims_check_reads_the_compani
     for (rec_id,) in conn.execute("SELECT id FROM record WHERE dataset_id = %s::uuid", (ds_c,)).fetchall():
         records.verify_record(conn, str(rec_id), status="verified")
     conn.commit()
+    r = c.post(f"/api/datasets/{ds_c}/releases", headers=H, json={"notes": "with findings"})
+    assert r.status_code == 409 and "edges" in r.text                       # the edges draft holds the release until its commit
+    draft = derived.latest_draft(conn, ds_c, "edges")
+    assert c.post(f"/api/derived/{draft['id']}/commit", headers=H).status_code == 200
     r = c.post(f"/api/datasets/{ds_c}/releases", headers=H, json={"notes": "with findings"})
     assert r.status_code == 200, r.text
     from paperlens import release_export

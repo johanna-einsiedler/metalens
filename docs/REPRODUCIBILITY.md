@@ -9,7 +9,7 @@ An extraction is determined by four things, all recorded in every export
 | Preset (the data contract) | `metadata.preset.schema_id` (e.g. `masem-direct@eb5f0287`) and the full `metadata.preset.spec` | The schema id is a hash of the preset's fields, entries and confidence groups; the spec itself is in the export and can be dropped into `<data>/presets/` |
 | Prompt and parameters | `provenance.prompt_sha256`, `provenance.params` | Render the preset with the same parameters (`POST /api/presets/<id>/render`) and compare the hash |
 | Model | `model`, `provenance.resolved_model` | The exact provider model id that answered; see below when it has been retired |
-| Workflow (the process) | `metadata.workflow.contract`, `metadata.workflow.release`, `metadata.workflow.run_id`; `release.json` → `workflow.steps` | The workflow pins each preset by contract and declares the checks and the review; the run records which preset release and prompt hash ran each step (`docs/WORKFLOWS.md`) |
+| Workflow (the process) | `metadata.workflow.contract`, `metadata.workflow.release`, `metadata.workflow.run_id`; `release.json` → `workflow.steps` | The workflow pins each preset by contract and declares the checks and the review; the run records which preset release and prompt hash ran each step; a derive step's unit is frozen with its declaration, model and prompt hash (`docs/WORKFLOWS.md`) |
 
 Model outputs are not deterministic even at temperature 0, so "reproduce" means: the same
 engine, preset, prompt and model produce an extraction that a reviewer would verify to the
