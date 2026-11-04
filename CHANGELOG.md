@@ -23,6 +23,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   a workflow run go back to the workflow dataset.
 - A running workflow says which step it is on and what it is doing, with an estimate of the time
   left when it can be measured (this run's pace, else earlier runs of the same kind).
+- A run that waits for its owner — uploads, a review, an API key — reads **waiting for you**, not
+  "running": the panel says what each side has received ("none uploaded yet"), for how long it has
+  waited, and that nothing is computed until the owner uploads, reviews or presses Uploads complete.
 - Wording: supplied steps read "uploaded"; the panel's opening sentence is plain.
 
 ### Linked datasets and a joint review: the tables and the claims of the same papers as one process

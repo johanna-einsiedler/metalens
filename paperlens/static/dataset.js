@@ -520,9 +520,23 @@ function fmtDur(sec) {
 }
 
 // What the run is doing now: the step, what it waits for or works on, how far, and — when the
-// server could measure it — roughly how long it still takes.
+// server could measure it — roughly how long it still takes. A run that waits for its owner
+// (uploads, a review, a key) says so, and for how long: nothing is computed meanwhile.
 function nowLine(run) {
   const n = run && run.now; if (!n) return "";
+  if (n.waiting_for_you) {
+    const since = n.elapsed_s != null ? ` · for ${fmtDur(n.elapsed_s)}` : "";
+    let what;
+    if (n.phase === "waiting for uploads") {
+      const got = (u) => !u.total ? "none uploaded yet" : u.pending ? `${u.done} of ${u.total} arrived` : `${u.done} uploaded`;
+      what = `waiting for your uploads${(n.uploads || []).map((u) => ` · ${esc(u.label)}: ${got(u)}`).join("")}`;
+    } else if (n.phase === "waiting for review") what = `waiting for your review · ${esc(n.label || n.step)}${n.total != null ? ` · ${n.done || 0} of ${n.total} checked` : ""}`;
+    else what = `waiting for your API key · ${esc(n.label || n.step)}`;
+    const todo = n.phase === "waiting for uploads"
+      ? "Upload the files of the new papers, then press Uploads complete. No new papers? Uploads complete runs the checks over what is here; Cancel run ends the run."
+      : n.phase === "waiting for review" ? "Give the verdicts, then resume the run." : "Give a key; it is used once and never stored.";
+    return `<span class="wf-now"><b>Now:</b> ${what}${since}</span><div class="muted wf-nowtodo">Nothing is computed while the run waits. ${todo}</div>`;
+  }
   let counts = "";
   if (n.total != null) {
     if (n.phase === "waiting for uploads") counts = ` · ${n.done} of ${n.total} arrived`;
@@ -628,17 +642,18 @@ function renderWorkflowCard(host, w) {
     const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
     const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
       : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
-    const now = st.id === cur ? ` <span class="badge wf-nowchip" title="the step the run is on">${/^waiting/.test((run.now || {}).phase || "") ? "waiting" : `<span class="spin"></span> running`}</span>` : "";
+    const now = st.id === cur ? ` <span class="badge wf-nowchip" title="the step the run is on">${(run.now || {}).waiting_for_you ? "waiting for you" : `<span class="spin"></span> running`}</span>` : "";
     return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
     const uploads = waiting ? suppliedSteps.map((s) => `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(s.dataset_id || id)}&run=${esc(run.id)}&step=${esc(s.id)}&back=${esc(id)}">Upload the ${esc(s.role ? s.role + " " : "")}files</a>`).join(" ") : "";
-    const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key` : run.status;
+    const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key`
+      : live && run.now && run.now.waiting_for_you ? "waiting for you" : run.status;
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
     const sides = new Set((run.papers || []).map((p) => p.step_id)).size > 1;      // one file per side: say which
     const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${sides ? `${esc(p.step_id)} · ` : ""}${esc(p.status)}</small></span>`).join(" ");
-    return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · papers ${pp.done || 0} of ${pp.total || 0}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
+    return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · ${pp.total ? `papers ${pp.done || 0} of ${pp.total}` : "no papers yet"}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
       ${live && run.now ? `<div class="wf-nowline">${nowLine(run)}</div>` : ""}
       ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
