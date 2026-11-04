@@ -59,7 +59,9 @@ def main() -> int:
         check(tabs.count() == 2, f"the sidebar lists the paper's two documents ({tabs.count()})")
         page.wait_for_function("document.querySelectorAll('.docbar .docbar-doc').length >= 2", timeout=15000)   # the paper strip loads (and redraws) after the panel
         strip = page.locator(".docbar")
-        check(strip.locator(".docbar-doc").count() == 2 and "0/" in strip.inner_text(), f"the paper strip shows both sides: {strip.inner_text()[:80]}")
+        names = [t.split("\n")[0] for t in strip.locator(".docbar-doc").all_inner_texts()]
+        check(strip.locator(".docbar-doc").count() == 2 and set(names) == {"Economics regression tables", "Claims in empirical economics papers"},
+              f"the paper strip shows both sides: {names}")
         page.screenshot(path=f"{a.shot}-2-queue.png", full_page=True)
         # verdicts on the first document walk the queue into the second (the claims)
         first_doc = page.evaluate("document.querySelector('.doctab.active') ? document.querySelector('.doctab.active').dataset.id || '' : ''")
