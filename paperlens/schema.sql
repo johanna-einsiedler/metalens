@@ -791,3 +791,12 @@ ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS role       text NOT NUL
 ALTER TABLE extraction_document ADD COLUMN IF NOT EXISTS chain      jsonb;
 CREATE INDEX IF NOT EXISTS extraction_document_group_idx ON extraction_document(group_id) WHERE group_id IS NOT NULL;
 ALTER TABLE record ADD COLUMN IF NOT EXISTS chain jsonb;
+
+-- ── dataset groups: one workflow over linked datasets (the tables and the claims of the same papers) ──
+-- An extract step of a workflow may name the dataset ROLE its documents enter; the datasets of
+-- one process share a group id and each carries its role. A run starts from any member and
+-- spans the group; a release of one member releases the others with it.
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS group_id   uuid;
+ALTER TABLE dataset ADD COLUMN IF NOT EXISTS group_role text;
+CREATE INDEX IF NOT EXISTS dataset_group_idx ON dataset(group_id) WHERE group_id IS NOT NULL;
+ALTER TABLE workflow_run ADD COLUMN IF NOT EXISTS group_id uuid;

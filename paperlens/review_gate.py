@@ -102,6 +102,18 @@ def _seed_for(run_id: str, step_id: str) -> int:
     return int(hashlib.sha256(f"{run_id}:{step_id}".encode()).hexdigest()[:8], 16)
 
 
+def _rank(document_ids: list[str], rows: list[tuple]) -> dict:
+    """Keys for a paper-major order: papers in the order their first document appears, then the
+    document's position in the list (a joint stage lists its steps' documents step by step)."""
+    doc_idx = {did: k for k, did in enumerate(document_ids)}
+    paper_rank: dict = {}
+    for did in document_ids:
+        pid = next((r[2] for r in rows if r[1] == did), None)
+        if pid is not None and pid not in paper_rank:
+            paper_rank[pid] = len(paper_rank)
+    return {"doc": doc_idx, "paper": paper_rank}
+
+
 def _frame(conn, document_ids: list[str], stratify, *, unit: str) -> list[dict]:
     if not document_ids:
         return []
@@ -123,6 +135,8 @@ def _frame(conn, document_ids: list[str], stratify, *, unit: str) -> list[dict]:
                 v = fv.get(f)
                 strata[f] = v if not isinstance(v, (dict, list)) else None
         out.append({"record_id": rid, "document_id": did, "paper_id": pid, "entry_index": ei, "strata": strata})
+    rk = _rank(document_ids, rows)
+    out.sort(key=lambda x: (rk["paper"].get(x["paper_id"], 10**9), rk["doc"].get(x["document_id"], 10**9), x["entry_index"] or 0, x["record_id"]))
     return out
 
 
@@ -148,6 +162,8 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
             seed = int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16)
         frame = _frame(conn, docs, rv.get("stratify") or (), unit=header["unit"])
         d = draw(frame, unit=header["unit"], n=rv.get("n"), share=rv.get("share"), seed=seed, stratify=rv.get("stratify") or ())
+        pos = {f["record_id"]: k for k, f in enumerate(frame)}                   # paper-major, step by step within a paper
+        d["items"] = [dict(it, ord=k) for k, it in enumerate(sorted(d["items"], key=lambda it: pos.get(it["record_id"], 10**9)))]
         with conn.transaction():
             conn.execute("DELETE FROM workflow_sample WHERE step_run_id = %s::uuid", (step_run["id"],))
             for it in d["items"]:
@@ -240,6 +256,8 @@ def items(conn: psycopg.Connection, step_run: dict) -> list[dict]:
             """SELECT r.id::text, r.document_id::text, r.paper_id::text, r.entry_index, r.verification_status
                FROM record r WHERE r.document_id = ANY(%s::uuid[]) AND NOT COALESCE(r.screened_empty, false)
                ORDER BY r.document_id, r.entry_index""", (docs,)).fetchall()
+        rk = _rank(docs, rows)
+        rows.sort(key=lambda r: (rk["paper"].get(r[2], 10**9), rk["doc"].get(r[1], 10**9), r[3] or 0))
         kind = "all"
     else:
         return []
@@ -300,9 +318,10 @@ def open_gates(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
     from . import workflows
     rows = conn.execute(
         """SELECT sr.id::text FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
-           WHERE r.dataset_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned')
+           WHERE (r.dataset_id = %s::uuid OR (r.group_id IS NOT NULL AND r.group_id = (SELECT group_id FROM dataset WHERE id = %s::uuid)))
+             AND r.status NOT IN ('cancelled', 'failed', 'planned')
              AND sr.superseded_by IS NULL AND sr.review ->> 'mode' IS NOT NULL AND sr.review ->> 'mode' <> 'none'
-           ORDER BY r.created_at DESC, sr.ordinal""", (dataset_id,)).fetchall()
+           ORDER BY r.created_at DESC, sr.ordinal""", (dataset_id, dataset_id)).fetchall()
     out = []
     for (srid,) in rows:
         sr = workflows.get_step_run(conn, srid)
@@ -335,15 +354,26 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
         d = docs.setdefault(it.get("document_id") or "", {"document_id": it.get("document_id"), "n_items": 0, "n_checked": 0, "first_ord": it["ord"]})
         d["n_items"] += 1
         d["n_checked"] += 1 if it["checked"] else 0
+    datasets: list[str] = []
     if docs:
-        rows = conn.execute("SELECT id::text, filename FROM extraction_document WHERE id = ANY(%s::uuid[])",
-                            ([k for k in docs if k],)).fetchall()
-        titles = conn.execute(
-            """SELECT ed.id::text, p.title FROM extraction_document ed LEFT JOIN paper p ON p.id = ed.paper_id WHERE ed.id = ANY(%s::uuid[])""",
+        rows = conn.execute(
+            """SELECT ed.id::text, ed.filename, p.title, ed.step_id, ed.paper_id::text,
+                      (SELECT r.dataset_id::text FROM record r WHERE r.document_id = ed.id AND r.dataset_id IS NOT NULL LIMIT 1)
+               FROM extraction_document ed LEFT JOIN paper p ON p.id = ed.paper_id WHERE ed.id = ANY(%s::uuid[])""",
             ([k for k in docs if k],)).fetchall()
-        fn = dict(rows); ti = dict(titles)
-        for k, d in docs.items():
-            d["filename"], d["title"] = fn.get(k), ti.get(k)
+        by_id = ws.steps_by_id(run.get("workflow") or {})
+        for did, fn, title, step_id, pid, ds in rows:
+            d = docs.get(did)
+            if d is None:
+                continue
+            d.update({"filename": fn, "title": title, "step_id": step_id, "paper_id": pid, "dataset_id": ds,
+                      "role": (by_id.get(step_id) or {}).get("dataset"), "step_label": (by_id.get(step_id) or {}).get("label")})
+            if ds and ds not in datasets:
+                datasets.append(ds)
+        papers = {d.get("paper_id") for d in docs.values()}
+        n_papers_done = len({d.get("paper_id") for d in docs.values() if d["n_checked"] >= d["n_items"]})
+    else:
+        papers, n_papers_done = set(), 0
     done = st["pending"] == 0
     nxt = None
     if done:
@@ -352,8 +382,10 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
     return {"run_id": run["id"], "dataset_id": run["dataset_id"], "step": step_run["step_id"], "kind": step_run["kind"], "mode": header.get("mode"),
             "unit": header.get("unit", "entry"), "blocks": header.get("blocks", "release"),
             "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
-            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]),
-            "progress": {"drawn": len(its), "checked": st["checked"], "pending": st["pending"], "disagreed": st["disagreed"]},
+            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
+            "joint": step_run["kind"] == "review",
+            "progress": {"drawn": len(its), "checked": st["checked"], "pending": st["pending"], "disagreed": st["disagreed"],
+                         "papers": len(papers), "papers_done": n_papers_done},
             "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}
 
 

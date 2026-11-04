@@ -511,13 +511,14 @@ function renderWorkflowCard(host, w) {
     const because = (st.because || []).join("; ");
     let what = "";
     if (st.kind === "extract" || st.kind === "agent") {
-      what = `${esc(st.source === "supplied" ? "results made elsewhere, uploaded" : "a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
+      what = `${st.role ? `<span class="badge" title="the group's dataset of this role">${esc(st.role)}${st.dataset_id && st.dataset_id !== id ? ` · <a href="/dataset?id=${esc(st.dataset_id)}">other dataset</a>` : st.dataset_id ? " · this dataset" : ""}</span> ` : ""}${esc(st.source === "supplied" ? "results made elsewhere, uploaded" : "a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
       if (st.work && (st.work.wait_for || st.work.extract || st.work.attach)) what += ` · ${st.work.wait_for || st.work.extract || st.work.attach} new`;
     } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "vocabulary") what = `vocabulary <b>${esc(st.column || "")}</b>${st.version ? ` · v${st.version}` : ""}${mine ? ` · <a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "pages") what = `${esc(st.label || st.group + " pages")} · ${(st.pages || []).map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a> <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified">stale</span>` : ""}`).join(" · ") || `<span class="muted">none yet</span>`}${mine ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "derive") what = `over <code>${esc(st.over || "")}</code>${st.version ? ` · v${st.version} (${st.committed_rows || 0} row${st.committed_rows === 1 ? "" : "s"})` : ""}${st.n_calls ? ` · ${st.n_calls} model call${st.n_calls === 1 ? "" : "s"}` : ""}${mine ? ` · <a class="muted" href="/derived?dataset=${esc(id)}&step=${esc(st.id)}${st.draft_id ? `&id=${esc(st.draft_id)}` : st.derived_id ? `&id=${esc(st.derived_id)}` : ""}">${st.draft_id ? "review the draft" : "open"}</a>` : ""}`;
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
+    else if (st.kind === "review") what = `both sides of each paper: ${(st.over || []).join(" → ")}`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
     const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
     const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(id)}&step=${esc(st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
@@ -526,13 +527,15 @@ function renderWorkflowCard(host, w) {
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
+    const suppliedSteps = (w.steps || []).filter((s) => (s.kind === "extract" || s.kind === "agent") && s.source === "supplied" && !s.pipeline_of);
+    const uploads = waiting ? suppliedSteps.map((s) => `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(s.dataset_id || id)}&run=${esc(run.id)}&step=${esc(s.id)}">Upload the ${esc(s.role ? s.role + " " : "")}files</a>`).join(" ") : "";
     const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key` : run.status;
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
     const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${esc(p.status)}</small></span>`).join(" ");
     return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · papers ${pp.done || 0} of ${pp.total || 0}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
       ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
-        ${waiting ? `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(id)}&run=${esc(run.id)}&step=${esc(ex.id || "extract")}">Upload the pipeline's files</a>
+        ${waiting ? `${uploads}
                      <button class="btn btn-ghost btn-sm" id="wf-complete" title="the papers never uploaded are dropped from the plan and the run goes on">Uploads complete</button>` : ""}
         ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(id)}&step=${esc(draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
         ${run.status.startsWith("needs_key:") ? `<a class="btn btn-ghost btn-sm" href="/derived?dataset=${esc(id)}&step=${esc(run.status.split(":")[1])}&run=${esc(run.id)}" title="the step makes model calls on your own key, which is used once and never stored">Give a key and go on</a>` : ""}
@@ -542,13 +545,17 @@ function renderWorkflowCard(host, w) {
   const picker = mine && wf.implicit && (w.available || []).length
     ? `<div class="ds-dashrow muted" style="font-size:12.5px">Declare a workflow: <select id="wf-pick"><option value="">— the preset's own process —</option>${w.available.map((a) => `<option value="${esc(a.id)}">${esc(a.title || a.id)}</option>`).join("")}</select> <button class="btn btn-ghost btn-sm" id="wf-set">Set</button></div>` : "";
   const problems = (wf.problems || []).length ? `<div class="ds-relwarn" style="font-size:12.5px">${wf.problems.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : "";
+  const group = w.group ? `<div class="ds-dashrow wf-group" style="font-size:12.5px"><b>Linked datasets</b> ${w.group.roles.map((r) => r.dataset
+      ? `<span class="badge tier-human_verified">${esc(r.role)}</span> ${r.dataset.dataset_id === id ? "this dataset" : `<a href="/dataset?id=${esc(r.dataset.dataset_id)}">${esc(r.dataset.title || r.role)}</a>`}`
+      : `<span class="badge">${esc(r.role)}</span> <span class="muted">not linked</span>${mine ? ` <button class="btn btn-ghost btn-sm" data-link-role="${esc(r.role)}">link or create…</button>` : ""}`).join(" · ")}
+      <span class="muted">· one run and one release cover them all</span><div id="wf-link-form" hidden></div></div>` : "";
   host.innerHTML = `<div class="ds-card-h">Workflow <span class="muted" style="font-weight:400">· ${esc(wf.title || wf.id)}${wf.implicit ? " (the preset's own process)" : ` v${wf.version} · <code>${esc(wf.contract)}</code>`}</span>
       ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px">${supplied
         ? `<button class="btn btn-ghost btn-sm" id="wf-start" title="start a run; then upload the pipeline's files for the new papers">Start a run</button>`
         : `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1" title="stage new PDFs; the run is planned (calls, credits) before it starts">Add papers</a>
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">What happens when the data grows: the steps below run in order on the new papers, every check and review is declared, and the release holds until the gate is open. Nothing updates silently.</p>
-    ${problems}${picker}
+    ${problems}${picker}${group}
     ${(w.steps || []).map(line).join("")}
     ${runLine}
     <div class="muted" style="font-size:12.5px;margin-top:6px">Release gate: ${w.gate && w.gate.open ? `<span class="badge tier-human_verified">open</span>` : `<span class="badge tier-sample_verified">holds</span> ${esc([...(w.gate.blocking || []).filter((b) => !(w.gate.gates_blocking || []).includes(b)).map((b) => `${b} not fresh`), ...(w.gate.gates_blocking || []).map((g) => `${g} awaits review`)].join(", "))}`}
@@ -567,7 +574,7 @@ function renderWorkflowCard(host, w) {
   };
   const complete = $("#wf-complete");
   if (complete && run) complete.onclick = async () => {
-    try { await api.workflowComplete(run.id, ex.id || "extract"); } catch (e) { alert(e.message); }
+    try { for (const s of suppliedSteps.length ? suppliedSteps : [ex]) await api.workflowComplete(run.id, s.id || "extract"); } catch (e) { alert(e.message); }
     loadWorkflowCard();
   };
   const resume = $("#wf-resume");
@@ -581,6 +588,22 @@ function renderWorkflowCard(host, w) {
     }
     loadWorkflowCard();
   };
+  host.querySelectorAll("[data-link-role]").forEach((b) => (b.onclick = async () => {
+    const role = b.dataset.linkRole, form = $("#wf-link-form");
+    let g; try { g = await api.datasetGroup(id); } catch (e) { alert(e.message); return; }
+    const r = (g.roles || []).find((x) => x.role === role) || { candidates: [] };
+    form.hidden = false;
+    form.innerHTML = `<div class="ds-relform" style="margin-top:6px"><b>${esc(role)}</b> <span class="muted">· ${esc(r.preset || "")}</span>
+      <div style="margin-top:6px"><select id="wf-link-pick"><option value="">— create an empty dataset —</option>${(r.candidates || []).map((c) => `<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("")}</select>
+      <input id="wf-link-title" placeholder="title of the new dataset" style="margin-left:6px"/>
+      <button class="btn btn-primary btn-sm" id="wf-link-go">Link</button></div></div>`;
+    $("#wf-link-go").onclick = async () => {
+      const pick = $("#wf-link-pick").value;
+      try { await api.linkGroupRole(id, pick ? { role, dataset_id: pick } : { role, create: true, title: $("#wf-link-title").value.trim() || null }); }
+      catch (e) { alert(e.message); return; }
+      loadWorkflowCard();
+    };
+  }));
   const set = $("#wf-set");
   if (set) set.onclick = async () => {
     try { await api.setWorkflow(id, $("#wf-pick").value || ""); } catch (e) { alert(e.message); }

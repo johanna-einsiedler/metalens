@@ -96,6 +96,144 @@ def resolve(conn, dataset: dict) -> tuple[dict, bool]:
     return ws.implicit(pspec, sid or f"{pspec['id']}@v1"), True
 
 
+# ── dataset groups: one workflow over linked datasets ─────────────────────────
+
+def group_of(conn, dataset: dict) -> dict | None:
+    """The group a dataset belongs to: ``{id, role, roles: {role: {dataset_id, title, schema_id}}}``,
+    or None for a dataset outside any group."""
+    gid = dataset.get("group_id")
+    if not gid:
+        return None
+    rows = conn.execute("SELECT id::text, group_role, title, schema_id FROM dataset WHERE group_id = %s::uuid ORDER BY created_at", (gid,)).fetchall()
+    roles = {r[1]: {"dataset_id": r[0], "title": r[2], "schema_id": r[3]} for r in rows if r[1]}
+    return {"id": gid, "role": dataset.get("group_role"), "roles": roles}
+
+
+def step_datasets(conn, dataset: dict, spec: dict) -> dict[str, str]:
+    """{step id: dataset id} — an extract step with a role writes to the group's dataset of that
+    role (this dataset when it has no group), every other step reads the dataset of the step it
+    is over. Steps of a role the group has not linked yet map to nothing."""
+    grp = group_of(conn, dataset)
+    own = dataset["id"]
+    out: dict[str, str] = {}
+    by_id = ws.steps_by_id(spec)
+    for st in spec.get("steps") or []:
+        kind = st.get("kind")
+        if kind in ("extract", "agent"):
+            role = st.get("dataset")
+            if role and grp and role in grp["roles"]:
+                out[st["id"]] = grp["roles"][role]["dataset_id"]
+            elif role and grp and role != grp.get("role"):
+                continue                                     # not linked yet
+            else:
+                out[st["id"]] = own
+    for st in spec.get("steps") or []:
+        kind = st.get("kind")
+        if kind in ("check", "derive", "crosscheck", "vocabulary", "pages"):
+            over = st.get("over")
+            first = over[0] if isinstance(over, list) and over else over if isinstance(over, str) else None
+            src = by_id.get(first) if first else None
+            if src and src.get("kind") == "check":
+                first = (src.get("over") or [None])[0]
+            out[st["id"]] = out.get(first, own) if first else own
+        elif kind in ("review", "loop", "release"):
+            out[st["id"]] = own
+    return out
+
+
+def dataset_for_step(conn, run: dict, step_id: str) -> str:
+    """The dataset a run's step writes to or reads."""
+    d = records.get_dataset(conn, run["dataset_id"]) or {"id": run["dataset_id"]}
+    return step_datasets(conn, d, run["workflow"]).get(step_id) or run["dataset_id"]
+
+
+def declare(conn, dataset: dict, spec: dict | None) -> dict:
+    """Set (or clear) a dataset's workflow. A workflow with dataset roles makes the dataset a
+    group member in the role whose preset it uses; the other roles are linked afterwards
+    (``link_role``). Returns the dataset as stored."""
+    did = dataset["id"]
+    if spec is None:
+        with conn.transaction():
+            conn.execute("UPDATE dataset SET workflow = NULL, updated_at = now() WHERE id = %s::uuid", (did,))
+        return records.get_dataset(conn, did)
+    roles = ws.roles(spec)
+    base = (dataset.get("schema_id") or "").partition("@")[0]
+    mine = next((r for r, info in roles.items() if ws.preset_base(info["preset"]) == base), None)
+    with conn.transaction():
+        if roles and mine:
+            gid = dataset.get("group_id") or str(uuid.uuid4())
+            conn.execute("UPDATE dataset SET workflow = %s, group_id = %s::uuid, group_role = %s, updated_at = now() WHERE id = %s::uuid",
+                         (ws.workflow_id(spec), gid, mine, did))
+            # the other members follow the same declaration
+            conn.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE group_id = %s::uuid AND id <> %s::uuid",
+                         (ws.workflow_id(spec), gid, did))
+        else:
+            conn.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE id = %s::uuid", (ws.workflow_id(spec), did))
+    _sync_companions(conn, records.get_dataset(conn, did), spec)
+    return records.get_dataset(conn, did)
+
+
+def link_role(conn, dataset: dict, role: str, *, other_id: str | None = None, create_title: str | None = None, who=None) -> dict:
+    """Link an existing dataset (the owner's, under the role's preset, in no other group) or
+    create an empty one for a role of the group's workflow. Returns the group."""
+    spec, _ = resolve(conn, dataset)
+    roles = ws.roles(spec)
+    if role not in roles:
+        raise RunRefused(f"The workflow has no dataset role {role!r}.", 422)
+    gid = dataset.get("group_id")
+    if not gid:
+        raise RunRefused("Declare the workflow on this dataset first.", 409)
+    pin = roles[role]["preset"]
+    base = ws.preset_base(pin)
+    with conn.transaction():
+        if other_id:
+            other = records.get_dataset(conn, other_id)
+            if other is None or (who is not None and not records.is_dataset_owner(conn, other_id, who)):
+                raise RunRefused("Dataset not found.", 404)
+            if (other.get("schema_id") or "").partition("@")[0] != base:
+                raise RunRefused(f"That dataset is not under the {base!r} preset.", 422)
+            if other.get("group_id") and other["group_id"] != gid:
+                raise RunRefused("That dataset belongs to another group.", 409)
+            conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
+                         (gid, role, ws.workflow_id(spec), other_id))
+        else:
+            from . import presets
+            run_spec = presets.resolve_run(conn, schema_id=pin, params={})
+            records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
+            new = records.create_dataset(conn, title=create_title or f"{dataset.get('title') or 'Dataset'} — {roles[role]['label']}", schema_id=pin,
+                                         owner_user_id=dataset.get("owner_user_id"), session_id=dataset.get("session_id"))
+            conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
+                         (gid, role, ws.workflow_id(spec), new["id"]))
+    d = records.get_dataset(conn, dataset["id"])
+    _sync_companions(conn, d, spec)
+    return group_of(conn, d)
+
+
+def _sync_companions(conn, dataset: dict, spec: dict) -> None:
+    """A check that reads a companion (claims against tables) finds it inside the group: the
+    member whose preset the check names as its companion. Set once, so the dataset page's own
+    cross-check card and the single-dataset path keep working."""
+    grp = group_of(conn, dataset)
+    if not grp:
+        return
+    by_id = ws.steps_by_id(spec)
+    for st in spec.get("steps") or []:
+        if st.get("kind") != "check":
+            continue
+        reg = checks.REGISTRY.get(st.get("check")) or {}
+        comp_bases = set((reg.get("applies_to") or {}).get("companion") or [])
+        if not reg.get("needs_companion") or not comp_bases:
+            continue
+        over = (st.get("over") or [None])[0]
+        role_over = (by_id.get(over) or {}).get("dataset")
+        mine = grp["roles"].get(role_over) if role_over else None
+        other = next((info for r, info in grp["roles"].items() if r != role_over and (info.get("schema_id") or "").partition("@")[0] in comp_bases), None)
+        if mine and other:
+            with conn.transaction():
+                conn.execute("UPDATE dataset SET companion_dataset_id = %s::uuid WHERE id = %s::uuid AND companion_dataset_id IS NULL",
+                             (other["dataset_id"], mine["dataset_id"]))
+
+
 def validate_for(conn, spec: dict) -> tuple[list[str], list[str]]:
     """Validate against the live presets AND the schema rows this server knows (a pin may be an
     older contract)."""
@@ -124,8 +262,10 @@ def later_problems(spec: dict) -> list[str]:
         if kind in ("agent",):
             out.append(f"step {sid!r}: {ws.LATER[kind]}")
     if len(finals) > 1:
-        out.append("several extract steps whose documents enter the dataset need linked datasets (a later release); "
-                   "this release runs one per workflow (a step read by a later step's input.previous is part of its pipeline)")
+        rs = [st.get("dataset") for st in finals]
+        if not all(rs) or len(set(rs)) != len(rs):
+            out.append("several extract steps whose documents enter a dataset must each name a distinct dataset role "
+                       "(`dataset: tables`, `dataset: claims`): the datasets are linked as a group")
     return out
 
 
@@ -226,21 +366,30 @@ def get_run(conn, run_id: str) -> dict | None:
     return _run_row(r) if r else None
 
 
+def _run_scope(conn, dataset_id: str) -> tuple[str, tuple]:
+    """SQL for "the runs of this dataset": its own, plus its group's when it has one."""
+    gid = conn.execute("SELECT group_id::text FROM dataset WHERE id = %s::uuid", (dataset_id,)).fetchone()
+    if gid and gid[0]:
+        return "(dataset_id = %s::uuid OR group_id = %s::uuid)", (dataset_id, gid[0])
+    return "dataset_id = %s::uuid", (dataset_id,)
+
+
 def list_runs(conn, dataset_id: str, *, limit: int = 20) -> list[dict]:
-    rows = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE dataset_id = %s::uuid ORDER BY created_at DESC LIMIT %s",
-                        (dataset_id, limit)).fetchall()
+    where, args = _run_scope(conn, dataset_id)
+    rows = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE {where} ORDER BY created_at DESC LIMIT %s", (*args, limit)).fetchall()
     return [_run_row(r) for r in rows]
 
 
 def active_run(conn, dataset_id: str) -> dict | None:
-    r = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE dataset_id = %s::uuid AND status NOT IN ('failed','done','cancelled') "
-                     "ORDER BY created_at DESC LIMIT 1", (dataset_id,)).fetchone()
+    where, args = _run_scope(conn, dataset_id)
+    r = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE {where} AND status NOT IN ('failed','done','cancelled') "
+                     "ORDER BY created_at DESC LIMIT 1", args).fetchone()
     return _run_row(r) if r else None
 
 
 def last_done_run(conn, dataset_id: str) -> dict | None:
-    r = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done' ORDER BY finished_at DESC LIMIT 1",
-                     (dataset_id,)).fetchone()
+    where, args = _run_scope(conn, dataset_id)
+    r = conn.execute(f"SELECT {_RUN_COLS} FROM workflow_run WHERE {where} AND status = 'done' ORDER BY finished_at DESC LIMIT 1", args).fetchone()
     return _run_row(r) if r else None
 
 
@@ -265,12 +414,14 @@ def step_runs(conn, run_id: str) -> list[dict]:
 
 
 def latest_step_run(conn, dataset_id: str, step_id: str, *, done_only: bool = True) -> dict | None:
+    where, scope_args = _run_scope(conn, dataset_id)
+    where = where.replace("dataset_id", "r.dataset_id", 1).replace("group_id", "r.group_id")
     r = conn.execute(
         f"""SELECT {', '.join('sr.' + c.split('::')[0] + ('::text' if '::text' in c else '') for c in _SR_COLS.split(', '))}
             FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
-            WHERE r.dataset_id = %s::uuid AND sr.step_id = %s AND r.status NOT IN ('cancelled', 'failed')
+            WHERE {where} AND sr.step_id = %s AND r.status NOT IN ('cancelled', 'failed')
               AND sr.superseded_by IS NULL AND (NOT %s OR sr.status = 'done')
-            ORDER BY r.created_at DESC LIMIT 1""", (dataset_id, step_id, done_only)).fetchone()
+            ORDER BY r.created_at DESC LIMIT 1""", (*scope_args, step_id, done_only)).fetchone()
     return _sr_row(r) if r else None
 
 
@@ -398,8 +549,12 @@ def _extract_facts(conn, dataset_id: str, st: dict, *, who=None, new_pdfs=None, 
 
 def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, reextract=False, gates=None) -> list[dict]:
     """One entry per declared step with its state: fresh | stale | missing | draft | awaiting_review |
-    blocked | unsupported, why, and the work a run would do."""
+    blocked | unsupported, why, and the work a run would do. In a dataset group every step is
+    judged against the member it writes to or reads (``step_datasets``)."""
     gates = review_gate.open_gates(conn, dataset_id) if gates is None else gates
+    own = records.get_dataset(conn, dataset_id) or {"id": dataset_id}
+    ds_of = step_datasets(conn, own, spec)
+    group = group_of(conn, own)
     open_by_step = {g["step_id"]: g for g in gates if not g.get("satisfied")}
     later = {}
     for msg in later_problems(spec):
@@ -424,7 +579,15 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             facts_by_step[sid] = {"pin": st.get("preset"), "have": [], "old": [], "items": [], "work": item["work"]}
             out.append(item); continue
         if kind in ("extract", "agent"):
-            f = _extract_facts(conn, dataset_id, st, who=who, new_pdfs=new_pdfs, reextract=reextract)
+            if st.get("dataset"):
+                item["role"] = st["dataset"]
+                item["dataset_id"] = ds_of.get(sid)
+            if sid not in ds_of:
+                item["state"] = "blocked"; item["because"] = [f"the group has no dataset for the role {st.get('dataset')!r} yet"]
+                item.update({"preset": st.get("preset"), "source": st.get("source"), "work": {"extract": 0, "attach": 0, "wait_for": 0, "present": 0, "old_contract": 0, "foreign": 0}, "items": []})
+                facts_by_step[sid] = {"pin": st.get("preset"), "have": [], "old": [], "items": [], "work": item["work"]}
+                out.append(item); continue
+            f = _extract_facts(conn, ds_of[sid], st, who=who, new_pdfs=new_pdfs, reextract=reextract)
             facts_by_step[sid] = f
             item.update({"preset": f["pin"], "source": st.get("source"), "work": f["work"], "items": f["items"], "k": st.get("k") or 1,
                          "calls_per_paper": calls_per_paper(spec, sid)})
@@ -446,16 +609,17 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             src = facts_by_step.get(over[0]) if over else None
             needs_companion = bool((checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"))
             item["check"] = st.get("check")
+            c_ds = ds_of.get(sid, dataset_id)
             if src is None or (not src["have"] and not src["old"]):
                 item["state"] = "blocked"; item["because"] = [f"{over[0] if over else 'its input'} has no documents yet"]
-            elif needs_companion and not (records.get_dataset(conn, dataset_id) or {}).get("companion_dataset_id"):
-                item["state"] = "blocked"; item["because"] = ["no companion dataset set (Advanced on the dataset page)"]
+            elif needs_companion and not (records.get_dataset(conn, c_ds) or {}).get("companion_dataset_id"):
+                item["state"] = "blocked"; item["because"] = ["no companion dataset set (link the group's other dataset, or Advanced on the dataset page)"]
             else:
                 sr = latest_step_run(conn, dataset_id, sid)
                 if sr is None:
                     item["state"] = "missing"; item["because"] = ["never run"]
                 else:
-                    now = basis(conn, dataset_id)
+                    now = basis(conn, c_ds)
                     was = sr.get("inputs") or {}
                     if was.get("record_ids_sha") != now["record_ids_sha"]:
                         item["state"] = "stale"; item["because"] = ["records added or removed since it ran"]
@@ -470,13 +634,15 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             from . import derived
             src = facts_by_step.get(st.get("over"))
             item["over"] = st.get("over")
+            d_ds = ds_of.get(sid, dataset_id)
+            item["dataset_id"] = d_ds
             if src is None or (not src["have"] and not src["old"]):
                 item["state"] = "blocked"; item["because"] = [f"{st.get('over')} has no documents yet"]
             else:
-                item.update(derived.state(conn, dataset_id, st))
+                item.update(derived.state(conn, d_ds, st))
                 if item["state"] in ("stale", "missing") and derived.llm_calls(st):
                     try:
-                        item["n_calls"] = derived.plan(derived.input_rows(conn, dataset_id, st)["rows"], st)["n_calls"]
+                        item["n_calls"] = derived.plan(derived.input_rows(conn, d_ds, st)["rows"], st)["n_calls"]
                     except Exception as exc:  # noqa: BLE001 - the plan is advisory
                         item["because"].append(f"cannot plan: {exc}")
             if sid in open_by_step:
@@ -500,6 +666,17 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             item["max_iterations"] = st.get("max_iterations", 1)
             if sr is not None:
                 item["last"] = {k: (sr.get("outputs") or {}).get(k) for k in ("iteration", "papers_rerun", "stopped")}
+        elif kind == "review":
+            item["over"] = list(st.get("over") or [])
+            sr = latest_step_run(conn, dataset_id, sid)
+            if sid in open_by_step:
+                item["state"] = "awaiting_review"; item["gate"] = open_by_step[sid]
+            elif sr is None:
+                item["state"] = "missing"; item["because"] = ["no run reviewed yet"]
+            else:
+                g = next((g for g in gates if g["step_id"] == sid), None)
+                if g:
+                    item["gate"] = g
         elif kind == "release":
             from . import releases
             last = releases.latest(conn, dataset_id)
@@ -509,6 +686,15 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                 item["state"] = "missing"; item["because"] = ["no release yet"]
             elif releases.changed_since(conn, dataset_id, last):
                 item["state"] = "stale"; item["because"] = [f"changed since v{last['number']}"]
+            if group:
+                for role, info in group["roles"].items():
+                    if info["dataset_id"] == dataset_id:
+                        continue
+                    other_last = releases.latest(conn, info["dataset_id"])
+                    if other_last is None or releases.changed_since(conn, info["dataset_id"], other_last):
+                        if item["state"] == "fresh":
+                            item["state"] = "stale"
+                        item["because"].append(f"{role}: " + ("no release yet" if other_last is None else f"changed since v{other_last['number']}"))
             if blocked:
                 item["state"] = "blocked"; item["blocked_by"] = blocked
             item["release"] = {"number": last["number"], "created_at": last["created_at"]} if last else None
@@ -609,17 +795,21 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
             raise RunRefused(f"This run needs {n_calls} credit{'s' if n_calls != 1 else ''}; you have {p['credits']['balance']}.", 402)
     d = records.get_dataset(conn, dataset_id) or {}
     spec, _implicit = resolve(conn, d)
+    ds_of = step_datasets(conn, d, spec)
+    missing = [st["id"] for st in spec["steps"] if st.get("kind") in ("extract", "agent") and st["id"] not in ds_of and st["id"] not in consumed_steps(spec)]
+    if missing:
+        raise RunRefused(f"The group has no dataset yet for {', '.join(missing)}: link or create it on the dataset page.", 422, {"missing": missing})
     rid = str(uuid.uuid4())
     try:
         with conn.transaction():
             conn.execute(
                 """INSERT INTO workflow_run (id, dataset_id, workflow_id, contract, workflow, workflow_release, plan, status, started_by, session_id,
-                                             model, use_credits, credits_planned, credits_consumed, engine)
-                   VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, 'running', %s::uuid, %s, %s, %s, %s, %s, %s)""",
+                                             model, use_credits, credits_planned, credits_consumed, engine, group_id)
+                   VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, 'running', %s::uuid, %s, %s, %s, %s, %s, %s, %s::uuid)""",
                 (rid, dataset_id, spec["id"], p["workflow"]["contract"], Json(spec), _release_number(conn, spec), Json(p),
                  uid if records._is_uuid(uid or "") else None, getattr(who, "session_id", None), cmodel, bool(use_credits),
                  n_calls if use_credits else 0, n_calls if use_credits else 0,
-                 Json({"name": "metalens", "version": __version__, "git_sha": exporter._git_sha()})))
+                 Json({"name": "metalens", "version": __version__, "git_sha": exporter._git_sha()}), d.get("group_id")))
             for i, st in enumerate(spec["steps"]):
                 conn.execute(
                     """INSERT INTO workflow_step_run (id, run_id, step_id, kind, ordinal, status, preset_schema_id)
@@ -641,7 +831,7 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
     for job in jobs(conn, rid):
         if job["document_id"] and job["status"] == "pending":
             try:
-                records.assign_document_to_dataset(conn, dataset_id, job["document_id"])
+                records.assign_document_to_dataset(conn, ds_of.get(job["step_id"], dataset_id), job["document_id"])
                 on_document(conn, rid, job["step_id"], job["pdf_sha256"], job["document_id"], attached=True, advance_run=False)
             except Exception as exc:  # noqa: BLE001 - never fail the run over a side effect
                 _set_job(conn, job["id"], status="failed", error=str(exc)[:500])
@@ -714,10 +904,11 @@ def on_document(conn, run_id: str, step_id: str, pdf_sha256: str | None, documen
         conn.execute("UPDATE extraction_document SET run_id = %s::uuid, step_id = %s WHERE id = %s::uuid AND run_id IS NULL",
                      (run_id, step_id, document_id))
     job = _job_row(row) if row else None
+    target = dataset_for_step(conn, run, step_id)
     if job and job.get("replaces"):
-        records.replace_document_in_dataset(conn, run["dataset_id"], job["replaces"], document_id)
+        records.replace_document_in_dataset(conn, target, job["replaces"], document_id)
     else:
-        records.assign_document_to_dataset(conn, run["dataset_id"], document_id)
+        records.assign_document_to_dataset(conn, target, document_id)
     if job:
         _set_job(conn, job["id"], status="attached" if attached else "done", document_id=document_id, error=None)
     else:
@@ -809,6 +1000,8 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                 elif kind == "loop":
                     if not _advance_loop(conn, run, sr, st, by_id):
                         return get_run(conn, run_id)
+                elif kind == "review":
+                    _advance_review(conn, run, sr, st)
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
                     first = next((x["id"] for x in spec["steps"] if x.get("kind") in ("extract", "agent")), None)
@@ -988,7 +1181,7 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
     outputs = {"document_ids": doc_ids, "n_records": n_records, "attached": sum(1 for j in landed if j["status"] == "attached"),
                "replaced": sum(1 for j in landed if j.get("replaces")), "failed": failed, "n_papers": len(landed)}
     refunded = _refund_failed(conn, run, js)
-    d_id = run["dataset_id"]
+    d_id = dataset_for_step(conn, run, sr["step_id"])
     _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, d_id, document_ids=doc_ids) if doc_ids else {},
             finished_at=_now(), n_calls=len([j for j in landed if j["status"] == "done" and st.get("source") == "live"]),
             credits=sum(j["credits"] for j in landed), prompt_sha256=_prompt_sha(conn, doc_ids), preset_release=_preset_release(conn, st.get("preset")))
@@ -999,6 +1192,24 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
     if refunded:
         _touch(conn, run["id"], credits_refunded=run["credits"]["refunded"] + refunded)
     return True
+
+
+def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
+    """A joint review stage: one gate over the documents this run made in the steps it names,
+    step by step, so the worklist walks each paper's documents together (the tables, then the
+    claims). Opened as the stage declares (every paper, or a random draw of papers)."""
+    doc_ids: list[str] = []
+    for o in st.get("over") or []:
+        osr = next((x for x in step_runs(conn, run["id"]) if x["step_id"] == o), None)
+        for did in ((osr or {}).get("outputs") or {}).get("document_ids") or []:
+            if did not in doc_ids:
+                doc_ids.append(did)
+    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": list(st.get("over") or [])}
+    _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, run["dataset_id"]))
+    sr = get_step_run(conn, sr["id"])
+    header = review_gate.open_gate(conn, sr, st)
+    if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
+        _set_sr(conn, sr["id"], status="awaiting_review")
 
 
 def _refund_failed(conn, run: dict, js: list[dict]) -> int:
@@ -1054,8 +1265,9 @@ def _advance_derive(conn, run: dict, sr: dict, st: dict) -> bool:
     outputs = sr.get("outputs") or {}
     if outputs.get("job_id"):
         return False                                        # the worker is on it
+    d_id = dataset_for_step(conn, run, sr["step_id"])
     if not derived.llm_calls(st):
-        res = derived.run_step(conn, run["dataset_id"], st, model=None, api_key=None, run_id=run["id"], owner_user_id=run.get("started_by"))
+        res = derived.run_step(conn, d_id, st, model=None, api_key=None, run_id=run["id"], owner_user_id=run.get("started_by"))
         _finish_derive(conn, run, sr, st, res)
         return True
     if run["use_credits"]:
@@ -1065,7 +1277,7 @@ def _advance_derive(conn, run: dict, sr: dict, st: dict) -> bool:
             return False
         from . import credits, providers
         key = credits.server_key_for(providers.get_provider(run.get("model") or "", None)) or ""
-        res = derived.run_step(conn, run["dataset_id"], st, model=run.get("model"), api_key=key, run_id=run["id"], owner_user_id=run.get("started_by"))
+        res = derived.run_step(conn, d_id, st, model=run.get("model"), api_key=key, run_id=run["id"], owner_user_id=run.get("started_by"))
         _finish_derive(conn, run, sr, st, res)
         return True
     _set_sr(conn, sr["id"], status="needs_key")
@@ -1081,7 +1293,7 @@ def _finish_derive(conn, run: dict, sr: dict, st: dict, res: dict) -> None:
     rv = ws.review_of(st)
     outputs = {k: v for k, v in (sr.get("outputs") or {}).items() if k != "job_id"}
     outputs.update({"derived_id": draft["id"], "version": draft["version"], "n_rows": len(draft["rows"]), "repairs": len(res.get("repairs") or [])})
-    _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, run["dataset_id"]), finished_at=_now(),
+    _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, dataset_for_step(conn, run, sr["step_id"])), finished_at=_now(),
             n_calls=res.get("n_calls") or 0, credits=(res.get("n_calls") or 0) if run["use_credits"] else 0,
             model=draft.get("model"), prompt_sha256=draft.get("prompt_sha256"))
     if rv.get("mode", "none") == "none":
@@ -1112,14 +1324,14 @@ def run_step_job(conn, run_id: str, step_id: str, *, api_key: str | None = None,
     if key is None and run["use_credits"]:
         key = credits.server_key_for(providers.get_provider(model or "", None)) or ""
     try:
-        res = derived.run_step(conn, run["dataset_id"], st, model=model, api_key=key, base_url=base_url, generate=generate,
+        res = derived.run_step(conn, dataset_for_step(conn, run, step_id), st, model=model, api_key=key, base_url=base_url, generate=generate,
                                run_id=run_id, owner_user_id=run.get("started_by"))
         with conn.transaction():
             _finish_derive(conn, run, sr, st, res)
     except Exception as exc:  # noqa: BLE001 - the run records the failure
         planned = 0
         try:
-            planned = derived.plan(derived.input_rows(conn, run["dataset_id"], st)["rows"], st)["n_calls"]
+            planned = derived.plan(derived.input_rows(conn, dataset_for_step(conn, run, step_id), st)["rows"], st)["n_calls"]
         except Exception:  # noqa: BLE001, S110 - the refund is best effort
             pass
         with conn.transaction():
@@ -1166,12 +1378,12 @@ def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str
 
 
 def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
-    d_id = run["dataset_id"]
     over = st.get("over") or []
+    d_id = dataset_for_step(conn, run, over[0]) if over else run["dataset_id"]
     inputs = []
     for o in over:
         src = by_id.get(o) or {}
-        inputs.append(checks.load_input(conn, d_id, src.get("preset")))
+        inputs.append(checks.load_input(conn, dataset_for_step(conn, run, o), src.get("preset")))
     if (checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"):
         comp = checks.companion_input(conn, d_id)
         if comp is None:
@@ -1361,7 +1573,15 @@ def panel(conn, dataset_id: str, *, who, owner: bool) -> dict:
     problems = list(errs) + later_problems(spec)
     gate_ids = set(ws.gate_steps(spec))
     blocking = [s["id"] for s in states if s["id"] in gate_ids and s["state"] != "fresh"]
-    return {"workflow": {"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1),
+    grp = group_of(conn, d)
+    roles = ws.roles(spec)
+    group = None
+    if roles:
+        group = {"id": (grp or {}).get("id"), "role": (grp or {}).get("role"),
+                 "roles": [{"role": r, "step": info["step"], "label": info["label"], "preset": info["preset"],
+                            "dataset": ((grp or {}).get("roles") or {}).get(r)} for r, info in roles.items()]}
+    return {"group": group,
+            "workflow": {"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1),
                          "title": (spec.get("meta") or {}).get("title"), "tagline": (spec.get("meta") or {}).get("tagline"),
                          "implicit": implicit, "declared": d.get("workflow"), "problems": problems, "has_card": ws.has_card(spec)},
             "steps": states, "current_run": run_view(conn, active) if active else None,

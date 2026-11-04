@@ -54,7 +54,8 @@ def test_a_sampled_gate_draws_queues_and_counts(monkeypatch) -> None:
     assert conn.execute("SELECT count(*) FROM workflow_sample WHERE run_id = %s::uuid AND kind = 'random'", (run["id"],)).fetchone()[0] == 3
     # the queue: three items in draw order, their documents, nothing checked
     q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
-    assert q["mode"] == "sample" and [i["ord"] for i in q["items"]] == [0, 1, 2] and q["progress"] == {"drawn": 3, "checked": 0, "pending": 3, "disagreed": 0}
+    assert q["mode"] == "sample" and [i["ord"] for i in q["items"]] == [0, 1, 2]
+    assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 0, "pending": 3, "disagreed": 0}
     assert sum(d["n_items"] for d in q["documents"]) == 3 and all(d["filename"] for d in q["documents"]) and q["satisfied"] is False and q["next"] is None
     # the same draw again (idempotent on the seed): the engine never redraws on a read
     assert c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()["items"] == q["items"]
@@ -66,11 +67,11 @@ def test_a_sampled_gate_draws_queues_and_counts(monkeypatch) -> None:
                           patch=[{"field_path": "notes", "value": "fixed"}])
     conn.commit()
     q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
-    assert q["progress"] == {"drawn": 3, "checked": 2, "pending": 1, "disagreed": 1}
+    assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 2, "pending": 1, "disagreed": 1}
     assert c.post(f"/api/workflow-runs/{run['id']}/resume", headers=H, json={}).status_code == 409
     records.verify_record(conn, ids[2], status="verified"); conn.commit()
     q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
-    assert q["progress"] == {"drawn": 3, "checked": 3, "pending": 0, "disagreed": 2} and q["satisfied"] and q["next"] == {"action": "resume"}
+    assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 3, "pending": 0, "disagreed": 2} and q["satisfied"] and q["next"] == {"action": "resume"}
     # a record verified outside the draw is an ad-hoc audit: in the badge's audited share, not in the sample
     other = next(r for (r,) in conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid", (ds,)).fetchall() if r not in ids)
     records.verify_record(conn, other, status="verified"); conn.commit()

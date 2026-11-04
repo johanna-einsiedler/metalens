@@ -8,6 +8,18 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Linked datasets and a joint review: the tables and the claims of the same papers as one process
+
+- An extract step may name its dataset role; a workflow with two such steps runs over a
+  **dataset group** — two datasets sharing the workflow and a group id, linked from the dataset
+  page. One run takes a new paper's tables file and claims file into their own datasets, the
+  checks read across the group (the claims against the paper's own tables), every member's
+  panel shows the run, and a release of one member releases the other with it.
+- A `review` step is a joint review stage: one gate whose worklist walks each new paper's
+  documents together — the regression columns, then the claims with their verdicts against the
+  tables — in the workspace queue across both datasets. The bundled `econ` workflow is that
+  process; `econ-regressions` and `econ-claims` remain the single-dataset variants.
+
 ### Pipelines and loops: k runs with a vote, follow-up steps by reference, re-runs on findings
 
 - A live extract step may run its preset `k` times per paper and merge the runs by a `vote`

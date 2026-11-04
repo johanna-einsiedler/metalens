@@ -149,7 +149,9 @@ def test_what_this_release_refuses_at_plan_time() -> None:
     doc = copy.deepcopy(GOOD); doc["steps"][0]["review"] = {"mode": "sample", "n": 5}
     assert workflows.later_problems(ws.normalize(doc)) == []                     # a sampled review runs
     doc = copy.deepcopy(GOOD); doc["steps"].insert(1, {"id": "second", "kind": "extract", "preset": ECON})
-    assert any("linked datasets" in m for m in workflows.later_problems(ws.normalize(doc)))
+    assert any("distinct dataset role" in m for m in workflows.later_problems(ws.normalize(doc)))   # two sides need roles (a group)
+    doc["steps"][0]["dataset"] = "a"; doc["steps"][1]["dataset"] = "b"
+    assert workflows.later_problems(ws.normalize(doc)) == []
 
 
 def test_every_bundled_preset_has_a_valid_implicit_workflow() -> None:

@@ -1705,7 +1705,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
                   d.prompt, d.model, d.updated_at, d.git_pr_url,
                   d.readme, d.keywords, d.attribution, d.citation, d.version, u.email,
                   d.publish_status, d.published_at, d.published_file_sha, d.github_source, d.published_meta,
-                  d.catalogue, d.zenodo_concept_doi, d.companion_dataset_id::text, d.workflow
+                  d.catalogue, d.zenodo_concept_doi, d.companion_dataset_id::text, d.workflow, d.group_id::text, d.group_role
            FROM dataset d LEFT JOIN users u ON u.id = d.owner_user_id
            WHERE d.id = %s::uuid""",
         (dataset_id,),
@@ -1752,7 +1752,7 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "citation_custom": bool(custom), "version": r[18] or 1,
             "zenodo_concept_doi": concept,         # always resolves to the newest release, once one was minted
             "companion_dataset_id": r[27],         # the dataset this one is cross-checked against (crosscheck.py)
-            "workflow": r[28],                      # the declared workflow, by contract (workflows.py); NULL = the preset's implicit one
+            "workflow": r[28], "group_id": r[29], "group_role": r[30],                      # the declared workflow, by contract (workflows.py); NULL = the preset's implicit one
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
