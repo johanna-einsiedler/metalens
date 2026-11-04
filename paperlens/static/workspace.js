@@ -18,6 +18,7 @@ import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLev
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
+let PROJECT_MEMBERS = null;   // a workflow dataset holds no papers itself: the ids of its linked datasets, whose papers it reviews
 let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
 let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
 let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "", STAGE_GO = 0;   // its cursor over the stage's items, per paper and stage
@@ -324,10 +325,19 @@ async function init() {
       // a joint review stage: the worklist spans the group's datasets (a paper's tables, then its claims)
       const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => r.documents || []).catch(() => [])));
       DOCS = lists.flat();
-      try { const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
+      try {
+        const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null;
+        if (ov.kind === "workflow") PROJECT_MEMBERS = QUEUE.datasets.slice();     // a run of a workflow dataset: its papers come through runs
+      } catch { /* */ }
     } else if (PROJECT) {
-      DOCS = (await api.documents({ dataset: PROJECT })).documents || [];
-      try { const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
+      let ov = null;
+      try { ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
+      if (ov && ov.kind === "workflow") {
+        PROJECT_MEMBERS = (ov.members || []).filter((m) => m.dataset).map((m) => m.dataset.id);
+        DOCS = await workflowDocs();
+      } else {
+        DOCS = (await api.documents({ dataset: PROJECT })).documents || [];
+      }
     } else if (docsParam) {
       const want = new Set(docsParam.split(",").filter(Boolean));
       DOCS = ((await api.documents({})).documents || []).filter((d) => want.has(d.document_id));
@@ -499,10 +509,21 @@ function startRoundPoll(since) {
   }, 8000);                                        // 8s poll (was 4s) — fewer document-list queries
 }
 
+// The papers of a workflow dataset: every linked dataset's documents, the sides of one paper
+// next to each other (by DOI, else title) in the order of the workflow's roles.
+async function workflowDocs() {
+  const lists = await Promise.all((PROJECT_MEMBERS || []).map((ds) => api.documents({ dataset: ds }).then((r) => r.documents || []).catch(() => [])));
+  const all = lists.flat(), first = new Map();
+  all.forEach((d, i) => { const k = (d.doi || d.title || d.document_id || "").toLowerCase(); if (!first.has(k)) first.set(k, i); });
+  const key = (d) => first.get((d.doi || d.title || d.document_id || "").toLowerCase());
+  return all.map((d, i) => [key(d), i, d]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+}
+
 async function reloadRoundDocs(since) {
   try {
     // In a dataset view (add-papers), the server attaches each finished paper to the
     // dataset, so a dataset-scoped refetch naturally grows to include the new ones.
+    if (PROJECT && PROJECT_MEMBERS) { DOCS = await workflowDocs(); return; }
     if (PROJECT) { DOCS = (await api.documents({ dataset: PROJECT })).documents || []; return; }
     const all = (await api.documents({})).documents || [];
     // a completed job's document belongs to this round even if a clock skew would push
@@ -587,7 +608,7 @@ function renderDocTabs() {
   // Add-papers entry point: from a dataset's review, jump back to the extract page in
   // add-papers mode (drag-drop first, this dataset's recipe reused) to add more.
   const importOnly = PROJECT_MODE === "import" || !!(DATA && DATA.spec && DATA.spec.meta && DATA.spec.meta.mode === "import");
-  const addBtn = PROJECT ? addPapersMenu(PROJECT, importOnly, "doctab doctab-add") : "";
+  const addBtn = PROJECT && !PROJECT_MEMBERS ? addPapersMenu(PROJECT, importOnly, "doctab doctab-add") : "";   // a workflow dataset gets its papers through a run
   const docTabs = DOCS.map((d) => {
     const nm = d.filename || d.title || "untitled";
     const shade = docShade(d);
@@ -1062,7 +1083,7 @@ function renderPanel() {
     + `<button class="btn btn-ghost" id="dljson" title="this paper">⬇ JSON</button>`
     + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="dlcsv" title="this paper">⬇ CSV</button>`)
     // the whole dataset from here, so a coder never has to leave the review to take the work away
-    + (PROJECT ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
+    + (PROJECT && !PROJECT_MEMBERS ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
         + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
         + `<a href="#" data-dl="json-reviewed">Reviewed records only · JSON</a><a href="#" data-dl="csv-reviewed">Reviewed records only · CSV</a></div></details>` : "")
     + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`)

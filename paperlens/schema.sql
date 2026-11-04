@@ -800,3 +800,16 @@ ALTER TABLE dataset ADD COLUMN IF NOT EXISTS group_id   uuid;
 ALTER TABLE dataset ADD COLUMN IF NOT EXISTS group_role text;
 CREATE INDEX IF NOT EXISTS dataset_group_idx ON dataset(group_id) WHERE group_id IS NOT NULL;
 ALTER TABLE workflow_run ADD COLUMN IF NOT EXISTS group_id uuid;
+
+-- ── workflow datasets: the row a group of linked datasets hangs from ─────────────────────
+-- A workflow over several presets has a dataset of its own: it carries the workflow, its id IS
+-- the group id of the linked datasets (one per preset, each with its role), and it holds no
+-- records itself — its papers are the members' papers. Groups made before it existed get theirs
+-- here, once (the NOT EXISTS makes it idempotent).
+INSERT INTO dataset (id, slug, title, owner_user_id, session_id, visibility, workflow, group_id, created_at, updated_at)
+SELECT g.group_id, 'workflow-' || g.group_id::text, coalesce(g.title, 'Dataset') || ' (workflow)', g.owner_user_id, g.session_id,
+       'private', g.workflow, g.group_id, g.created_at, now()
+FROM (SELECT DISTINCT ON (group_id) group_id, title, owner_user_id, session_id, workflow, created_at
+      FROM dataset WHERE group_id IS NOT NULL AND group_role IS NOT NULL
+      ORDER BY group_id, created_at) g
+WHERE NOT EXISTS (SELECT 1 FROM dataset p WHERE p.id = g.group_id);

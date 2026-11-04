@@ -99,14 +99,21 @@ def resolve(conn, dataset: dict) -> tuple[dict, bool]:
 # ── dataset groups: one workflow over linked datasets ─────────────────────────
 
 def group_of(conn, dataset: dict) -> dict | None:
-    """The group a dataset belongs to: ``{id, role, roles: {role: {dataset_id, title, schema_id}}}``,
-    or None for a dataset outside any group."""
+    """The group a dataset belongs to: ``{id, role, roles: {role: {dataset_id, title, schema_id}},
+    parent: {id, title} | None}``, or None for a dataset outside any group. The parent is the
+    workflow dataset — the row whose id is the group id, which carries the workflow and holds no
+    records; the members are the datasets of the workflow's presets, one per role."""
     gid = dataset.get("group_id")
     if not gid:
         return None
     rows = conn.execute("SELECT id::text, group_role, title, schema_id FROM dataset WHERE group_id = %s::uuid ORDER BY created_at", (gid,)).fetchall()
     roles = {r[1]: {"dataset_id": r[0], "title": r[2], "schema_id": r[3]} for r in rows if r[1]}
-    return {"id": gid, "role": dataset.get("group_role"), "roles": roles}
+    parent = next(({"id": r[0], "title": r[2]} for r in rows if r[0] == gid), None)
+    return {"id": gid, "role": dataset.get("group_role"), "roles": roles, "parent": parent}
+
+
+def is_workflow_dataset(dataset: dict | None) -> bool:
+    return bool(dataset) and bool(dataset.get("group_id")) and dataset.get("group_id") == dataset.get("id")
 
 
 def step_datasets(conn, dataset: dict, spec: dict) -> dict[str, str]:
@@ -148,29 +155,94 @@ def dataset_for_step(conn, run: dict, step_id: str) -> str:
 
 
 def declare(conn, dataset: dict, spec: dict | None) -> dict:
-    """Set (or clear) a dataset's workflow. A workflow with dataset roles makes the dataset a
-    group member in the role whose preset it uses; the other roles are linked afterwards
-    (``link_role``). Returns the dataset as stored."""
+    """Set (or clear) a dataset's workflow. A workflow over several presets (extract steps with
+    dataset roles) lives on a workflow dataset of its own: declaring it on a plain dataset makes
+    that workflow dataset and links this one into the role whose preset it uses; the other roles
+    are linked afterwards (``link_role``). Clearing the workflow of a member takes it out of the
+    group. Returns the dataset as stored."""
     did = dataset["id"]
+    parent = is_workflow_dataset(dataset)
     if spec is None:
+        if parent:
+            raise RunRefused("A workflow dataset keeps its workflow; delete it to free its datasets.", 409)
         with conn.transaction():
-            conn.execute("UPDATE dataset SET workflow = NULL, updated_at = now() WHERE id = %s::uuid", (did,))
+            conn.execute("UPDATE dataset SET workflow = NULL, group_id = NULL, group_role = NULL, updated_at = now() WHERE id = %s::uuid", (did,))
         return records.get_dataset(conn, did)
     roles = ws.roles(spec)
+    wid = ws.workflow_id(spec)
+    if parent:
+        if not roles:
+            raise RunRefused("A workflow dataset runs a workflow over several presets.", 422)
+        with conn.transaction():
+            conn.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE group_id = %s::uuid", (wid, did))
+        _sync_companions(conn, records.get_dataset(conn, did), spec)
+        return records.get_dataset(conn, did)
+    if not roles:
+        with conn.transaction():
+            conn.execute("UPDATE dataset SET workflow = %s, group_id = NULL, group_role = NULL, updated_at = now() WHERE id = %s::uuid", (wid, did))
+        return records.get_dataset(conn, did)
     base = (dataset.get("schema_id") or "").partition("@")[0]
     mine = next((r for r, info in roles.items() if ws.preset_base(info["preset"]) == base), None)
-    with conn.transaction():
-        if roles and mine:
-            gid = dataset.get("group_id") or str(uuid.uuid4())
-            conn.execute("UPDATE dataset SET workflow = %s, group_id = %s::uuid, group_role = %s, updated_at = now() WHERE id = %s::uuid",
-                         (ws.workflow_id(spec), gid, mine, did))
-            # the other members follow the same declaration
-            conn.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE group_id = %s::uuid AND id <> %s::uuid",
-                         (ws.workflow_id(spec), gid, did))
-        else:
-            conn.execute("UPDATE dataset SET workflow = %s, updated_at = now() WHERE id = %s::uuid", (ws.workflow_id(spec), did))
-    _sync_companions(conn, records.get_dataset(conn, did), spec)
+    if mine is None:
+        raise RunRefused(f"This workflow does not extract with this dataset's preset ({base}).", 422)
+    gid = dataset.get("group_id")
+    if gid:                                                # already linked: the whole group follows
+        with conn.transaction():
+            conn.execute("""UPDATE dataset SET workflow = %s, group_role = CASE WHEN id = %s::uuid THEN %s ELSE group_role END, updated_at = now()
+                            WHERE group_id = %s::uuid""", (wid, did, mine, gid))
+        _sync_companions(conn, records.get_dataset(conn, did), spec)
+        return records.get_dataset(conn, did)
+    create_workflow_dataset(conn, spec, owner_user_id=dataset.get("owner_user_id"), session_id=dataset.get("session_id"),
+                            members={mine: did}, title=None)
     return records.get_dataset(conn, did)
+
+
+def create_workflow_dataset(conn, spec: dict, *, owner_user_id: str | None, session_id: str | None,
+                            title: str | None = None, members: dict[str, str] | None = None, who=None) -> dict:
+    """Make the dataset a workflow runs on. A workflow over several presets gets a workflow
+    dataset — the group's own row, carrying the workflow — with the given datasets linked into
+    their roles (``{role: dataset id}``; the rest are linked or created later). A workflow over
+    one preset runs on a dataset of that preset, which carries the workflow itself. Returns the
+    dataset to open."""
+    roles = ws.roles(spec)
+    meta = spec.get("meta") or {}
+    wf_title = meta.get("title") or spec["id"]
+    wid = ws.workflow_id(spec)
+    if not roles:
+        consumed = consumed_steps(spec)
+        ex = next((st for st in spec.get("steps") or [] if st.get("kind") in ("extract", "agent") and st["id"] not in consumed), None)
+        if ex is None or not ex.get("preset"):
+            raise RunRefused("This workflow extracts nothing.", 422)
+        run_spec = presets.resolve_run(conn, schema_id=ex["preset"], params={})
+        records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
+        d = records.create_dataset(conn, title=title or wf_title, schema_id=ex["preset"], owner_user_id=owner_user_id, session_id=session_id)
+        return declare(conn, records.get_dataset(conn, d["id"]), spec)
+    members = {r: m for r, m in (members or {}).items() if m}
+    first_title = None
+    for role, mid in members.items():
+        if role not in roles:
+            raise RunRefused(f"The workflow has no dataset role {role!r}.", 422)
+        other = records.get_dataset(conn, mid) if records._is_uuid(mid) else None   # noqa: SLF001
+        if other is None or (who is not None and not records.is_dataset_owner(conn, mid, who)):
+            raise RunRefused("Dataset not found.", 404)
+        if (other.get("schema_id") or "").partition("@")[0] != ws.preset_base(roles[role]["preset"]):
+            raise RunRefused(f"That dataset is not under the {ws.preset_base(roles[role]['preset'])!r} preset.", 422)
+        if other.get("group_id"):
+            raise RunRefused("That dataset is already part of a workflow.", 409)
+        first_title = first_title or other.get("title")
+    pid = str(uuid.uuid4())
+    name = (title or "").strip() or (f"{first_title} (workflow)" if first_title else wf_title)
+    with conn.transaction():
+        conn.execute("""INSERT INTO dataset (id, slug, title, owner_user_id, session_id, visibility, workflow, group_id, updated_at)
+                        VALUES (%s::uuid, %s, %s, %s, %s, 'private', %s, %s::uuid, now())""",
+                     (pid, f"workflow-{pid}", name, owner_user_id if records._is_uuid(owner_user_id or "") else None,   # noqa: SLF001
+                      session_id, wid, pid))
+        for role, mid in members.items():
+            conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
+                         (pid, role, wid, mid))
+    out = records.get_dataset(conn, pid)
+    _sync_companions(conn, out, spec)
+    return out
 
 
 def link_role(conn, dataset: dict, role: str, *, other_id: str | None = None, create_title: str | None = None, who=None) -> dict:
@@ -200,7 +272,8 @@ def link_role(conn, dataset: dict, role: str, *, other_id: str | None = None, cr
             from . import presets
             run_spec = presets.resolve_run(conn, schema_id=pin, params={})
             records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
-            new = records.create_dataset(conn, title=create_title or f"{dataset.get('title') or 'Dataset'} — {roles[role]['label']}", schema_id=pin,
+            base_title = (dataset.get("title") or "Dataset").removesuffix(" (workflow)")
+            new = records.create_dataset(conn, title=create_title or f"{base_title} — {roles[role]['label']}", schema_id=pin,
                                          owner_user_id=dataset.get("owner_user_id"), session_id=dataset.get("session_id"))
             conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
                          (gid, role, ws.workflow_id(spec), new["id"]))
@@ -305,8 +378,12 @@ def workflows_for(conn, dataset: dict) -> list[dict]:
             continue
         bases = {ws.preset_base(p) for _s, p in ws.pins(spec)}
         if base and base in bases:
+            roles = ws.roles(spec)
+            role = next((r for r, info in roles.items() if ws.preset_base(info["preset"]) == base), None)
             out.append({"id": spec["id"], "contract": ws.workflow_id(spec), "title": (spec.get("meta") or {}).get("title"),
-                        "tagline": (spec.get("meta") or {}).get("tagline"), "steps": [s["id"] for s in spec["steps"]]})
+                        "tagline": (spec.get("meta") or {}).get("tagline"), "steps": [s["id"] for s in spec["steps"]],
+                        # over several presets: the dataset joins a workflow dataset in this role
+                        "role": role, "roles": [{"role": r, "label": info["label"]} for r, info in roles.items()]})
     return out
 
 
@@ -1547,6 +1624,88 @@ def run_view(conn, run: dict | None) -> dict | None:
     out["papers"] = [{k: j[k] for k in ("pdf_sha256", "filename", "step_id", "status", "document_id", "error")} for j in js]
     out["progress"] = {"papers": {"done": out["jobs"]["done"] + out["jobs"]["attached"], "total": out["jobs"]["total"]},
                        "steps": {"done": sum(1 for s in steps if s["status"] in ("done", "skipped")), "total": len(steps), "current": run.get("current_step")}}
+    out["now"] = now_running(conn, run, steps, js)
+    return out
+
+
+def _parse_iso(v) -> datetime | None:
+    if not v:
+        return None
+    try:
+        t = datetime.fromisoformat(str(v))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+def history_pace(conn, kind: str, preset_schema_id: str | None = None) -> float | None:
+    """Seconds per unit of work in the last finished steps of this kind on this server: per paper
+    for an extract step (live papers only), per model call for a derive step. None without history."""
+    rows = conn.execute(
+        """SELECT extract(epoch FROM (finished_at - started_at)), n_calls FROM workflow_step_run
+           WHERE kind = %s AND status = 'done' AND n_calls > 0 AND started_at IS NOT NULL AND finished_at IS NOT NULL
+             AND (%s::text IS NULL OR preset_schema_id = %s)
+           ORDER BY finished_at DESC LIMIT 10""", (kind, preset_schema_id, preset_schema_id)).fetchall()
+    secs = sum(float(r[0] or 0) for r in rows)
+    units = sum(int(r[1] or 0) for r in rows)
+    return secs / units if units and secs > 0 else None
+
+
+def now_running(conn, run: dict, steps: list[dict], js: list[dict]) -> dict | None:
+    """The step a run is on and what it is doing: ``{step, label, kind, phase, done, total,
+    elapsed_s, eta_s, basis}``. The estimate is measured, never guessed: from this run's own pace
+    once a paper has landed, else from the last finished steps of the same kind (and contract) on
+    this server, else none. A step that waits for people (uploads, a review, a key) has none."""
+    status = run.get("status") or ""
+    if status in TERMINAL or status == "planned":
+        return None
+    sid = run.get("current_step") or (status.split(":", 1)[1] if ":" in status else None)
+    sr = next((x for x in steps if x["step_id"] == sid), None)
+    if sr is None:
+        return None
+    st = ws.steps_by_id(run.get("workflow") or {}).get(sid) or {}
+    out: dict = {"step": sid, "label": st.get("label") or sid, "kind": sr["kind"], "phase": None, "done": None, "total": None,
+                 "elapsed_s": None, "eta_s": None, "basis": None}
+    started = _parse_iso(sr.get("started_at"))
+    if started:
+        out["elapsed_s"] = max(0, int((_now() - started).total_seconds()))
+    if status.startswith("awaiting_review:"):
+        rv = sr.get("review") or {}
+        out.update(phase="waiting for review", done=rv.get("checked"), total=rv.get("total"))
+        return out
+    if status.startswith("needs_key:"):
+        out["phase"] = "waiting for an API key"
+        return out
+    kind = sr["kind"]
+    if kind in ("extract", "agent"):
+        mine = [j for j in js if j["step_id"] == sid]
+        done = [j for j in mine if j["status"] in JOB_DONE]
+        failed = sum(1 for j in mine if j["status"] in ("failed", "cancelled"))
+        out.update(done=len(done), total=len(mine))
+        if st.get("source") == "supplied":
+            out["phase"] = "waiting for uploads"
+            return out
+        out["phase"] = "extracting"
+        remaining = max(0, len(mine) - len(done) - failed)
+        last = max((t for t in (_parse_iso(j.get("updated_at")) for j in done) if t), default=None)
+        if done and started and last:
+            out["eta_s"] = int(remaining * max(1.0, (last - started).total_seconds() / len(done)))
+            out["basis"] = "this run"
+        else:
+            pace = history_pace(conn, "extract", sr.get("preset_schema_id"))
+            if pace:
+                out["eta_s"] = max(0, int(len(mine) * pace - (out["elapsed_s"] or 0)))
+                out["basis"] = "earlier runs"
+        return out
+    if kind == "derive":
+        planned = next((x.get("n_calls") for x in ((run.get("plan") or {}).get("steps") or []) if x.get("id") == sid), None) or 0
+        out.update(phase="model calls" if planned else "building", total=planned or None)
+        pace = history_pace(conn, "derive") if planned else None
+        if pace:
+            out["eta_s"] = max(0, int(planned * pace - (out["elapsed_s"] or 0)))
+            out["basis"] = "earlier runs"
+        return out
+    out["phase"] = {"check": "checking", "crosscheck": "checking", "review": "collecting the review", "loop": "deciding whether to repeat"}.get(kind, "working")
     return out
 
 
@@ -1580,7 +1739,11 @@ def panel(conn, dataset_id: str, *, who, owner: bool) -> dict:
         group = {"id": (grp or {}).get("id"), "role": (grp or {}).get("role"),
                  "roles": [{"role": r, "step": info["step"], "label": info["label"], "preset": info["preset"],
                             "dataset": ((grp or {}).get("roles") or {}).get(r)} for r, info in roles.items()]}
-    return {"group": group,
+    member_of = None
+    if grp and grp.get("parent") and not is_workflow_dataset(d):
+        member_of = {"id": grp["parent"]["id"], "title": grp["parent"]["title"], "role": d.get("group_role"),
+                     "label": (roles.get(d.get("group_role")) or {}).get("label")}
+    return {"group": group, "kind": d.get("kind") or "dataset", "member_of": member_of,
             "workflow": {"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1),
                          "title": (spec.get("meta") or {}).get("title"), "tagline": (spec.get("meta") or {}).get("tagline"),
                          "implicit": implicit, "declared": d.get("workflow"), "problems": problems, "has_card": ws.has_card(spec)},
@@ -1590,3 +1753,106 @@ def panel(conn, dataset_id: str, *, who, owner: bool) -> dict:
             "gate": {"open": not blocking and not review_gate.blocking_release(gates), "blocking": blocking,
                      "gates_blocking": [g["step_id"] for g in review_gate.blocking_release(gates)]},
             "available": workflows_for(conn, d) if owner else [], "owner": owner}
+
+
+# ── workflow datasets: the page and the list ──────────────────────────────────
+
+def overview(conn, parent: dict, *, owner: bool) -> dict:
+    """A workflow dataset's page: the workflow, the linked datasets (one per preset, each with its
+    counts and latest release), the papers — one row per PDF with each side's document beside
+    it — and what the dataset-level steps made."""
+    from . import derived, releases
+    spec, _implicit = resolve(conn, parent)
+    grp = group_of(conn, parent) or {"roles": {}}
+    roles = ws.roles(spec)
+    by_id = ws.steps_by_id(spec)
+    members = []
+    for role, info in roles.items():
+        m = grp["roles"].get(role)
+        pspec = _preset_spec(conn, ws.preset_base(info["preset"])) or {}
+        item = {"role": role, "label": info["label"], "step": info["step"], "preset": info["preset"],
+                "preset_id": ws.preset_base(info["preset"]), "preset_title": (pspec.get("meta") or {}).get("title"),
+                "source": (by_id.get(info["step"]) or {}).get("source"), "dataset": None}
+        if m:
+            n = conn.execute("SELECT count(*), count(DISTINCT document_id) FROM record WHERE dataset_id = %s::uuid", (m["dataset_id"],)).fetchone()
+            rel = releases.latest(conn, m["dataset_id"])
+            item["dataset"] = {"id": m["dataset_id"], "title": m["title"], "schema_id": m["schema_id"], "n_records": n[0], "n_papers": n[1],
+                               "release": {"number": rel["number"], "created_at": str(rel.get("created_at") or "")[:10],
+                                           "doi": rel.get("doi")} if rel else None}
+        members.append(item)
+    ids = [m["dataset"]["id"] for m in members if m["dataset"]]
+    papers: dict[str, dict] = {}
+    if ids:
+        for (role, sha, doc_id, filename, title, doi, year, n, n_ver, n_flag, made) in conn.execute(
+                """SELECT d.group_role, ed.pdf_sha256, ed.id::text, ed.filename, p.title, p.doi, p.year,
+                          count(r.id), count(r.id) FILTER (WHERE r.verification_status = 'verified'),
+                          count(r.id) FILTER (WHERE r.verification_status = 'flagged'), min(ed.created_at)
+                   FROM record r JOIN dataset d ON d.id = r.dataset_id
+                   JOIN extraction_document ed ON ed.id = r.document_id
+                   LEFT JOIN paper p ON p.id = ed.paper_id
+                   WHERE r.dataset_id = ANY(%s::uuid[])
+                   GROUP BY d.group_role, ed.pdf_sha256, ed.id, ed.filename, p.title, p.doi, p.year
+                   ORDER BY min(ed.created_at)""", (ids,)).fetchall():
+            key = sha or doc_id
+            row = papers.setdefault(key, {"pdf_sha256": sha, "title": None, "doi": None, "year": None, "filename": None, "documents": {}})
+            row["title"] = row["title"] or title
+            row["doi"] = row["doi"] or doi
+            row["year"] = row["year"] or year
+            row["filename"] = row["filename"] or (filename if owner else None)
+            row["documents"][role] = {"document_id": doc_id, "n_records": n, "n_verified": n_ver, "n_flagged": n_flag}
+    linked_roles = [m["role"] for m in members if m["dataset"]]
+    out_papers = list(papers.values())
+    for row in out_papers:
+        row["complete"] = all(r in row["documents"] for r in linked_roles)
+        row["reviewed"] = bool(row["documents"]) and all(d["n_records"] and d["n_verified"] + d["n_flagged"] >= d["n_records"] for d in row["documents"].values())
+    made = []
+    for st in derived.steps_for(spec):
+        did = step_datasets(conn, parent, spec).get(st["id"])
+        if not did:
+            continue
+        stt = derived.state(conn, did, st)
+        made.append({"step": st["id"], "label": st.get("label") or st["id"], "dataset_id": did, **{k: stt.get(k) for k in ("state", "because", "version", "draft_id", "derived_id", "committed_rows")}})
+    meta = spec.get("meta") or {}
+    return {"kind": "workflow", "id": parent["id"], "title": parent.get("title"), "description": parent.get("description"),
+            "visibility": parent.get("visibility"), "owner_user_id": parent.get("owner_user_id"), "created_at": parent.get("created_at"),
+            "workflow": {"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1), "title": meta.get("title"),
+                         "tagline": meta.get("tagline"), "has_card": ws.has_card(spec)},
+            "members": members, "papers": out_papers, "derived": made,
+            "stats": {"n_papers": len(out_papers), "n_complete": sum(1 for r in out_papers if r["complete"]),
+                      "n_reviewed": sum(1 for r in out_papers if r["reviewed"]),
+                      "n_records": sum(m["dataset"]["n_records"] for m in members if m["dataset"])}}
+
+
+def list_mine(conn, *, owner_user_id: str | None, session_id: str | None) -> list[dict]:
+    """My workspace → Workflows: every workflow dataset of the caller and every dataset that runs
+    a declared single-preset workflow, each with its datasets and what its latest run is doing."""
+    uid = owner_user_id if records._is_uuid(owner_user_id or "") else None   # noqa: SLF001
+    if not uid and not session_id:
+        return []
+    rows = conn.execute(
+        """SELECT id::text FROM dataset d
+           WHERE d.workflow IS NOT NULL AND (d.group_id IS NULL OR d.group_id = d.id)
+             AND ((%s::uuid IS NOT NULL AND d.owner_user_id = %s::uuid) OR (%s::text IS NOT NULL AND d.session_id = %s AND d.owner_user_id IS NULL))
+           ORDER BY coalesce(d.updated_at, d.created_at) DESC LIMIT 50""", (uid, uid, session_id, session_id)).fetchall()
+    out = []
+    for (did,) in rows:
+        d = records.get_dataset(conn, did)
+        if d is None:
+            continue
+        spec = get_workflow(d.get("workflow"))
+        meta = (spec or {}).get("meta") or {}
+        if is_workflow_dataset(d):
+            grp = group_of(conn, d) or {"roles": {}}
+            roles = ws.roles(spec) if spec else {}
+            datasets = [{"role": r, "label": info["label"], "id": (grp["roles"].get(r) or {}).get("dataset_id"),
+                         "title": (grp["roles"].get(r) or {}).get("title")} for r, info in roles.items()]
+        else:
+            datasets = [{"role": None, "label": None, "id": did, "title": d.get("title")}]
+        run = active_run(conn, did) or next(iter(list_runs(conn, did, limit=1)), None)
+        v = run_view(conn, run) if run else None
+        out.append({"id": did, "kind": d.get("kind") or "dataset", "title": d.get("title"),
+                    "workflow": {"id": (spec or {}).get("id") or d.get("workflow"), "title": meta.get("title") or d.get("workflow"),
+                                 "version": (spec or {}).get("version")},
+                    "datasets": datasets,
+                    "run": {k: v.get(k) for k in ("id", "status", "created_at", "finished_at", "now", "progress")} if v else None})
+    return out

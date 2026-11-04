@@ -1058,6 +1058,20 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .wf-run { flex-direction: column; align-items: flex-start; gap: 4px; }
 .wf-papers { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
 .wf-paper small { color: var(--text-muted); }
+/* the step a run is on, and the line that says what it is doing */
+.wf-current { background: var(--accent-wash); border-radius: var(--radius-sm); }
+.wf-nowchip { display: inline-flex; align-items: center; gap: 5px; }
+.wf-nowchip .spin { width: 9px; height: 9px; }
+.wf-nowline { font-size: 13px; }
+/* after an import: the two next steps, side by side */
+.ds-next-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; align-items: start; }
+.ds-next-opt { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 13px; color: inherit; text-decoration: none; }
+a.ds-next-opt:hover { border-color: var(--accent); background: var(--accent-wash); }
+.ds-next-wf { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 4px; }
+/* a workflow dataset: its linked datasets and its papers, each side in a column */
+.wd-member { flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.wd-ptable td:first-child { min-width: 220px; }
 .wf-paper.failed small { color: var(--error); }
 .wf-paper.done small, .wf-paper.attached small { color: var(--success); }
 .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }

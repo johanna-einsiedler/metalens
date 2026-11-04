@@ -33,7 +33,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   (`gate` lists the steps that must be fresh and reviewed). `agent`
   and `input.previous` are grammar-valid and refused at plan time until their release, and so
   is a second extract step: a workflow runs one preset into one dataset for now (claims and
-  tables stay two datasets joined by the companion cross-check); linked datasets come later.
+  tables stay two datasets joined by the companion cross-check); linked datasets: see below.
 - **Review** is an attribute of a step: `mode: none | all | sample`, `unit: entry | paper`,
   `blocks: next | release` (default `release`: later steps run, only the release waits). A
   draft-producing step defaults to `all`, an extract step to `none`. `sample` draws `n` records
@@ -102,20 +102,40 @@ and the claims of economics articles — when each extract step names its datase
 {"id": "joint",  "kind": "review", "over": ["tables", "claims"], "review": {"mode": "all", "unit": "paper", "blocks": "release"}}
 ```
 
-Declaring such a workflow on a dataset makes it a member of a **dataset group** in the role whose
-preset it uses; the other roles are linked from the dataset page ("link or create…": one of your
-datasets under that role's preset, or an empty new one). The members share the group id and the
-workflow; a check that needs a companion finds it in the group. A run starts from any member and
-spans the group: a new paper needs one file per role (the Import page tagged with the run and the
-step lands each in its dataset), every step is judged against the dataset it writes to or reads,
-and the Workflow panel of every member shows the same run.
+Such a workflow lives on a **workflow dataset** of its own, one level above the presets' datasets:
+
+- the tables dataset under the tables preset, the claims dataset under the claims preset — each a
+  plain dataset with its own records, releases and page;
+- the workflow dataset, which carries the workflow, links one dataset per role and holds no records
+  itself. Its page lists the linked datasets with their presets, the papers one row per PDF with
+  each side's document beside it, what the dataset-level steps made (the corpus edges), the
+  Workflow panel with the runs, and one release for all of them.
+
+In storage the workflow dataset is the group's own row: its id is the `group_id` its members carry
+(each with its `group_role`). It is made from **My workspace → Workflows → New workflow**, or from a
+dataset's page (**Add to a workflow**, offered right after an import): the dataset joins in the role
+whose preset it uses, and the other roles are linked or created from the workflow dataset's page
+(one of your datasets under that role's preset, or an empty new one). A check that needs a
+companion finds it among the members. A run starts from the workflow dataset and spans its
+members: a new paper needs one file per role (the Import page tagged with the run and the step
+lands each in its dataset), and every step is judged against the dataset it writes to or reads. A
+member's page points to its workflow dataset. Deleting the workflow dataset frees its members:
+they keep their records and become plain datasets of their preset again. A workflow over one preset
+needs no workflow dataset; it runs on the dataset of that preset.
 
 A `review` step is a joint review stage: one gate over the documents the run made in the steps it
 names, whose worklist walks each paper's documents together — the paper's regression columns,
 then its claims with their verdicts against the tables — in the workspace queue, across both
-datasets. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws papers. A
-release of one member releases the others with it (each under its own number and gate; the
-response lists them), so the two datasets stay in step.
+datasets. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws papers.
+Releasing the workflow dataset releases each member under its own number and gate (the response
+lists them, and names a member whose gate still holds); a release cut from one member releases the
+others with it, so the datasets stay in step.
+
+While a run is on, the panel says which step it is on and what it is doing — waiting for uploads
+("1 of 2 arrived"), extracting ("3 of 10 papers"), model calls, waiting for a review or a key —
+and, where it can be measured, roughly how long it still takes: from this run's own pace once a
+paper has landed, else from the last finished steps of the same kind on the server. No estimate
+is shown for a step that waits for people, or before anything could be measured.
 
 ## Pipelines: k runs, a vote, a follow-up step
 

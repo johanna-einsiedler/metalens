@@ -1512,6 +1512,7 @@ def public_datasets_with_badges(conn: psycopg.Connection,
         FROM dataset d LEFT JOIN rec ON rec.dataset_id = d.id
                        LEFT JOIN users u ON u.id = d.owner_user_id
         WHERE d.visibility = 'public' AND d.publish_status = 'published' AND d.catalogue
+          AND (d.group_id IS NULL OR d.group_id <> d.id)
           AND (%s::text IS NULL OR d.search_tsv @@ websearch_to_tsquery('english', %s))
           AND (%s::text[] IS NULL OR split_part(d.schema_id, '@', 1) = ANY(%s::text[])
                OR EXISTS (SELECT 1 FROM record r2 WHERE r2.dataset_id = d.id AND split_part(r2.schema_id, '@', 1) = ANY(%s::text[])))
@@ -1678,12 +1679,13 @@ def list_datasets(conn: psycopg.Connection, *, owner_user_id: str | None = None,
     """Datasets visible to the principal: public + owned (by user, or by anon session)."""
     rows = conn.execute(
         """SELECT d.id, d.slug, d.title, d.description, d.schema_id, d.visibility,
-                  d.owner_user_id, d.session_id, d.created_at, count(r.id) AS n_records
+                  d.owner_user_id, d.session_id, d.created_at, count(r.id) AS n_records, d.group_id, d.group_role
            FROM dataset d
            LEFT JOIN record r ON r.dataset_id = d.id
-           WHERE d.visibility = 'public'
+           WHERE (d.visibility = 'public'
               OR (%s::text IS NOT NULL AND d.owner_user_id::text = %s::text)
-              OR (%s::text IS NOT NULL AND d.session_id = %s::text AND d.owner_user_id IS NULL)
+              OR (%s::text IS NOT NULL AND d.session_id = %s::text AND d.owner_user_id IS NULL))
+             AND (d.group_id IS NULL OR d.group_id <> d.id)      -- a workflow dataset holds no records of its own
            GROUP BY d.id
            ORDER BY d.created_at DESC
            LIMIT %s""",
@@ -1693,7 +1695,8 @@ def list_datasets(conn: psycopg.Connection, *, owner_user_id: str | None = None,
         {"id": str(r[0]), "slug": r[1], "title": r[2], "description": r[3],
          "schema_id": r[4], "visibility": r[5],
          "owner_user_id": str(r[6]) if r[6] else None, "session_id": r[7],
-         "created_at": r[8].isoformat() if r[8] else None, "n_records": r[9]}
+         "created_at": r[8].isoformat() if r[8] else None, "n_records": r[9],
+         "workflow_dataset_id": str(r[10]) if r[10] else None, "group_role": r[11]}   # the workflow dataset this one is a side of
         for r in rows
     ]
 
@@ -1753,6 +1756,8 @@ def get_dataset(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             "zenodo_concept_doi": concept,         # always resolves to the newest release, once one was minted
             "companion_dataset_id": r[27],         # the dataset this one is cross-checked against (crosscheck.py)
             "workflow": r[28], "group_id": r[29], "group_role": r[30],                      # the declared workflow, by contract (workflows.py); NULL = the preset's implicit one
+            # a workflow dataset is the row a group of linked datasets hangs from: its id IS the group id
+            "kind": "workflow" if r[29] and r[29] == str(r[0]) else "dataset",
             # the owner's own citation name, for the owner's form only — the API strips it for
             # everyone else so an anonymous dataset stays anonymous
             "owner_citation_name": r[9]}
@@ -2754,6 +2759,12 @@ def delete_dataset(conn: psycopg.Connection, dataset_id: str) -> dict:
     most one dataset, so this only removes the records that were in THIS one. Returns the
     dataset + record delete counts."""
     with conn.transaction():
+        # a workflow dataset (the row its linked datasets hang from) takes nothing with it: the
+        # members keep their records and become plain datasets of their own preset again
+        conn.execute("""UPDATE dataset SET group_id = NULL, group_role = NULL, workflow = NULL, updated_at = now()
+                        WHERE group_id = %s::uuid AND id <> %s::uuid
+                          AND EXISTS (SELECT 1 FROM dataset p WHERE p.id = %s::uuid AND p.group_id = p.id)""",
+                     (dataset_id, dataset_id, dataset_id))
         rec = conn.execute("DELETE FROM record WHERE dataset_id = %s::uuid", (dataset_id,))
         cur = conn.execute("DELETE FROM dataset WHERE id = %s::uuid", (dataset_id,))
     return {"deleted": cur.rowcount, "records_deleted": rec.rowcount}
