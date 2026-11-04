@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Workflows</title>
+  <link rel="stylesheet" href="/static/theme.css"/>
+  <link rel="stylesheet" href="/static/base.css"/>
+  <link rel="stylesheet" href="/static/dash.css"/>
+</head>
+<body>
+  <header class="topbar" data-chrome></header>
+  <main class="wrap">
+    <div class="ds-head" style="align-items:flex-start">
+      <div><h2 style="margin:.2em 0 4px">Workflows</h2>
+        <p class="muted" style="margin:0;max-width:760px">A workflow is the process behind a dataset: which preset runs on each paper, the deterministic checks that follow, the dataset-level steps, and where a person looks before a release — every record, a random sample, or none. Each card documents its steps, its review policy and how to cite it, and lists the public datasets built with it.</p></div>
+    </div>
+    <section class="ws-section"><div id="wf-tiles" class="tiles tiles-sm"><p class="muted">Loading…</p></div></section>
+  </main>
+  <script type="module" src="/static/workflows.js"></script>
+  <script type="module">import { mountChrome } from "/static/chrome.js"; mountChrome();</script>
+</body>
+</html>

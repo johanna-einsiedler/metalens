@@ -6,7 +6,8 @@ An empirical economics article reports its results as regression tables. The Rob
 
 1. **Regression tables** (supplied). The pipeline's JSON files and the article PDFs are uploaded into the run; Metalens renders the pages, anchors every quoted cell on them, and stores one document per paper under the `econ-regression-tables` contract. Nothing is extracted by a model inside Metalens at this step.
 2. **Contract check** (deterministic, free). The declared contract — required fields, types, options, ranges — is re-checked on the values as stored, so a correction that breaks the shape is found before the release. Findings are notes on the records; they never change a reviewer's verdict.
-3. **Release**. Gated on the review of every new column: the release is cut only when each one is verified or flagged, or when the owner releases anyway, which the release records.
+3. **Number check** (deterministic, free). The printed cells of each column are checked against each other: every standard error names its coefficient, the parsed number is the printed one, stars agree with the significance level and the p-value, a t-statistic with its coefficient and standard error, the stated N with the printed one. Findings are notes on the records, shown first in the review.
+4. **Release**. Gated on the review of the drawn columns: the release is cut only when each one is verified or flagged, or when the owner releases anyway, which the release records.
 
 ## Review
 

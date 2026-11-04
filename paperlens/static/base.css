@@ -1064,3 +1064,12 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 
 .ds-gates .ds-gate.hold { font-weight: 600; }
 .ds-override { display: block; font-size: 12.5px; margin: 4px 0 6px; }
+
+/* the workflow card page: the steps as an ordered list */
+.wc-steps { list-style: none; padding: 0; margin: 8px 0; counter-reset: wcstep; }
+.wc-step { flex-direction: column; align-items: flex-start; gap: 2px; counter-increment: wcstep; }
+.wc-step > .wc-kind::before { content: counter(wcstep) ". "; color: var(--text-muted); }
+.wc-kind { font-size: 12px; color: var(--text-muted); }
+.wc-what { font-size: 13px; }
+.wc-help { font-size: 12.5px; }
+.wc-review { margin-top: 2px; }

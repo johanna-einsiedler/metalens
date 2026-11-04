@@ -72,6 +72,8 @@ def may_mint(conn, user: dict | None) -> str | None:
                      (user["id"],)).fetchone()[0]
     n += conn.execute("SELECT count(*) FROM preset_release WHERE doi_minted_by = %s::uuid AND zenodo_record_id IS NOT NULL "
                       "AND doi_minted_at > now() - interval '1 day'", (user["id"],)).fetchone()[0]
+    n += conn.execute("SELECT count(*) FROM workflow_release WHERE doi_minted_by = %s::uuid AND zenodo_record_id IS NOT NULL "
+                      "AND doi_minted_at > now() - interval '1 day'", (user["id"],)).fetchone()[0]
     if n >= per_day():
         return f"This account minted {n} DOIs in the last 24 hours; the limit is {per_day()}."
     return None
@@ -315,6 +317,83 @@ def deposit_preset(conn, release: dict, *, client: httpx.Client | None = None, m
                      (out["doi"], out["record_id"], out["url"], out.get("conceptdoi"),
                       minted_by if records._is_uuid(minted_by or "") else None, release["id"]))   # noqa: SLF001
     return preset_releases.get(conn, release["id"])
+
+
+def workflow_metadata(spec: dict, rel: dict, *, card_url: str | None, preset_dois: list[str] = (), dataset_dois: list[str] = ()) -> dict:
+    """A workflow release as a Zenodo record: software, its authors, the card's licence and
+    keywords, relations to the presets it pins (``requires`` their concept DOIs), the papers
+    and repositories the card names, the card page, and the dataset releases built with it."""
+    from . import preset_spec as ps
+    meta = spec.get("meta") or {}
+    cm = ps.card_meta(spec)
+    steps = spec.get("steps") or []
+    desc = [html.escape(meta.get("description") or ""), html.escape(rel.get("notes") or ""),
+            html.escape(f"Release v{rel['number']} of a Metalens workflow: {len(steps)} steps "
+                        f"({', '.join(st['kind'] for st in steps)}); contract {rel['contract']}; spec sha256 {rel['spec_sha']}. "
+                        "The deposit is the workflow itself (workflow.json with its card) with every step documented (steps.md); "
+                        "a Metalens dataset declares it to run the same process.")]
+    creators = []
+    for a in cm["authors"]:
+        c = {"name": f"{a.get('family')}, {a.get('given')}" if a.get("given") else a.get("family")}
+        if a.get("orcid"):
+            c["orcid"] = a["orcid"]
+        if a.get("affiliation"):
+            c["affiliation"] = a["affiliation"]
+        creators.append(c)
+    related = [{"identifier": d, "relation": "requires", "scheme": "doi"} for d in preset_dois if d]
+    for r in cm["related"]:
+        relation = _RELATION_OF.get(r.get("kind"))
+        if relation and r.get("doi"):
+            related.append({"identifier": r["doi"], "relation": relation, "scheme": "doi"})
+        elif relation and r.get("url"):
+            related.append({"identifier": r["url"], "relation": relation, "scheme": "url"})
+    related.append({"identifier": "https://github.com/johanna-einsiedler/metalens", "relation": "isPartOf", "scheme": "url"})
+    if card_url:
+        related.append({"identifier": card_url, "relation": "isDocumentedBy", "scheme": "url"})
+    related += [{"identifier": d, "relation": "isSourceOf", "scheme": "doi"} for d in dataset_dois if d]
+    seen: set[tuple] = set()
+    related = [x for x in related if not ((x["identifier"], x["relation"]) in seen or seen.add((x["identifier"], x["relation"])))]
+    out = {"title": f"{meta.get('title') or spec['id']} — Metalens workflow v{rel['number']}",
+           "upload_type": "software",
+           "description": "<p>" + "</p><p>".join(p for p in desc if p.strip()) + "</p>",
+           "creators": creators or [{"name": "Anonymous"}],
+           "version": f"v{rel['number']}",
+           "publication_date": str(rel.get("created_at") or "")[:10] or None,
+           "access_right": "open", "license": (cm.get("license") or "CC-BY-4.0").lower(),
+           "keywords": [k for k in cm["keywords"] if isinstance(k, str)] + ["Metalens", "workflow"],
+           "related_identifiers": related}
+    return {"metadata": {k: v for k, v in out.items() if v is not None}}
+
+
+def _prior_workflow(conn, workflow_id: str) -> int | None:
+    rows = conn.execute("SELECT zenodo_record_id, doi FROM workflow_release WHERE workflow_id = %s AND zenodo_record_id IS NOT NULL ORDER BY number DESC",
+                        (workflow_id,)).fetchall()
+    return next((r[0] for r in rows if counts_here(r[1])), None)
+
+
+def deposit_workflow(conn, release: dict, *, client: httpx.Client | None = None, minted_by: str | None = None,
+                     card_url: str | None = None, dataset_dois: list[str] = ()) -> dict:
+    """Mint the DOI for one workflow release (a workflow_releases row)."""
+    from . import workflow_bundle, workflow_releases
+    if not configured():
+        raise RuntimeError("Zenodo is not configured on this server (PAPERLENS_ZENODO_TOKEN).")
+    if counts_here(release.get("doi")):
+        raise RuntimeError(f"Release v{release['number']} already has a DOI: {release['doi']}.")
+    spec = release["spec"]
+    prior = _prior_workflow(conn, release["workflow_id"])
+    concept = workflow_releases.concept_doi(conn, release["workflow_id"])
+    preset_dois = [p.get("concept_doi") for p in release.get("presets") or [] if p.get("concept_doi")]
+    out = deposit_files(
+        prior_record_id=prior,
+        metadata=lambda doi: workflow_metadata(spec, release, card_url=card_url, preset_dois=preset_dois, dataset_dois=list(dataset_dois)),
+        files=lambda doi: workflow_bundle.build(spec, release, doi=doi, concept_doi=concept, card_url=card_url),
+        client=client)
+    with conn.transaction():
+        conn.execute("UPDATE workflow_release SET doi = %s, zenodo_record_id = %s, zenodo_url = %s, zenodo_concept_doi = %s, "
+                     "doi_minted_at = now(), doi_minted_by = %s::uuid WHERE id = %s::uuid",
+                     (out["doi"], out["record_id"], out["url"], out.get("conceptdoi"),
+                      minted_by if records._is_uuid(minted_by or "") else None, release["id"]))   # noqa: SLF001
+    return workflow_releases.get(conn, release["id"])
 
 
 def uploaded_name(path: str) -> str:

@@ -8,6 +8,22 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Workflow cards and releases: a citable version of the process
+
+- `/workflows` lists every curated workflow (one with a card) and `/workflow?id=` is its card:
+  introduction, the steps with their pinned presets linked to the preset cards, the review policy,
+  the checks with their codes, the versions and the citation, the public datasets that declare it
+  with their badges and last runs. "Workflows" joins the Metalens navigation.
+- Moderators cut numbered **releases** of a workflow from its card and mint a DOI per release:
+  the whole document frozen next to its contract and the preset releases its pins match, deposited
+  as a loadable workflow folder (`workflow.json`, `card.md`, `steps.md`, `CITATION.cff`, `README`)
+  with `requires` relations to the presets' DOIs. A run records the release it matched; the daily
+  DOI cap counts workflow deposits too.
+- The preset card's verification roll-up now pools the random draws across its public datasets.
+  `econ-claims` and `masem` gained cards.
+- A server in local mode moderates itself whether or not the owner row exists yet (the preset and
+  workflow release routes answered 403 under a bare `uvicorn` in local mode).
+
 ### Sampled review, the review queue, and an honest badge
 
 - A step may declare `review: {mode: sample, n | share, seed, stratify, unit}`: when it completes,

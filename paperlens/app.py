@@ -259,6 +259,18 @@ def dataset_page(slug: str | None = None, id: str | None = None, db=Depends(_pag
     return _page("dataset.html")
 
 
+@app.get("/workflows")
+def workflows_page() -> FileResponse:
+    """The workflow inventory: one card per curated workflow."""
+    return _page("workflows.html")
+
+
+@app.get("/workflow")
+def workflow_page() -> FileResponse:
+    """The public card of a curated workflow (?id=)."""
+    return _page("workflow.html")
+
+
 @app.get("/presets")
 def presets_page() -> FileResponse:
     """Public: the preset inventory — one card per curated preset (what it extracts, how it was
@@ -849,7 +861,7 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
 def _require_admin(db, who: Principal) -> dict:
     """The caller as a moderator (paperlens/admins.py), or 403. Never 404: a moderator endpoint
     that hides itself is only confusing to the one person allowed to use it."""
-    user = auth.get_user(db, who.user_id) if who.user_id else None
+    user = _viewer(db, who)                 # in local mode the fixed owner moderates, row or no row
     if not admins.is_admin(user):
         raise HTTPException(status_code=403, detail="This account does not moderate this server.")
     return user
@@ -1379,6 +1391,108 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict
                                "review": st.get("review"), "check": st.get("check")} for st in spec["steps"]],
                     "presets": [p for _s, p in ws.pins(spec)]})
     return {"workflows": out}
+
+
+@app.get("/api/workflows/cards")
+def workflow_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand), who: Principal = Depends(principal)) -> dict:
+    """Public: every curated workflow this brand offers, with its steps, pins, review policy,
+    latest release, citation and counts of what was built with it."""
+    from . import workflow_cards
+    out: dict = {"cards": workflow_cards.inventory(db, b)}
+    user = _viewer(db, who)
+    if admins.is_admin(user):
+        from . import zenodo
+        out["viewer"] = {"is_admin": True}
+        out["zenodo"] = zenodo.status(db, user)
+    return out
+
+
+@app.get("/api/workflows/{workflow_id}/card")
+def workflow_card(workflow_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Public: the card of a curated workflow — its text, every step documented, releases and
+    citations, the public datasets built with it, the verification roll-up. Not gated by brand."""
+    from . import workflow_cards
+    user = _viewer(db, who)
+    out = workflow_cards.card(db, workflow_id, viewer_is_admin=admins.is_admin(user), user=user)
+    if out is None:
+        raise HTTPException(status_code=404, detail="No card for this workflow.")
+    return out
+
+
+@app.get("/api/workflows/{workflow_id}/releases/{number}/bundle")
+def workflow_release_bundle(workflow_id: str, number: int, db=Depends(get_db)):
+    """Public: one release as a zip — a loadable workflow directory (workflow.json, card.md, any
+    derive prompt) plus steps.md, CITATION.cff and a README; the same files a deposit holds."""
+    from fastapi.responses import Response
+
+    from . import workflow_bundle, workflow_cards, workflow_releases, zenodo
+    wid = workflow_id.partition("@")[0]
+    rel = workflow_releases.get_by_number(db, wid, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such release.")
+    files = workflow_bundle.build(rel["spec"], rel, doi=rel["doi"] if zenodo.counts_here(rel.get("doi")) else None,
+                                  concept_doi=workflow_releases.concept_doi(db, wid), card_url=workflow_cards.card_url(wid))
+    return Response(content=workflow_bundle.as_zip(files, wid, number), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{wid}-v{number}.zip"'})
+
+
+class WorkflowReleaseBody(BaseModel):
+    notes: str = ""
+    doi: bool = False
+
+
+def _mint_workflow(db, rel: dict, who: Principal) -> dict:
+    from . import workflow_cards, zenodo
+    wid = rel["workflow_id"]
+    return zenodo.deposit_workflow(db, rel, minted_by=who.user_id, card_url=workflow_cards.card_url(wid),
+                                   dataset_dois=workflow_cards.dataset_dois_for(db, wid))
+
+
+@app.post("/api/workflows/{workflow_id}/releases")
+def workflow_release_create(workflow_id: str, body: WorkflowReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only: cut the next release of a curated workflow as shipped now. 404 for a
+    workflow without a card, 409 when nothing changed since the latest release."""
+    from . import workflow_releases, zenodo
+    user = _require_admin(db, who)
+    try:
+        rel = workflow_releases.create(db, workflow_id, notes=body.notes, created_by=who.user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    out: dict = {**workflow_releases.public_row(rel), "problems": []}
+    if body.doi:
+        why = "Zenodo isn’t configured on this server." if not zenodo.configured() else zenodo.may_mint(db, user)
+        if why:
+            out["problems"].append(f"no DOI: {why}")
+        else:
+            try:
+                out.update(workflow_releases.public_row(_mint_workflow(db, rel, who)))
+            except RuntimeError as exc:
+                out["problems"].append(f"no DOI: {exc}")
+    return out
+
+
+@app.post("/api/workflows/{workflow_id}/releases/{number}/doi")
+def workflow_release_doi(workflow_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Moderators only: mint the DOI of a workflow release on Zenodo."""
+    from . import workflow_releases, zenodo
+    user = _require_admin(db, who)
+    rel = workflow_releases.get_by_number(db, workflow_id.partition("@")[0], number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such release.")
+    if not zenodo.configured():
+        raise HTTPException(status_code=400, detail="Zenodo isn’t configured on this server.")
+    if zenodo.counts_here(rel.get("doi")):
+        raise HTTPException(status_code=409, detail=f"Release v{number} already has a DOI: {rel['doi']}")
+    why = zenodo.may_mint(db, user)
+    if why:
+        raise HTTPException(status_code=403, detail=why)
+    try:
+        rel = _mint_workflow(db, rel, who)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {**workflow_releases.public_row(rel), "minted": True}
 
 
 @app.get("/api/workflows/{workflow_id}")

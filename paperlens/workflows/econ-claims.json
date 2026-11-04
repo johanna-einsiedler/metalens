@@ -25,6 +25,9 @@
       "metalens"
     ]
   },
+  "card": {
+    "file": "econ-claims.card.md"
+  },
   "dataset": {
     "unit": "paper",
     "key": "pdf_sha256"
