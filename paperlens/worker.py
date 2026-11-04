@@ -19,6 +19,7 @@ from typing import Any
 
 from arq import Retry, create_pool, cron
 from arq.connections import RedisSettings
+from arq.worker import func
 
 from . import enrich, records
 
@@ -203,6 +204,25 @@ async def extract_job(ctx: dict, pdf_b64: str, prompt: str, **kw) -> dict:
     return await _extract_body(ctx, pdf_b64, prompt, **kw)
 
 
+async def workflow_step_job(ctx: dict, run_id: str, step_id: str) -> dict:
+    """A workflow's derive step (dataset-level model calls) as a durable job: the server key is
+    resolved on the worker from the run's model, never carried in the payload. The step runs in
+    a thread so the loop stays free; it advances the run when it is done."""
+    from . import workflows
+    loop = asyncio.get_running_loop()
+
+    def body():
+        conn = records.connect()
+        try:
+            run = workflows.run_step_job(conn, run_id, step_id)
+            return {"run_id": run_id, "step_id": step_id, "status": (run or {}).get("status")}
+        finally:
+            conn.close()
+
+    await _set_progress(ctx, f"{step_id}")
+    return await loop.run_in_executor(None, body)
+
+
 async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
     """Publish a dataset to the metalens-datasets repo as a PR. Only the dataset_id
     transits Redis — the GitHub token lives in the worker env, never in the payload."""
@@ -246,6 +266,17 @@ async def workflow_tick_task(ctx: dict) -> dict:
                 out[what] = out.get(what, 0) + 1
             except Exception as exc:  # noqa: BLE001
                 print(f"[workflow] reconcile {run['id']}/{job['pdf_sha256'][:8]}: {exc}", flush=True)
+        for run, sr in workflows.step_job_candidates(conn):
+            out["checked"] += 1
+            try:
+                status = await _job_status((sr.get("outputs") or {}).get("job_id"))
+            except Exception:  # noqa: BLE001
+                status = None
+            try:
+                what = workflows.apply_step_job_status(conn, run, sr, status)
+                out[what] = out.get(what, 0) + 1
+            except Exception as exc:  # noqa: BLE001
+                print(f"[workflow] reconcile step {run['id']}/{sr['step_id']}: {exc}", flush=True)
         if out["checked"]:
             print(f"[workflow] reconciled {out}", flush=True)
         return out
@@ -271,7 +302,7 @@ async def github_sync_task(ctx: dict) -> dict:
 
 
 class WorkerSettings:
-    functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task]
+    functions = [enrich_paper_task, ingest_task, extract_job, publish_dataset_task, func(workflow_step_job, timeout=1800)]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(workflow_tick_task, minute=set(range(1, 60, 2)), run_at_startup=False),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]

@@ -96,9 +96,32 @@ def build(conn, release: dict) -> dict[str, bytes]:
                       # the contract: what a dashboard may declare that it needs
                       "columns": [{k: c.get(k) for k in ("name", "label", "type", "scope", "roles", "n", "distinct") if c.get(k) is not None}
                                   | ({"derived": c["derived"]} if c.get("derived") else {}) for c in t["columns"]]})
+    # the derived units a workflow's derive steps made: their own tables, their evidence the source records' quotes
+    from . import derived
+    for du in derived.units_for(conn, release["dataset_id"], None, release=release):
+        t = derived.table(conn, release["dataset_id"], du["id"], owner=False, release=release)
+        if t is None:
+            continue
+        files[_unit_file(du["id"])] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION, "unit": t["unit"], "columns": t["columns"],
+                                              "papers": t["papers"], "records": t["records"], "rows": t["rows"], "derived": t["derived"]})
+        cells_d: dict[str, dict] = {}
+        for n, by_col in derived.cell_evidence(conn, release["dataset_id"], du["id"], t["rows"], release=release).items():
+            for col, e in by_col.items():
+                refs = []
+                for it in e["items"]:
+                    key = json.dumps(it, sort_keys=True, ensure_ascii=False, default=str)
+                    if key not in item_at:
+                        item_at[key] = len(items); items.append(it)
+                    refs.append(item_at[key])
+                cells_d.setdefault(n, {})[col] = {"k": "sources", "i": refs}
+        cells[du["id"]] = cells_d
+        units.append({"id": du["id"], "label": du["label"], "level": "derived", "default": False, "n_rows": len(t["rows"]), "file": _unit_file(du["id"]),
+                      "columns": [{k: c.get(k) for k in ("name", "label", "type", "scope", "roles", "n", "distinct") if c.get(k) is not None} for c in t["columns"]],
+                      "derived": t["derived"]})
     files["evidence.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION,
                                      "kinds": {"exact": "the value itself is quoted", "row": "the table row is quoted",
-                                               "table": "the whole table is cited", "entry": "quoted for the entry as a whole"},
+                                               "table": "the whole table is cited", "entry": "quoted for the entry as a whole",
+                                               "sources": "a derived row: one quote per source record"},
                                      "policy": quotes.policy(page_url), "items": items, "cells": cells})
     meta = {"format": FORMAT, "format_version": FORMAT_VERSION,
             "dataset": {"id": release["dataset_id"], "url": page_url, "title": d.get("title"), "slug": ds.get("slug"),
@@ -143,6 +166,13 @@ def build(conn, release: dict) -> dict[str, bytes]:
     gates = release.get("gates")
     if gates:
         meta["release"]["gates"] = gates
+    drv = (release.get("snapshot") or {}).get("derived")
+    if drv:
+        meta["derived"] = [{"step": x["step"], "version": x["version"], "committed_at": x.get("committed_at"), "model": x.get("model"),
+                            "n_rows": len(x.get("rows") or []), "file": _unit_file(x["step"]),
+                            "identity": (x.get("declaration") or {}).get("identity"),
+                            "calls": [{k: c.get(k) for k in ("id", "kind", "op")} for c in (x.get("declaration") or {}).get("calls") or [] if isinstance(c, dict)]}
+                           for x in drv]
     findings = (release.get("snapshot") or {}).get("findings")
     if findings:
         meta["findings"] = {"run_id": findings.get("run_id"), "n": findings.get("n"), "by_severity": findings.get("by_severity"), "file": "findings.json"}

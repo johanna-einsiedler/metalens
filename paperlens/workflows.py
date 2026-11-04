@@ -116,7 +116,7 @@ def later_problems(spec: dict) -> list[str]:
                 out.append(f"step {sid!r}: {ws.LATER['k']}")
             if (st.get("input") or {}).get("previous"):
                 out.append(f"step {sid!r}: {ws.LATER['input']}")
-        if kind in ("derive", "loop", "agent"):
+        if kind in ("loop", "agent"):
             out.append(f"step {sid!r}: {ws.LATER[kind]}")
     if n_extract > 1:
         out.append("several extract steps need linked datasets (a later release); this release runs one per workflow")
@@ -424,6 +424,21 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                     item["last_run"] = sr["run_id"]
             if sid in open_by_step:
                 item["gate"] = open_by_step[sid]
+        elif kind == "derive":
+            from . import derived
+            src = facts_by_step.get(st.get("over"))
+            item["over"] = st.get("over")
+            if src is None or (not src["have"] and not src["old"]):
+                item["state"] = "blocked"; item["because"] = [f"{st.get('over')} has no documents yet"]
+            else:
+                item.update(derived.state(conn, dataset_id, st))
+                if item["state"] in ("stale", "missing") and derived.llm_calls(st):
+                    try:
+                        item["n_calls"] = derived.plan(derived.input_rows(conn, dataset_id, st)["rows"], st)["n_calls"]
+                    except Exception as exc:  # noqa: BLE001 - the plan is advisory
+                        item["because"].append(f"cannot plan: {exc}")
+            if sid in open_by_step:
+                item["gate"] = open_by_step[sid]
         elif kind in ws.UPDATE_KINDS:
             item.update(update_step_state(conn, dataset_id, st))
             item.setdefault("because", [])
@@ -727,6 +742,8 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                     if review_gate.state(conn, sr)["satisfied"]:
                         _set_sr(conn, sr["id"], status="done"); continue
                     _touch(conn, run_id, status=f"awaiting_review:{sr['step_id']}", current_step=sr["step_id"]); return get_run(conn, run_id)
+                if sr["status"] == "needs_key":
+                    _touch(conn, run_id, status=f"needs_key:{sr['step_id']}", current_step=sr["step_id"]); return get_run(conn, run_id)
                 if sr["status"] == "pending":
                     _set_sr(conn, sr["id"], status="running", started_at=_now()); sr["status"] = "running"
                 _touch(conn, run_id, status="running", current_step=sr["step_id"])
@@ -737,6 +754,9 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                         return get_run(conn, run_id)
                 elif kind == "check":
                     _advance_check(conn, run, sr, st, by_id)
+                elif kind == "derive":
+                    if not _advance_derive(conn, run, sr, st):
+                        return get_run(conn, run_id)
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
                     first = next((x["id"] for x in spec["steps"] if x.get("kind") in ("extract", "agent")), None)
@@ -754,6 +774,8 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                 sr2 = get_step_run(conn, sr["id"])
                 if sr2 and sr2["status"] == "awaiting_review":
                     _touch(conn, run_id, status=f"awaiting_review:{sr['step_id']}", current_step=sr["step_id"]); return get_run(conn, run_id)
+                if sr2 and sr2["status"] == "needs_key":
+                    _touch(conn, run_id, status=f"needs_key:{sr['step_id']}", current_step=sr["step_id"]); return get_run(conn, run_id)
                 if sr2 and sr2["status"] == "failed":
                     _touch(conn, run_id, status="failed", error=sr2.get("error"), finished_at=_now()); return get_run(conn, run_id)
             _touch(conn, run_id, status="done", current_step=None, finished_at=_now())
@@ -844,6 +866,126 @@ def _preset_release(conn, pin: str | None) -> int | None:
         return None
 
 
+def _advance_derive(conn, run: dict, sr: dict, st: dict) -> bool:
+    """A derive step: a transform-only step runs here, free; model calls run on the worker with
+    the server key when the run spends credits (the job advances the run), inline when there is
+    no queue, and wait for the owner's key otherwise (``needs_key``). True when the step is done
+    or waiting on a review, False while it waits for the job or the key."""
+    from . import derived, worker
+    outputs = sr.get("outputs") or {}
+    if outputs.get("job_id"):
+        return False                                        # the worker is on it
+    if not derived.llm_calls(st):
+        res = derived.run_step(conn, run["dataset_id"], st, model=None, api_key=None, run_id=run["id"], owner_user_id=run.get("started_by"))
+        _finish_derive(conn, run, sr, st, res)
+        return True
+    if run["use_credits"]:
+        job_id = worker.enqueue("workflow_step_job", run["id"], sr["step_id"])
+        if job_id:
+            _set_sr(conn, sr["id"], outputs={**outputs, "job_id": job_id})
+            return False
+        from . import credits, providers
+        key = credits.server_key_for(providers.get_provider(run.get("model") or "", None)) or ""
+        res = derived.run_step(conn, run["dataset_id"], st, model=run.get("model"), api_key=key, run_id=run["id"], owner_user_id=run.get("started_by"))
+        _finish_derive(conn, run, sr, st, res)
+        return True
+    _set_sr(conn, sr["id"], status="needs_key")
+    _touch(conn, run["id"], status=f"needs_key:{sr['step_id']}", current_step=sr["step_id"])
+    return False
+
+
+def _finish_derive(conn, run: dict, sr: dict, st: dict, res: dict) -> None:
+    """The draft is made: record it on the step-run, commit it when the step declares no
+    review, else open the draft gate (the review is the commit)."""
+    from . import derived
+    draft = res["draft"]
+    rv = ws.review_of(st)
+    outputs = {k: v for k, v in (sr.get("outputs") or {}).items() if k != "job_id"}
+    outputs.update({"derived_id": draft["id"], "version": draft["version"], "n_rows": len(draft["rows"]), "repairs": len(res.get("repairs") or [])})
+    _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, run["dataset_id"]), finished_at=_now(),
+            n_calls=res.get("n_calls") or 0, credits=(res.get("n_calls") or 0) if run["use_credits"] else 0,
+            model=draft.get("model"), prompt_sha256=draft.get("prompt_sha256"))
+    if rv.get("mode", "none") == "none":
+        derived.commit(conn, draft["id"])
+        return
+    header = {"mode": "all", "unit": "entry", "blocks": rv.get("blocks", "release"), "opened_at": _iso(_now()),
+              "draft": {"kind": "derived", "id": draft["id"], "step": st["id"], "version": draft["version"]}}
+    conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), sr["id"]))
+    if header["blocks"] == "next":
+        _set_sr(conn, sr["id"], status="awaiting_review")
+
+
+def run_step_job(conn, run_id: str, step_id: str, *, api_key: str | None = None, base_url: str | None = None,
+                 model: str | None = None, generate=None) -> dict | None:
+    """Run one derive step of a run — on the worker with the server key (a credit run), or here
+    with the key the owner just gave (``resume``) — then advance the run. A failure fails the
+    run and gives the step's planned credits back."""
+    from . import credits, derived, providers
+    run = get_run(conn, run_id)
+    if run is None or run["status"] in TERMINAL:
+        return run
+    sr = next((s for s in step_runs(conn, run_id) if s["step_id"] == step_id), None)
+    st = ws.steps_by_id(run["workflow"]).get(step_id)
+    if sr is None or st is None or st.get("kind") != "derive" or sr["status"] in ("done", "skipped", "failed"):
+        return run
+    model = model or run.get("model") or (derived.llm_calls(st)[0].get("model") if derived.llm_calls(st) else None)
+    key = api_key
+    if key is None and run["use_credits"]:
+        key = credits.server_key_for(providers.get_provider(model or "", None)) or ""
+    try:
+        res = derived.run_step(conn, run["dataset_id"], st, model=model, api_key=key, base_url=base_url, generate=generate,
+                               run_id=run_id, owner_user_id=run.get("started_by"))
+        with conn.transaction():
+            _finish_derive(conn, run, sr, st, res)
+    except Exception as exc:  # noqa: BLE001 - the run records the failure
+        planned = 0
+        try:
+            planned = derived.plan(derived.input_rows(conn, run["dataset_id"], st)["rows"], st)["n_calls"]
+        except Exception:  # noqa: BLE001, S110 - the refund is best effort
+            pass
+        with conn.transaction():
+            _set_sr(conn, sr["id"], status="failed", error=str(exc)[:1000], finished_at=_now(), outputs={k: v for k, v in (sr.get("outputs") or {}).items() if k != "job_id"})
+            if run["use_credits"] and planned and run.get("started_by"):
+                credits.refund(conn, run["started_by"], model=run.get("model"), n=planned, reason="workflow refund")
+                _touch(conn, run_id, credits_refunded=run["credits"]["refunded"] + planned)
+    conn.commit()
+    return advance(conn, run_id)
+
+
+def step_job_candidates(conn) -> list[tuple[dict, dict]]:
+    """Derive steps whose worker job has not reported for a while: (run, step-run) pairs."""
+    rows = conn.execute(
+        """SELECT sr.id::text FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
+           WHERE r.status = 'running' AND sr.kind = 'derive' AND sr.status = 'running' AND sr.outputs ? 'job_id'
+             AND r.updated_at < now() - interval '10 minutes'""").fetchall()
+    out = []
+    for (srid,) in rows:
+        sr = get_step_run(conn, srid)
+        run = get_run(conn, sr["run_id"]) if sr else None
+        if sr and run:
+            out.append((run, sr))
+    return out
+
+
+def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str:
+    """What the queue says about a derive step's job: still at it, finished (the step-run already
+    moved on — nothing to do), or forgotten → the step fails and the run with it."""
+    if status and str(status.get("status")) in ("JobStatus.queued", "JobStatus.deferred", "JobStatus.in_progress", "queued", "deferred", "in_progress"):
+        _touch(conn, run["id"])
+        return "waiting"
+    fresh = get_step_run(conn, sr["id"])
+    if fresh and fresh["status"] != "running":
+        return "landed"
+    if status and status.get("success"):
+        advance(conn, run["id"])
+        return "landed"
+    with conn.transaction():
+        _set_sr(conn, sr["id"], status="failed", error=(status or {}).get("error") or "the worker lost the step's job", finished_at=_now())
+        _touch(conn, run["id"], status="failed", error=f"{sr['step_id']}: the worker lost the step's job", finished_at=_now())
+    _refund_unused(conn, run["id"])
+    return "lost"
+
+
 def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
     d_id = run["dataset_id"]
     over = st.get("over") or []
@@ -870,10 +1012,24 @@ def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
 
 # ── pause, resume, cancel, retry, reconcile ───────────────────────────────────
 
-def resume(conn, run_id: str, *, who, step_id: str | None = None, override: bool = False) -> dict:
+def resume(conn, run_id: str, *, who, step_id: str | None = None, override: bool = False,
+           api_key: str | None = None, base_url: str | None = None, model: str | None = None) -> dict:
     run = get_run(conn, run_id)
     if run is None or not is_run_owner(run, who):
         raise RunRefused("Run not found.", 404)
+    if run["status"].startswith("needs_key:"):
+        sid = run["status"].split(":", 1)[1]
+        if step_id and step_id != sid:
+            raise RunRefused(f"The run waits on {sid!r}.", 409)
+        if not (api_key or base_url):
+            raise RunRefused(f"The step {sid!r} makes model calls: give an API key (or a local model server) to go on.", 422, {"needs_key": sid})
+        sr = next((s for s in step_runs(conn, run_id) if s["step_id"] == sid), None)
+        if sr is None:
+            raise RunRefused("Step not found.", 404)
+        _set_sr(conn, sr["id"], status="running")
+        _touch(conn, run_id, status="running", model=model or run.get("model"))
+        conn.commit()
+        return run_view(conn, run_step_job(conn, run_id, sid, api_key=api_key or "", base_url=base_url, model=model))
     if not run["status"].startswith("awaiting_review:"):
         raise RunRefused(f"The run is {run['status']}, not waiting for a review.", 409)
     sid = run["status"].split(":", 1)[1]

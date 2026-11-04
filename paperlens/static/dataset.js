@@ -516,22 +516,26 @@ function renderWorkflowCard(host, w) {
     } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "vocabulary") what = `vocabulary <b>${esc(st.column || "")}</b>${st.version ? ` · v${st.version}` : ""}${mine ? ` · <a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "pages") what = `${esc(st.label || st.group + " pages")} · ${(st.pages || []).map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a> <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified">stale</span>` : ""}`).join(" · ") || `<span class="muted">none yet</span>`}${mine ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}`;
+    else if (st.kind === "derive") what = `over <code>${esc(st.over || "")}</code>${st.version ? ` · v${st.version} (${st.committed_rows || 0} row${st.committed_rows === 1 ? "" : "s"})` : ""}${st.n_calls ? ` · ${st.n_calls} model call${st.n_calls === 1 ? "" : "s"}` : ""}${mine ? ` · <a class="muted" href="/derived?dataset=${esc(id)}&step=${esc(st.id)}${st.draft_id ? `&id=${esc(st.draft_id)}` : st.derived_id ? `&id=${esc(st.derived_id)}` : ""}">${st.draft_id ? "review the draft" : "open"}</a>` : ""}`;
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
     const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
-    const gate = st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
+    const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(id)}&step=${esc(st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
+      : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
     return `<div class="ds-dashrow wf-row"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b> ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
-    const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status;
+    const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key` : run.status;
+    const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
     const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${esc(p.status)}</small></span>`).join(" ");
     return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · papers ${pp.done || 0} of ${pp.total || 0}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
       ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
         ${waiting ? `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(id)}&run=${esc(run.id)}&step=${esc(ex.id || "extract")}">Upload the pipeline's files</a>
                      <button class="btn btn-ghost btn-sm" id="wf-complete" title="the papers never uploaded are dropped from the plan and the run goes on">Uploads complete</button>` : ""}
-        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
+        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(id)}&step=${esc(draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
+        ${run.status.startsWith("needs_key:") ? `<a class="btn btn-ghost btn-sm" href="/derived?dataset=${esc(id)}&step=${esc(run.status.split(":")[1])}&run=${esc(run.id)}" title="the step makes model calls on your own key, which is used once and never stored">Give a key and go on</a>` : ""}
         ${!/^(done|failed|cancelled)$/.test(run.status) ? `<button class="btn btn-ghost btn-sm" id="wf-cancel">Cancel run</button>` : ""}
       </div>` : ""}</div>`;
   })() : "";
@@ -571,7 +575,7 @@ function renderWorkflowCard(host, w) {
     try { await api.workflowResume(run.id, {}); }
     catch (e) {
       const m = /(\d+) of (\d+) records/.exec(e.message || "");
-      if (m && confirm(`${m[1]} of ${m[2]} records still need a verdict. Resume anyway? The run records that the gate was overridden.`)) {
+      if (m && confirm(`${m[1]} of ${m[2]} ${m[2] === "1" ? "draft is" : "records"} still ${m[2] === "1" ? "uncommitted" : "need a verdict"}. Resume anyway? The run records that the gate was overridden.`)) {
         try { await api.workflowResume(run.id, { override: true }); } catch (e2) { alert(e2.message); }
       } else alert(e.message);
     }

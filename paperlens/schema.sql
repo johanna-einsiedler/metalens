@@ -752,3 +752,27 @@ CREATE TABLE IF NOT EXISTS workflow_release (
     doi_minted_by      uuid,
     UNIQUE (workflow_id, number)
 );
+
+-- ── derived units: the rows a workflow's derive step computes over a dataset's records ────
+-- A draft v(N+1) is reviewed against the committed vN (per row: kept | revised | new | removed,
+-- with the records added since vN as the triggers); a release freezes the committed version.
+CREATE TABLE IF NOT EXISTS dataset_derived (
+    id            uuid PRIMARY KEY,
+    dataset_id    uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    step          text NOT NULL,                      -- the derive step's id in the workflow
+    version       integer NOT NULL,
+    status        text NOT NULL DEFAULT 'draft',      -- draft | committed
+    rows          jsonb NOT NULL DEFAULT '[]'::jsonb, -- [{_id, sources: [record ids], <output fields>}]
+    change_log    jsonb NOT NULL DEFAULT '[]'::jsonb, -- the model's own account of its edits, validated
+    decisions     jsonb NOT NULL DEFAULT '{}'::jsonb, -- {_id: accept | reject} from the review
+    model         text,
+    prompt_sha256 text,
+    step_sha      text,                               -- the declaration it was made under: a change makes it stale
+    built_from    jsonb NOT NULL DEFAULT '{}'::jsonb, -- {n_records, record_ids, record_ids_sha, events_max, n_new, input, derived_version_from}
+    proposal      jsonb NOT NULL DEFAULT '{}'::jsonb, -- repairs, raw answers, calls made
+    owner_user_id uuid,
+    run_id        uuid,                               -- the workflow run that made it (NULL when proposed by hand)
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    committed_at  timestamptz,
+    UNIQUE (dataset_id, step, version)
+);

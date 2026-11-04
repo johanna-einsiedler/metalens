@@ -455,6 +455,15 @@ def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, rel
     if src is None:
         return None
     d, raw, schema_id, spec = src["dataset"], src["raw"], src["schema_id"], src["spec"]
+    # a derived unit (a workflow's derive step) has its own builder; its rows point at the records
+    derived_units: list[dict] = []
+    wspec = None
+    if release or d.get("workflow"):
+        from . import derived, workflows
+        wspec = None if release else workflows.resolve(conn, d)[0]
+        derived_units = derived.units_for(conn, dataset_id, wspec, release=release)
+        if unit_id and any(u["id"] == unit_id for u in derived_units) and unit_id not in {u["id"] for u in units(spec)}:
+            return derived.table(conn, dataset_id, unit_id, owner=owner, spec=wspec, release=release)
     unit = _unit(spec, unit_id)
 
     papers: list[dict] = []
@@ -521,6 +530,7 @@ def build(conn, dataset_id: str, unit_id: str | None = None, *, owner: bool, rel
     for u in units(spec):
         all_units.append({"id": u["id"], "label": u["label"], "level": u["level"], "default": u["id"] == default_unit(spec),
                           "n": len(rows) if u["id"] == unit["id"] else len(_only_complete(flatten(spec, u, recs_in), complete))})   # how many rows each layout has
+    all_units += derived_units
     as_of = conn.execute("SELECT now()").fetchone()[0]
     return {
         "dataset": {"id": dataset_id, "title": d.get("title"), "version": d.get("version") or 1,

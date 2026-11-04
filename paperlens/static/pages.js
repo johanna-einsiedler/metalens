@@ -5,13 +5,12 @@
 // new record explains is flagged — the model rewrote something the data didn't move.
 import { api } from "/static/api.js";
 import { esc } from "/static/grammar.js";
-import { getKey, setKey } from "/static/keys.js";
+import { modelChoice, renderModelPanel } from "/static/modelpanel.js";
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
 const DATASET_ID = params.get("dataset");
 let PID = params.get("id"), DS = null, CFG = null, MODELS = {}, STEPS = [], PAGES = [];
-const PROVIDER_LABEL = { openai: "OpenAI", google: "Google", anthropic: "Anthropic", deepseek: "DeepSeek", mistral: "Mistral" };
 
 async function init() {
   if (!DATASET_ID) { $("#pg-app").innerHTML = `<p class="muted">Open this page from a dataset.</p>`; return; }
@@ -54,9 +53,10 @@ async function renderStart() {
       </div>
       <p class="muted" style="font-size:12.5px">An update receives the committed page and the rows — including the ones
       added since it was written — and comes back as a draft you review change by change.</p></section>`;
-  renderModelPanel($("#pg-model"));
+  renderModelPanel($("#pg-model"), { prefix: "pg", cfg: CFG, models: MODELS, creditsNote: "one per page",
+    note: "The model sees the matching rows and the papers' extracted summaries — never the PDFs. It proposes; you review the change." });
   $("#pg-propose").onclick = async () => {
-    const choice = modelChoice(); if (!choice) return;
+    const choice = modelChoice("pg"); if (!choice) return;
     const sel = $("#pg-group");
     const group = sel ? sel.value : ($("#pg-group-free").value || "").trim();
     const keyed_by = sel ? sel.selectedOptions[0].dataset.keyedby : ($("#pg-keyedby-free").value || "").trim();
@@ -128,33 +128,6 @@ async function openPage(pid) {
     try { await api.deletePage(pid); location.href = `/pages?dataset=${encodeURIComponent(DATASET_ID)}`; }
     catch (e) { alert(e.message); }
   };
-}
-
-// ── model picker (the vocabulary page's, with pg- ids) ────────────────────────────────────
-function renderModelPanel(host) {
-  const bal = CFG && CFG.credits ? CFG.credits.balance || 0 : 0;
-  const credits = !!(CFG && CFG.logged_in && CFG.offered && bal > 0);
-  const provs = Object.keys(MODELS);
-  host.innerHTML = `<div class="cmp-modes">`
-    + (credits ? `<label class="cs-opt"><input type="radio" name="pg-mode" value="credits" checked/> <span>Use a credit <b>(${bal} left)</b> <span class="muted">· ${esc(CFG.model || "")} · one per page</span></span></label>` : "")
-    + `<label class="cs-opt"><input type="radio" name="pg-mode" value="own"${credits ? "" : " checked"}/> <span>My own API key</span></label>`
-    + `<label class="cs-opt"><input type="radio" name="pg-mode" value="local"/> <span>A local / self-hosted model</span></label></div>`
-    + `<div id="pg-own" class="cmp-fields"><div class="select-wrap"><select id="pg-prov">${provs.map((p) => `<option value="${esc(p)}">${esc(PROVIDER_LABEL[p] || p)}</option>`).join("")}</select></div>`
-    + `<div class="select-wrap"><select id="pg-mdl"></select></div><input id="pg-apikey" type="password" placeholder="your API key (used once, never stored)" autocomplete="off"/></div>`
-    + `<div id="pg-local" class="cmp-fields" hidden><input id="pg-url" type="url" placeholder="server URL"/><input id="pg-lmdl" placeholder="model name"/></div>`
-    + `<p class="muted cmp-note">The model sees the matching rows and the papers' extracted summaries — never the PDFs. It proposes; you review the change.</p>`;
-  const fill = () => { const p = $("#pg-prov").value; $("#pg-mdl").innerHTML = (MODELS[p] || []).map((m) => `<option value="${esc(m.value)}">${esc(m.label)}</option>`).join(""); $("#pg-apikey").value = getKey(p); };
-  if (provs.length) { $("#pg-prov").onchange = fill; fill(); }
-  $("#pg-apikey").oninput = () => setKey($("#pg-prov").value, $("#pg-apikey").value.trim());
-  try { $("#pg-url").value = localStorage.getItem("metalens_local_base_url") || ""; $("#pg-lmdl").value = localStorage.getItem("metalens_local_model") || ""; } catch { /* no storage */ }
-  const sync = () => { const m = $('input[name="pg-mode"]:checked').value; $("#pg-own").hidden = m !== "own"; $("#pg-local").hidden = m !== "local"; };
-  document.querySelectorAll('input[name="pg-mode"]').forEach((x) => (x.onchange = sync)); sync();
-}
-function modelChoice() {
-  const m = ($('input[name="pg-mode"]:checked') || {}).value;
-  const c = m === "credits" ? { use_credits: true } : m === "local" ? { model: $("#pg-lmdl").value.trim(), base_url: $("#pg-url").value.trim(), api_key: "" } : { model: $("#pg-mdl").value, api_key: $("#pg-apikey").value.trim() };
-  if (!c.use_credits && !c.api_key && !c.base_url) { alert("A proposal needs a model: enter your own API key or a local model server."); return null; }
-  return c;
 }
 
 init();

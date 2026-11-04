@@ -53,8 +53,11 @@ def fingerprint(conn: psycopg.Connection, dataset_id: str) -> str:
              SELECT 'p:' || "group" || ':' || key || ':' || version::text FROM dataset_page
                WHERE dataset_id = %s::uuid AND status = 'committed'
              UNION ALL
+             SELECT 'd:' || step || ':' || version::text FROM dataset_derived
+               WHERE dataset_id = %s::uuid AND status = 'committed'
+             UNION ALL
              SELECT 'r:' || id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done') s""",
-        (dataset_id, dataset_id, dataset_id)).fetchone()[0]
+        (dataset_id, dataset_id, dataset_id, dataset_id)).fetchone()[0]
     return data if extra == "d41d8cd98f00b204e9800998ecf8427e" else f"{data}:{extra[:16]}"
 
 
@@ -76,16 +79,19 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
-    from . import checks, crosscheck, pages, vocabulary
+    from . import checks, crosscheck, derived, pages, vocabulary, workflows
     fz = crosscheck.frozen(conn, dataset_id)
     vocabs = vocabulary.snapshot(conn, dataset_id)
     pgs = pages.snapshot(conn, dataset_id)
     wf = workflow_block(conn, dataset_id)
     findings = checks.frozen(conn, dataset_id)
+    wspec = workflows.resolve(conn, src["dataset"])[0] if src["dataset"].get("workflow") else None
+    drv = derived.snapshot(conn, dataset_id, wspec) if wspec else []
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
             "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}),
             **({"vocabularies": vocabs} if vocabs else {}), **({"pages": pgs} if pgs else {}),
-            **({"workflow": wf} if wf else {}), **({"findings": findings} if findings else {})}
+            **({"workflow": wf} if wf else {}), **({"findings": findings} if findings else {}),
+            **({"derived": drv} if drv else {})}
 
 
 def workflow_block(conn: psycopg.Connection, dataset_id: str) -> dict | None:
@@ -232,7 +238,8 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
                          "empty": not snap["records"],
                          **_crosscheck_warnings(snap.get("crosscheck"), (last or {}).get("snapshot", {}).get("crosscheck") if last else None),
                          **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies")),
-                         **({"check_findings": snap["findings"]["n"]} if snap.get("findings") else {})},
+                         **({"check_findings": snap["findings"]["n"]} if snap.get("findings") else {}),
+                         **({"derived_units": len(snap["derived"])} if snap.get("derived") else {})},
             "credibility": {k: cred.get(k) for k in ("tier", "label", "label_long", "audited", "agreed", "n_records", "sample", "checks") if cred.get(k) is not None}}
 
 

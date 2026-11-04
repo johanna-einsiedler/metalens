@@ -259,6 +259,12 @@ def dataset_page(slug: str | None = None, id: str | None = None, db=Depends(_pag
     return _page("dataset.html")
 
 
+@app.get("/derived")
+def derived_page() -> FileResponse:
+    """A dataset's derived units: the drafts a workflow's derive steps propose, reviewed row by row."""
+    return _page("derived.html")
+
+
 @app.get("/workflows")
 def workflows_page() -> FileResponse:
     """The workflow inventory: one card per curated workflow."""
@@ -977,9 +983,9 @@ class VocabularyExtendBody(BaseModel):
     decisions: list[dict] = []
 
 
-def _vocab_model(db, who: Principal, body: VocabularyProposeBody) -> tuple[str, str, str | None, bool]:
+def _vocab_model(db, who: Principal, body, n: int = 1) -> tuple[str, str, str | None, bool]:
     """(model, key, base_url, charged) — the dashboard proposer's rule: own key or local model
-    free and never stored; credits one per pass; refunded by the caller on failure."""
+    free and never stored; credits one per pass (``n`` calls); refunded by the caller on failure."""
     own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
     if own:
         return body.model, body.api_key, body.base_url, False
@@ -991,8 +997,8 @@ def _vocab_model(db, who: Principal, body: VocabularyProposeBody) -> tuple[str, 
         if not credits.offered():
             raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
         model = credits.credit_model()
-        if not credits.try_consume(db, who.user_id, model=model, reason="vocabulary"):
-            raise HTTPException(status_code=402, detail="No credits left. Add your own API key.")
+        if not credits.try_consume(db, who.user_id, model=model, reason="vocabulary", n=n):
+            raise HTTPException(status_code=402, detail=f"Not enough credits ({n} needed). Add your own API key.")
         return model, credits.server_key_for(providers.get_provider(model, None)), None, True
     raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model.")
 
@@ -1169,6 +1175,186 @@ def vocabulary_delete(vid: str, db=Depends(get_db), who: Principal = Depends(pri
     if v is None or not _dataset_gate(db, v["dataset_id"], who):
         raise HTTPException(status_code=404, detail="Vocabulary not found.")
     return {"deleted": vocabulary.delete(db, vid)}
+
+
+# ── derived units: a workflow's derive steps, reviewed as drafts ─────────────────────────────
+
+class DerivedProposeBody(BaseModel):
+    model: str = ""
+    api_key: str = ""
+    base_url: str | None = None
+    use_credits: bool = False
+
+
+class DerivedPatchBody(BaseModel):
+    rows: list[dict] | None = None
+    decisions: dict[str, str] | None = None     # {_id: accept | reject}
+
+
+def _derive_step_or_404(db, dataset_id: str, step: str) -> tuple[dict, dict]:
+    from . import derived, workflows
+    d = records.get_dataset(db, dataset_id) or {}
+    spec, _implicit = workflows.resolve(db, d)
+    st = next((s for s in derived.steps_for(spec) if s["id"] == step), None)
+    if st is None:
+        raise HTTPException(status_code=404, detail="The dataset's workflow has no derive step with that id.")
+    return spec, st
+
+
+def _derived_plan(db, dataset_id: str, st: dict) -> tuple[dict, dict]:
+    from . import derived
+    old = derived.committed(db, dataset_id, st["id"])
+    new_ids = derived.new_since(db, dataset_id, (old or {}).get("built_from")) if old else set()
+    inp = derived.input_rows(db, dataset_id, st, new_ids=new_ids)
+    pl = derived.plan(inp["rows"], st)
+    return inp, pl
+
+
+@app.get("/api/datasets/{dataset_id}/derived")
+def dataset_derived(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The derive steps of the dataset's workflow with their state, and the versions made so far
+    (every version for the owner, committed ones for everyone else)."""
+    from . import derived, workflows
+    owner = _dataset_gate(db, dataset_id, who)
+    d = records.get_dataset(db, dataset_id) or {}
+    spec, implicit = workflows.resolve(db, d)
+    steps = []
+    for st in derived.steps_for(spec):
+        item = {k: st.get(k) for k in ("id", "label", "help", "over", "identity", "group_by", "input", "output")}
+        item["calls"] = [{k: c.get(k) for k in ("id", "kind", "op", "by", "fields") if c.get(k) is not None} for c in st.get("calls") or [] if isinstance(c, dict)]
+        item["llm_calls"] = len(derived.llm_calls(st))
+        item["review"] = ws_review(st)
+        item.update(derived.state(db, dataset_id, st))
+        steps.append(item)
+    rows = derived.list_for_dataset(db, dataset_id)
+    if not owner:
+        rows = [r for r in rows if r["status"] == "committed"]
+    run = workflows.active_run(db, dataset_id) if owner else None
+    return {"owner": owner, "workflow": {"id": spec["id"], "implicit": implicit}, "steps": steps,
+            "versions": [{**{k: r[k] for k in ("id", "step", "version", "status", "model", "created_at", "committed_at", "run_id")}, "n_rows": len(r["rows"])} for r in rows],
+            "active_run": {"id": run["id"], "status": run["status"]} if run else None}
+
+
+def ws_review(st: dict) -> dict:
+    from . import workflow_spec as ws
+    return ws.review_of(st)
+
+
+@app.get("/api/datasets/{dataset_id}/derived/{step}/plan")
+def derived_plan(dataset_id: str, step: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: what making the next version would take — rows read, new records, chunks, model calls."""
+    from . import derived
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner plans a derived unit.")
+    _spec, st = _derive_step_or_404(db, dataset_id, step)
+    inp, pl = _derived_plan(db, dataset_id, st)
+    return {"step": step, "n_rows": pl["n_rows"], "n_new": sum(1 for r in inp["rows"] if r.get("_new")), "n_chunks": pl["n_chunks"],
+            "n_calls": pl["n_calls"], "llm_calls": pl["llm_calls"], "over_budget": bool(pl.get("over_budget")), "columns": inp["columns"],
+            **derived.state(db, dataset_id, st)}
+
+
+@app.post("/api/datasets/{dataset_id}/derived/{step}/propose")
+def derived_propose(dataset_id: str, step: str, body: DerivedProposeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner, signed in: make the next draft of a derive step by hand (outside a run). A
+    transform-only step needs no model; model calls run on the owner's key or local model (never
+    stored) or on credits, one per call, refunded on failure. The draft is reviewed row by row."""
+    from . import derived
+    if not _dataset_gate(db, dataset_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner builds a derived unit.")
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to build a derived unit.")
+    _spec, st = _derive_step_or_404(db, dataset_id, step)
+    inp, pl = _derived_plan(db, dataset_id, st)
+    if not inp["rows"]:
+        raise HTTPException(status_code=422, detail="The step's input has no rows yet.")
+    model, key, base_url, charged = None, None, None, False
+    if pl["n_calls"]:
+        if pl.get("over_budget"):
+            raise HTTPException(status_code=422, detail=f"The step would make {pl['n_calls']} model calls (the limit is {derived.MAX_CALLS}): narrow the input or add a transform first.")
+        model, key, base_url, charged = _vocab_model(db, who, body, n=pl["n_calls"])
+    try:
+        res = derived.run_step(db, dataset_id, st, model=model, api_key=key, base_url=base_url, owner_user_id=who.user_id)
+    except Exception as exc:  # noqa: BLE001 — provider errors and the chain's own refusals
+        if charged:
+            credits.refund(db, who.user_id, model=model, n=pl["n_calls"], reason="derive refund")
+        return {"ok": False, "error": providers.extract_provider_message(exc) if not isinstance(exc, ValueError) else str(exc)}
+    return {"ok": True, "n_calls": res["n_calls"], "repairs": res["repairs"], "derived": derived.review(db, res["draft"]["id"])}
+
+
+def _derived_or_404(db, did: str, who: Principal, *, write: bool = False) -> tuple[dict, bool]:
+    from . import derived
+    d = derived.get(db, did)
+    if d is None:
+        raise HTTPException(status_code=404, detail="No derived unit with that id.")
+    owner = _dataset_gate(db, d["dataset_id"], who)
+    if (not owner and d["status"] != "committed") or (write and not owner):
+        raise HTTPException(status_code=404 if not write else 403, detail="No derived unit with that id." if not write else "Only the owner reviews a draft.")
+    return d, owner
+
+
+@app.get("/api/derived/{did}/review")
+def derived_review(did: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A version as the change it proposes against the committed one before it: per row a
+    computed verdict, the fields that changed, the new records that explain it."""
+    from . import derived
+    d, owner = _derived_or_404(db, did, who)
+    out = derived.review(db, did)
+    try:
+        _spec, st = _derive_step_or_404(db, d["dataset_id"], d["step"])
+        out["step"] = {k: st.get(k) for k in ("id", "label", "help", "over", "identity", "output", "review")}
+        out["step"]["calls"] = [{k: c.get(k) for k in ("id", "kind", "op") if c.get(k) is not None} for c in st.get("calls") or [] if isinstance(c, dict)]
+    except HTTPException:
+        out["step"] = None
+    out["owner"] = owner
+    if not owner:
+        out["derived"] = {**out["derived"], "proposal": {}}
+    return out
+
+
+@app.patch("/api/derived/{did}")
+def derived_patch(did: str, body: DerivedPatchBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: edit a draft's rows (validated against the step) or record per-row decisions."""
+    from . import derived
+    d, _owner = _derived_or_404(db, did, who, write=True)
+    if d["status"] != "draft":
+        raise HTTPException(status_code=409, detail="Only a draft can be edited.")
+    rows = None
+    if body.rows is not None:
+        _spec, st = _derive_step_or_404(db, d["dataset_id"], d["step"])
+        rows, _repairs = derived.validate_rows(body.rows, st, set(derived.current_record_ids(db, d["dataset_id"])))
+    decisions = None
+    if body.decisions is not None:
+        decisions = {k: v for k, v in body.decisions.items() if v in ("accept", "reject")}
+    out = derived.update_draft(db, did, rows=rows, decisions=decisions)
+    if out is None:
+        raise HTTPException(status_code=409, detail="Only a draft can be edited.")
+    return derived.review(db, did)
+
+
+@app.post("/api/derived/{did}/commit")
+def derived_commit(did: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: commit the draft (rows marked reject are dropped); a run waiting on it goes on."""
+    from . import derived, workflows
+    d, _owner = _derived_or_404(db, did, who, write=True)
+    out = derived.commit(db, did)
+    if out is None:
+        raise HTTPException(status_code=409, detail="Only a draft can be committed.")
+    run = workflows.active_run(db, d["dataset_id"])
+    if run:
+        workflows.advance(db, run["id"])
+    db.commit()
+    return derived.review(db, did)
+
+
+@app.delete("/api/derived/{did}")
+def derived_delete(did: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import derived
+    _d, _owner = _derived_or_404(db, did, who, write=True)
+    n = derived.delete(db, did)
+    if not n:
+        raise HTTPException(status_code=409, detail="Only a draft can be deleted.")
+    db.commit()
+    return {"deleted": True}
 
 
 class PageProposeBody(BaseModel):
@@ -1351,6 +1537,9 @@ class WorkflowValidateBody(BaseModel):
 class RunResumeBody(BaseModel):
     step_id: str | None = None
     override: bool = False                 # go on although drawn records are unchecked (recorded on the gate)
+    api_key: str = ""                      # a run waiting on a key (needs_key:<step>): the owner's key, used now, never stored
+    base_url: str | None = None
+    model: str = ""
 
 
 class RunCompleteBody(BaseModel):
@@ -1591,7 +1780,8 @@ def workflow_run_advance(run_id: str, db=Depends(get_db), who: Principal = Depen
 def workflow_run_resume(run_id: str, body: RunResumeBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     from . import workflows
     try:
-        return workflows.resume(db, run_id, who=who, step_id=body.step_id, override=body.override)
+        return workflows.resume(db, run_id, who=who, step_id=body.step_id, override=body.override,
+                                api_key=body.api_key or None, base_url=(body.base_url or "").strip() or None, model=body.model or None)
     except workflows.RunRefused as exc:
         raise _refused(exc)
 
