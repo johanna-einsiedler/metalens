@@ -57,7 +57,7 @@ def main() -> int:
         check("joint" in bar and "0 of 1 paper" in bar, f"the queue bar: {bar[:120]}")
         tabs = page.locator(".doctab[data-id]")
         check(tabs.count() == 2, f"the sidebar lists the paper's two documents ({tabs.count()})")
-        page.wait_for_selector(".docbar .docbar-doc", timeout=15000)        # the paper strip loads after the panel
+        page.wait_for_function("document.querySelectorAll('.docbar .docbar-doc').length >= 2", timeout=15000)   # the paper strip loads (and redraws) after the panel
         strip = page.locator(".docbar")
         check(strip.locator(".docbar-doc").count() == 2 and "0/" in strip.inner_text(), f"the paper strip shows both sides: {strip.inner_text()[:80]}")
         page.screenshot(path=f"{a.shot}-2-queue.png", full_page=True)
@@ -80,6 +80,20 @@ def main() -> int:
         page.goto(f"{a.url}/dataset?id={a.claims}")
         page.wait_for_selector("#ds-update:not([hidden]) .wf-row", timeout=30000)
         check(page.locator("#ds-update .wf-run").count() == 1 and "Econ tables" in page.locator("#ds-update .wf-group").inner_text(), "the claims dataset shows the same run and its sibling")
+        # a second run with nothing new to upload: "Uploads complete" completes both supplied steps and the checks run
+        r = page.request.post(f"{a.url}/api/datasets/{a.tables}/workflow/runs", data={}, headers={"X-Session-Id": a.session})
+        check(r.ok, f"a second run starts ({r.status})")
+        page.goto(f"{a.url}/dataset?id={a.tables}")
+        page.wait_for_selector("#wf-complete", timeout=30000)
+        check(page.locator("#ds-update a", has_text="Upload the tables files").count() == 1 and page.locator("#ds-update a", has_text="Upload the claims files").count() == 1,
+              "one upload button per dataset role")
+        page.locator("#wf-complete").click()
+        page.wait_for_function("!document.querySelector('#wf-complete')", timeout=30000)
+        run_txt = page.locator("#ds-update .wf-run").inner_text()
+        check("edges needs an API key" in run_txt, f"Uploads complete moved the run to the edges step: {run_txt[:90]}")
+        chips = {t: page.locator("#ds-update .wf-row", has_text=t).locator(".badge").first.inner_text().strip()
+                 for t in ("Contract check (tables)", "Number check", "Contract check (claims)", "Estimates against the tables")}
+        check(all(v == "fresh" for v in chips.values()), f"the checks ran: {chips}")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()
     print(("ALL OK" if not fails else f"{len(fails)} FAILED") + f" — {len(fails)} failure(s)")
