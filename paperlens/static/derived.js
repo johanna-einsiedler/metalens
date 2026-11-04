@@ -19,6 +19,9 @@ const fmt = (v) => v == null || v === "" ? "" : Array.isArray(v) ? v.map((x) => 
 const STATE = { fresh: ["tier-human_verified", "fresh"], stale: ["tier-sample_verified", "stale"], missing: ["", "not yet"], draft: ["tier-sample_verified", "draft"], blocked: ["", "blocked"] };
 const chip = (state, title) => { const [cls, label] = STATE[state] || ["", state]; return `<span class="badge ${cls}" title="${esc(title || "")}">${esc(label)}</span>`; };
 
+// Where a run continues: the workflow dataset when this dataset is one side of one, else this dataset.
+const runHome = () => `/dataset?id=${encodeURIComponent((DS && DS.group_id) || DATASET_ID)}#workflow`;
+
 async function init() {
   if (!DATASET_ID) { $("#dv-app").innerHTML = `<p class="muted">Open this page from a dataset.</p>`; return; }
   $("#dv-back").href = `/dataset?id=${encodeURIComponent(DATASET_ID)}`;
@@ -67,7 +70,7 @@ async function renderStart() {
       try {
         if (needsKey === sid) {
           await api.workflowResume(run.id, { step_id: sid, ...choice });
-          location.href = `/dataset?id=${encodeURIComponent(DATASET_ID)}`;
+          location.href = runHome();
           return;
         }
         const r = await api.derivedPropose(DATASET_ID, sid, choice);
@@ -141,7 +144,7 @@ async function openVersion(did) {
     const rejected = Object.values(decisions).filter((v) => v === "reject").length;
     const unexplained = (r.diff || []).filter((x) => x.unexplained && decisions[x._id] !== "reject").length;
     if (unexplained && !confirm(`${unexplained} row${unexplained === 1 ? "" : "s"} cite no new evidence for their change and are not rejected. Commit anyway?`)) return;
-    try { await api.commitDerived(did); if (RUN) location.href = `/dataset?id=${encodeURIComponent(DATASET_ID)}`; else openVersion(did); } catch (e) { alert(e.message); }
+    try { await api.commitDerived(did); if (RUN) location.href = runHome(); else openVersion(did); } catch (e) { alert(e.message); }
     void rejected;
   };
   $("#dv-del").onclick = async () => {

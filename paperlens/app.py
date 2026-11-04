@@ -861,6 +861,12 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
     owner = records.is_dataset_owner(db, dataset_id, who)
     if d["visibility"] != "public" and not owner:
         raise HTTPException(status_code=404, detail="Dataset not found.")
+    if d.get("kind") == "workflow":           # the row linked datasets hang from: their papers, side by side
+        from . import workflows
+        ov = workflows.overview(db, d, owner=bool(owner))
+        ov["viewer_is_owner"] = bool(owner)
+        ov["viewer_is_anonymous"] = not who.user_id
+        return ov
     ov = records.dataset_overview(db, dataset_id)
     # A dataset on an "import" preset was not extracted here: say so, and say what did make it,
     # rather than showing an empty recipe that reads as a missing record.
@@ -1614,7 +1620,7 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict
         out.append({"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1), "title": meta.get("title"),
                     "tagline": meta.get("tagline"), "has_card": ws.has_card(spec),
                     "steps": [{"id": st["id"], "kind": st["kind"], "label": st.get("label"), "preset": st.get("preset"), "source": st.get("source"),
-                               "review": st.get("review"), "check": st.get("check")} for st in spec["steps"]],
+                               "review": st.get("review"), "check": st.get("check"), "dataset": st.get("dataset")} for st in spec["steps"]],
                     "presets": [p for _s, p in ws.pins(spec)]})
     return {"workflows": out}
 
@@ -1787,6 +1793,43 @@ def dataset_group(dataset_id: str, db=Depends(get_db), who: Principal = Depends(
                  who.session_id, who.session_id)).fetchall()]
         out["roles"].append(item)
     return out
+
+
+class WorkflowDatasetBody(BaseModel):
+    workflow: str                                  # a bundled workflow id
+    title: str | None = None
+    datasets: dict[str, str] | None = None         # {role: an existing dataset of mine under that role's preset}
+
+
+@app.post("/api/workflow-datasets")
+def workflow_dataset_create(body: WorkflowDatasetBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Make the dataset a workflow runs on: for a workflow over several presets, a workflow
+    dataset with my datasets linked into their roles (the others are linked or created on its
+    page); for a workflow over one preset, a new dataset of that preset carrying the workflow."""
+    from . import workflows
+    if not who.user_id and not who.session_id:
+        raise HTTPException(status_code=401, detail="Sign in to make a workflow dataset.")
+    spec = workflows.get_workflow(body.workflow)
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    errs, _w = workflows.validate_for(db, spec)
+    if errs:
+        raise HTTPException(status_code=422, detail="This workflow does not validate here: " + "; ".join(errs[:3]))
+    try:
+        d = workflows.create_workflow_dataset(db, spec, owner_user_id=who.user_id, session_id=who.session_id,
+                                              title=body.title, members=body.datasets, who=who)
+    except workflows.RunRefused as exc:
+        raise _refused(exc)
+    db.commit()
+    return {k: d.get(k) for k in ("id", "kind", "title", "workflow", "group_id", "group_role")}
+
+
+@app.get("/api/workflow-datasets")
+def workflow_datasets_mine(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """My workspace → Workflows: my workflow datasets and my datasets running a declared workflow,
+    each with its linked datasets and what its latest run is doing."""
+    from . import workflows
+    return {"workflows": workflows.list_mine(db, owner_user_id=who.user_id, session_id=who.session_id)}
 
 
 @app.post("/api/datasets/{dataset_id}/group/link")
@@ -2141,12 +2184,49 @@ class ReleaseBody(BaseModel):
     override_gates: bool = False   # release although a review gate still wants verdicts (recorded)
 
 
+def _release_members(db, grp: dict, who: Principal, body: ReleaseBody, *, skip: str | None = None) -> tuple[list[dict], list[str]]:
+    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate.
+    Returns ``(released, problems)``; a member's own problem never undoes the others."""
+    from . import releases
+    done, problems = [], []
+    for role, info in grp["roles"].items():
+        if info["dataset_id"] == skip:
+            continue
+        try:
+            if not records.dataset_records_all_owned(db, info["dataset_id"], who):
+                problems.append(f"{role}: not released — it holds records you don't own")
+                continue
+            other_last = releases.latest(db, info["dataset_id"])
+            if other_last and not releases.changed_since(db, info["dataset_id"], other_last):
+                done.append({"role": role, "dataset_id": info["dataset_id"], "number": other_last["number"], "unchanged": True})
+                continue
+            orel = releases.create(db, info["dataset_id"], reason="group", notes=body.notes, created_by=who.user_id,
+                                   allow_stale=body.allow_stale, override_gates=body.override_gates)
+            done.append({"role": role, "dataset_id": info["dataset_id"], "number": orel["number"]})
+        except releases.GateClosed as exc:
+            problems.append(f"{role}: not released — {exc}")
+        except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
+            problems.append(f"{role}: not released — {exc}")
+    return done, problems
+
+
 @app.post("/api/datasets/{dataset_id}/releases")
 def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
-    """Owner only: freeze the dataset as it is now into the next release. 409 when nothing changed."""
+    """Owner only: freeze the dataset as it is now into the next release. 409 when nothing changed.
+    A workflow dataset holds no records: releasing it releases each linked dataset."""
     from . import releases
     if not _dataset_gate(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="Only the owner can create releases.")
+    d0 = records.get_dataset(db, dataset_id) or {}
+    if d0.get("kind") == "workflow":
+        from . import workflows
+        grp = workflows.group_of(db, d0) or {"roles": {}}
+        if not grp["roles"]:
+            raise HTTPException(status_code=409, detail="No dataset is linked to this workflow yet.")
+        done, problems = _release_members(db, grp, who, body)
+        if done and all(x.get("unchanged") for x in done) and not problems:
+            raise HTTPException(status_code=409, detail="Nothing changed in the linked datasets since their last releases.")
+        return {"group": done, "problems": problems}
     if not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="This dataset holds records you don't own.")
     last = releases.latest(db, dataset_id)
@@ -2162,23 +2242,10 @@ def dataset_release_create(dataset_id: str, body: ReleaseBody, db=Depends(get_db
     from . import workflows
     grp = workflows.group_of(db, records.get_dataset(db, dataset_id) or {})
     if grp and body.group:
-        out["group"] = []
-        for role, info in grp["roles"].items():
-            if info["dataset_id"] == dataset_id:
-                out["group"].append({"role": role, "dataset_id": dataset_id, "number": rel["number"]})
-                continue
-            try:
-                other_last = releases.latest(db, info["dataset_id"])
-                if other_last and not releases.changed_since(db, info["dataset_id"], other_last):
-                    out["group"].append({"role": role, "dataset_id": info["dataset_id"], "number": other_last["number"], "unchanged": True})
-                    continue
-                orel = releases.create(db, info["dataset_id"], reason="group", notes=body.notes, created_by=who.user_id,
-                                       allow_stale=body.allow_stale, override_gates=body.override_gates)
-                out["group"].append({"role": role, "dataset_id": info["dataset_id"], "number": orel["number"]})
-            except releases.GateClosed as exc:
-                out["problems"].append(f"{role}: not released — {exc}")
-            except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
-                out["problems"].append(f"{role}: not released — {exc}")
+        me = next((r for r, info in grp["roles"].items() if info["dataset_id"] == dataset_id), None)
+        others, problems = _release_members(db, grp, who, body, skip=dataset_id)
+        out["group"] = ([{"role": me, "dataset_id": dataset_id, "number": rel["number"]}] if me else []) + others
+        out["problems"] += problems
     # Zenodo first: it reserves the DOI the GitHub copy and the catalogue then name
     if body.doi:
         from . import auth, zenodo
@@ -2837,9 +2904,15 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
             base = (d.get("schema_id") or "").partition("@")[0]
             if base and base not in {ws.preset_base(p) for _s, p in ws.pins(spec)}:
                 raise HTTPException(status_code=422, detail=f"This workflow does not extract with this dataset's preset ({base}).")
-            workflows.declare(db, d, spec)
+            try:
+                workflows.declare(db, d, spec)
+            except workflows.RunRefused as exc:
+                raise _refused(exc)
         else:
-            workflows.declare(db, records.get_dataset(db, dataset_id) or {"id": dataset_id}, None)
+            try:
+                workflows.declare(db, records.get_dataset(db, dataset_id) or {"id": dataset_id}, None)
+            except workflows.RunRefused as exc:
+                raise _refused(exc)
     if companion:                         # the other side of the same papers, checked row by row (crosscheck.py)
         from . import crosscheck
         cid = (body.companion_dataset_id or "").strip() or None
@@ -2858,20 +2931,25 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
         raise HTTPException(status_code=422, detail="README must be 20,000 characters or fewer.")
 
     res: dict = {}
+    if wf_set:                            # where the workflow now lives (a workflow dataset for several presets)
+        dd = records.get_dataset(db, dataset_id) or {}
+        res["dataset"] = {k: dd.get(k) for k in ("id", "kind", "workflow", "group_id", "group_role")}
     if meta:
-        res = {"meta": records.update_dataset_meta(db, dataset_id, **meta)}
+        res = {**res, "meta": records.update_dataset_meta(db, dataset_id, **meta)}
     if body.title is not None:
         title = body.title.strip()
         if not title:
             raise HTTPException(status_code=422, detail="Title must not be empty.")
         if len(title) > 200:
             raise HTTPException(status_code=422, detail="Title must be 200 characters or fewer.")
-        res = records.rename_dataset(db, dataset_id, title)
+        res = {**res, **records.rename_dataset(db, dataset_id, title)}
     if body.visibility is None:
         return res
 
     if body.visibility not in ("public", "private"):
         raise HTTPException(status_code=422, detail="visibility must be public|private")
+    if (records.get_dataset(db, dataset_id) or {}).get("kind") == "workflow":
+        raise HTTPException(status_code=422, detail="A workflow dataset is published through its linked datasets: release and publish those.")
     if body.visibility == "public" and not records.dataset_records_all_owned(db, dataset_id, who):
         raise HTTPException(status_code=403, detail="You can only publish records you own.")
     before = records.get_dataset(db, dataset_id) or {}          # status BEFORE the visibility flip

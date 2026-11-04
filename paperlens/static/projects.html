@@ -11,7 +11,7 @@
   <header class="topbar" data-chrome></header>
   <main class="wrap" style="padding-top:24px">
     <h2 style="margin:0 0 4px">My Workspace</h2>
-    <p class="muted" id="psub" style="margin:0 0 22px">Your datasets, presets and analyses.</p>
+    <p class="muted" id="psub" style="margin:0 0 22px">Your datasets, workflows, presets and analyses.</p>
 
     <section class="ws-section">
       <div class="ws-head">
@@ -23,6 +23,17 @@
       </div>
       <p class="muted ws-hint">Extracted records. Open one to add papers, review, or publish.</p>
       <div id="datasets" class="proj-grid"></div>
+    </section>
+
+    <section class="ws-section" id="wf-section">
+      <div class="ws-head">
+        <h3>Workflows</h3>
+        <span class="ws-btns"><a class="btn btn-ghost btn-sm" href="/workflows" title="what each workflow runs, its versions and how to cite it">Browse workflows</a>
+          <button class="btn btn-primary btn-sm" id="wf-new" type="button">＋ New workflow</button></span>
+      </div>
+      <p class="muted ws-hint">A workflow runs its steps over your papers in order: extraction or upload, checks, reviews, a release. A workflow over several presets has a dataset of its own that links one dataset per preset.</p>
+      <div id="wf-newform" class="ds-card" hidden></div>
+      <div id="workflows" class="proj-grid"></div>
     </section>
 
     <section class="ws-section">

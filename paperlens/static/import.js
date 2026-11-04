@@ -20,7 +20,7 @@ const TABLES = {};     // schema id -> {table field: [column names]}, for reshap
 let EXISTING = null; // documents already in the chosen dataset: [{document_id, filename, title, doi}] (null = new dataset)
 const ACTION = {};   // json key -> "replace" | "skip" for papers already in the dataset (default replace)
 let PRESETS = [];
-let RUN_ID = null, RUN_STEP = "extract";   // the workflow run these uploads belong to (?run=&step=)
+let RUN_ID = null, RUN_STEP = "extract", RUN_BACK = null;   // the workflow run these uploads belong to (?run=&step=&back=)
 let RUNNING = false;
 
 // strip .gemini.json / .json / .pdf so "aejapp_4_3_4.gemini.json" and "aejapp_4_3_4.pdf" pair
@@ -78,10 +78,11 @@ async function loadDatasets() {
     // ?run=<id>&step=<id>: the uploads are the papers of a workflow run's supplied step
     RUN_ID = new URLSearchParams(location.search).get("run") || null;
     RUN_STEP = new URLSearchParams(location.search).get("step") || "extract";
+    RUN_BACK = new URLSearchParams(location.search).get("back") || null;   // the workflow dataset the run belongs to
     if (RUN_ID) {
       const note = document.createElement("p");
       note.className = "muted"; note.style.cssText = "font-size:13px;margin:6px 0 0";
-      note.innerHTML = `These uploads are the papers of a <b>workflow run</b> of “${esc(target.title || "this dataset")}”: each lands in the run, and the run goes on once you mark the uploads complete on the dataset page. <a href="/dataset?id=${esc(target.id)}#workflow">Back to the dataset →</a>`;
+      note.innerHTML = `These uploads are the papers of a <b>workflow run</b> of “${esc(target.title || "this dataset")}”: each lands in the run, and the run goes on once you mark the uploads complete on the ${RUN_BACK ? "workflow" : "dataset"} page. <a href="/dataset?id=${esc(RUN_BACK || target.id)}#workflow">Back to the ${RUN_BACK ? "workflow" : "dataset"} →</a>`;
       sel.closest(".field, .row, div")?.appendChild(note);
     }
   }
@@ -591,9 +592,14 @@ async function run() {
     } catch (e) { setStat(r.key, `✗ ${esc(e.message)}`, "warn"); }
   }
   RUNNING = false; $("#run").disabled = false;
-  const go = datasetId ? `/workspace?project=${encodeURIComponent(datasetId)}` : "/workspace";
+  // Nothing opens by itself: the dataset's page shows what arrived and offers the next step
+  // (review the data, or add the dataset to a workflow). Uploads of a workflow run go back to
+  // the workflow, where the run goes on.
+  const go = !datasetId ? "/workspace"
+    : RUN_ID ? `/dataset?id=${encodeURIComponent(RUN_BACK || datasetId)}#workflow`
+    : `/dataset?id=${encodeURIComponent(datasetId)}&imported=${done}`;
   const extra = (replaced ? `, ${replaced} replaced` : "") + (skipped ? `, ${skipped} skipped` : "");
-  $("#status").innerHTML = `Imported ${done}/${rows.length}${extra}. <a href="${go}">Open Data review →</a>`;
+  $("#status").innerHTML = `Imported ${done}/${rows.length}${extra}. <a href="${go}">${RUN_ID ? "Back to the workflow" : "Open the dataset"} →</a>`;
   if (done) setTimeout(() => { location.href = go; }, 800);
 }
 

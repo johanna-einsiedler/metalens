@@ -8,6 +8,23 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Workflow datasets: a workflow over several presets on a dataset of its own
+
+- A workflow whose extract steps name dataset roles runs on a **workflow dataset**: the row the
+  linked datasets hang from (its id is their group id). It carries the workflow, holds no records,
+  and its page lists the linked datasets with their presets, the papers one row per PDF with each
+  side's document, what the dataset-level steps made, the Workflow panel and one release for all
+  members. Groups made before it get theirs at startup. Deleting it frees the members.
+- My workspace has a **Workflows** section: my workflow datasets and my datasets running a declared
+  workflow, each with its linked datasets and what its run is doing; **New workflow** makes one.
+  Dataset tiles say when a dataset is one side of a workflow.
+- An import no longer opens the review by itself: it lands on the dataset's page, which offers
+  **Review the data** or **Add to a workflow** (the dataset joins in its preset's role). Uploads of
+  a workflow run go back to the workflow dataset.
+- A running workflow says which step it is on and what it is doing, with an estimate of the time
+  left when it can be measured (this run's pace, else earlier runs of the same kind).
+- Wording: supplied steps read "uploaded"; the panel's opening sentence is plain.
+
 ### Linked datasets and a joint review: the tables and the claims of the same papers as one process
 
 - An extract step may name its dataset role; a workflow with two such steps runs over a

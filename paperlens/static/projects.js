@@ -16,9 +16,11 @@ async function init() {
     dsGrid.innerHTML = '<p class="muted">Use “Sign in” in the top-right, then your saved '
       + 'datasets, presets and analyses appear here. Save a dataset from the extraction results.</p>';
     anGrid.innerHTML = ""; if (preGrid) preGrid.innerHTML = ""; if (papGrid) papGrid.innerHTML = "";
+    const wfs = document.querySelector("#wf-section"); if (wfs) wfs.hidden = true;
     return;
   }
   renderDatasets(dsGrid, me);
+  renderWorkflows(document.querySelector("#workflows"));
   renderPresets(preGrid, me);
   const load = document.querySelector("#pj-load");
   if (load && preGrid) {                          // a preset someone sent as a file → one of mine
@@ -82,6 +84,61 @@ function curatedCard(c, zen, cannot) {
     ${rels}${form}</div>`;
 }
 
+// ── workflows: my workflow datasets and my datasets that run a declared workflow ──
+// Each tile names the workflow, the datasets it links (one per preset) and what its latest run
+// is doing now; ＋ New workflow makes the dataset a workflow runs on.
+function runState(run) {
+  if (!run) return "no run yet";
+  const n = run.now;
+  if (n) return `${esc(n.label || n.step)} · ${esc(n.phase || run.status)}${n.total != null && n.done != null ? ` (${n.done} of ${n.total})` : ""}`;
+  const day = String(run.finished_at || run.created_at || "").slice(0, 10);
+  return `last run ${esc(run.status)}${day ? ` · ${esc(day)}` : ""}`;
+}
+
+async function renderWorkflows(grid) {
+  if (!grid) return;
+  let list = [];
+  try { list = (await api.myWorkflows()).workflows || []; }
+  catch (e) { grid.innerHTML = `<p class="muted">error: ${esc(e.message)}</p>`; return; }
+  grid.innerHTML = list.length ? list.map((w) => {
+    const sides = w.kind === "workflow"
+      ? w.datasets.map((d) => `${esc(d.label || d.role)}: ${d.id ? esc(d.title || "dataset") : "<i>not linked</i>"}`).join(" · ")
+      : "runs on this dataset";
+    return `<div class="proj-tile-wrap"><a class="proj-tile" href="/dataset?id=${esc(w.id)}${w.kind === "workflow" ? "" : "#workflow"}">`
+      + `<div class="pt-title">⛓ ${esc(w.title || "Untitled workflow")}</div>`
+      + `<div class="pt-meta">${esc(w.workflow.title || w.workflow.id || "")}${w.workflow.version ? ` v${esc(String(w.workflow.version))}` : ""} · ${sides}</div>`
+      + `<div class="pt-meta">${runState(w.run)}</div></a></div>`;
+  }).join("") : '<p class="muted">No workflows yet. <b>＋ New workflow</b> makes the dataset a workflow runs on; a dataset page offers <b>Add to a workflow</b> too.</p>';
+  const btn = document.querySelector("#wf-new"), form = document.querySelector("#wf-newform");
+  if (!btn || !form) return;
+  btn.onclick = async () => {
+    if (!form.hidden) { form.hidden = true; return; }
+    let avail = [];
+    try { avail = (await api.workflows()).workflows || []; } catch (e) { alert(e.message); return; }
+    const linked = (w) => { const rs = [...new Set((w.steps || []).filter((s) => s.kind === "extract" && s.dataset).map((s) => s.dataset))]; return rs; };
+    form.hidden = false;
+    form.innerHTML = `<div class="ds-card-h">New workflow</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px">
+        <select id="wf-new-pick">${avail.map((w, i) => `<option value="${i}">${esc(w.title || w.id)}</option>`).join("")}</select>
+        <input id="wf-new-title" placeholder="name (optional)" style="min-width:220px"/>
+        <button class="btn btn-primary btn-sm" id="wf-new-go" type="button">Create</button></div>
+      <p class="muted" id="wf-new-help" style="font-size:12.5px;margin:6px 0 0"></p>`;
+    const pick = form.querySelector("#wf-new-pick"), help = form.querySelector("#wf-new-help");
+    const say = () => {
+      const w = avail[+pick.value] || {}, roles = linked(w);
+      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset; you then link or make one dataset per preset (${roles.join(", ")}).` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
+    };
+    pick.onchange = say; say();
+    form.querySelector("#wf-new-go").onclick = async () => {
+      const w = avail[+pick.value]; if (!w) return;
+      try {
+        const made = await api.createWorkflowDataset({ workflow: w.id, title: form.querySelector("#wf-new-title").value.trim() || null });
+        location.href = `/dataset?id=${encodeURIComponent(made.id)}${made.kind === "workflow" ? "" : "#workflow"}`;
+      } catch (e) { alert(`Could not create it: ${e.message}`); }
+    };
+  };
+}
+
 async function renderPresets(grid, _me) {
   if (!grid) return;
   let presets = [];
@@ -123,7 +180,8 @@ async function renderDatasets(grid, me) {
     + `<a class="proj-tile" href="/dataset?id=${esc(d.id)}">`
     + `<div class="pt-title">${esc(d.title)}</div>`
     + `<div class="pt-meta">${d.n_records} record${d.n_records === 1 ? "" : "s"} · `
-    + `<span class="pt-vis ${esc(d.visibility)}">${esc(d.visibility)}</span></div></a>`
+    + `<span class="pt-vis ${esc(d.visibility)}">${esc(d.visibility)}</span>`
+    + `${d.group_role ? ` · <span title="one side of a workflow dataset">⛓ ${esc(d.group_role)} side</span>` : ""}</div></a>`
     + `<button class="pt-rename" data-id="${esc(d.id)}" title="rename dataset">✎</button>`
     + `<button class="pt-del" data-id="${esc(d.id)}" title="delete dataset">🗑</button></div>`).join("");
   grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async (e) => {

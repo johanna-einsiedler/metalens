@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Browser check of a dataset group's joint review: the Workflow panel names the linked datasets
-and the joint stage; the queue walks the paper's tables then its claims across both datasets;
-verdicts move the count; the claims dataset shows the same run.
+"""Browser check of a dataset group's joint review: the workflow dataset above the tables and the
+claims lists both and runs the joint stage; the queue walks the paper's tables then its claims
+across both datasets; verdicts move the count; the claims dataset points to the workflow dataset.
 
     python3 scripts/ui_check_group.py --url http://127.0.0.1:8019 --tables <id> --claims <id> --run <id> --session <X-Session-Id> [--shot /tmp/grp]
 """
@@ -40,11 +40,13 @@ def main() -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "401" not in m.text and "Failed to load resource" not in m.text else None)
         page.on("dialog", lambda d: d.accept())
-        page.goto(f"{a.url}/dataset?id={a.tables}")
+        # the workflow lives on the workflow dataset: the group's own row, above the tables and the claims
+        wd = page.request.get(f"{a.url}/api/datasets/{a.tables}/group", headers={"X-Session-Id": a.session}).json()["id"]
+        page.goto(f"{a.url}/dataset?id={wd}")
         page.wait_for_selector("#ds-update:not([hidden]) .wf-row", timeout=30000)
-        grp = page.locator("#ds-update .wf-group")
-        check(grp.count() == 1 and "tables" in grp.inner_text() and "claims" in grp.inner_text() and "this dataset" in grp.inner_text(), f"the panel names the linked datasets: {grp.inner_text()[:100]}")
-        check(grp.locator("a[href^='/dataset?id=']").count() == 1, "the other dataset is linked")
+        grp = page.locator("#wd-members")
+        check(grp.locator(".wd-member").count() == 2 and "Econ tables" in grp.inner_text() and "Econ claims" in grp.inner_text(), f"the workflow dataset names the linked datasets: {grp.inner_text()[:100]}")
+        check(grp.locator(f"a[href='/dataset?id={a.tables}']").count() == 1 and grp.locator(f"a[href='/dataset?id={a.claims}']").count() == 1, "both datasets are linked")
         joint = page.locator("#ds-update .wf-row", has_text="Joint review")
         check(joint.count() == 1 and "tables → claims" in joint.inner_text() and "0 of 4 checked" in joint.inner_text(), f"the joint stage row: {joint.inner_text()[:120]}")
         link = joint.locator("a[href*='queue=']")
@@ -80,12 +82,13 @@ def main() -> int:
         check(n >= 1 and "checked" in bar, f"verdicts moved the count ({n} given): {bar[:120]}")
         page.screenshot(path=f"{a.shot}-3-verdicts.png", full_page=True)
         page.goto(f"{a.url}/dataset?id={a.claims}")
-        page.wait_for_selector("#ds-update:not([hidden]) .wf-row", timeout=30000)
-        check(page.locator("#ds-update .wf-run").count() == 1 and "Econ tables" in page.locator("#ds-update .wf-group").inner_text(), "the claims dataset shows the same run and its sibling")
+        page.wait_for_selector("#ds-update:not([hidden])", timeout=30000)
+        check("side of the workflow dataset" in page.locator("#ds-update").inner_text() and page.locator(f"#ds-update a[href^='/dataset?id={wd}']").count() >= 1,
+              "the claims dataset points to its workflow dataset")
         # a second run with nothing new to upload: "Uploads complete" completes both supplied steps and the checks run
         r = page.request.post(f"{a.url}/api/datasets/{a.tables}/workflow/runs", data={}, headers={"X-Session-Id": a.session})
         check(r.ok, f"a second run starts ({r.status})")
-        page.goto(f"{a.url}/dataset?id={a.tables}")
+        page.goto(f"{a.url}/dataset?id={wd}")
         page.wait_for_selector("#wf-complete", timeout=30000)
         check(page.locator("#ds-update a", has_text="Upload the tables files").count() == 1 and page.locator("#ds-update a", has_text="Upload the claims files").count() == 1,
               "one upload button per dataset role")
