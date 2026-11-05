@@ -89,6 +89,10 @@ def _close(a: float, b: float) -> bool:
     return abs(a - b) <= max(5e-4, 5e-3 * max(abs(a), abs(b)))
 
 
+def _norm_label(x) -> str:
+    return re.sub(r"\s+", " ", str(x if x is not None else "")).strip().lower()
+
+
 def _isnum(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
@@ -120,10 +124,14 @@ def check_regression_cells(inputs: list[dict], params: dict) -> list[dict]:
         if cells and (any(not _isnum(x) for x in ris) or len(set(ris)) != len(ris) or sorted(ris) != list(range(len(ris)))):
             F(r, "cells", "row_index_gap", "warn", "row indexes are not unique and contiguous from 0")
         se_rows: dict[int, list[int]] = {}
+        coef_labels = {_norm_label(c.get("row_label")) for c in cells if c.get("row_type") == "coefficient"}
         for i, c in enumerate(cells):
             rt, path = c.get("row_type"), f"cells[{i}]"
             if rt in SUB_TYPES:
                 ref = c.get("refers_to")
+                lab = _norm_label(c.get("row_label"))
+                if rt in ("p_value", "t_stat") and (ref is None or ref == "") and lab and lab not in coef_labels:
+                    continue                        # a test's p-value (t), printed as a row of its own: no coefficient's
                 if not _isnum(ref) or ref not in idx:
                     F(r, f"{path}.refers_to", "se_dangling_ref", "error", f"the {rt} row refers to no coefficient row (refers_to {ref!r})")
                 elif idx[ref].get("row_type") != "coefficient":

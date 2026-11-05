@@ -53,7 +53,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
 | check | reads | finds |
 |---|---|---|
 | `schema` | any preset | the declared contract on the values as stored: a required field missing, a wrong type, an option not declared |
-| `regression-cells` | `econ-regression-tables`, `register-tables` | an se/t/p/CI row naming no coefficient (`se_dangling_ref`) or a non-coefficient (`se_refers_noncoef`), two se rows for one coefficient (`coef_many_se`), a parsed number that is not the printed one (`numeric_mismatch`), stars against the stated level (`stars_vs_level`) or the p-value (`stars_vs_p`), t against coefficient / se (`t_vs_coef_se`), the stated N against the printed N (`n_obs_vs_sample`), columns of one table with different Ns (`n_obs_varies`, a note), row indexes not from 0 (`row_index_gap`) |
+| `regression-cells` | `econ-regression-tables`, `register-tables` | an se/t/p/CI row naming no coefficient (`se_dangling_ref`; a p or t row with a label of its own that names no coefficient is a test statistic and passes) or a non-coefficient (`se_refers_noncoef`), two se rows for one coefficient (`coef_many_se`), a parsed number that is not the printed one (`numeric_mismatch`), stars against the stated level (`stars_vs_level`) or the p-value (`stars_vs_p`), t against coefficient / se (`t_vs_coef_se`), the stated N against the printed N (`n_obs_vs_sample`), columns of one table with different Ns (`n_obs_varies`, a note), row indexes not from 0 (`row_index_gap`) |
 | `claims-vs-tables` | `register-claims`, needs the dataset's companion | a cited estimate no coefficient cell of the resolved column equals (`estimate_mismatch`), a cited exhibit no column matches (`exhibit_unlinked`) |
 
 Findings reach the reviewer on the card ("✗ 2 check findings — regression-cells: …"), on the cell
@@ -138,8 +138,10 @@ A review step may say what it asks of each side: `"asks": {"tables": ["target_re
 "se_type"]}` (keys are extract steps of `over`, values entry fields of their preset). A side with
 `asks` shows, under each table, only those fields — one line per column, the target regressor picked
 from the column's coefficient rows and marked in the table — instead of the column's whole
-specification; a side without it shows every field. `asks` is display: it does not change the
-workflow's contract. The bundled `econ` asks what the extraction validation checks.
+specification; a side without it shows every field. On the claims side the asked fields are
+edited in place under the table (a child, such as the results, as an editable table whose rows
+citing the table are marked). `asks` is display: it does not change the workflow's contract. The
+bundled `econ` asks what the extraction validation checks and records.
 Releasing the workflow dataset releases each member under its own number and gate (the response
 lists them, and names a member whose gate still holds); a release cut from one member releases the
 others with it, so the datasets stay in step.
