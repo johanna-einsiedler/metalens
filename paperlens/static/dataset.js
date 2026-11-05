@@ -696,6 +696,10 @@ function renderWorkflowCard(host, w) {
   };
   const complete = $("#wf-complete");
   if (complete && run) complete.onclick = async () => {
+    clearTimeout(WF_TIMER);                                 // no poll repaints the old state mid-request
+    complete.disabled = true; complete.textContent = "Working…";
+    const nl = host.querySelector(".wf-nowline");
+    if (nl) nl.innerHTML = `<span class="wf-now"><span class="spin"></span> <b>Now:</b> uploads complete · running the next steps</span>`;
     try { for (const s of suppliedSteps.length ? suppliedSteps : [ex]) await api.workflowComplete(run.id, s.id || "extract"); } catch (e) { alert(e.message); }
     loadWorkflowCard();
   };

@@ -166,12 +166,12 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
         d["items"] = [dict(it, ord=k) for k, it in enumerate(sorted(d["items"], key=lambda it: pos.get(it["record_id"], 10**9)))]
         with conn.transaction():
             conn.execute("DELETE FROM workflow_sample WHERE step_run_id = %s::uuid", (step_run["id"],))
-            for it in d["items"]:
-                conn.execute(
+            with conn.cursor() as cur:                      # one pipelined batch, not a round trip per item
+                cur.executemany(
                     """INSERT INTO workflow_sample (id, run_id, step_run_id, step_id, record_id, document_id, kind, stratum, ord)
                        VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s::uuid, %s::uuid, 'random', %s, %s)""",
-                    (str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], it["record_id"], it.get("document_id"),
-                     Json(it.get("stratum") or {}), it["ord"]))
+                    [(str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], it["record_id"], it.get("document_id"),
+                      Json(it.get("stratum") or {}), it["ord"]) for it in d["items"]])
         header.update({"n": rv.get("n"), "share": rv.get("share"), "seed": seed, "stratify": list(rv.get("stratify") or []),
                        "frame_n": d["frame_n"], "n_target": d["n_target"], "drawn": len(d["items"]), "exhaustive": d["exhaustive"],
                        "strata": d["strata"], "drawn_at": header["opened_at"]})

@@ -27,6 +27,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   "running": the panel says what each side has received ("none uploaded yet"), for how long it has
   waited, and that nothing is computed until the owner uploads, reviews or presses Uploads complete.
 - Wording: supplied steps read "uploaded"; the panel's opening sentence is plain.
+- **Uploads complete** shows at once that the run goes on (the button reads "Working…", the Now line
+  "running the next steps"), and the checks store their findings — and a review its drawn records —
+  in one batch instead of one database round trip each, which made the button slow on large datasets.
 
 ### Linked datasets and a joint review: the tables and the claims of the same papers as one process
 
