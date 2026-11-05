@@ -54,7 +54,7 @@ _ALLOWED_KEYS = {
     "step": {"id", "kind", "label", "help", "review"},
     "extract": {"preset", "source", "k", "vote", "input", "params", "dataset"},
     "agent": {"preset", "source", "dataset"},
-    "review_step": {"over"},
+    "review_step": {"over", "asks"},
     "vote": {"identity", "fields"},
     "input": {"previous"},
     "check": {"check", "over", "on_fail", "severity", "params"},
@@ -302,6 +302,24 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
             for o in over:
                 if o not in earlier or by_id.get(o, {}).get("kind") not in ("extract", "agent"):
                     E(f"{at}.over: {o!r} is not an earlier extract step")
+            # asks: per side, the entry fields the joint review asks the reviewer to verify beside a
+            # sheet's cells (what a validation protocol checks); a side without it shows every field
+            asks = st.get("asks")
+            if asks is not None:
+                if not isinstance(asks, dict):
+                    E(f"{at}.asks must map extract steps of `over` to lists of entry fields")
+                else:
+                    for o, fields in asks.items():
+                        if o not in over:
+                            E(f"{at}.asks: {o!r} is not one of the steps the stage reviews")
+                        elif not isinstance(fields, list) or any(not isinstance(f, str) for f in fields):
+                            E(f"{at}.asks.{o} must list entry fields")
+                        elif presets_of.get(o):
+                            ent = presets_of[o].get("entries") or {}
+                            names = {f.get("name") for f in ent.get("fields") or [] if isinstance(f, dict)} | {c.get("key") for c in ent.get("children") or [] if isinstance(c, dict)}
+                            for f in fields:
+                                if f not in names:
+                                    E(f"{at}.asks.{o}: {f!r} is not an entry field of {by_id[o].get('preset')}")
             for kk in st:
                 if kk not in _ALLOWED_KEYS["step"] | _ALLOWED_KEYS["review_step"]:
                     E(f"{at}: unknown key {kk!r}")
@@ -538,7 +556,7 @@ def _validate_review(rv, st, pspec, at, E, W) -> None:
 
 # ── identity ──────────────────────────────────────────────────────────────────
 
-_WORDING = ("label", "help")
+_WORDING = ("label", "help", "asks")                         # asks: what the review shows, not what it promises
 
 
 def workflow_contract(spec: dict) -> dict:

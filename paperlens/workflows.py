@@ -1769,6 +1769,27 @@ def panel(conn, dataset_id: str, *, who, owner: bool) -> dict:
 
 # ── workflow datasets: the page and the list ──────────────────────────────────
 
+def review_asks(conn, dataset: dict) -> dict[str, list[str]]:
+    """What the dataset's group workflow asks its joint review to verify, per linked dataset:
+    ``{dataset_id: [entry fields]}`` from the review steps' ``asks`` (keyed there by extract step,
+    whose dataset role names the linked dataset). Empty when nothing is declared."""
+    spec = get_workflow(dataset.get("workflow"))
+    grp = group_of(conn, dataset)
+    if not spec or not grp:
+        return {}
+    by_id = ws.steps_by_id(spec)
+    out: dict[str, list[str]] = {}
+    for st in spec.get("steps") or []:
+        if st.get("kind") != "review":
+            continue
+        for sid, fields in (st.get("asks") or {}).items():
+            role = (by_id.get(sid) or {}).get("dataset")
+            did = (grp["roles"].get(role) or {}).get("dataset_id") if role else None
+            if did:
+                out[did] = list(fields)
+    return out
+
+
 def overview(conn, parent: dict, *, owner: bool) -> dict:
     """A workflow dataset's page: the workflow, the linked datasets (one per preset, each with its
     counts and latest release), the papers — one row per PDF with each side's document beside

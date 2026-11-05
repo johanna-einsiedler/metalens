@@ -109,6 +109,12 @@
         "mode": "all",
         "unit": "paper",
         "blocks": "release"
+      },
+      "asks": {
+        "tables": [
+          "target_regressors",
+          "se_type"
+        ]
       }
     },
     {

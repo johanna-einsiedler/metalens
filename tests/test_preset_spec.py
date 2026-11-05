@@ -121,6 +121,7 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("sheet group unknown", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "group": ["zzz"]}), "sheet.group"),
     ("sheet unknown key", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "rows": "a"}), "unknown key"),
     ("sheet panel not an entry field", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "panel": "zzz"}), "sheet.panel must name a scalar entry field"),
+    ("sheet target not a list or table", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "target": "sample_id"}), "sheet.target must name"),
     ("hidden not a list", lambda d: d["display"].__setitem__("hidden", "sample_id"), "display.hidden must list entry fields"),
     ("hidden names no field", lambda d: d["display"].__setitem__("hidden", ["zzz"]), "display.hidden must list entry fields"),
 ])
@@ -673,7 +674,7 @@ def test_sheet_lays_a_table_field_out_as_printed() -> None:
         disp = presets.load_all()[pid]["display"]
         sh = disp["sheet"]
         assert sh["field"] == "cells" and sh["value"] == "raw_text" and sh["refers_to"] == "refers_to"
-        assert sh["group"] == ["table_number"] and sh["panel"] == "panel"
+        assert sh["group"] == ["table_number"] and sh["panel"] == "panel" and sh["target"] == "target_regressors"
         assert disp["locate"]["cells"] == {"anchor_fields": ["row_label"]}
         assert [t["id"] for t in disp["tabs"]] == ["cells", "spec"] and disp["tabs"][1]["fields"][:2] == ["outcome_variable", "target_regressors"]
         assert set(disp["hidden"]) == {"regression_id", "table_number", "table_title", "panel", "column", "column_label"}

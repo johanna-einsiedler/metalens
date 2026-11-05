@@ -133,6 +133,13 @@ stacked as printed, every cell editable, one verdict for the whole table — wit
 results cite it underneath, each with its own verdict and its estimate against the table. Claims
 citing no table of the paper (a figure, the text) have a pill of their own. A claim's "edit ↗"
 opens it in the claims document, where every field is editable.
+
+A review step may say what it asks of each side: `"asks": {"tables": ["target_regressors",
+"se_type"]}` (keys are extract steps of `over`, values entry fields of their preset). A side with
+`asks` shows, under each table, only those fields — one line per column, the target regressor picked
+from the column's coefficient rows and marked in the table — instead of the column's whole
+specification; a side without it shows every field. `asks` is display: it does not change the
+workflow's contract. The bundled `econ` asks what the extraction validation checks.
 Releasing the workflow dataset releases each member under its own number and gate (the response
 lists them, and names a member whose gate still holds); a release cut from one member releases the
 others with it, so the datasets stay in step.

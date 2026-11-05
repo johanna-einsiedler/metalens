@@ -19,6 +19,7 @@ import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLev
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
 let PROJECT_MEMBERS = null;   // a workflow dataset holds no papers itself: the ids of its linked datasets, whose papers it reviews
+let ASKS = {};                // a joint workflow's review: per linked dataset, the entry fields it asks to verify (workflow `asks`)
 let CHAIN_OFF = false;                                   // a preset with a review layout (chain, evidence, stages), but the reviewer wants the field view
 let STAGE = 0;                                           // the staged layout: which stage is open (kept across papers)
 let STAGE_CUR = 0, STAGE_KEY = "", STAGE_ITEMS = [], STAGE_SHOWN = "", STAGE_GO = 0;   // its cursor over the stage's items, per paper and stage
@@ -329,11 +330,12 @@ async function init() {
       DOCS = lists.flat();
       try {
         const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null;
+        ASKS = ov.review_asks || {};
         if (ov.kind === "workflow") PROJECT_MEMBERS = QUEUE.datasets.slice();     // a run of a workflow dataset: its papers come through runs
       } catch { /* */ }
     } else if (PROJECT) {
       let ov = null;
-      try { ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; } catch { /* */ }
+      try { ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null; ASKS = ov.review_asks || {}; } catch { /* */ }
       if (ov && ov.kind === "workflow") {
         PROJECT_MEMBERS = (ov.members || []).filter((m) => m.dataset).map((m) => m.dataset.id);
         DOCS = await workflowDocs();
@@ -1646,11 +1648,13 @@ function jointClaimHtml(c, links) {
       + (page ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="show in the PDF">p.${page}</button>` : "")
       + ` <span class="rv-qt">“${esc(String(fv[q.field]))}”</span></div>`;
   }).join("");
-  const res = links.length ? `<ul class="jc-res">${links.map((l) => `<li>${esc(l.where || "result")}${l.label ? ` · ${esc(String(l.label))}` : ""}`
+  const res = links.length ? `<ul class="jc-res">${links.map((l) => `<li>${l.row.role === "main" ? `<b class="jc-main" title="the estimate the paper points to">★ main</b> ` : ""}${esc(l.where || "result")}${l.label ? ` · ${esc(String(l.label))}` : ""}`
     + `${l.value != null ? ` · <b>${esc(String(l.value))}</b>` : ""}${l.se != null ? ` <span class="muted">(${esc(String(l.se))})</span>` : ""}`
     + (l.status ? ` <span class="jc-cc cc-${esc(l.status)}" title="${esc(l.detail)}">${CC_GLYPH[l.status] || ""} ${esc(CC_WORD[l.status] || l.status)}</span>` : "") + `</li>`).join("")}</ul>` : "";
-  return `<div class="jc-claim" data-rid="${esc(c.id)}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(JOINT.vm, c, c.entry_index)))}</b>`
-    + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + ` <span class="status ${esc(st)}">${esc(st)}</span>`
+  const type = JOINT.vm.fieldIndex.has("type") && fv.type ? ` <span class="jc-type">${esc(String(fv.type))}</span>` : "";
+  const quals = JOINT.vm.fieldIndex.has("qualifies") && Array.isArray(fv.qualifies) && fv.qualifies.length ? ` <span class="muted">compares ${esc(fv.qualifies.join(", "))}</span>` : "";
+  return `<div class="jc-claim" data-rid="${esc(c.id)}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(JOINT.vm, c, c.entry_index)))}</b>${type}`
+    + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + quals + ` <span class="status ${esc(st)}">${esc(st)}</span>`
     + `<span class="jc-acts"><button class="vbtn ok jc-v${st === "verified" ? " on" : ""}" data-status="verified" title="this claim is right">✓</button>`
     + `<button class="vbtn flag jc-v${st === "flagged" ? " on" : ""}" data-status="flagged" title="something in this claim is wrong">⚑</button>`
     + `<a class="jc-open" href="/workspace?doc=${esc(JOINT.doc.document_id)}&rec=${esc(c.id)}" data-doc="${esc(JOINT.doc.document_id)}" data-rec="${esc(c.id)}" title="edit this claim in the claims document">edit ↗</a></span></div>`
@@ -1726,7 +1730,7 @@ function sheetBlocks(rec, S) {
   }
   return [...blocks.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
-function renderSheet(rec, def) {
+function renderSheet(rec, def, note = null) {
   const S = sheetSpec();
   const blocks = sheetBlocks(rec, S);
   const colLabel = (r) => {
@@ -1770,8 +1774,9 @@ function renderSheet(rec, def) {
         if (i == null) return `<td class="sh-cell sh-blank${me ? " sh-me" : ""}"${r ? ` data-rid="${esc(r.id)}"` : ""}></td>`;
         const c = sheetCells(r, S)[i] || {}, v = c[S.value], text = v == null ? "" : esc(String(v));
         const fs = finding(r, i).sort((x, y) => (SEV[y.severity] || 0) - (SEV[x.severity] || 0));
-        const tip = [sheetTip(c, S, def), ...fs.map((f) => `${f.check}: ${f.message}`)].filter(Boolean).join(" · ");
-        const cls = `${RO ? "" : "rv-editable "}sh-val${text === "" ? " rv-empty" : ""}${fs.length ? ` cell-finding cf-${esc(fs[0].severity)}` : ""}`;
+        const tg = S.target ? isTarget(r, c, S) : null;
+        const tip = [tg ? `target regressor${tg.why ? ` — ${tg.why}` : ""}` : "", sheetTip(c, S, def), ...fs.map((f) => `${f.check}: ${f.message}`)].filter(Boolean).join(" · ");
+        const cls = `${RO ? "" : "rv-editable "}sh-val${text === "" ? " rv-empty" : ""}${tg ? " sh-target" : ""}${fs.length ? ` cell-finding cf-${esc(fs[0].severity)}` : ""}`;
         return `<td class="sh-cell${me ? " sh-me" : ""}" data-rid="${esc(r.id)}"><span ${RO ? "" : 'contenteditable="plaintext-only" '}class="${cls}" data-rid="${esc(r.id)}"`
           + ` data-path="${esc(`${S.field}[${i}].${S.value}`)}" title="${esc(tip)}">${text}</span></td>`;
       }).join("");
@@ -1782,7 +1787,7 @@ function renderSheet(rec, def) {
   }).join("");
   const n = keys.length;
   return `<div class="sheet" data-field="${esc(S.field)}"><div class="sh-cap muted">${n} column${n === 1 ? "" : "s"}${blocks.length > 1 ? ` · ${blocks.length} panels` : ""}`
-    + ` · every cell editable · the tinted column's specification is below</div>`
+    + ` · ${esc(note || "every cell editable · the tinted column's specification is below")}</div>`
     + `<div class="rv-tablewrap"><table class="sh-t"><thead><tr><th class="sh-lab"></th>${heads}</tr>${hdrRow}</thead><tbody>${body}</tbody></table></div>`
     + sheetToggle(false) + `</div>`;
 }
@@ -1856,15 +1861,17 @@ function renderTableCard(panel, rec) {
   const status = recs.some((r) => r.verification_status === "flagged") ? "flagged" : done === n ? "verified" : "unverified";
   const printed = S.caption ? (rec.field_values || {})[S.caption] : null;
   const sdef = VM.fieldIndex.get(S.field).field;
+  const ask = asksFor();                               // a joint workflow asks only what its validation checks
   const card = document.createElement("div");
   card.className = "record tcard"; card.dataset.rid = rec.id;
   card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${esc(sheetLabel(rec, S))}`
     + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span></div>`
     + tableNotesHtml(recs)
     + (JOINT ? "" : citedByHtml(rec, recs.flatMap((r) => (CITED && CITED[r.id]) || [])))
-    + (SHEET_LIST ? `<div class="rv-root tc-list">${renderFields([sdef], rec.field_values || {}, "", { editable: !RO })}</div>${sheetToggle(true)}` : renderSheet(rec, sdef))
+    + (SHEET_LIST ? `<div class="rv-root tc-list">${renderFields([sdef], rec.field_values || {}, "", { editable: !RO })}</div>${sheetToggle(true)}`
+        : renderSheet(rec, sdef, ask ? "every cell editable · the target regressor's cell underlined" : null))
     + (JOINT ? jointClaimsHtml(claimsForTable(recs), recs) : "")
-    + columnSectionHtml(rec)
+    + (ask ? askedHtml(rec, ask) : columnSectionHtml(rec))
     + `<div class="verify verify-foot tc-foot"><span class="verify-lead muted">Checked the whole table?</span>`
     + `<button class="vbtn ok${status === "verified" ? " on" : ""}" data-status="verified">✓ verify table</button>`
     + `<button class="vbtn flag${status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag table</button></div>`;
@@ -1878,6 +1885,7 @@ function renderTableCard(panel, rec) {
     wireTableRows(list, rec, () => renderPanel());
   }
   wireColumnSection(card.querySelector(".tc-col"), rec);
+  wireAsked(card);
   if (!RO) card.querySelectorAll(".tc-foot .vbtn").forEach((b) => (b.onclick = () => sendVerifyTable(card, recs, b.dataset.status)));
   if (JOINT) wireJointClaims(card);
 }
@@ -1897,6 +1905,81 @@ function tableNotesHtml(recs) {
       + esc(top.slice(0, 2).map(({ f, n }) => `${n > 1 ? `${n}× ` : ""}${f.check}: ${f.message}`).join(" · ")) + `${top.length > 2 ? " · …" : ""} · marked on the cells</div>`;
   }
   return html;
+}
+// What a joint workflow's review asks of the open paper's entries — the fields its validation
+// checks (workflow `asks`, per linked dataset) — else null: every field.
+function asksFor() {
+  const d = DOCS.find((x) => x.document_id === DOCID);
+  const f = d && d._ds ? ASKS[d._ds] : null;
+  return Array.isArray(f) ? f : null;
+}
+// display.sheet.target: the rows a column is about — a table's rows by row index, or row labels
+function sheetTargets(r, S) {
+  const v = S.target ? (r.field_values || {})[S.target] : null;
+  if (!Array.isArray(v)) return [];
+  const cols = (((VM.fieldIndex.get(S.target) || {}).field || {}).columns || []).map((c) => (typeof c === "string" ? c : c.name));
+  const lab = cols.find((n) => n !== S.row_index && n !== "why") || "name";
+  return v.map((t) => (t && typeof t === "object" ? { idx: t[S.row_index] ?? null, label: t[lab] ?? null, why: t.why || "" } : { idx: null, label: t, why: "" }));
+}
+function isTarget(r, c, S) {
+  const type = S.row_type ? String(c[S.row_type] ?? "") : "";
+  if (SHEET_SUB.has(type)) return null;
+  return sheetTargets(r, S).find((t) => (t.idx != null && c[S.row_index] != null ? +t.idx === +c[S.row_index] : t.label != null && sheetNorm(t.label) === sheetNorm(c[S.row_label]))) || null;
+}
+// One line per column of the table for what the workflow asks besides the cells: the target
+// regressor picked from the column's coefficient rows, each other asked field editable in place.
+function askedHtml(rec, ask) {
+  const S = sheetSpec(), eopts = { editable: !RO };
+  const defs = ask.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
+  if (!defs.length) return "";
+  const rows = sheetBlocks(rec, S).flatMap((b) => b.recs.map((r) => {
+    const fv = r.field_values || {};
+    const name = [S.column && fv[S.column], b.label].filter((x) => x != null && String(x).trim() !== "").map(String).join(" · ");
+    return `<tr data-rid="${esc(r.id)}"${r.id === rec.id ? ' class="tc-me"' : ""}><th>${esc(name || entryTitle(VM, r, r.entry_index))}</th>`
+      + defs.map((f) => `<td>${f.name === S.target ? targetPick(r, S) : renderFields([f], fv, "", eopts)}</td>`).join("") + `</tr>`;
+  })).join("");
+  return `<div class="tc-ask"><div class="tc-askcap">Per column <span class="muted">· what the review checks besides the cells</span></div>`
+    + `<table class="tc-asktab"><thead><tr><th>Column</th>${defs.map((f) => `<th title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</th>`).join("")}</tr></thead>`
+    + `<tbody>${rows}</tbody></table></div>`;
+}
+function targetPick(r, S) {
+  const opts = sheetCells(r, S).map((c, i) => ({ c, i }))
+    .filter(({ c }) => String(c[S.row_label] ?? "").trim() !== "" && (!S.row_type || sheetNorm(c[S.row_type]) === "coefficient"));
+  const ts = sheetTargets(r, S), cur = ts[0] || null;
+  const at = cur ? opts.findIndex(({ c }) => { const t = isTarget(r, c, S); return t && t.idx === cur.idx && t.label === cur.label; }) : -1;
+  return `<select class="tc-target"${RO ? " disabled" : ""} title="${esc(cur && cur.why ? `why: ${cur.why}` : "the coefficient the column is about")}">`
+    + `<option value=""${at < 0 ? " selected" : ""}>${cur && at < 0 ? `${esc(String(cur.label ?? "?"))} (no such row)` : "— none —"}</option>`
+    + opts.map(({ c, i }, k) => `<option value="${i}"${k === at ? " selected" : ""}>${esc(String(c[S.row_label]))}</option>`).join("") + `</select>`
+    + (ts.length > 1 ? ` <span class="muted">+ ${esc(ts.slice(1).map((t) => String(t.label ?? "?")).join(", "))}</span>` : "");
+}
+function wireAsked(card) {
+  card.querySelectorAll(".tc-asktab tr[data-rid]").forEach((tr) => {
+    const r = (DATA.records || []).find((x) => x.id === tr.dataset.rid); if (!r) return;
+    linkCells(tr, r);
+    wireControls(tr, (path, val) => saveFieldEdit(r, tr, path, val, curVal(r, path)), true);
+    const sel = tr.querySelector(".tc-target");
+    if (sel && !RO) sel.onchange = () => setTarget(r, sel.value === "" ? null : +sel.value);
+  });
+}
+// a new target regressor for a column: the first target replaced (a table row keeps its other
+// columns but the reason, which named the old one), the others kept; then the marks are redrawn
+async function setTarget(r, i) {
+  const S = sheetSpec(), fv = r.field_values || {};
+  const old = Array.isArray(fv[S.target]) ? fv[S.target] : [];
+  const c = i == null ? null : sheetCells(r, S)[i] || {};
+  const def = (VM.fieldIndex.get(S.target) || {}).field || {};
+  let first = null;
+  if (c) {
+    if (def.type === "table") {
+      const cols = (def.columns || []).map((x) => (typeof x === "string" ? x : x.name));
+      const lab = cols.find((n) => n !== S.row_index && n !== "why") || "name";
+      first = { ...(old[0] && typeof old[0] === "object" ? old[0] : {}), [lab]: c[S.row_label], [S.row_index]: c[S.row_index] ?? i };
+      if (cols.includes("why")) first.why = null;
+    } else first = c[S.row_label];
+  }
+  const now = first == null ? old.slice(1) : [first, ...old.slice(1)];
+  await saveFieldEdit(r, null, S.target, now, old);
+  renderPanel();
 }
 function columnSectionHtml(rec) {
   const S = sheetSpec(), fv = rec.field_values || {};
@@ -1933,6 +2016,7 @@ function selectColumn(card, rid) {
   card.querySelectorAll(`td.sh-cell[data-rid="${rid}"]`).forEach((el) => el.classList.add("sh-me"));
   const key = sheetColKey(r, S);
   card.querySelectorAll(".sh-t th[data-key]").forEach((th) => th.classList.toggle("sh-me", th.dataset.key === key));
+  card.querySelectorAll(".tc-asktab tr[data-rid]").forEach((tr) => tr.classList.toggle("tc-me", tr.dataset.rid === rid));
   const old = card.querySelector(".tc-col");
   if (old) {
     const tmp = document.createElement("div"); tmp.innerHTML = columnSectionHtml(r);
