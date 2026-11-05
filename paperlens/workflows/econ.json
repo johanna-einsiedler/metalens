@@ -113,7 +113,9 @@
       "asks": {
         "tables": [
           "target_regressors",
-          "se_type"
+          "se_type",
+          "fixed_effects",
+          "controls"
         ],
         "claims": [
           "type",

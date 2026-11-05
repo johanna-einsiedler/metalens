@@ -30,6 +30,16 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   coefficient's sub-row.
 - A missing confidence rating is not counted as a structural issue of the model output (an
   import carries no ratings).
+- Under a table, a claim is drawn as the claims document draws it (the chain layout: the edge
+  and its sign, the scope, the quotes with their page buttons, the results with their verdict
+  against the table, ✕ and ＋ result, OK / Flag with a note); ▤ edit opens its fields in place
+  and ▣ done closes them; "column ↗" on a result opens the cited column in the table above. A
+  paper with no regression table still shows its claims. The econ review asks of each column the
+  target regressor, the SE type, the fixed effects and the controls — what the blind coders
+  record from the table notes.
+- "＋ New workflow" on a workflow over linked datasets makes one empty dataset per role, so a
+  run can start at once; a supplied step whose files arrive one by one (no paper planned at the
+  start) waits for "Uploads complete" instead of closing after its first file.
 - "＋ Regression column" opens the new entry (it used to land on the paper panel). A table the
   extraction missed is added from its card: "New table" asks for the table number, panel and
   column — fields the card otherwise leaves out — and shows its cells as a table to fill row by
