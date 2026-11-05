@@ -28,20 +28,23 @@ from . import localmode, records
 ANON_RETENTION_MINUTES = int(os.environ.get("PAPERLENS_ANON_RETENTION_MINUTES", "120"))
 ANON_TRIAL_PER_IP_DAY = int(os.environ.get("PAPERLENS_ANON_TRIAL_PER_IP_DAY", "5"))
 _TOUCH_EVERY = 60.0                      # seconds between DB touches for one session
-_last_touch: dict[str, float] = {}
+_last_touch: dict[tuple[str, str | None], float] = {}
 
 
 def touch(conn: psycopg.Connection, session_id: str | None, user_id: str | None = None,
           *, force: bool = False) -> None:
     """Record activity for a browser session. Cheap enough to call from the request
     principal: one upsert per session per minute. A logged-in principal marks the
-    session as claimed, which keeps the sweep away from anything it owns."""
+    session as claimed, which keeps the sweep away from anything it owns. The minute is
+    kept per session AND user, so the first signed-in request claims the session at once;
+    after that a signed-in session is touched once a minute too, not on every request."""
     if not session_id or localmode.enabled():
         return
     now = time.monotonic()
-    if not force and not user_id and now - _last_touch.get(session_id, -1e9) < _TOUCH_EVERY:
+    key = (session_id, user_id)
+    if not force and now - _last_touch.get(key, -1e9) < _TOUCH_EVERY:
         return
-    _last_touch[session_id] = now
+    _last_touch[key] = now
     with conn.transaction():
         conn.execute(
             """INSERT INTO anon_session (session_id, last_seen, claimed_by)
@@ -50,6 +53,14 @@ def touch(conn: psycopg.Connection, session_id: str | None, user_id: str | None 
                SET last_seen = now(),
                    claimed_by = COALESCE(anon_session.claimed_by, EXCLUDED.claimed_by)""",
             (session_id, user_id))
+
+
+def touch_due(session_id: str | None, user_id: str | None = None) -> bool:
+    """Whether ``touch`` would write for this session now — so a request that otherwise
+    needs no database knows it still owes the activity clock its once-a-minute write."""
+    if not session_id or localmode.enabled():
+        return False
+    return time.monotonic() - _last_touch.get((session_id, user_id), -1e9) >= _TOUCH_EVERY
 
 
 # ── free trial accounting (survives the sweep) ────────────────────────────────
