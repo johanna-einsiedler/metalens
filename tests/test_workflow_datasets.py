@@ -82,15 +82,16 @@ def test_a_workflow_dataset_holds_the_linked_datasets_and_their_papers(monkeypat
                    data={"result": json.dumps(doc), "run_id": run["id"], "step_id": step})
         assert r.status_code == 200, r.text
     view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
-    assert view["status"] == "needs_key:edges" and view["now"]["phase"] == "waiting for an API key" and view["now"]["label"]
+    assert view["status"] == "done", view["status"]           # no dataset-level step: the checks ran, the joint review holds only the release
+    assert {s["step_id"]: s["status"] for s in view["steps"]}["links"] == "done"
     # both sides of the new paper sit on one row of the workflow dataset's page; the old paper has only its tables
     ov = c.get(f"/api/datasets/{wd['id']}/overview", headers=H).json()
     rows = {p["title"]: p for p in ov["papers"]}
     assert set(rows["Paper w1"]["documents"]) == {"tables", "claims"} and rows["Paper w1"]["complete"]
     assert not rows["Paper p0"]["complete"] and ov["stats"]["n_complete"] == 1 and ov["stats"]["n_papers"] == 2
-    assert [d["step"] for d in ov["derived"]] == ["edges"] and ov["derived"][0]["dataset_id"] == ds_c
+    assert ov["derived"] == []
     wl = {x["id"]: x for x in c.get("/api/workflow-datasets", headers=H).json()["workflows"]}
-    assert wl[wd["id"]]["run"]["now"]["phase"] == "waiting for an API key"
+    assert wl[wd["id"]]["run"]["status"] == "done"
     # a workflow dataset is never made public itself, and keeps its workflow
     assert c.patch(f"/api/datasets/{wd['id']}", headers=H, json={"visibility": "public"}).status_code == 422
     assert c.patch(f"/api/datasets/{wd['id']}", headers=H, json={"workflow": ""}).status_code == 409

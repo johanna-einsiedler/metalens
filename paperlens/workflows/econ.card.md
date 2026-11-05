@@ -9,9 +9,8 @@ An empirical economics article has two sides the Robustness-at-Scale pipeline re
 3. **Contract checks** (deterministic). Each side re-checked against its declared contract.
 4. **Number check** (deterministic). The printed cells of each regression column against each other.
 5. **Estimates against the tables** (deterministic). Each cited point estimate against the coefficient cells of the same paper's tables, inside the group.
-6. **Corpus edges** (a model call per chunk of claims, then a merge). The claims' causes and effects mapped to shared concepts and grouped into edges.
-7. **Joint review**. Every new paper is reviewed on both sides: its regression columns, then its claims with their verdicts against the tables, in one worklist.
-8. **Release**, gated on the tables, the claims, the committed edges and the joint review. A release of one dataset releases the other with it.
+6. **Joint review**. Every new paper is reviewed on both sides: its regression columns, then its claims with their verdicts against the tables, in one worklist.
+7. **Release**, gated on the tables, the claims and the joint review. A release of one dataset releases the other with it.
 
 ## Review
 

@@ -30,6 +30,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - **Uploads complete** shows at once that the run goes on (the button reads "Working…", the Now line
   "running the next steps"), and the checks store their findings — and a review its drawn records —
   in one batch instead of one database round trip each, which made the button slow on large datasets.
+- The bundled `econ` workflow (v2) leaves out the corpus-edges step for now: after the uploads the
+  checks run and the joint review holds only the release. `econ-claims` keeps the step.
 
 ### Linked datasets and a joint review: the tables and the claims of the same papers as one process
 

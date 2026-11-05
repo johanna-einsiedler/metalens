@@ -1,11 +1,11 @@
 {
   "format": 1,
   "id": "econ",
-  "version": 1,
+  "version": 2,
   "meta": {
     "title": "Economics articles: tables and claims",
     "tagline": "The regression tables and the claims of the same papers, two linked datasets, one process: uploaded from the pipeline, checked against each other, reviewed paper by paper, released together.",
-    "description": "One workflow over two datasets of the Robustness-at-Scale pipeline: every new paper's tables and claims files enter the group together, each side is re-checked against its contract, the printed cells against each other, the cited estimates against the paper's own tables, the claims' concepts are harmonised into corpus edges, and a joint review walks both sides of each paper before the two datasets are released as one.",
+    "description": "One workflow over two datasets of the Robustness-at-Scale pipeline: every new paper's tables and claims files enter the group together, each side is re-checked against its contract, the printed cells against each other, the cited estimates against the paper's own tables, and a joint review walks both sides of each paper before the two datasets are released as one.",
     "authors": [
       {
         "family": "Einsiedler",
@@ -97,129 +97,6 @@
       "help": "each cited point estimate against the coefficient cells of the same paper's tables (the group's tables dataset); a resolved column with no matching cell is an error, an exhibit no column matches a warning"
     },
     {
-      "id": "edges",
-      "kind": "derive",
-      "label": "Corpus edges",
-      "help": "one row per (cause, effect) concept pair across the corpus: a model call maps each claim's wording to a shared concept, a deterministic merge groups the claims into edges with their majority sign and the studies behind them",
-      "over": "claims",
-      "input": {
-        "unit": "entries",
-        "columns": [
-          "claim_id",
-          "cause",
-          "effect",
-          "cause_construct",
-          "effect_construct",
-          "sign",
-          "statement",
-          "_study"
-        ],
-        "filter": [
-          {
-            "column": "type",
-            "op": "eq",
-            "value": "edge"
-          }
-        ]
-      },
-      "identity": [
-        "cause_concept",
-        "effect_concept"
-      ],
-      "group_by": "_study",
-      "calls": [
-        {
-          "id": "harmonise",
-          "kind": "llm",
-          "prompt": {
-            "file": "econ-claims.edges.harmonise.md"
-          }
-        },
-        {
-          "id": "merge",
-          "kind": "transform",
-          "op": "group",
-          "by": [
-            "cause_concept",
-            "effect_concept"
-          ],
-          "fields": {
-            "n_claims": "count",
-            "n_papers": "n_papers",
-            "sign": "majority",
-            "signs": {
-              "op": "all",
-              "column": "sign"
-            },
-            "studies": {
-              "op": "union",
-              "column": "_study"
-            }
-          }
-        }
-      ],
-      "output": {
-        "label": "Corpus edge",
-        "fields": [
-          {
-            "name": "cause_concept",
-            "type": "string",
-            "required": true,
-            "label": "Cause",
-            "help": "the shared concept the claim's cause maps to (snake_case)"
-          },
-          {
-            "name": "effect_concept",
-            "type": "string",
-            "required": true,
-            "label": "Effect",
-            "help": "the shared concept the claim's effect maps to"
-          },
-          {
-            "name": "sign",
-            "type": "enum",
-            "options": [
-              "+",
-              "-",
-              "0",
-              "mixed"
-            ],
-            "label": "Sign",
-            "help": "per claim as stated; per edge the majority across its claims"
-          },
-          {
-            "name": "n_claims",
-            "type": "integer",
-            "label": "Claims",
-            "help": "how many claims the edge rests on"
-          },
-          {
-            "name": "n_papers",
-            "type": "integer",
-            "label": "Papers",
-            "help": "how many articles state it"
-          },
-          {
-            "name": "signs",
-            "type": "list",
-            "label": "Signs stated",
-            "help": "every claim's sign, in order"
-          },
-          {
-            "name": "studies",
-            "type": "list",
-            "label": "Studies",
-            "help": "the articles, as first author and year"
-          }
-        ]
-      },
-      "review": {
-        "mode": "all",
-        "unit": "entry",
-        "blocks": "release"
-      }
-    },
-    {
       "id": "joint",
       "kind": "review",
       "label": "Joint review",
@@ -241,7 +118,6 @@
       "gate": [
         "tables",
         "claims",
-        "edges",
         "joint"
       ]
     }

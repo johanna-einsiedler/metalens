@@ -108,7 +108,7 @@ Such a workflow lives on a **workflow dataset** of its own, one level above the 
   plain dataset with its own records, releases and page;
 - the workflow dataset, which carries the workflow, links one dataset per role and holds no records
   itself. Its page lists the linked datasets with their presets, the papers one row per PDF with
-  each side's document beside it, what the dataset-level steps made (the corpus edges), the
+  each side's document beside it, what the dataset-level steps made (a derive step's table), the
   Workflow panel with the runs, and one release for all of them.
 
 In storage the workflow dataset is the group's own row: its id is the `group_id` its members carry

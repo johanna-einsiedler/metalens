@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import sys
 import uuid
 
@@ -30,32 +31,54 @@ def test_the_grammar_of_roles_and_the_joint_stage() -> None:
     spec = workflows.load_all()["econ"]
     assert ws.roles(spec) == {"tables": {"step": "tables", "preset": spec["steps"][0]["preset"], "label": "Regression tables"},
                               "claims": {"step": "claims", "preset": spec["steps"][1]["preset"], "label": "Claims and their results"}}
-    assert ws.gate_steps(spec) == ["tables", "claims", "edges", "joint"] and workflows.later_problems(spec) == []
+    assert ws.gate_steps(spec) == ["tables", "claims", "joint"] and workflows.later_problems(spec) == []
+    assert "edges" not in ws.steps_by_id(spec)                  # the corpus-edges step is left out of econ for now
     joint = ws.steps_by_id(spec)["joint"]
     assert joint["review"] == {"mode": "all", "unit": "paper", "blocks": "release", "oversample_flagged": False}
     # two extract steps without roles are refused; a review stage must name earlier extract steps
     bad = copy.deepcopy(spec); del bad["steps"][1]["dataset"]
     assert any("distinct dataset role" in m for m in workflows.later_problems(bad))
-    bad = copy.deepcopy(spec); bad["steps"][7]["over"] = ["edges"]
+    bad = copy.deepcopy(spec); next(s for s in bad["steps"] if s["id"] == "joint")["over"] = ["links"]
     assert any("not an earlier extract step" in e for e in ws.validate(bad)[0])
     bad = copy.deepcopy(spec); bad["steps"][0]["dataset"] = "Tables!"
     assert any("role name" in e for e in ws.validate(bad)[0])
 
 
-def test_a_group_runs_both_sides_reviews_them_together_and_releases_as_one(monkeypatch) -> None:
+def _econ_with_edges(tmp_path, monkeypatch) -> str:
+    """The bundled econ workflow with econ-claims' corpus-edges step put back before the joint
+    review, as a workflow of its own: the group's dataset-level step stays tested while the
+    bundled econ leaves it out."""
+    src = os.path.join(_ROOT, "paperlens", "workflows")
+    with open(os.path.join(src, "econ.json"), encoding="utf-8") as f:
+        spec = json.load(f)
+    with open(os.path.join(src, "econ-claims.json"), encoding="utf-8") as f:
+        edges = next(s for s in json.load(f)["steps"] if s["id"] == "edges")
+    spec["id"] = "econ-edges"
+    spec["steps"].insert(next(i for i, s in enumerate(spec["steps"]) if s["id"] == "joint"), edges)
+    spec["steps"][-1]["gate"] = ["tables", "claims", "edges", "joint"]
+    for name in ("econ.card.md", "econ-claims.edges.harmonise.md"):
+        shutil.copy(os.path.join(src, name), tmp_path / name)
+    (tmp_path / "econ-edges.json").write_text(json.dumps(spec), encoding="utf-8")
+    monkeypatch.setenv("PAPERLENS_WORKFLOW_DIRS", str(tmp_path))
+    assert "edges" in ws.steps_by_id(workflows.load_all()["econ-edges"])
+    return "econ-edges"
+
+
+def test_a_group_runs_both_sides_reviews_them_together_and_releases_as_one(monkeypatch, tmp_path) -> None:
     if not _db_ok():
         pytest.skip("no Postgres")
     _force_local(monkeypatch)
+    wid = _econ_with_edges(tmp_path, monkeypatch)
     conn = records.connect(); records.init_db(conn)
     sess = f"grp-{uuid.uuid4().hex[:6]}"
     c, H = _client(sess)
     who = _who(sess)
     # the tables dataset declares the group workflow: it takes the tables role; the claims role is open
     ds_t, _d = _seed(conn, _result("p0", n=1), "econ-regression-tables", sess)
-    assert c.patch(f"/api/datasets/{ds_t}", headers=H, json={"workflow": "econ"}).status_code == 200
+    assert c.patch(f"/api/datasets/{ds_t}", headers=H, json={"workflow": wid}).status_code == 200
     conn.rollback()
     d_t = records.get_dataset(conn, ds_t)
-    assert d_t["group_id"] and d_t["group_role"] == "tables" and d_t["workflow"].startswith("econ@")
+    assert d_t["group_id"] and d_t["group_role"] == "tables" and d_t["workflow"].startswith("econ-edges@")
     g = c.get(f"/api/datasets/{ds_t}/group", headers=H).json()
     assert [r["role"] for r in g["roles"]] == ["tables", "claims"] and g["roles"][0]["dataset"]["dataset_id"] == ds_t and g["roles"][1]["dataset"] is None
     panel = c.get(f"/api/datasets/{ds_t}/workflow", headers=H).json()
