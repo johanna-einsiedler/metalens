@@ -83,7 +83,7 @@ _ALLOWED_KEYS = {
                 "inline_evidence", "sheet", "hidden"},
     # sheet: a table field of the entries drawn as the printed table it transcribes
     "sheet": {"field", "row_label", "row_index", "col_index", "column_label", "value", "row_type", "refers_to", "numeric", "stars",
-              "column", "header", "caption", "group", "panel"},
+              "column", "header", "caption", "group", "panel", "target"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
     "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline"},
@@ -847,6 +847,14 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 for k in ("column", "header", "caption", "panel"):
                     if sh.get(k) is not None and (sh[k] not in efields or efields[sh[k]].get("type") == "table"):
                         E(f"$.display.sheet.{k} must name a scalar entry field")
+                # target: the entry field naming the rows a column is about (its target regressors) — a table
+                # with a column named as sheet.row_index, or a list of row labels as printed
+                tg = sh.get("target")
+                if tg is not None:
+                    tf2 = efields.get(tg) or {}
+                    tcols = [c if isinstance(c, str) else (c or {}).get("name") for c in (tf2.get("columns") or [])]
+                    if not (tf2.get("type") == "list" or (tf2.get("type") == "table" and sh.get("row_index") and sh.get("row_index") in tcols)):
+                        E("$.display.sheet.target must name a list of row labels, or a table with a column named as sheet.row_index")
                 grp = sh.get("group")
                 if grp is not None and (not isinstance(grp, list) or any(g not in efields for g in grp)):
                     E("$.display.sheet.group must list entry fields (those that name the table: table number, panel)")

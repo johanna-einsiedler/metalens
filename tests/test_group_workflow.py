@@ -42,6 +42,15 @@ def test_the_grammar_of_roles_and_the_joint_stage() -> None:
     assert any("not an earlier extract step" in e for e in ws.validate(bad)[0])
     bad = copy.deepcopy(spec); bad["steps"][0]["dataset"] = "Tables!"
     assert any("role name" in e for e in ws.validate(bad)[0])
+    # asks: what the joint review asks per side (the validation's checks) — display, not contract
+    assert joint["asks"] == {"tables": ["target_regressors", "se_type"]}
+    plain = copy.deepcopy(spec); del next(s for s in plain["steps"] if s["id"] == "joint")["asks"]
+    assert ws.workflow_id(plain) == ws.workflow_id(spec)
+    resolver = workflows.presets.load_all().get
+    for asks, needle in (({"edges": ["x"]}, "not one of the steps"), ({"tables": "se_type"}, "must list entry fields"),
+                         ({"tables": ["zzz"]}, "not an entry field"), (["tables"], "must map")):
+        bad = copy.deepcopy(spec); next(s for s in bad["steps"] if s["id"] == "joint")["asks"] = asks
+        assert any(needle in e for e in ws.validate(bad, resolver=resolver)[0]), (asks, ws.validate(bad, resolver=resolver)[0])
 
 
 def _econ_with_edges(tmp_path, monkeypatch) -> str:
@@ -96,6 +105,10 @@ def test_a_group_runs_both_sides_reviews_them_together_and_releases_as_one(monke
     panel = c.get(f"/api/datasets/{ds_c}/workflow", headers=H).json()
     by = {s["id"]: s for s in panel["steps"]}
     assert by["claims"]["state"] == "missing" and by["tables"]["dataset_id"] == ds_t and by["links"]["state"] == "blocked"
+    # what the joint review asks, keyed by the linked dataset it applies to (the workspace reads it from the overview)
+    asks = {"tables": ["target_regressors", "se_type"]}
+    assert workflows.review_asks(conn, records.get_dataset(conn, ds_c)) == {ds_t: asks["tables"]}
+    assert c.get(f"/api/datasets/{ds_t}/overview", headers=H).json()["review_asks"] == {ds_t: asks["tables"]}
     assert [x["role"] for x in panel["group"]["roles"]] == ["tables", "claims"]
     # one run from the tables side: a new paper's two files go into their own datasets
     pdf = _pdf("g1")

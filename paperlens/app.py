@@ -866,8 +866,12 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
         ov = workflows.overview(db, d, owner=bool(owner))
         ov["viewer_is_owner"] = bool(owner)
         ov["viewer_is_anonymous"] = not who.user_id
+        ov["review_asks"] = workflows.review_asks(db, d)
         return ov
     ov = records.dataset_overview(db, dataset_id)
+    if d.get("group_id"):                      # a side of a joint workflow: what its joint review asks
+        from . import workflows
+        ov["review_asks"] = workflows.review_asks(db, d)
     # A dataset on an "import" preset was not extracted here: say so, and say what did make it,
     # rather than showing an empty recipe that reads as a missing record.
     rec = ov.get("recipe") or {}

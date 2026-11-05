@@ -552,7 +552,8 @@
         "table_number"
       ],
       "col_index": "col_index",
-      "panel": "panel"
+      "panel": "panel",
+      "target": "target_regressors"
     },
     "analysis": {
       "default_unit": "cells",

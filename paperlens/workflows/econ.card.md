@@ -14,4 +14,4 @@ An empirical economics article has two sides the Robustness-at-Scale pipeline re
 
 ## Review
 
-The joint review walks the run's new papers one at a time. For each paper the reviewer sees the regression columns as the printed table, verifies or flags them, then the claims as cause → effect with their quotes and the results that carry them, each with its verdict against the tables. The gate opens when every record of every reviewed paper has a verdict; the release form shows what is left.
+The joint review walks the run's new papers one at a time, each on one page. Every regression table is shown whole, its panels stacked as printed, and gets one verdict; the reviewer checks what the validation coders check — the printed cells, each column's target regressor (marked in the table) and its SE type — not the specification fields. Under each table sit the claims that cite it, as cause → effect with their quotes and the results that carry them (the main estimate starred), each with its verdict against the table and a verdict of its own. The gate opens when every record of every reviewed paper has a verdict; the release form shows what is left.

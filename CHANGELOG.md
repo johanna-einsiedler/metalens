@@ -10,6 +10,15 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### The joint review on one page, a regression table on one card
 
+- A workflow's review step can say what it asks of each side (`asks`): the `econ` joint review
+  asks only what the extraction validation checks — the printed cells, each column's target
+  regressor (picked from its coefficient rows, its cell marked in the table) and its SE type — and
+  no longer shows each column's specification. Claims under a table show their type, what a
+  comparison compares, and the main estimate starred. `asks` is display: contract unchanged.
+- `display.sheet.target` names the field holding the rows a column is about (a table with the
+  cells' row index, or a list of row labels); its cells are marked in the table. Both tables presets
+  declare it.
+
 - A workflow over linked datasets (econ: tables and claims) is reviewed per paper: the workspace
   lists each paper once, and the claims sit under the table their results cite (by the column an
   estimate resolved to, else by the table named), each with its own ✓ / ⚑ and its estimate against

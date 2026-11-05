@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Browser check of the joint per-paper review of a workflow over linked datasets (econ: tables and
 claims): one sidebar entry per paper; each table on one card — its panels stacked, every cell
-editable and saved to its own column, one verdict for the whole table; the open column's fields
-under the table (no Column or Other tab); the claims citing the table under it, each with its own
-verdict; the claims citing no table on a pill of their own; the joint review queue counting a
-paper's tables and claims together.
+editable and saved to its own column, one verdict for the whole table; under it only what the
+workflow's review asks (econ: the target regressor, marked in the table and picked per column, and
+the SE type — no specification); the claims citing the table under it, each with its type, the main
+estimate starred and its own verdict; the claims citing no table on a pill of their own; the joint
+review queue counting a paper's tables and claims together.
 
     python3 scripts/ui_check_joint_review.py --url http://127.0.0.1:8019 --seed seed.json [--shot /tmp/joint]
 
@@ -71,17 +72,21 @@ def main() -> int:
         check(panels == ["Panel A. Female participants", "Panel B. Male participants"], f"the panels are stacked as printed, A above B: {panels}")
         check(card.locator("thead th.sh-col").count() == 3, "three columns, the panels' columns aligned under one heading each")
         check(card.locator(".sh-val[contenteditable]").count() == 30, f"every cell of every column is editable ({card.locator('.sh-val[contenteditable]').count()} of 30)")
-        subtabs = [t.strip() for t in card.locator(".subtab").all_inner_texts()]
-        check("Column" not in subtabs and "Other" not in subtabs and "Outcome" in card.locator(".tc-col").inner_text(),
-              f"no Column or Other tab; the open column's outcome sits in its specification ({subtabs or 'one section'})")
+        ask = card.locator(".tc-asktab")
+        heads = [t.strip() for t in ask.locator("thead th").all_inner_texts()]
+        check(card.locator(".tc-col").count() == 0 and card.locator(".subtab").count() == 0 and "Model" not in card.inner_text() and "Fixed effects" not in card.inner_text(),
+              "no specification under the table: the review asks only what the workflow declares")
+        check(heads == ["Column", "Target regressors", "SE type"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
+        check(card.locator(".sh-val.sh-target").count() == 6 and all(t.strip() in ("0.14", "363", "205", "1,833", "1,834", "1,102") for t in card.locator(".sh-val.sh-target").all_inner_texts()),
+              "each column's target regressor cell is marked in the table")
         page.screenshot(path=f"{a.shot}-1-table.png", full_page=True)
-        # a cell of Panel B, column (2): the section follows it; an edit lands on that column's record
+        # a cell of Panel B, column (2): its line under the table lights up; an edit lands on that column's record
         rows_b = card.locator("tbody tr").filter(has=page.locator("td.sh-lab", has_text="Microcredit"))
         cell = rows_b.nth(1).locator("td.sh-cell").nth(1).locator(".sh-val")
         cell.click()
         page.wait_for_timeout(300)
-        head = card.locator(".tc-colhead").inner_text()
-        check("Column (2)" in head and "Panel B" in head, f"the section under the table follows the cell: {head.splitlines()[0]!r}")
+        me = card.locator(".tc-asktab tr.tc-me th").inner_text()
+        check("(2)" in me and "Panel B" in me, f"the column's line under the table follows the cell: {me!r}")
         rid = cell.get_attribute("data-rid")
         cell.evaluate("el => { el.textContent = '1,834'; }")
         page.locator(".tcard .rectitle").click()
@@ -90,9 +95,25 @@ def main() -> int:
         c0 = next(c for c in r["field_values"]["cells"] if c["row_label"] == "Microcredit")
         check(r["field_values"]["panel"].startswith("Panel B") and r["field_values"]["column"] == "(2)" and c0["raw_text"] == "1,834" and c0["numeric_value"] == 1834,
               f"the edit is saved to Panel B column (2), its parsed number following: {c0['raw_text']} / {c0['numeric_value']}")
+        # the target regressor of Panel A column (1), picked from its coefficient rows; the SE type edited
+        row = card.locator(".tc-asktab tbody tr", has_text="Panel A").first
+        rid_a1 = row.get_attribute("data-rid")
+        row.locator("select.tc-target").select_option(label="In-kind grant")
+        page.wait_for_timeout(1200)
+        r = next(x for x in recs(seed["tables_doc"]) if x["id"] == rid_a1)
+        tr0 = (r["field_values"].get("target_regressors") or [{}])[0]
+        check(tr0.get("name") == "In-kind grant" and tr0.get("row_index") == 2, f"picking the target saves its name and row: {tr0}")
+        card = page.locator(".tcard")
+        row = card.locator(".tc-asktab tbody tr", has_text="Panel A").first
+        row.locator(".rv-selwrap select").first.select_option("robust")
+        page.wait_for_timeout(1000)
+        r = next(x for x in recs(seed["tables_doc"]) if x["id"] == rid_a1)
+        check(r["field_values"].get("se_type") == "robust", f"the SE type is edited in its line: {r['field_values'].get('se_type')}")
+        check("0.24***" in [t.strip() for t in card.locator(".sh-val.sh-target").all_inner_texts()], "the mark follows the new target")
         # the claims citing the table, under it; a claim's own verdict
         box = card.locator(".jc-box")
         check(box.locator(".jc-claim").count() == 1 and "S1" in box.inner_text() and "S2" not in box.inner_text(), "the claim citing Table 4 sits under it, the one citing Table 3 does not")
+        check(box.locator(".jc-type").inner_text().strip().lower() == "edge" and box.locator(".jc-main").count() == 1, "the claim shows its type and its main estimate starred")
         box.locator(".jc-claim .jc-v[data-status='verified']").click()
         page.wait_for_timeout(800)
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")

@@ -399,7 +399,8 @@
       "group": [
         "table_number"
       ],
-      "panel": "panel"
+      "panel": "panel",
+      "target": "target_regressors"
     },
     "analysis": {
       "default_unit": "cells",
