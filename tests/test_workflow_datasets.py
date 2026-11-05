@@ -112,6 +112,41 @@ def test_a_workflow_dataset_holds_the_linked_datasets_and_their_papers(monkeypat
     conn.close()
 
 
+def test_a_workflow_dataset_made_from_scratch_has_a_dataset_per_role(monkeypatch) -> None:
+    _skip()
+    _force_local(monkeypatch)
+    sess = f"wfe-{uuid.uuid4().hex[:6]}"
+    c, H = _client(sess)
+    r = c.post("/api/workflow-datasets", headers=H, json={"workflow": "econ", "title": "Validation — A"})
+    assert r.status_code == 200, r.text
+    wd = r.json()
+    g = c.get(f"/api/datasets/{wd['id']}/group", headers=H).json()
+    assert [x["role"] for x in g["roles"]] == ["tables", "claims"] and all(x["dataset"] for x in g["roles"])
+    titles = [x["dataset"]["title"] for x in g["roles"]]
+    assert titles == ["Validation — A — Regression tables", "Validation — A — Claims and their results"], titles
+    conn = records.connect()
+    ds_t, ds_c = [x["dataset"]["dataset_id"] for x in g["roles"]]
+    assert records.get_dataset(conn, ds_c)["companion_dataset_id"] == ds_t     # the claims check reads the tables
+    run = c.post(f"/api/datasets/{wd['id']}/workflow/runs", headers=H, json={}).json()
+    assert run["status"] == "running" and run["now"]["phase"] == "waiting for uploads"    # a run starts at once: it waits for the files
+    # files arriving one by one, none planned: a side's step waits for Uploads complete, not for its first file
+    for i in range(2):
+        pdf = _pdf(f"e{i}")
+        r = c.post("/api/ingest-pdf", headers=H, files={"pdf": (f"e{i}.pdf", pdf, "application/pdf")},
+                   data={"result": json.dumps(_result(f"e{i}", n=1)), "run_id": run["id"], "step_id": "tables"})
+        assert r.status_code == 200, r.text
+        view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
+        assert view["status"] == "running" and view["now"]["step"] == "tables" and view["now"]["phase"] == "waiting for uploads", (i, view["status"], view["now"])
+    cl = copy.deepcopy(CLAIMS); cl["paper_metadata"]["doi"] = "10.1/e0"; cl["paper_metadata"]["title"] = "Paper e0"
+    r = c.post("/api/ingest-pdf", headers=H, files={"pdf": ("e0.pdf", _pdf("e0"), "application/pdf")}, data={"result": json.dumps(cl), "run_id": run["id"], "step_id": "claims"})
+    assert r.status_code == 200, r.text
+    assert c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()["status"] == "running"
+    for step in ("tables", "claims"):
+        view = c.post(f"/api/workflow-runs/{run['id']}/complete", headers=H, json={"step_id": step}).json()
+    assert view["status"] == "done" and {j["step_id"] for j in view["papers"]} == {"tables", "claims"} and len(view["papers"]) == 3, view["status"]
+    conn.close()
+
+
 def test_a_single_preset_workflow_gets_a_plain_dataset(monkeypatch) -> None:
     _skip()
     _force_local(monkeypatch)

@@ -127,7 +127,7 @@ async function renderWorkflows(grid) {
     const pick = form.querySelector("#wf-new-pick"), help = form.querySelector("#wf-new-help");
     const say = () => {
       const w = avail[+pick.value] || {}, roles = linked(w);
-      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset; you then link or make one dataset per preset (${roles.join(", ")}).` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
+      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset with one dataset per preset (${roles.join(", ")}), ready for a run; a dataset you already have can be linked into its role on the page.` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
     };
     pick.onchange = say; say();
     form.querySelector("#wf-new-go").onclick = async () => {

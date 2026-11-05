@@ -584,6 +584,9 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .jc-restab .rv-table { font-size: 12px; }
 .jc-restab tr.jc-here td { background: var(--accent-wash); }
 .jc-restab .rv-rowcite .jc-cc { font-weight: 600; font-size: 12px; }
+.jc-slot > .chain-card { margin: 0 0 8px; }
+.chain-res.jc-here { background: var(--accent-wash); border-radius: 6px; padding-left: 6px; margin-left: -6px; }
+.jc-col { font-size: 11.5px; margin-left: 6px; }
 .jc-type { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
 .jc-main { color: var(--accent); font-weight: 600; font-size: 11.5px; }
 

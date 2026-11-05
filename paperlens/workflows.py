@@ -201,7 +201,8 @@ def create_workflow_dataset(conn, spec: dict, *, owner_user_id: str | None, sess
                             title: str | None = None, members: dict[str, str] | None = None, who=None) -> dict:
     """Make the dataset a workflow runs on. A workflow over several presets gets a workflow
     dataset — the group's own row, carrying the workflow — with the given datasets linked into
-    their roles (``{role: dataset id}``; the rest are linked or created later). A workflow over
+    their roles (``{role: dataset id}``; the rest are linked or created later), or, given none,
+    with an empty dataset made for every role. A workflow over
     one preset runs on a dataset of that preset, which carries the workflow itself. Returns the
     dataset to open."""
     roles = ws.roles(spec)
@@ -241,8 +242,11 @@ def create_workflow_dataset(conn, spec: dict, *, owner_user_id: str | None, sess
             conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
                          (pid, role, wid, mid))
     out = records.get_dataset(conn, pid)
+    if not members:                                   # made from scratch: one empty dataset per role, so a run can start at once
+        for role in roles:
+            link_role(conn, out, role)
     _sync_companions(conn, out, spec)
-    return out
+    return records.get_dataset(conn, pid)
 
 
 def link_role(conn, dataset: dict, role: str, *, other_id: str | None = None, create_title: str | None = None, who=None) -> dict:
@@ -1245,8 +1249,14 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
     if any(j["status"] not in JOB_TERMINAL for j in js):
         return False
     landed = [j for j in js if j["status"] in JOB_DONE]
-    if not js and not complete and st.get("source") == "supplied":
-        return False                                        # waiting for the pipeline's uploads
+    if not complete and st.get("source") == "supplied":
+        # waiting for the pipeline's uploads: until every paper planned at the start has landed —
+        # or, when none was planned and the files arrive one by one, until the owner says so
+        planned = {it.get("pdf_sha256") for s2 in ((run.get("plan") or {}).get("steps") or []) if s2.get("id") == sr["step_id"] for it in s2.get("items") or []}
+        if not planned:
+            return False
+        if any(j["pdf_sha256"] in planned and j["status"] not in JOB_TERMINAL for j in js):
+            return False
     failed = [{"pdf_sha256": j["pdf_sha256"], "filename": j["filename"], "error": j["error"]} for j in js if j["status"] == "failed"]
     if js and not landed and not complete:
         _set_sr(conn, sr["id"], status="failed", error=f"no paper landed: {failed[0]['error'] if failed else 'every job failed'}", finished_at=_now(),

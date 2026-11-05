@@ -43,7 +43,7 @@ def test_the_grammar_of_roles_and_the_joint_stage() -> None:
     bad = copy.deepcopy(spec); bad["steps"][0]["dataset"] = "Tables!"
     assert any("role name" in e for e in ws.validate(bad)[0])
     # asks: what the joint review asks per side (the validation's checks) — display, not contract
-    assert joint["asks"] == {"tables": ["target_regressors", "se_type"],
+    assert joint["asks"] == {"tables": ["target_regressors", "se_type", "fixed_effects", "controls"],
                              "claims": ["type", "statement", "cause", "effect", "sign", "qualifies", "anchor_quote", "intro_sentence", "results"]}
     plain = copy.deepcopy(spec); del next(s for s in plain["steps"] if s["id"] == "joint")["asks"]
     assert ws.workflow_id(plain) == ws.workflow_id(spec)

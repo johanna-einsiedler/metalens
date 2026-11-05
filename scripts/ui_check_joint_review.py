@@ -64,9 +64,9 @@ def main() -> int:
         check(any(t.startswith("Table 4") for t in pills) and not any("Panel" in t for t in pills), f"one pill per table, named by its number only: {pills}")
         check(page.locator(".rnav-tab[data-sel='claims']").count() == 1, "the claims citing no table have a pill of their own")
         page.locator(".rnav .rnav-group", has_text="Table 4").click()
-        page.wait_for_function("() => { const t = document.querySelector('.tcard .rectitle'); return t && t.textContent.startsWith('Table 4'); }", timeout=10000)
+        page.wait_for_function("() => { const t = document.querySelector('.tcard > .rectitle'); return t && t.textContent.startsWith('Table 4'); }", timeout=10000)
         card = page.locator(".tcard")
-        title = card.locator(".rectitle").inner_text().splitlines()[0].strip()
+        title = card.locator(":scope > .rectitle").inner_text().splitlines()[0].strip()
         check(title == "Table 4", f"the card is titled by the table number only: {title!r}")
         panels = [t.strip() for t in card.locator("tr.sh-panel").all_inner_texts()]
         check(panels == ["Panel A. Female participants", "Panel B. Male participants"], f"the panels are stacked as printed, A above B: {panels}")
@@ -74,9 +74,9 @@ def main() -> int:
         check(card.locator(".sh-val[contenteditable]").count() == 30, f"every cell of every column is editable ({card.locator('.sh-val[contenteditable]').count()} of 30)")
         ask = card.locator(".tc-asktab")
         heads = [t.strip() for t in ask.locator("thead th").all_inner_texts()]
-        check(card.locator(".tc-col").count() == 0 and card.locator(".subtab").count() == 0 and "Model" not in card.inner_text() and "Fixed effects" not in card.inner_text(),
+        check(card.locator(".tc-col").count() == 0 and card.locator(".subtab").count() == 0 and "Model" not in card.inner_text() and "Clustering" not in card.inner_text(),
               "no specification under the table: the review asks only what the workflow declares")
-        check(heads == ["Column", "Target regressors", "SE type"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
+        check(heads == ["Column", "Target regressors", "SE type", "Fixed effects", "Controls"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
         check(card.locator(".sh-val.sh-target").count() == 6 and all(t.strip() in ("0.14", "363", "205", "1,833", "1,834", "1,102") for t in card.locator(".sh-val.sh-target").all_inner_texts()),
               "each column's target regressor cell is marked in the table")
         page.screenshot(path=f"{a.shot}-1-table.png", full_page=True)
@@ -89,7 +89,7 @@ def main() -> int:
         check("(2)" in me and "Panel B" in me, f"the column's line under the table follows the cell: {me!r}")
         rid = cell.get_attribute("data-rid")
         cell.evaluate("el => { el.textContent = '1,834'; }")
-        page.locator(".tcard .rectitle").click()
+        page.locator(".tcard > .rectitle").click()
         page.wait_for_timeout(1200)
         r = next(x for x in recs(seed["tables_doc"]) if x["id"] == rid)
         c0 = next(c for c in r["field_values"]["cells"] if c["row_label"] == "Microcredit")
@@ -114,8 +114,16 @@ def main() -> int:
         box = card.locator(".jc-box")
         check(box.locator(".jc-claim").count() == 1 and "S1" in box.inner_text() and "S2" not in box.inner_text(), "the claim citing Table 4 sits under it, the one citing Table 3 does not")
         cl = box.locator(".jc-claim").first
-        check(cl.locator(".jc-fields .rv-editable").count() >= 3 and cl.locator(".jc-fields .rv-selwrap select").count() >= 2 and cl.locator(".jc-restab").count() == 1,
-              "the claim's fields are editable in place: text cells, selects, its results as a table")
+        check("chain-card" in (cl.get_attribute("class") or "") and cl.locator(".chain-edge").count() == 1 and cl.locator(".chain-res").count() == 1
+              and "jc-here" in (cl.locator(".chain-res").first.get_attribute("class") or "") and "matches the table" in cl.locator(".chain-res").first.inner_text()
+              and cl.locator(".chain-resdel").count() == 1 and cl.locator(".chain-addres").count() == 1 and cl.locator(".jc-col").count() == 1,
+              "the claim is drawn as in the claims document: the edge, its result citing this table marked and checked, ✕ and ＋ result, column ↗")
+        cl.locator(".jc-col").click(); page.wait_for_timeout(400)
+        check("(1)" in page.locator(".tcard .tc-asktab tr.tc-me th").inner_text() and "Panel A" in page.locator(".tcard .tc-asktab tr.tc-me th").inner_text(), "column ↗ opens the cited column in the table above")
+        cl.locator(".chain-editbtn").click(); page.wait_for_timeout(500)
+        cl = box.locator(".jc-claim").first
+        check(cl.locator(".jc-fields .rv-editable").count() >= 3 and cl.locator(".jc-fields .rv-selwrap select").count() >= 2 and cl.locator(".jc-restab").count() == 1 and cl.locator(".jc-done").count() == 1,
+              "▤ edit flips the claim to its fields, editable in place: text cells, selects, its results as a table")
         res = cl.locator(".jc-restab tr.rv-childrow")
         cc = res.first.locator(".rv-rowcite .jc-cc")
         check(res.count() == 1 and "jc-here" in (res.first.get_attribute("class") or "") and res.first.locator("select").first.input_value() == "main"
@@ -124,7 +132,7 @@ def main() -> int:
         heads = [t.strip().lower() for t in cl.locator(".jc-restab thead th").all_inner_texts() if t.strip()]
         check(any("role" in h for h in heads) and any("estimate" in h for h in heads) and not any("why" in h for h in heads), f"the results table shows where, row, value, se and role: {heads}")
         stmt = cl.locator('.rv-row[data-field="statement"] .rv-editable')
-        stmt.click(); page.keyboard.press("Meta+A"); page.keyboard.type("Microcredit raises business ownership among women (edited)."); page.locator(".tcard .rectitle").click()
+        stmt.click(); page.keyboard.press("Meta+A"); page.keyboard.type("Microcredit raises business ownership among women (edited)."); page.locator(".tcard > .rectitle").click()
         page.wait_for_timeout(900)
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
         check(s1["field_values"]["statement"].endswith("(edited)."), f"a statement edit is saved to the claim: …{s1['field_values']['statement'][-12:]}")
@@ -134,6 +142,10 @@ def main() -> int:
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
         check(s1["field_values"]["sign"] == "-" and "decreases" in cl.locator(".jc-head").inner_text(), "the sign select saves and the claim's title line follows")
         check(cl.locator('.rv-row[data-field="anchor_quote"] .rv-key .ev-cite').count() == 1, "the abstract quote keeps its page button beside its label")
+        cl.locator(".jc-done").click(); page.wait_for_timeout(500)
+        cl = box.locator(".jc-claim").first
+        check("chain-card" in (cl.get_attribute("class") or "") and "decreases" in cl.locator(".chain-edge").inner_text().lower() or cl.locator(".chain-arrow.cs-neg, .chain-arrow.cs-minus, .chain-arrow .sg").count() >= 1,
+              "▣ done returns to the drawn claim, with the edited sign")
         box.locator(".jc-claim .jc-v[data-status='verified']").click()
         page.wait_for_timeout(800)
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
@@ -143,7 +155,7 @@ def main() -> int:
         page.wait_for_timeout(1500)
         t4 = [x for x in recs(seed["tables_doc"]) if x["field_values"]["table_number"] == "Table 4"]
         check(len(t4) == 6 and all(x["verification_status"] == "verified" for x in t4), "✓ verify table verifies all six columns of Table 4")
-        t = page.locator(".tcard .rectitle").inner_text() if page.locator(".tcard").count() else ""
+        t = page.locator(".tcard > .rectitle").inner_text() if page.locator(".tcard").count() else ""
         check(t.startswith("Table 3"), f"the review moves on to the next table: {t.splitlines()[0] if t else '—'}")
         check("1/2 tables reviewed" in page.locator(".progress").inner_text() and "1/3 claims" in page.locator(".progress").inner_text(),
               f"the head counts tables and claims: {page.locator('.progress').inner_text()}")
@@ -179,7 +191,7 @@ def main() -> int:
         page.wait_for_selector(".rnav-tab", timeout=30000)
         page.locator("#addfinding").click()
         page.wait_for_selector(".tcard .tc-ident", timeout=20000)
-        check(page.locator(".tcard .rectitle").inner_text().startswith("New table") and page.locator(".rnav-tab[data-sel='claims']").count() == 1
+        check(page.locator(".tcard > .rectitle").inner_text().startswith("New table") and page.locator(".rnav-tab[data-sel='claims']").count() == 1
               and page.locator(".tcard .tc-askcap").count() == 1, "＋ opens the new table's card; the claims and the per-column lines survive the reload")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()
