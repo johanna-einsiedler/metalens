@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Browser check of a dataset group's joint review: the workflow dataset above the tables and the
-claims lists both and runs the joint stage; the queue walks the paper's tables then its claims
-across both datasets; verdicts move the count; the claims dataset points to the workflow dataset.
+claims lists both and runs the joint stage; the queue shows each paper once, its tables with the
+claims citing them on one page; verdicts move the count; the claims dataset points to the workflow dataset.
 
     python3 scripts/ui_check_group.py --url http://127.0.0.1:8019 --tables <id> --claims <id> --run <id> --session <X-Session-Id> [--shot /tmp/grp]
 """
@@ -58,12 +58,12 @@ def main() -> int:
         bar = page.locator("#queuebar").inner_text()
         check("joint" in bar and "0 of 1 paper" in bar, f"the queue bar: {bar[:120]}")
         tabs = page.locator(".doctab[data-id]")
-        check(tabs.count() == 2, f"the sidebar lists the paper's two documents ({tabs.count()})")
-        page.wait_for_function("document.querySelectorAll('.docbar .docbar-doc').length >= 2", timeout=15000)   # the paper strip loads (and redraws) after the panel
-        strip = page.locator(".docbar")
-        names = [t.split("\n")[0] for t in strip.locator(".docbar-doc").all_inner_texts()]
-        check(strip.locator(".docbar-doc").count() == 2 and set(names) == {"Economics regression tables", "Claims in empirical economics papers"},
-              f"the paper strip shows both sides: {names}")
+        check(tabs.count() == 1, f"the sidebar lists the paper once, its tables and claims together ({tabs.count()})")
+        page.wait_for_timeout(800)
+        check(page.locator("#docbar").is_hidden(), "no strip of the paper's documents: both sides are reviewed on one page")
+        page.locator(".rnav .rnav-group").first.click()
+        page.wait_for_selector(".tcard .jc-claim", timeout=15000)
+        check(page.locator(".tcard .jc-claim").count() >= 1, "the claims citing the table sit under it")
         page.screenshot(path=f"{a.shot}-2-queue.png", full_page=True)
         # verdicts on the first document walk the queue into the second (the claims)
         first_doc = page.evaluate("document.querySelector('.doctab.active') ? document.querySelector('.doctab.active').dataset.id || '' : ''")

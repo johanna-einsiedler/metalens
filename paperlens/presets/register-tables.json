@@ -334,24 +334,11 @@
         ]
       },
       {
-        "id": "column",
-        "label": "Column",
-        "fields": [
-          "regression_id",
-          "table_number",
-          "table_title",
-          "panel",
-          "column",
-          "column_label",
-          "outcome_variable",
-          "target_regressors",
-          "notes"
-        ]
-      },
-      {
         "id": "spec",
         "label": "Specification",
         "fields": [
+          "outcome_variable",
+          "target_regressors",
           "model_type",
           "fixed_effects",
           "controls",
@@ -365,9 +352,18 @@
           "time_period",
           "outcome_construction",
           "data_construction_steps",
-          "reproduction_notes"
+          "reproduction_notes",
+          "notes"
         ]
       }
+    ],
+    "hidden": [
+      "regression_id",
+      "table_number",
+      "table_title",
+      "panel",
+      "column",
+      "column_label"
     ],
     "entries": "cards",
     "grid_rows": "entries",
@@ -401,9 +397,9 @@
       "header": "outcome_variable",
       "caption": "table_title",
       "group": [
-        "table_number",
-        "panel"
-      ]
+        "table_number"
+      ],
+      "panel": "panel"
     },
     "analysis": {
       "default_unit": "cells",

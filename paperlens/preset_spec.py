@@ -80,10 +80,10 @@ _ALLOWED_KEYS = {
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
     "display": {"tabs", "entries", "grid_rows", "triage", "paper_panel", "locate", "audit", "citation_flash", "analysis", "review",
-                "inline_evidence", "sheet"},
+                "inline_evidence", "sheet", "hidden"},
     # sheet: a table field of the entries drawn as the printed table it transcribes
     "sheet": {"field", "row_label", "row_index", "col_index", "column_label", "value", "row_type", "refers_to", "numeric", "stars",
-              "column", "header", "caption", "group"},
+              "column", "header", "caption", "group", "panel"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
     "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline"},
@@ -825,6 +825,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
         # outcome). row_type, refers_to, numeric and stars name the columns that explain a cell —
         # a standard-error row sits under the coefficient it refers to — and that follow a correction
         # of the printed text. The generic typed table stays one click away for the other columns.
+        # `panel` names the field whose values split one table into blocks drawn stacked, as printed
+        # (Panel A above Panel B, the columns aligned by their label): `group` then names the table only.
         sh = display.get("sheet")
         if sh is not None:
             if not isinstance(sh, dict):
@@ -842,12 +844,19 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 for k in ("row_index", "col_index", "column_label", "row_type", "refers_to", "numeric", "stars"):
                     if sh.get(k) is not None and (tf is None or sh[k] not in cols):
                         E(f"$.display.sheet.{k} must name a column of {sh.get('field')}")
-                for k in ("column", "header", "caption"):
+                for k in ("column", "header", "caption", "panel"):
                     if sh.get(k) is not None and (sh[k] not in efields or efields[sh[k]].get("type") == "table"):
                         E(f"$.display.sheet.{k} must name a scalar entry field")
                 grp = sh.get("group")
                 if grp is not None and (not isinstance(grp, list) or any(g not in efields for g in grp)):
                     E("$.display.sheet.group must list entry fields (those that name the table: table number, panel)")
+        # hidden: entry fields the review card leaves out — identifiers, or what a sheet already shows
+        # (table number, panel, column label); they stay in the data, the grid and every export
+        hid = display.get("hidden")
+        if hid is not None:
+            enames = {f.get("name") for f in ((spec.get("entries") or {}).get("fields") or []) if isinstance(f, dict)}
+            if not isinstance(hid, list) or any(h not in enames for h in hid):
+                E("$.display.hidden must list entry fields")
         aud = display.get("audit")      # {"<table field>": {"key": [columns that identify a row]}} for the audit report
         if aud is not None:
             if not isinstance(aud, dict):
@@ -918,7 +927,8 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 else:
                     placed[fname] = tid or "?"
         if display.get("tabs"):
-            for fname in placeable - set(placed):
+            hidden = set(display.get("hidden") or []) if isinstance(display.get("hidden"), list) else set()
+            for fname in placeable - set(placed) - hidden:
                 W(f"$.display.tabs: {fname!r} is in no tab (it will show under 'Other')")
     return errs, warns
 
