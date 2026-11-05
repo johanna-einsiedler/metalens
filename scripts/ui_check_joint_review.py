@@ -151,6 +151,7 @@ def main() -> int:
         page.wait_for_timeout(500)
         check(page.locator(".jc-loose .jc-claim").count() == 1 and "S3" in page.locator(".jc-loose").inner_text(), "the claim citing a figure is on the claims-without-a-table pill")
         page.screenshot(path=f"{a.shot}-2-loose.png", full_page=True)
+
         # the joint review queue: one entry per paper, its tables' and claims' items together
         page.goto(f"{a.url}/workspace?queue={seed['run']}:joint")
         page.wait_for_selector("#queuebar:not([hidden])", timeout=30000)
@@ -172,6 +173,14 @@ def main() -> int:
         check("11 of 11 checked" in page.locator("#queuebar").inner_text() and page.locator("#queuebar a", has_text="Done").count() == 1,
               "the last claim completes the paper and the queue offers the release")
         page.screenshot(path=f"{a.shot}-3-queue.png", full_page=True)
+        # ＋ Regression column (back in the paper's review): the new table's card opens, and the paper keeps its
+        # other side across the reload
+        page.goto(f"{a.url}/workspace?project={seed['workflow']}")
+        page.wait_for_selector(".rnav-tab", timeout=30000)
+        page.locator("#addfinding").click()
+        page.wait_for_selector(".tcard .tc-ident", timeout=20000)
+        check(page.locator(".tcard .rectitle").inner_text().startswith("New table") and page.locator(".rnav-tab[data-sel='claims']").count() == 1
+              and page.locator(".tcard .tc-askcap").count() == 1, "＋ opens the new table's card; the claims and the per-column lines survive the reload")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()
     print(("ALL OK" if not fails else f"{len(fails)} FAILED") + f" — {len(fails)} failure(s)")
