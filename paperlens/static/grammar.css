@@ -577,6 +577,12 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .tc-asktab tr.tc-me th { color: var(--accent); }
 .tc-asktab .rv-row { border: 0; padding: 0; margin: 0; display: block; }
 .tc-asktab .rv-key { display: none; }
+.jc-fields { margin-top: 4px; }
+.jc-fields .rv-row { margin: 0; }
+.jc-restab { margin-top: 6px; }
+.jc-restab .rv-table { font-size: 12px; }
+.jc-restab tr.jc-here td { background: var(--accent-wash); }
+.jc-restab .rv-rowcite .jc-cc { font-weight: 600; font-size: 12px; }
 .jc-type { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
 .jc-main { color: var(--accent); font-weight: 600; font-size: 11.5px; }
 

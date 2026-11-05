@@ -43,6 +43,13 @@ def test_a_consistent_column_passes_and_each_rule_fires_on_its_own_fault() -> No
     # an se row that names no coefficient; one that names a string row; two se rows for one coefficient
     c = _col("a"); c["cells"][1]["refers_to"] = 7
     assert _codes(checks.check_regression_cells([_input([c])], P)) == [("r0", "se_dangling_ref", "error", "cells[1].refers_to")]
+    # a test's p-value printed as a row of its own (joint significance, equality of treatments): no coefficient's — passes;
+    # an unlabelled p row under a coefficient still needs its refers_to
+    c = _col("p"); n = len(c["cells"])
+    c["cells"].append({"row_index": n, "row_label": "Joint significance of treatments", "row_type": "p_value", "raw_text": "0.000", "numeric_value": 0.0, "refers_to": None, "significance_stars": 0})
+    assert checks.check_regression_cells([_input([c])], P) == []
+    c["cells"].append({"row_index": n + 1, "row_label": "", "row_type": "p_value", "raw_text": "[0.03]", "numeric_value": 0.03, "refers_to": None, "significance_stars": 0})
+    assert _codes(checks.check_regression_cells([_input([c])], P)) == [("r0", "se_dangling_ref", "error", f"cells[{n + 1}].refers_to")]
     c = _col("b"); c["cells"][1]["refers_to"] = 2
     assert _codes(checks.check_regression_cells([_input([c])], P)) == [("r0", "se_refers_noncoef", "error", "cells[1].refers_to")]
     c = _col("c"); c["cells"].append({**c["cells"][1], "row_index": 5})

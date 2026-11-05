@@ -114,6 +114,17 @@
         "tables": [
           "target_regressors",
           "se_type"
+        ],
+        "claims": [
+          "type",
+          "statement",
+          "cause",
+          "effect",
+          "sign",
+          "qualifies",
+          "anchor_quote",
+          "intro_sentence",
+          "results"
         ]
       }
     },

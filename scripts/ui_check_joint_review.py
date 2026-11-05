@@ -3,8 +3,8 @@
 claims): one sidebar entry per paper; each table on one card — its panels stacked, every cell
 editable and saved to its own column, one verdict for the whole table; under it only what the
 workflow's review asks (econ: the target regressor, marked in the table and picked per column, and
-the SE type — no specification); the claims citing the table under it, each with its type, the main
-estimate starred and its own verdict; the claims citing no table on a pill of their own; the joint
+the SE type — no specification); the claims citing the table under it, their asked fields editable
+in place (the results as a table, the rows citing this table marked and checked), each with its own verdict; the claims citing no table on a pill of their own; the joint
 review queue counting a paper's tables and claims together.
 
     python3 scripts/ui_check_joint_review.py --url http://127.0.0.1:8019 --seed seed.json [--shot /tmp/joint]
@@ -113,7 +113,27 @@ def main() -> int:
         # the claims citing the table, under it; a claim's own verdict
         box = card.locator(".jc-box")
         check(box.locator(".jc-claim").count() == 1 and "S1" in box.inner_text() and "S2" not in box.inner_text(), "the claim citing Table 4 sits under it, the one citing Table 3 does not")
-        check(box.locator(".jc-type").inner_text().strip().lower() == "edge" and box.locator(".jc-main").count() == 1, "the claim shows its type and its main estimate starred")
+        cl = box.locator(".jc-claim").first
+        check(cl.locator(".jc-fields .rv-editable").count() >= 3 and cl.locator(".jc-fields .rv-selwrap select").count() >= 2 and cl.locator(".jc-restab").count() == 1,
+              "the claim's fields are editable in place: text cells, selects, its results as a table")
+        res = cl.locator(".jc-restab tr.rv-childrow")
+        cc = res.first.locator(".rv-rowcite .jc-cc")
+        check(res.count() == 1 and "jc-here" in (res.first.get_attribute("class") or "") and res.first.locator("select").first.input_value() == "main"
+              and cc.count() == 1 and "cc-exact" in (cc.get_attribute("class") or ""),
+              "its result citing this table is marked, its role editable (main), its estimate checked against the table")
+        heads = [t.strip().lower() for t in cl.locator(".jc-restab thead th").all_inner_texts() if t.strip()]
+        check(any("role" in h for h in heads) and any("estimate" in h for h in heads) and not any("why" in h for h in heads), f"the results table shows where, row, value, se and role: {heads}")
+        stmt = cl.locator('.rv-row[data-field="statement"] .rv-editable')
+        stmt.click(); page.keyboard.press("Meta+A"); page.keyboard.type("Microcredit raises business ownership among women (edited)."); page.locator(".tcard .rectitle").click()
+        page.wait_for_timeout(900)
+        s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
+        check(s1["field_values"]["statement"].endswith("(edited)."), f"a statement edit is saved to the claim: …{s1['field_values']['statement'][-12:]}")
+        cl.locator('.rv-row[data-field="sign"] select').select_option("-")
+        page.wait_for_timeout(900)
+        cl = box.locator(".jc-claim").first
+        s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
+        check(s1["field_values"]["sign"] == "-" and "decreases" in cl.locator(".jc-head").inner_text(), "the sign select saves and the claim's title line follows")
+        check(cl.locator('.rv-row[data-field="anchor_quote"] .rv-key .ev-cite').count() == 1, "the abstract quote keeps its page button beside its label")
         box.locator(".jc-claim .jc-v[data-status='verified']").click()
         page.wait_for_timeout(800)
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")

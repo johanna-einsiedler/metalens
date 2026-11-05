@@ -18,6 +18,18 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - `display.sheet.target` names the field holding the rows a column is about (a table with the
   cells' row index, or a list of row labels); its cells are marked in the table. Both tables presets
   declare it.
+- Claims under a table are edited in place: the fields the workflow asks of the claims side (econ:
+  type, statement, cause, effect, sign, what a comparison compares, the abstract and introduction
+  quotes) as editable cells and selects, the results as an editable table — where, row, value, se,
+  role — with the rows citing this table marked and each estimate checked against the table in its
+  first cell. An edit is a correction of the claim's record, as in the claims document, which
+  "open ↗" still reaches.
+- The number check no longer flags a p-value (t) row printed as a row of its own — a joint
+  significance or equality test — as belonging to no coefficient: with a label of its own that names
+  no coefficient it is a test statistic. The sheet draws such a row as a row of its own, not as a
+  coefficient's sub-row.
+- A missing confidence rating is not counted as a structural issue of the model output (an
+  import carries no ratings).
 
 - A workflow over linked datasets (econ: tables and claims) is reviewed per paper: the workspace
   lists each paper once, and the claims sit under the table their results cite (by the column an

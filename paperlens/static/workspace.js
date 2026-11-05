@@ -1334,7 +1334,8 @@ function renderRecordCard(panel, rec) {
 
 function hasChain() { return (DATA.records || []).some((r) => r.chain && r.chain.support); }
 function recIssues(rec) {
-  return (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
+  return (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`)
+    && i.code !== "uncited_value" && i.code !== "uncited_row" && i.code !== "missing_confidence");
 }
 
 // green / yellow / red for how many runs stand behind an entry
@@ -1521,6 +1522,7 @@ function sheetRows(cols, S) {
     const cells = sheetCells(r, S);
     const order = cells.map((_, i) => i).sort((a, b) => posOf(cells[a], a) - posOf(cells[b], b));
     const seen = new Map(), keyAt = new Map();
+    const coefLabels = new Set(cells.filter((c) => c && typeof c === "object" && (!S.row_type || sheetNorm(c[S.row_type]) === "coefficient")).map((c) => sheetNorm(c[S.row_label])));
     let last = -1, pending = [];
     const flush = (at) => { for (const row of pending) rows.splice(at++, 0, row); pending = []; return at; };
     for (const i of order) {
@@ -1531,13 +1533,15 @@ function sheetRows(cols, S) {
         const j = cells.findIndex((x) => x && typeof x === "object" && x[S.row_index] != null && +x[S.row_index] === +c[S.refers_to]);
         if (j >= 0 && keyAt.has(j)) base = `${keyAt.get(j)}>${type}`;
       }
-      if (base === null) base = `${sheetNorm(c[S.row_label])}|${type}`;
+      const lab = sheetNorm(c[S.row_label]);
+      const own = base === null && SHEET_SUB.has(type) && lab !== "" && !coefLabels.has(lab);   // a test's p-value: a row of its own
+      if (base === null) base = `${lab}|${type}`;
       const n = seen.get(base) || 0; seen.set(base, n + 1);
       const key = `${base}#${n}`;
       keyAt.set(i, key);
       let row = index.get(key);
       if (row) { last = flush(rows.indexOf(row)); row.at.set(r.id, i); }
-      else { row = { key, label: c[S.row_label], type: S.row_type ? c[S.row_type] : null, at: new Map([[r.id, i]]) }; index.set(key, row); pending.push(row); }
+      else { row = { key, label: c[S.row_label], type: S.row_type ? c[S.row_type] : null, own, at: new Map([[r.id, i]]) }; index.set(key, row); pending.push(row); }
     }
     flush(last + 1);
   }
@@ -1618,7 +1622,7 @@ function claimLinks(c) {
   const rs = (jointRev() || {}).results || {}, child = rs.child || "results", ex = rs.exhibit || ["source_table", "panel", "column"];
   return ((c.field_values || {})[child] || []).map((row, j) => {
     const x = (JOINT.cross && JOINT.cross.get(`${c.id}|${child}[${j}]`)) || {};
-    return { row, tok: tableToken(row[ex[0]]), rid: x.companion_record_id || null, status: x.status || null, detail: x.detail || "",
+    return { j, row, tok: tableToken(row[ex[0]]), rid: x.companion_record_id || null, status: x.status || null, detail: x.detail || "",
              where: ex.map((f) => row[f]).filter((v) => v != null && String(v).trim() !== "").map(String).join(" · "),
              label: rs.row ? row[rs.row] : null, value: rs.value ? row[rs.value] : null, se: rs.se ? row[rs.se] : null };
   });
@@ -1637,29 +1641,55 @@ function looseClaims() {
 const CC_WORD = { exact: "matches the table", mismatch: "differs from the table", no_estimate: "no estimate in the table", stated: "stated in the text",
                   unlinked: "no column of the table found", figure: "from a figure" };
 function jointEv(id) { return id < JOINT.off ? DATA.evidence[id] : JOINT.data.evidence[id - JOINT.off]; }
+// the fields the joint review asks of a claim: the workflow's `asks` for the claims side, else
+// what the chain layout shows — the edge, the statement, the quotes, the results
+function claimAsk() {
+  const f = JOINT && JOINT.doc._ds ? ASKS[JOINT.doc._ds] : null;
+  if (Array.isArray(f) && f.length) return f;
+  const rv = jointRev() || {}, e = rv.edge || {};
+  return [...new Set([e.from, e.to, e.sign, rv.statement, ...(rv.quotes || []).map((q) => q.field), (rv.results || {}).child].filter(Boolean))];
+}
+// the columns of a claim's results shown under a table: where the result is, its row, value, se, role
+function resultCols() {
+  const rs = (jointRev() || {}).results || {};
+  return new Set([rs.role, ...(rs.exhibit || []), rs.row, rs.value, rs.se].filter(Boolean));
+}
+// A claim as a card under the table it cites: its title line (id, cause → effect, verdict), then
+// the fields the review asks, editable in place — an edit is a correction of the claim's record,
+// as in the claims document — and its results as an editable table, the rows citing THIS table
+// marked, each row's estimate checked against the table in its first cell.
 function jointClaimHtml(c, links) {
   const rv = jointRev() || {}, fv = c.field_values || {}, e = rv.edge || {}, st = c.verification_status || "unverified";
+  const vm = JOINT.vm, eopts = { editable: !RO };
   const sign = e.sign && fv[e.sign] != null ? ((e.signs || {})[fv[e.sign]] || String(fv[e.sign])) : "";
   const edge = e.from ? `${esc(String(fv[e.from] ?? "?"))} <span class="jc-arrow">→</span> ${esc(String(fv[e.to] ?? "?"))}${sign ? ` <span class="jc-sign">${esc(sign)}</span>` : ""}` : "";
-  const quotes = (rv.quotes || []).filter((q) => fv[q.field]).map((q) => {
-    const ids = (JOINT.ev.exact.get(`${c.id}|${q.field}`) || []).map((i) => i + JOINT.off);
-    const page = ids.length ? jointEv(ids[0]).page || 1 : null;
-    return `<div class="jc-q"><span class="jc-ql">${esc(q.label || formatKey(q.field))}</span>`
-      + (page ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="show in the PDF">p.${page}</button>` : "")
-      + ` <span class="rv-qt">“${esc(String(fv[q.field]))}”</span></div>`;
+  const ask = claimAsk();
+  const defs = ask.map((n) => vm.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
+  const children = ask.map((n) => vm.fieldIndex.get(n)).filter((x) => x && x.scope === "child_key").map((x) => x.child);
+  const fields = defs.length ? `<div class="rv-root jc-fields">${renderFields(defs, fv, "", eopts)}</div>` : "";
+  const tables = children.map((ch) => {
+    const show = ch.key === (rv.results || {}).child ? resultCols() : null;
+    return `<div class="jc-restab" data-child="${esc(ch.key)}"><div class="jc-ql">${esc(ch.label || formatKey(ch.key))}</div>${renderChild(ch, fv[ch.key], show ? { ...eopts, show } : eopts)}</div>`;
   }).join("");
-  const res = links.length ? `<ul class="jc-res">${links.map((l) => `<li>${l.row.role === "main" ? `<b class="jc-main" title="the estimate the paper points to">★ main</b> ` : ""}${esc(l.where || "result")}${l.label ? ` · ${esc(String(l.label))}` : ""}`
-    + `${l.value != null ? ` · <b>${esc(String(l.value))}</b>` : ""}${l.se != null ? ` <span class="muted">(${esc(String(l.se))})</span>` : ""}`
-    + (l.status ? ` <span class="jc-cc cc-${esc(l.status)}" title="${esc(l.detail)}">${CC_GLYPH[l.status] || ""} ${esc(CC_WORD[l.status] || l.status)}</span>` : "") + `</li>`).join("")}</ul>` : "";
-  const type = JOINT.vm.fieldIndex.has("type") && fv.type ? ` <span class="jc-type">${esc(String(fv.type))}</span>` : "";
-  const quals = JOINT.vm.fieldIndex.has("qualifies") && Array.isArray(fv.qualifies) && fv.qualifies.length ? ` <span class="muted">compares ${esc(fv.qualifies.join(", "))}</span>` : "";
-  return `<div class="jc-claim" data-rid="${esc(c.id)}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(JOINT.vm, c, c.entry_index)))}</b>${type}`
-    + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + quals + ` <span class="status ${esc(st)}">${esc(st)}</span>`
+  return `<div class="jc-claim" data-rid="${esc(c.id)}" data-here="${esc(links.map((l) => l.j).join(","))}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(vm, c, c.entry_index)))}</b>`
+    + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + ` <span class="status ${esc(st)}">${esc(st)}</span>`
     + `<span class="jc-acts"><button class="vbtn ok jc-v${st === "verified" ? " on" : ""}" data-status="verified" title="this claim is right">✓</button>`
     + `<button class="vbtn flag jc-v${st === "flagged" ? " on" : ""}" data-status="flagged" title="something in this claim is wrong">⚑</button>`
-    + `<a class="jc-open" href="/workspace?doc=${esc(JOINT.doc.document_id)}&rec=${esc(c.id)}" data-doc="${esc(JOINT.doc.document_id)}" data-rec="${esc(c.id)}" title="edit this claim in the claims document">edit ↗</a></span></div>`
-    + (rv.statement && fv[rv.statement] ? `<div class="jc-stmt">${esc(String(fv[rv.statement]))}</div>` : "")
-    + quotes + res + `</div>`;
+    + `<a class="jc-open" href="/workspace?doc=${esc(JOINT.doc.document_id)}&rec=${esc(c.id)}" data-doc="${esc(JOINT.doc.document_id)}" data-rec="${esc(c.id)}" title="every field of this claim, in the claims document">open ↗</a></span></div>`
+    + fields + tables + `</div>`;
+}
+// the links of a claim as drawn: under a table, the results citing that table; else all its results
+function claimLinksFor(el, c) {
+  const card = el.closest(".tcard");
+  if (card) { const r = (DATA.records || []).find((x) => x.id === card.dataset.rid); if (r) return linksToTable(c, sheetCols(r, sheetSpec())); }
+  return claimLinks(c);
+}
+function rerenderClaim(el, c) {
+  const cur = document.querySelector(`.jc-claim[data-rid="${c.id}"]`) || el;
+  const tmp = document.createElement("div"); tmp.innerHTML = jointClaimHtml(c, claimLinksFor(cur, c));
+  const fresh = tmp.firstElementChild;
+  cur.replaceWith(fresh);
+  wireSiblingLinks(fresh); wireJointClaim(fresh, c);
 }
 function jointClaimsHtml(claims, recs) {
   if (!claims.length) return `<div class="jc-box jc-none muted">No claim of this paper cites this table.</div>`;
@@ -1679,15 +1709,44 @@ function renderLooseClaims(panel) {
 }
 function wireJointClaims(root) {
   root.querySelectorAll(".jc-claim[data-rid]").forEach((el) => {
-    const c = jointRecs().find((x) => x.id === el.dataset.rid); if (!c) return;
-    if (!RO) el.querySelectorAll(".jc-v").forEach((b) => (b.onclick = () => sendVerifyClaim(el, c, b.dataset.status)));
-    el.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
-      const ids = b.dataset.eids.split(",").map(Number);
-      b.onclick = (ev) => { ev.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
-      b.onmouseenter = () => showEvidence(ids);
-      b.onmouseleave = () => hideEvidence(ids);
-    });
+    const c = jointRecs().find((x) => x.id === el.dataset.rid);
+    if (c) wireJointClaim(el, c);
   });
+}
+function wireJointClaim(el, c) {
+  const rv = jointRev() || {}, e = rv.edge || {};
+  if (!RO) el.querySelectorAll(".jc-v").forEach((b) => (b.onclick = () => sendVerifyClaim(el, c, b.dataset.status)));
+  // a quote's page button beside its label
+  for (const q of rv.quotes || []) {
+    const key = el.querySelector(`.rv-row[data-field="${q.field}"] .rv-key`); if (!key) continue;
+    const ids = (JOINT.ev.exact.get(`${c.id}|${q.field}`) || []).map((i) => i + JOINT.off);
+    if (!ids.length) continue;
+    key.insertAdjacentHTML("beforeend", ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${jointEv(ids[0]).page || 1}" title="show in the PDF">p.${jointEv(ids[0]).page || "?"}</button>`);
+  }
+  el.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map(Number);
+    b.onclick = (ev) => { ev.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids);
+    b.onmouseleave = () => hideEvidence(ids);
+  });
+  // the results: the rows citing this table marked, each row's estimate against the table
+  const here = new Set((el.dataset.here || "").split(",").filter(Boolean).map(Number));
+  el.querySelectorAll(".jc-restab tr.rv-childrow[data-rowpath]").forEach((tr) => {
+    const m = /\[(\d+)\]$/.exec(tr.dataset.rowpath);
+    if (m && here.has(+m[1])) tr.classList.add("jc-here");
+    const x = JOINT.cross && JOINT.cross.get(`${c.id}|${tr.dataset.rowpath}`);
+    const cite = tr.querySelector(".rv-rowcite");
+    if (cite && x) cite.innerHTML = `<span class="jc-cc cc-${esc(x.status)}" title="${esc(`${CC_WORD[x.status] || x.status}${x.detail ? ` — ${x.detail}` : ""}`)}">${CC_GLYPH[x.status] || "·"}</span>`;
+  });
+  if (RO) return;
+  // edits: a correction of the claim's record; the title line follows an edit of the edge
+  const title = new Set([e.from, e.to, e.sign, "type"].filter(Boolean));
+  wireControls(el, (path, val) => {
+    const saved = saveFieldEdit(c, el, path, val, curVal(c, path));
+    if (title.has(path)) saved.then(() => rerenderClaim(el, c));
+    return saved;
+  }, true);
+  wireTableRows(el, c, () => rerenderClaim(el, c));
 }
 async function sendVerifyClaim(el, c, status) {
   const btns = el.querySelectorAll(".jc-v");
@@ -1763,7 +1822,7 @@ function renderSheet(rec, def, note = null) {
     let prevLabel = null, prevStat = false;
     out += rows.map((row) => {
       const type = row.type == null ? "" : String(row.type);
-      const sub = SHEET_SUB.has(type), stat = type.startsWith("statistic"), rule = stat && !prevStat;
+      const sub = SHEET_SUB.has(type) && !row.own, stat = type.startsWith("statistic"), rule = stat && !prevStat;
       prevStat = stat;
       const labelTxt = row.label == null ? "" : String(row.label);
       if (type === "panel_header") { prevLabel = null; return `<tr class="sh-panel"><td colspan="${keys.length + 1}">${esc(labelTxt)}</td></tr>`; }
