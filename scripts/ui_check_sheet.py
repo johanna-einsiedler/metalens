@@ -10,7 +10,8 @@ its number; the card is titled "Table 3" and shows every column of the table; ro
 label (an se row under its coefficient, label hidden); every cell is editable and a correction of the
 printed text carries the parsed number along; a heading opens that column's fields under the table
 (no Column or Other tab; the undeclared key at the end of the specification); one ✓ verifies every
-column; "▤ every field" shows the generic list and the choice sticks; no script error. Needs the
+column; "▤ every field" shows the generic list and the choice sticks; ＋ adds a table the extraction
+missed (a card asking for its name, then its cells); no script error. Needs the
 system python with playwright installed; prints a check list and exits non-zero on a failure. Writes
 a screenshot per view.
 """
@@ -121,6 +122,17 @@ def main() -> int:
         page.screenshot(path=f"{a.shot}-list.png", full_page=True)
         page.locator(".tcard .sh-toggle").first.click(); page.wait_for_selector(".tcard .sheet table.sh-t", timeout=10000)
         check(True, "▦ as printed returns to the sheet")
+        # a table the extraction missed: ＋ opens a new card that asks for the table's name, with an empty cells table
+        page.locator("#addfinding").click()
+        page.wait_for_selector(".tcard .tc-ident", timeout=20000)
+        card = page.locator(".tcard")
+        check(card.locator(".rectitle").inner_text().startswith("New table") and card.locator(".tc-ident .rv-row[data-field='table_number']").count() == 1
+              and card.locator(".tc-list .rv-addrow").count() == 1, "＋ opens the new entry: a card asking for the table's name, its cells to add row by row")
+        tn = card.locator(".tc-ident .rv-row[data-field='table_number'] .rv-editable")
+        tn.click(); page.keyboard.type("Table 7"); card.locator(".rectitle").click()
+        page.wait_for_timeout(1000)
+        check(page.locator(".rnav .rnav-group", has_text="Table 7").count() == 1 and page.locator(".tcard .rectitle").inner_text().startswith("Table 7"),
+              "naming it moves the card and its pill to that table")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()
     print(f"{len(fails)} failure(s)" if fails else "all checks passed")

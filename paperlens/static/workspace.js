@@ -1923,11 +1923,17 @@ function renderTableCard(panel, rec) {
   const ask = asksFor();                               // a joint workflow asks only what its validation checks
   const card = document.createElement("div");
   card.className = "record tcard"; card.dataset.rid = rec.id;
-  card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${esc(sheetLabel(rec, S))}`
+  const fv = rec.field_values || {};
+  const named = (S.group || []).some((f) => fv[f] != null && String(fv[f]).trim() !== "");
+  const blank = recs.length === 1 && !sheetCells(rec, S).length;        // an entry added by hand: a table the pipeline missed
+  const identDefs = (!named || blank) ? [...(S.group || []), S.panel, S.column].filter(Boolean).map((f) => (VM.fieldIndex.get(f) || {}).field).filter(Boolean) : [];
+  card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${named ? esc(sheetLabel(rec, S)) : "New table"}`
     + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span></div>`
+    + (identDefs.length ? `<div class="tc-ident"><div class="muted" style="font-size:12.5px;margin-bottom:4px">A table the extraction missed: name it (as printed), then add its cells row by row below — one entry per column.</div>`
+        + `<div class="rv-root">${renderFields(identDefs, fv, "", { editable: !RO })}</div></div>` : "")
     + tableNotesHtml(recs)
     + (JOINT ? "" : citedByHtml(rec, recs.flatMap((r) => (CITED && CITED[r.id]) || [])))
-    + (SHEET_LIST ? `<div class="rv-root tc-list">${renderFields([sdef], rec.field_values || {}, "", { editable: !RO })}</div>${sheetToggle(true)}`
+    + (SHEET_LIST || blank ? `<div class="rv-root tc-list">${renderFields([sdef], fv, "", { editable: !RO })}</div>${blank ? "" : sheetToggle(true)}`
         : renderSheet(rec, sdef, ask ? "every cell editable · the target regressor's cell underlined" : null))
     + (JOINT ? jointClaimsHtml(claimsForTable(recs), recs) : "")
     + (ask ? askedHtml(rec, ask) : columnSectionHtml(rec))
@@ -1943,6 +1949,8 @@ function renderTableCard(panel, rec) {
     wireControls(list, (path, val) => saveFieldEdit(rec, list, path, val, curVal(rec, path)), true);
     wireTableRows(list, rec, () => renderPanel());
   }
+  const ident = card.querySelector(".tc-ident");
+  if (ident && !RO) wireControls(ident, (path, val) => saveFieldEdit(rec, ident, path, val, curVal(rec, path)).then(() => renderPanel()), true);
   wireColumnSection(card.querySelector(".tc-col"), rec);
   wireAsked(card);
   if (!RO) card.querySelectorAll(".tc-foot .vbtn").forEach((b) => (b.onclick = () => sendVerifyTable(card, recs, b.dataset.status)));
@@ -2235,6 +2243,9 @@ async function doAddFinding(extra) {
     await api.addRecord(DATA.document_id, { field_values: template });
     if (es) STAGE = es.index;
     await reloadDoc();
+    // the new entry opens: the last one, in a panel that shows one entry at a time
+    const recs = DATA.records || [];
+    if (recs.length > 1 && !es && !GRID && !RAW) { PANEL_SEL = recs.length - 1; renderPanel(); selectEntry(PANEL_SEL); }
   }
   catch (e) { alert("add failed: " + e.message); }
 }
