@@ -37,6 +37,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   paper with no regression table still shows its claims. The econ review asks of each column the
   target regressor, the SE type, the fixed effects and the controls — what the blind coders
   record from the table notes.
+- No "Uploads complete" to press: the Import page closes a side's uploads when its batch is in
+  (a batch with failures leaves it open), so a run over uploaded files goes on by itself once
+  every side has its files. The panel keeps a fallback with a plain label — "Run the checks on
+  what is here" when there is nothing to upload, "Go on without the missing files" when a side
+  gets none.
 - "＋ New workflow" on a workflow over linked datasets makes one empty dataset per role, so a
   run can start at once; a supplied step whose files arrive one by one (no paper planned at the
   start) waits for "Uploads complete" instead of closing after its first file.

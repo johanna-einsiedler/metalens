@@ -533,7 +533,7 @@ function nowLine(run) {
     } else if (n.phase === "waiting for review") what = `waiting for your review · ${esc(n.label || n.step)}${n.total != null ? ` · ${n.done || 0} of ${n.total} checked` : ""}`;
     else what = `waiting for your API key · ${esc(n.label || n.step)}`;
     const todo = n.phase === "waiting for uploads"
-      ? "Upload the files of the new papers, then press Uploads complete. No new papers? Uploads complete runs the checks over what is here; Cancel run ends the run."
+      ? "Upload each side's files from the Import page; the run goes on by itself once every side is in."
       : n.phase === "waiting for review" ? "Give the verdicts, then resume the run." : "Give a key; it is used once and never stored.";
     return `<span class="wf-now"><b>Now:</b> ${what}${since}</span><div class="muted wf-nowtodo">Nothing is computed while the run waits. ${todo}</div>`;
   }
@@ -651,14 +651,20 @@ function renderWorkflowCard(host, w) {
     const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key`
       : live && run.now && run.now.waiting_for_you ? "waiting for you" : run.status;
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
+    // the fallback for what the Import page does by itself: nothing to upload, or a side that will get no files
+    const ups = ((run.now || {}).uploads || []).filter((u) => !u.pending);
+    const goOn = !waiting ? "" : ups.length && ups.every((u) => !u.total)
+      ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="nothing to upload: the run goes on over the papers already in the datasets">Run the checks on what is here</button>`
+      : ups.some((u) => !u.total)
+        ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="the sides still waiting get no files: the run goes on with what arrived">Go on without the missing files</button>`
+        : ups.length ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="every side has its files: the run goes on">Go on with these files</button>` : "";
     const sides = new Set((run.papers || []).map((p) => p.step_id)).size > 1;      // one file per side: say which
     const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${sides ? `${esc(p.step_id)} · ` : ""}${esc(p.status)}</small></span>`).join(" ");
     return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · ${pp.total ? `papers ${pp.done || 0} of ${pp.total}` : "no papers yet"}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
       ${live && run.now ? `<div class="wf-nowline">${nowLine(run)}</div>` : ""}
       ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
-        ${waiting ? `${uploads}
-                     <button class="btn btn-ghost btn-sm" id="wf-complete" title="the papers never uploaded are dropped from the plan and the run goes on">Uploads complete</button>` : ""}
+        ${waiting ? `${uploads} ${goOn}` : ""}
         ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(stepDs(draftStep.step_id))}&step=${esc(draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
         ${run.status.startsWith("needs_key:") ? `<a class="btn btn-ghost btn-sm" href="/derived?dataset=${esc(stepDs(run.status.split(":")[1]))}&step=${esc(run.status.split(":")[1])}&run=${esc(run.id)}" title="the step makes model calls on your own key, which is used once and never stored">Give a key and go on</a>` : ""}
         ${!/^(done|failed|cancelled)$/.test(run.status) ? `<button class="btn btn-ghost btn-sm" id="wf-cancel">Cancel run</button>` : ""}
@@ -699,7 +705,7 @@ function renderWorkflowCard(host, w) {
     clearTimeout(WF_TIMER);                                 // no poll repaints the old state mid-request
     complete.disabled = true; complete.textContent = "Working…";
     const nl = host.querySelector(".wf-nowline");
-    if (nl) nl.innerHTML = `<span class="wf-now"><span class="spin"></span> <b>Now:</b> uploads complete · running the next steps</span>`;
+    if (nl) nl.innerHTML = `<span class="wf-now"><span class="spin"></span> <b>Now:</b> running the next steps</span>`;
     try { for (const s of suppliedSteps.length ? suppliedSteps : [ex]) await api.workflowComplete(run.id, s.id || "extract"); } catch (e) { alert(e.message); }
     loadWorkflowCard();
   };
