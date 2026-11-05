@@ -541,6 +541,7 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .tcard .sh-t th.sh-col[data-key]:hover { color: var(--accent); }
 .tcard .sh-t td.sh-cell .sh-val:focus { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 .tc-col { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.tc-ident { margin: 2px 0 8px; padding: 6px 10px; border: 1px dashed var(--border); border-radius: 8px; }
 .tc-colhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
 .tc-colhead .muted { font-size: 12px; }
 .rv-extra { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--border); }
