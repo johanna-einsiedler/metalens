@@ -82,15 +82,16 @@ def test_a_workflow_dataset_holds_the_linked_datasets_and_their_papers(monkeypat
                    data={"result": json.dumps(doc), "run_id": run["id"], "step_id": step})
         assert r.status_code == 200, r.text
     view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
-    assert view["status"] == "needs_key:edges" and view["now"]["phase"] == "waiting for an API key" and view["now"]["label"]
+    assert view["status"] == "done", view["status"]           # no dataset-level step: the checks ran, the joint review holds only the release
+    assert {s["step_id"]: s["status"] for s in view["steps"]}["links"] == "done"
     # both sides of the new paper sit on one row of the workflow dataset's page; the old paper has only its tables
     ov = c.get(f"/api/datasets/{wd['id']}/overview", headers=H).json()
     rows = {p["title"]: p for p in ov["papers"]}
     assert set(rows["Paper w1"]["documents"]) == {"tables", "claims"} and rows["Paper w1"]["complete"]
     assert not rows["Paper p0"]["complete"] and ov["stats"]["n_complete"] == 1 and ov["stats"]["n_papers"] == 2
-    assert [d["step"] for d in ov["derived"]] == ["edges"] and ov["derived"][0]["dataset_id"] == ds_c
+    assert ov["derived"] == []
     wl = {x["id"]: x for x in c.get("/api/workflow-datasets", headers=H).json()["workflows"]}
-    assert wl[wd["id"]]["run"]["now"]["phase"] == "waiting for an API key"
+    assert wl[wd["id"]]["run"]["status"] == "done"
     # a workflow dataset is never made public itself, and keeps its workflow
     assert c.patch(f"/api/datasets/{wd['id']}", headers=H, json={"visibility": "public"}).status_code == 422
     assert c.patch(f"/api/datasets/{wd['id']}", headers=H, json={"workflow": ""}).status_code == 409
@@ -161,13 +162,23 @@ def test_a_run_says_what_it_is_doing_and_measures_how_long_it_still_takes() -> N
           {"step_id": "x", "status": "failed", "updated_at": None}]
     n = workflows.now_running(conn, run, steps, js)
     # two papers landed 90 s after the start: 45 s a paper, two still to go (the failed one is not waited for)
-    assert n["label"] == "Extraction" and n["phase"] == "extracting" and (n["done"], n["total"]) == (2, 5)
+    assert n["label"] == "Extraction" and n["phase"] == "extracting" and (n["done"], n["total"]) == (2, 5) and not n["waiting_for_you"]
     assert n["eta_s"] == 90 and n["basis"] == "this run" and 119 <= n["elapsed_s"] <= 125
     # nothing landed and no earlier run of this contract: no number is invented
     n = workflows.now_running(conn, run, steps, [dict(j, status="queued") for j in js])
     assert n["eta_s"] is None and n["basis"] is None
     # a step that waits for people has no estimate; a finished run is doing nothing
     assert workflows.now_running(conn, {**run, "status": "needs_key:e", "current_step": "e"},
-                                 [{"step_id": "e", "kind": "derive", "started_at": None, "review": {}}], [])["phase"] == "waiting for an API key"
+                                 [{"step_id": "e", "kind": "derive", "started_at": None, "review": {}}], [])["waiting_for_you"]
     assert workflows.now_running(conn, {**run, "status": "done"}, steps, js) is None
+    # an uploaded step waits for its owner: nothing is computed, no estimate, and every supplied step
+    # still open (a group takes both sides' files at once) says what it has received so far
+    sup = {"steps": [{"id": "t", "kind": "extract", "source": "supplied", "label": "Tables", "dataset": "tables"},
+                     {"id": "c", "kind": "extract", "source": "supplied", "label": "Claims", "dataset": "claims"}]}
+    srs = [{"step_id": "t", "kind": "extract", "status": "running", "started_at": iso(now - timedelta(minutes=35)), "review": {}},
+           {"step_id": "c", "kind": "extract", "status": "pending", "started_at": None, "review": {}}]
+    n = workflows.now_running(conn, {"status": "running", "current_step": "t", "workflow": sup, "plan": {}}, srs,
+                              [{"step_id": "c", "status": "done", "updated_at": None}])
+    assert n["waiting_for_you"] and n["phase"] == "waiting for uploads" and n["eta_s"] is None and n["elapsed_s"] >= 35 * 60
+    assert [(u["step"], u["role"], u["done"], u["total"], u["pending"]) for u in n["uploads"]] == [("t", "tables", 0, 0, 0), ("c", "claims", 1, 1, 0)]
     conn.close()

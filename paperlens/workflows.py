@@ -1653,9 +1653,11 @@ def history_pace(conn, kind: str, preset_schema_id: str | None = None) -> float 
 
 def now_running(conn, run: dict, steps: list[dict], js: list[dict]) -> dict | None:
     """The step a run is on and what it is doing: ``{step, label, kind, phase, done, total,
-    elapsed_s, eta_s, basis}``. The estimate is measured, never guessed: from this run's own pace
-    once a paper has landed, else from the last finished steps of the same kind (and contract) on
-    this server, else none. A step that waits for people (uploads, a review, a key) has none."""
+    elapsed_s, eta_s, basis, waiting_for_you}``. The estimate is measured, never guessed: from this
+    run's own pace once a paper has landed, else from the last finished steps of the same kind (and
+    contract) on this server, else none. A step that waits for people (uploads, a review, a key) has
+    none and says ``waiting_for_you``: nothing happens until the owner acts; uploads also list what
+    each supplied step has received (``uploads``)."""
     status = run.get("status") or ""
     if status in TERMINAL or status == "planned":
         return None
@@ -1665,16 +1667,16 @@ def now_running(conn, run: dict, steps: list[dict], js: list[dict]) -> dict | No
         return None
     st = ws.steps_by_id(run.get("workflow") or {}).get(sid) or {}
     out: dict = {"step": sid, "label": st.get("label") or sid, "kind": sr["kind"], "phase": None, "done": None, "total": None,
-                 "elapsed_s": None, "eta_s": None, "basis": None}
+                 "elapsed_s": None, "eta_s": None, "basis": None, "waiting_for_you": False}
     started = _parse_iso(sr.get("started_at"))
     if started:
         out["elapsed_s"] = max(0, int((_now() - started).total_seconds()))
     if status.startswith("awaiting_review:"):
         rv = sr.get("review") or {}
-        out.update(phase="waiting for review", done=rv.get("checked"), total=rv.get("total"))
+        out.update(phase="waiting for review", done=rv.get("checked"), total=rv.get("total"), waiting_for_you=True)
         return out
     if status.startswith("needs_key:"):
-        out["phase"] = "waiting for an API key"
+        out.update(phase="waiting for an API key", waiting_for_you=True)
         return out
     kind = sr["kind"]
     if kind in ("extract", "agent"):
@@ -1683,7 +1685,17 @@ def now_running(conn, run: dict, steps: list[dict], js: list[dict]) -> dict | No
         failed = sum(1 for j in mine if j["status"] in ("failed", "cancelled"))
         out.update(done=len(done), total=len(mine))
         if st.get("source") == "supplied":
-            out["phase"] = "waiting for uploads"
+            # nothing is computed: the run waits for the owner's files on every supplied step not done yet
+            # (a group takes each side's files at once) or for "Uploads complete"
+            open_ids = {x["step_id"] for x in steps if x.get("status") not in ("done", "skipped")}
+            uploads = []
+            for s2 in (run.get("workflow") or {}).get("steps") or []:
+                if s2.get("kind") in ("extract", "agent") and s2.get("source") == "supplied" and s2.get("id") in open_ids:
+                    sj = [j for j in js if j["step_id"] == s2["id"]]
+                    uploads.append({"step": s2["id"], "label": s2.get("label") or s2["id"], "role": s2.get("dataset"),
+                                    "done": sum(1 for j in sj if j["status"] in JOB_DONE), "total": len(sj),
+                                    "pending": sum(1 for j in sj if j["status"] == "pending")})
+            out.update(phase="waiting for uploads", waiting_for_you=True, uploads=uploads)
             return out
         out["phase"] = "extracting"
         remaining = max(0, len(mine) - len(done) - failed)

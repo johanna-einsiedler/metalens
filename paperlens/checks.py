@@ -316,14 +316,15 @@ def run_step(conn: psycopg.Connection, run_id: str, step_run_id: str, st: dict, 
     rank = SEV_RANK[st.get("severity") or "error"]
     with conn.transaction():
         conn.execute("DELETE FROM workflow_finding WHERE step_run_id = %s::uuid", (step_run_id,))
-        for f in findings:
-            conn.execute(
+        with conn.cursor() as cur:                          # one pipelined batch, not a round trip per finding
+            cur.executemany(
                 """INSERT INTO workflow_finding (id, run_id, step_run_id, step_id, "check", record_id, document_id,
                                                  companion_record_id, path, code, severity, message, detail)
                    VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
-                (str(uuid.uuid4()), run_id, step_run_id, st["id"], st["check"], f.get("record_id"), f.get("document_id"),
-                 f.get("companion_record_id"), f.get("path"), f.get("code"), f.get("severity") or "warn",
-                 (f.get("message") or f.get("code") or "")[:1000], Json(f["detail"]) if f.get("detail") is not None else None))
+                [(str(uuid.uuid4()), run_id, step_run_id, st["id"], st["check"], f.get("record_id"), f.get("document_id"),
+                  f.get("companion_record_id"), f.get("path"), f.get("code"), f.get("severity") or "warn",
+                  (f.get("message") or f.get("code") or "")[:1000], Json(f["detail"]) if f.get("detail") is not None else None)
+                 for f in findings])
     by_sev: dict[str, int] = {}
     by_code: dict[str, int] = {}
     for f in findings:

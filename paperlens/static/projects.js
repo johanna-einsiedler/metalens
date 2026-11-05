@@ -90,6 +90,7 @@ function curatedCard(c, zen, cannot) {
 function runState(run) {
   if (!run) return "no run yet";
   const n = run.now;
+  if (n && n.waiting_for_you) return `${esc((n.phase || "").replace(/^waiting for (an )?/, "waiting for your "))} · ${esc(n.label || n.step)}`;
   if (n) return `${esc(n.label || n.step)} · ${esc(n.phase || run.status)}${n.total != null && n.done != null ? ` (${n.done} of ${n.total})` : ""}`;
   const day = String(run.finished_at || run.created_at || "").slice(0, 10);
   return `last run ${esc(run.status)}${day ? ` · ${esc(day)}` : ""}`;

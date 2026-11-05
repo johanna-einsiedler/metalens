@@ -108,7 +108,7 @@ Such a workflow lives on a **workflow dataset** of its own, one level above the 
   plain dataset with its own records, releases and page;
 - the workflow dataset, which carries the workflow, links one dataset per role and holds no records
   itself. Its page lists the linked datasets with their presets, the papers one row per PDF with
-  each side's document beside it, what the dataset-level steps made (the corpus edges), the
+  each side's document beside it, what the dataset-level steps made (a derive step's table), the
   Workflow panel with the runs, and one release for all of them.
 
 In storage the workflow dataset is the group's own row: its id is the `group_id` its members carry
@@ -135,7 +135,10 @@ While a run is on, the panel says which step it is on and what it is doing — w
 ("1 of 2 arrived"), extracting ("3 of 10 papers"), model calls, waiting for a review or a key —
 and, where it can be measured, roughly how long it still takes: from this run's own pace once a
 paper has landed, else from the last finished steps of the same kind on the server. No estimate
-is shown for a step that waits for people, or before anything could be measured.
+is shown for a step that waits for people, or before anything could be measured. A run that
+waits for people reads "waiting for you" instead of "running": for uploads it lists what each
+supplied step has received ("none uploaded yet", "1 of 2 arrived") and how long it has waited,
+because nothing happens until the files arrive or the owner presses Uploads complete.
 
 ## Pipelines: k runs, a vote, a follow-up step
 

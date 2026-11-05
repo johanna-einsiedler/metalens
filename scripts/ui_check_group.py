@@ -85,7 +85,7 @@ def main() -> int:
         page.wait_for_selector("#ds-update:not([hidden])", timeout=30000)
         check("side of the workflow dataset" in page.locator("#ds-update").inner_text() and page.locator(f"#ds-update a[href^='/dataset?id={wd}']").count() >= 1,
               "the claims dataset points to its workflow dataset")
-        # a second run with nothing new to upload: "Uploads complete" completes both supplied steps and the checks run
+        # a second run with nothing new to upload: "Uploads complete" completes both supplied steps, the checks run, the run ends
         r = page.request.post(f"{a.url}/api/datasets/{a.tables}/workflow/runs", data={}, headers={"X-Session-Id": a.session})
         check(r.ok, f"a second run starts ({r.status})")
         page.goto(f"{a.url}/dataset?id={wd}")
@@ -95,7 +95,7 @@ def main() -> int:
         page.locator("#wf-complete").click()
         page.wait_for_function("!document.querySelector('#wf-complete')", timeout=30000)
         run_txt = page.locator("#ds-update .wf-run").inner_text()
-        check("edges needs an API key" in run_txt, f"Uploads complete moved the run to the edges step: {run_txt[:90]}")
+        check("done" in run_txt, f"Uploads complete ran the rest of the run: {run_txt[:90]}")
         chips = {t: page.locator("#ds-update .wf-row", has_text=t).locator(".badge").first.inner_text().strip()
                  for t in ("Contract check (tables)", "Number check", "Contract check (claims)", "Estimates against the tables")}
         check(all(v == "fresh" for v in chips.values()), f"the checks ran: {chips}")

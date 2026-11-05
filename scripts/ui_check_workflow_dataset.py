@@ -60,7 +60,7 @@ def main() -> int:
         check("Each time papers are added, these steps run in this order." in card and "every check and review is declared" not in card, "the panel's sentence is in plain words")
         check("made elsewhere" not in card and "uploaded" in card, "supplied steps say 'uploaded'")
         now = page.locator("#ds-update .wf-nowline")
-        check(now.count() == 1 and "Now:" in now.inner_text() and "Claims and their results" in now.inner_text() and "waiting for uploads" in now.inner_text() and "0 of 1 arrived" in now.inner_text(),
+        check(now.count() == 1 and "Now:" in now.inner_text() and "Claims and their results" in now.inner_text() and "waiting for your uploads" in now.inner_text() and "Claims and their results: 0 of 1 arrived" in now.inner_text() and "Nothing is computed" in now.inner_text(),
               f"the run says what it is doing: {now.inner_text() if now.count() else None!r}")
         cur = page.locator("#ds-update .wf-row.wf-current")
         check(cur.count() == 1 and "Claims and their results" in cur.inner_text() and "waiting" in cur.inner_text(), "the current step's row is marked")
@@ -75,7 +75,7 @@ def main() -> int:
         card = page.locator("#ds-update").inner_text()
         check("side of the workflow dataset" in card and "Econ papers" in card and page.locator("#ds-update .wf-row").count() == 0, f"the member card points up: {card[:160]!r}")
         check(page.locator(f"#ds-update a[href='/dataset?id={a.workflow}#workflow']").count() >= 1, "it links to the workflow")
-        check("waiting for uploads" in card, "it shows what the run is doing")
+        check("waiting for your uploads" in card, "it shows what the run is doing")
         check("Regression tables side of Econ papers" in page.locator("#ds-wfpill").inner_text(), "the header says which side it is")
         page.screenshot(path=f"{a.shot}-2-member.png", full_page=True)
 
@@ -83,7 +83,7 @@ def main() -> int:
         page.goto(f"{a.url}/projects")
         page.wait_for_selector("#workflows .proj-tile, #workflows p", timeout=30000)
         tile = page.locator(f"#workflows a.proj-tile[href='/dataset?id={a.workflow}']")
-        check(tile.count() == 1 and "Econ papers" in tile.inner_text() and "waiting for uploads" in tile.inner_text() and "Econ claims" in tile.inner_text(), f"the workflow tile: {tile.inner_text()[:160] if tile.count() else None!r}")
+        check(tile.count() == 1 and "Econ papers" in tile.inner_text() and "waiting for your uploads" in tile.inner_text() and "Econ claims" in tile.inner_text(), f"the workflow tile: {tile.inner_text()[:160] if tile.count() else None!r}")
         listed = page.evaluate(f"fetch('/api/datasets', {{headers: {{'X-Session-Id': {a.session!r}}}}}).then(r => r.json()).then(j => j.datasets.find(d => d.id === {a.tables!r}))")
         check(bool(listed) and listed.get("group_role") == "tables" and listed.get("workflow_dataset_id") == a.workflow, "the dataset list says which workflow the tables dataset is a side of")
         side = page.locator(f"#datasets a.proj-tile[href='/dataset?id={a.tables}']")   # listed only when a signed-in account owns it
