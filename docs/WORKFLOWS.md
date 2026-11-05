@@ -153,7 +153,10 @@ paper has landed, else from the last finished steps of the same kind on the serv
 is shown for a step that waits for people, or before anything could be measured. A run that
 waits for people reads "waiting for you" instead of "running": for uploads it lists what each
 supplied step has received ("none uploaded yet", "1 of 2 arrived") and how long it has waited,
-because nothing happens until the files arrive or the owner presses Uploads complete.
+because nothing happens until the files arrive. The Import page closes a side's uploads when its
+batch is in, so the run goes on by itself once every side has its files; the panel's fallback
+closes a side that gets no files ("Go on without the missing files") or runs the checks over what
+is already there when there is nothing to upload.
 
 ## Pipelines: k runs, a vote, a follow-up step
 
