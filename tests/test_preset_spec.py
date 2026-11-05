@@ -120,6 +120,9 @@ def test_good_spec_normalises_with_defaults() -> None:
     ("sheet column a table", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "header": "matrix"}), "scalar entry field"),
     ("sheet group unknown", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "group": ["zzz"]}), "sheet.group"),
     ("sheet unknown key", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "rows": "a"}), "unknown key"),
+    ("sheet panel not an entry field", lambda d: d["display"].__setitem__("sheet", {"field": "matrix", "row_label": "a", "value": "a", "panel": "zzz"}), "sheet.panel must name a scalar entry field"),
+    ("hidden not a list", lambda d: d["display"].__setitem__("hidden", "sample_id"), "display.hidden must list entry fields"),
+    ("hidden names no field", lambda d: d["display"].__setitem__("hidden", ["zzz"]), "display.hidden must list entry fields"),
 ])
 def test_validation_rejects(label, mutate, needle) -> None:
     errs = _errors(mutate)
@@ -664,8 +667,18 @@ def test_sheet_lays_a_table_field_out_as_printed() -> None:
     assert spec["display"]["sheet"]["group"] == ["sample_id"]
     bare = copy.deepcopy(doc); del bare["display"]["sheet"]
     assert ps.schema_id(spec) == ps.schema_id(ps.normalize(bare))       # a layout never re-versions a dataset
-    # the two tables presets declare it over their cells: one row per printed row, a column per regression column
+    # the two tables presets declare it over their cells: one row per printed row, a column per regression
+    # column, a table's panels stacked; the fields the table shows itself are left out of the card
     for pid in ("register-tables", "econ-regression-tables"):
-        sh = presets.load_all()[pid]["display"]["sheet"]
-        assert sh["field"] == "cells" and sh["value"] == "raw_text" and sh["refers_to"] == "refers_to" and sh["group"] == ["table_number", "panel"]
-        assert presets.load_all()[pid]["display"]["locate"]["cells"] == {"anchor_fields": ["row_label"]}
+        disp = presets.load_all()[pid]["display"]
+        sh = disp["sheet"]
+        assert sh["field"] == "cells" and sh["value"] == "raw_text" and sh["refers_to"] == "refers_to"
+        assert sh["group"] == ["table_number"] and sh["panel"] == "panel"
+        assert disp["locate"]["cells"] == {"anchor_fields": ["row_label"]}
+        assert [t["id"] for t in disp["tabs"]] == ["cells", "spec"] and disp["tabs"][1]["fields"][:2] == ["outcome_variable", "target_regressors"]
+        assert set(disp["hidden"]) == {"regression_id", "table_number", "table_title", "panel", "column", "column_label"}
+    # hidden fields are in no tab without a warning; the layout keys never touch the schema id
+    hid = copy.deepcopy(doc); hid["display"]["hidden"] = ["col"]; hid["display"]["sheet"]["panel"] = "col"
+    errs, warns = ps.validate(ps.normalize(hid))
+    assert errs == [] and not any("'col' is in no tab" in w for w in warns), (errs, warns)
+    assert ps.schema_id(ps.normalize(hid)) == ps.schema_id(spec)

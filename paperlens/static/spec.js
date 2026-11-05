@@ -42,6 +42,7 @@ export function viewModel(DATA) {
     vm.fieldIndex.set(ch.key, { scope: "child_key", field: null, child: ch });
     for (const f of ch.fields || []) vm.fieldIndex.set(f.name, { scope: "child", field: f, child: ch.key });
   }
+  vm.hidden = new Set((spec.display && spec.display.hidden) || []);   // fields the card leaves out (identifiers, what a sheet shows)
   vm.tabs = completeTabs(vm, (spec.display && spec.display.tabs) || []);
   return vm;
 }
@@ -57,10 +58,10 @@ function inferSpec(DATA) {
 }
 
 // Every declared entry field / child ends up in exactly one tab: the declared one, else an
-// auto "Other" tab appended last. Each tab also knows which confidence groups its fields
+// auto "Other" tab appended last — unless display.hidden leaves it out of the card. Each tab also knows which confidence groups its fields
 // belong to (where the badges go).
 export function completeTabs(vm, declared) {
-  const placeable = [...vm.entries.fields.map((f) => f.name), ...vm.entries.children.map((c) => c.key)];
+  const placeable = [...vm.entries.fields.map((f) => f.name), ...vm.entries.children.map((c) => c.key)].filter((n) => !(vm.hidden && vm.hidden.has(n)));
   const placed = new Set();
   const tabs = declared.map((t) => {
     const fields = (t.fields || []).filter((n) => placeable.includes(n) && !placed.has(n));

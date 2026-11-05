@@ -8,6 +8,25 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The joint review on one page, a regression table on one card
+
+- A workflow over linked datasets (econ: tables and claims) is reviewed per paper: the workspace
+  lists each paper once, and the claims sit under the table their results cite (by the column an
+  estimate resolved to, else by the table named), each with its own ✓ / ⚑ and its estimate against
+  the table; claims citing no table of the paper have a pill of their own. The strip of the paper's
+  documents is not shown there — both sides are on the page. A joint review queue counts a paper's
+  tables and claims together.
+- A regression table is one card, titled "Table 4": every column of the table side by side, its
+  panels stacked as printed (Panel A above Panel B, the columns aligned by their label), every cell
+  editable — an edit goes to the column it belongs to — and one ✓ / ⚑ for the whole table. Under the
+  table, the specification of the column being edited (a heading or a cell picks it): the Column tab
+  is gone (outcome and target regressors open the specification, page and notes close it; the
+  identifiers are visible in the table itself) and what the model returned beyond the preset ends
+  the specification instead of a tab "Other". The panel head counts tables reviewed.
+- Preset grammar: `display.sheet.panel` names the field whose values stack a table's blocks;
+  `display.hidden` lists entry fields the review card leaves out (they stay in the data, the grid
+  and every export). Both are layout: schema ids do not change. The two tables presets use them.
+
 ### Workflow datasets: a workflow over several presets on a dataset of its own
 
 - A workflow whose extract steps name dataset roles runs on a **workflow dataset**: the row the

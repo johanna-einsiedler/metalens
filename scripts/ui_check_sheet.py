@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Browser check of display.sheet: a regression column's cells laid out as the printed table.
+"""Browser check of display.sheet: a regression table on one card, laid out as printed.
 
     python3 scripts/ui_check_sheet.py --url http://127.0.0.1:8019 --doc <doc id> --session <X-Session-Id> [--shot /tmp/sheet]
 
-Seed: one paper under econ-regression-tables (or register-tables) with several columns of one table in
-one anonymous session. Checks: the open column's Cells tab shows the printed table with one column per
-entry of the same table and the open one tinted; rows are aligned by label (an se row under its
-coefficient, label hidden); a sibling heading opens that entry; "▤ every field" shows the generic list
-and the choice sticks; a correction of the printed text carries the parsed number along; no script
-error. Needs the system python with playwright installed; prints a check list and exits non-zero on a
-failure. Writes a screenshot per view.
+Seed: one paper under econ-regression-tables (or register-tables) with three columns of Table 3 (a
+Year FE row only columns (2) and (3) print, an outcome written as a sentence, an undeclared key on
+column (1)) and one column of Table 4, in one anonymous session. Checks: one pill per table, named by
+its number; the card is titled "Table 3" and shows every column of the table; rows are aligned by
+label (an se row under its coefficient, label hidden); every cell is editable and a correction of the
+printed text carries the parsed number along; a heading opens that column's fields under the table
+(no Column or Other tab; the undeclared key at the end of the specification); one ✓ verifies every
+column; "▤ every field" shows the generic list and the choice sticks; no script error. Needs the
+system python with playwright installed; prints a check list and exits non-zero on a failure. Writes
+a screenshot per view.
 """
 import argparse
 import json
@@ -49,66 +52,74 @@ def main() -> int:
         verifies: list[dict] = []
         page.on("request", lambda r: verifies.append(json.loads(r.post_data or "{}")) if r.method == "POST" and "/verify" in r.url else None)
         page.goto(f"{a.url}/workspace?doc={a.doc}")
-        page.wait_for_selector(".record .sheet table.sh-t", timeout=30000)
-        sheet = page.locator(".record .sheet").first
+        page.wait_for_selector(".tcard .sheet table.sh-t", timeout=30000)
+        # the strip and the sidebar list the tables, not every column, each by its number
+        pills = page.locator(".rnav .rnav-tab.rnav-group")
+        names = [t.split("\n")[0].strip() for t in pills.all_inner_texts()]
+        check(pills.count() == 2 and names[0].startswith("Table 3") and names[1].startswith("Table 4"), f"the strip lists the paper's tables ({names})")
+        subs = page.locator(".docsub .docsub-item")
+        check(subs.count() == 3 and "Table 4" in subs.nth(2).inner_text(), f"the sidebar lists Paper and the two tables ({subs.count()} items)")
+        page.locator(".rnav .rnav-group", has_text="Table 3").click()
+        page.wait_for_function("() => { const t = document.querySelector('.tcard .rectitle'); return t && t.textContent.startsWith('Table 3'); }", timeout=10000)
+        card = page.locator(".tcard")
+        check(card.locator(".rectitle").inner_text().splitlines()[0].strip() == "Table 3", "the card is titled by the table number only")
+        sheet = card.locator(".sheet")
         heads = sheet.locator("thead tr:first-child th.sh-col")
-        check(heads.count() == 3, f"one column per entry of the same table ({heads.count()}; the other table's column is not among them)")
-        check(sheet.locator("thead th.sh-col.sh-me").count() == 1 and "(1)" in sheet.locator("thead th.sh-col.sh-me").inner_text(), "the open entry's column is the tinted one, headed by its printed label")
+        check(heads.count() == 3, f"one column per entry of the table ({heads.count()}; the other table's column is not among them)")
         check(sheet.locator("thead tr.sh-hdr").count() == 1 and "Low-wage" in sheet.locator("thead tr.sh-hdr").inner_text(), "a second heading row carries each column's outcome")
         long_th = sheet.locator("thead tr.sh-hdr th").nth(3)
         check(long_th.inner_text().strip().endswith("…") and len(long_th.inner_text()) < 60 and "High school" in (long_th.get_attribute("title") or ""), "a sentence written as the outcome is clipped in the heading, whole in its tooltip")
-        # the strip and the sidebar list the tables, not every column
-        pills = page.locator(".rnav .rnav-tab.rnav-group")
-        check(pills.count() == 2 and [t.split("\n")[0].strip() for t in pills.all_inner_texts()][0].startswith("Table 3"), f"the strip lists the paper's tables ({pills.count()} pills for 4 columns)")
-        active = page.locator(".rnav .rnav-group.active")
-        check(active.count() == 1 and "0/3" in active.inner_text(), f"the open column's table is the active pill, with its verified count: {active.inner_text() if active.count() else '—'}")
-        subs = page.locator(".docsub .docsub-item")
-        check(subs.count() == 3 and "Table 4" in subs.nth(2).inner_text(), f"the sidebar lists Paper and the two tables ({subs.count()} items)")
-        page.locator(".rnav .rnav-group", has_text="Table 4").click()
-        page.wait_for_function("() => { const t = document.querySelector('.record .rectitle'); return t && t.textContent.includes('Table 4'); }", timeout=10000)
-        check(page.locator(".rnav .rnav-group.active").inner_text().startswith("Table 4"), "a table's pill opens its first column still to review")
-        page.locator(".rnav .rnav-group", has_text="Table 3").click()
-        page.wait_for_function("() => { const t = document.querySelector('.record .rectitle'); return t && t.textContent.includes('Table 3 col (1)'); }", timeout=10000)
-        sheet = page.locator(".record .sheet").first
-        me_cells = sheet.locator("tbody td.sh-me .sh-val")
         labels = [t.strip() for t in sheet.locator("tbody td.sh-lab").all_inner_texts()]
         print("       rows:", labels)
         check(labels[0] == "Import Competition" and labels[1] == "se", "the se row sits under its coefficient without a label of its own (its type in small print)")
-        check("Worker FE" in labels and "Year FE" in labels and labels.index("Worker FE") < labels.index("Year FE"), "a row only a sibling has is folded in where it falls")
+        check("Worker FE" in labels and "Year FE" in labels and labels.index("Worker FE") < labels.index("Year FE"), "a row only some columns print is folded in where it falls")
         check(sheet.locator("tbody tr.sh-rule").count() == 1 and "Observations" in sheet.locator("tbody tr.sh-rule").inner_text(), "the statistics rows sit under a rule")
-        me_cells = sheet.locator("tbody td.sh-me .sh-val")
-        check(me_cells.count() == 5 and me_cells.first.get_attribute("data-path") == "cells[0].raw_text", f"the open column's cells are editable at their own paths ({me_cells.count()})")
-        blank = sheet.locator("tbody tr", has_text="Year FE").locator("td.sh-me.sh-blank")
-        check(blank.count() == 1, "a row this column lacks is blank in its column")
-        sib = sheet.locator("tbody td.sh-sib").first
-        check(sib.count() == 1 and "rv-covered" in (sib.get_attribute("class") or ""), "a sibling's cell is linked to its own column's table citation")
-        check("coefficient" in (me_cells.first.get_attribute("title") or "") and "-1.292" in (me_cells.first.get_attribute("title") or ""), "a cell's tooltip carries its type and parsed value")
+        cells = sheet.locator("tbody .sh-val[contenteditable]")
+        check(cells.count() == 14, f"every cell of every column is editable ({cells.count()} of 14)")
+        check(sheet.locator("tbody tr", has_text="Year FE").locator("td.sh-blank").count() == 1, "a row a column lacks is blank in that column")
+        first = sheet.locator("tbody tr").first.locator(".sh-val").first
+        check(first.get_attribute("data-path") == "cells[0].raw_text" and "rv-covered" in (first.get_attribute("class") or ""), "a cell sits at its own column's path, linked to that column's table citation")
+        check("coefficient" in (first.get_attribute("title") or "") and "-1.292" in (first.get_attribute("title") or ""), "a cell's tooltip carries its type and parsed value")
+        subtabs = [t.strip() for t in card.locator(".subtab").all_inner_texts()]
+        check("Column" not in subtabs and "Other" not in subtabs, f"no Column or Other tab ({subtabs or 'one section'})")
         page.screenshot(path=f"{a.shot}-printed.png", full_page=True)
-        # a correction of the printed text: the parsed number follows
-        cell = me_cells.first
-        typed = "-1.296***" if cell.inner_text().strip() != "-1.296***" else "-1.297***"     # a value other than the one there (a re-run finds the last one)
-        cell.click(); page.keyboard.press("Meta+A"); page.keyboard.type(typed); page.locator(".record .rectitle").first.click()
-        page.wait_for_timeout(800)                                   # the save and its follow-up leave
-        paths = [(d.get("diff") or [{}])[0].get("field_path") for d in verifies]
+        # a correction of the printed text in column (2): the parsed number follows, on that column's record
+        cell = sheet.locator("tbody tr").first.locator(".sh-val").nth(1)
+        typed = "-0.875**" if cell.inner_text().strip() != "-0.875**" else "-0.876**"
+        cell.click(); page.keyboard.press("Meta+A"); page.keyboard.type(typed); card.locator(".rectitle").click()
+        page.wait_for_timeout(900)
         finals = {(d.get("diff") or [{}])[0].get("field_path"): (d.get("diff") or [{}])[0].get("final_value") for d in verifies}
-        check("cells[0].raw_text" in paths and finals.get("cells[0].raw_text") == typed, f"the printed text is saved as a correction ({paths})")
+        paths = list(finals)
+        check(finals.get("cells[0].raw_text") == typed, f"the printed text is saved as a correction ({paths})")
         check(finals.get("cells[0].numeric_value") == float(typed.rstrip("*")), f"the parsed number follows the printed text ({finals.get('cells[0].numeric_value')})")
         check("cells[0].significance_stars" not in paths, "the star count, unchanged, is not re-saved")
-        # a sibling heading opens that entry
-        sheet.locator("thead th.sh-col[data-rid]").first.click()
-        page.wait_for_function("() => { const h = document.querySelector('.record .sheet thead th.sh-col.sh-me'); return h && h.textContent.includes('(2)'); }", timeout=10000)
-        check(True, "a sibling column's heading opens that entry, whose column is now the tinted one")
-        check(page.locator(".rnav .rnav-group.active").inner_text().startswith("Table 3"), "the table's pill stays active while its columns are switched")
+        check("Column (2)" in card.locator(".tc-colhead").inner_text(), "the column being edited is the one whose fields sit under the table")
+        # a heading opens that column's fields; the undeclared key ends its specification
+        sheet.locator("thead th.sh-col").first.click()
         page.wait_for_timeout(300)
-        page.screenshot(path=f"{a.shot}-sibling.png", full_page=True)
+        col = card.locator(".tc-col")
+        check("Column (1)" in col.locator(".tc-colhead").inner_text() and sheet.locator("thead th.sh-col.sh-me").inner_text().strip() == "(1)", "a heading opens that column: its fields below, its column tinted")
+        check("Returned by the model but not declared" in col.inner_text() and "headline_criteria" in col.inner_text().replace(" ", "_").lower()
+              or "Headline criteria" in col.inner_text(), "what the preset does not declare ends the specification")
+        check(page.locator(".rnav .rnav-group.active").inner_text().startswith("Table 3"), "the table's pill stays active while its columns are switched")
+        page.screenshot(path=f"{a.shot}-column.png", full_page=True)
+        # one verdict for the table
+        n0 = len(verifies)
+        card.locator(".tc-foot .vbtn[data-status='verified']").click()
+        page.wait_for_timeout(1200)
+        given = [d for d in verifies[n0:] if d.get("status") == "verified"]
+        check(len(given) == 3, f"✓ verify table gives the verdict to all three columns ({len(given)})")
+        page.locator(".rnav .rnav-group", has_text="Table 3").click()
+        page.wait_for_selector(".tcard .rectitle", timeout=10000)
+        check("verified" in page.locator(".tcard .rectitle .status").inner_text(), "the table reads verified")
         # the list view
-        page.locator(".record .sh-toggle").first.click()
-        page.wait_for_selector(".record .rv-table.rv-typed", timeout=10000)
-        check(page.locator(".record .sheet").count() == 0 and page.locator(".record .sh-toggle").inner_text().strip().startswith("▦"), "▤ every field shows the generic typed table, with the way back")
-        page.reload(); page.wait_for_selector(".record .subpanel:not(.hidden) .rv-table.rv-typed", timeout=30000)
-        check(page.locator(".record .sheet").count() == 0, "the list choice sticks across a reload")
+        page.locator(".tcard .sh-toggle").first.click()
+        page.wait_for_selector(".tcard .rv-table.rv-typed", timeout=10000)
+        check(page.locator(".tcard .sheet").count() == 0 and page.locator(".tcard .sh-toggle").inner_text().strip().startswith("▦"), "▤ every field shows the generic typed table, with the way back")
+        page.reload(); page.wait_for_selector(".tcard .rv-table.rv-typed", timeout=30000)
+        check(page.locator(".tcard .sheet").count() == 0, "the list choice sticks across a reload")
         page.screenshot(path=f"{a.shot}-list.png", full_page=True)
-        page.locator(".record .sh-toggle").first.click(); page.wait_for_selector(".record .sheet table.sh-t", timeout=10000)
+        page.locator(".tcard .sh-toggle").first.click(); page.wait_for_selector(".tcard .sheet table.sh-t", timeout=10000)
         check(True, "▦ as printed returns to the sheet")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()

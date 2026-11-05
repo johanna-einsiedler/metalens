@@ -124,9 +124,15 @@ they keep their records and become plain datasets of their preset again. A workf
 needs no workflow dataset; it runs on the dataset of that preset.
 
 A `review` step is a joint review stage: one gate over the documents the run made in the steps it
-names, whose worklist walks each paper's documents together — the paper's regression columns,
-then its claims with their verdicts against the tables — in the workspace queue, across both
+names, whose worklist walks each paper's documents together in the workspace queue, across both
 datasets. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws papers.
+
+The workspace reviews a paper of a workflow dataset (or of a joint queue) on one page: the sidebar
+lists each paper once, its sides counted together; each regression table is one card — its panels
+stacked as printed, every cell editable, one verdict for the whole table — with the claims whose
+results cite it underneath, each with its own verdict and its estimate against the table. Claims
+citing no table of the paper (a figure, the text) have a pill of their own. A claim's "edit ↗"
+opens it in the claims document, where every field is editable.
 Releasing the workflow dataset releases each member under its own number and gate (the response
 lists them, and names a member whose gate still holds); a release cut from one member releases the
 others with it, so the datasets stay in step.

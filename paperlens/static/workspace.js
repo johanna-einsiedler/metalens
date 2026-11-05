@@ -26,6 +26,8 @@ let MARKING = false;                                     // the coder's highligh
 const CHAIN_EDIT = new Set();                            // single claims flipped to the editable field card
 let AUX = { dataset: null, cross: null, concepts: null, companion: null };   // per dataset: cross-check verdicts, concept ids, the companion dataset (chain layout)
 let PAPER = null;                                        // this paper's documents across presets (the strip above the panel) — /paper-documents
+let JOINT = null;                                        // a joint workflow: the open paper's other side (its claims), reviewed on the same page —
+                                                         // {doc, data, vm, ev, off (its evidence ids follow the open document's), cross}
 let CITED = null;                                        // {record id → cross-check rows}: the claims citing this document's regression columns
 let REFOCUS = null;                                      // a deep-linked record to pulse again after an async re-render
 let PANEL_SEL = null;   // multi-entry panel nav: null(default→"paper") | "paper" | record index
@@ -323,7 +325,7 @@ async function init() {
   try {
     if (QUEUE && (QUEUE.datasets || []).length > 1) {
       // a joint review stage: the worklist spans the group's datasets (a paper's tables, then its claims)
-      const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => r.documents || []).catch(() => [])));
+      const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => (r.documents || []).map((d) => ({ ...d, _ds: ds }))).catch(() => [])));
       DOCS = lists.flat();
       try {
         const ov = await api.datasetOverview(PROJECT); PROJECT_TITLE = ov.title || ""; PROJECT_MODE = (ov.recipe || {}).mode || null;
@@ -357,7 +359,8 @@ async function init() {
   if (QUEUE) {
     const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
     DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
-    const firstPending = (QUEUE.documents || []).find((d) => d.n_checked < d.n_items);
+    if (PROJECT_MEMBERS || (QUEUE.datasets || []).length > 1) DOCS = jointDocs(DOCS);     // a joint stage: a paper's sides on one page
+    const firstPending = DOCS.find((d) => { const q = queuePaper(d); return q && q.n_checked < q.n_items; });
     if (!wantDoc && firstPending) wantDoc = firstPending.document_id;
     renderQueueBar();
   }
@@ -384,6 +387,27 @@ async function init() {
   DOCID = (wantDoc && DOCS.some((d) => d.document_id === wantDoc)) ? wantDoc : DOCS[0].document_id;
   renderDocTabs();
   load(DOCID);
+}
+
+// A joint workflow reviews a paper on one page: one sidebar entry per paper — its first side (the
+// regression tables) — with the paper's documents in the other linked datasets (its claims) as
+// partners, shown under the tables they cite and counted with it. Papers match by DOI, else title.
+function jointDocs(all) {
+  const out = [], byKey = new Map();
+  for (const d of all) {
+    const k = (d.doi || d.title || d.document_id || "").toLowerCase();
+    const lead = byKey.get(k);
+    if (lead && d._ds && d._ds !== lead._ds && !lead.partners.some((x) => x._ds === d._ds)) { lead.partners.push(d); continue; }
+    const l = { ...d, partners: [] };
+    if (!lead) byKey.set(k, l);
+    out.push(l);
+  }
+  return out;
+}
+function docCounts(d) {                                    // a sidebar entry's records: its own and its partners'
+  const all = [d, ...(d.partners || [])];
+  const sum = (k) => all.reduce((a, x) => a + (x[k] || 0), 0);
+  return { n_records: sum("n_records"), n_verified: sum("n_verified"), n_flagged: sum("n_flagged") };
 }
 
 function selectDoc(docId) { DOCID = docId; renderDocTabs(); load(docId); }
@@ -428,7 +452,7 @@ async function loadPaperDocs(docId) {
 function renderDocBar() {
   const bar = $("#docbar"); if (!bar) return;
   const docs = (PAPER && PAPER.documents) || [];
-  if (docs.length < 2) { bar.hidden = true; bar.innerHTML = ""; return; }
+  if (docs.length < 2 || JOINT) { bar.hidden = true; bar.innerHTML = ""; return; }
   bar.hidden = false;
   bar.innerHTML = `<span class="docbar-label" title="the documents of this paper you own, one per preset — finish the paper on every side before moving on">This paper</span>`
     + docs.map((d) => {
@@ -478,8 +502,7 @@ async function loadCitedBy(docId) {
   if (REFOCUS) { focusRecord(REFOCUS); REFOCUS = null; }
 }
 const CC_GLYPH = { exact: "✓", mismatch: "✗", no_estimate: "?" };
-function citedByHtml(rec) {
-  const rows = CITED && CITED[rec.id];
+function citedByHtml(rec, rows = CITED && CITED[rec.id]) {
   if (!rows || !rows.length) return "";
   return `<div class="cited-by"><span class="k">cited by</span>` + rows.map((r) =>
     `<a class="cited-link cc-${esc(r.status)}" href="/workspace?doc=${esc(r.document_id)}&rec=${esc(r.record_id)}" data-doc="${esc(r.document_id)}" data-rec="${esc(r.record_id)}"`
@@ -512,11 +535,11 @@ function startRoundPoll(since) {
 // The papers of a workflow dataset: every linked dataset's documents, the sides of one paper
 // next to each other (by DOI, else title) in the order of the workflow's roles.
 async function workflowDocs() {
-  const lists = await Promise.all((PROJECT_MEMBERS || []).map((ds) => api.documents({ dataset: ds }).then((r) => r.documents || []).catch(() => [])));
+  const lists = await Promise.all((PROJECT_MEMBERS || []).map((ds) => api.documents({ dataset: ds }).then((r) => (r.documents || []).map((d) => ({ ...d, _ds: ds }))).catch(() => [])));
   const all = lists.flat(), first = new Map();
   all.forEach((d, i) => { const k = (d.doi || d.title || d.document_id || "").toLowerCase(); if (!first.has(k)) first.set(k, i); });
   const key = (d) => first.get((d.doi || d.title || d.document_id || "").toLowerCase());
-  return all.map((d, i) => [key(d), i, d]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+  return jointDocs(all.map((d, i) => [key(d), i, d]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]));
 }
 
 async function reloadRoundDocs(since) {
@@ -614,7 +637,7 @@ function renderDocTabs() {
     const shade = docShade(d);
     const active = tabActive(d);
     return `<button class="doctab${active ? " active" : ""}${shade ? " " + shade : ""}" data-id="${d.document_id}" title="${esc(nm)}${shade === "reviewed" ? " · reviewed" : shade === "flagged" ? " · flagged" : ""}">`
-      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${queueDoc(d.document_id) ? `${queueDoc(d.document_id).n_checked}/${queueDoc(d.document_id).n_items}` : d.n_records}</span></button>`
+      + `<span class="dt-ico">${PDF_ICON}</span><span class="dt-name">${esc(nm.slice(0, 30))}</span><span class="dt-n">${queuePaper(d) ? `${queuePaper(d).n_checked}/${queuePaper(d).n_items}` : docCounts(d).n_records}</span></button>`
       + (active ? docSubList() : "");                      // the open paper's parts, one line each
   }).join("");
   // still-running or failed papers from this round that aren't yet a visible document.
@@ -632,13 +655,18 @@ function renderDocTabs() {
   strip.classList.toggle("slim", !!stagesSpec());          // a staged preset: a narrow strip of PDF icons, the name on hover
   syncJobWait();
   strip.querySelectorAll(".doctab[data-id]").forEach((b) => (b.onclick = () => selectDoc(b.dataset.id)));
-  strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
+  strip.querySelectorAll(".docsub-item").forEach((b) => (b.onclick = () => selectEntry(selOf(b.dataset.sel))));
   strip.querySelectorAll(".jobfail[data-jobid]").forEach((b) => (b.onclick = () => showJobError(b.dataset.jobid)));
   strip.querySelectorAll(".jobstop[data-jobid]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cancelJob(b.dataset.jobid, b); }));
 }
 
 // ── the review queue: a gate's drawn records as a worklist ────────────────────────────────────
 function queueDoc(docId) { return QUEUE && (QUEUE.documents || []).find((d) => d.document_id === docId); }
+// a sidebar entry's share of the queue: its own document's and, in a joint review, its partners'
+function queuePaper(d) {
+  const qs = [d.document_id, ...(d.partners || []).map((x) => x.document_id)].map(queueDoc).filter(Boolean);
+  return qs.length ? { n_items: qs.reduce((a, q) => a + q.n_items, 0), n_checked: qs.reduce((a, q) => a + q.n_checked, 0) } : null;
+}
 function renderQueueBar() {
   const bar = $("#queuebar"); if (!bar) return;
   if (!QUEUE) { bar.hidden = true; return; }
@@ -664,28 +692,35 @@ function renderQueueBar() {
   };
   $("#qb-all").onchange = (e) => { QUEUE_ALL = e.target.checked; load(DOCID); };
 }
-function queueVerdict(rec, status) {
+function queueVerdict(rec, status) { queueMark(rec, status); queueAdvance(); }
+function queueMark(rec, status) {
   const it = (QUEUE.items || []).find((x) => x.record_id === rec.id);
   if (it && !it.checked) {
     it.checked = status === "verified" || status === "flagged"; it.status = status;
     if (it.checked) { QUEUE.progress.checked += 1; QUEUE.progress.pending -= 1; if (status === "flagged") QUEUE.progress.disagreed += 1; }
     const d = queueDoc(rec.document_id || DOCID); if (d && it.checked) d.n_checked += 1;
   }
+}
+// the next pending entry of this paper, else the next paper with one; true when it moved
+function queueAdvance() {
   renderQueueBar();
   renderDocTabs();
-  // the next pending entry of this paper, else the next paper with one
-  const pendingHere = (DATA.records || []).some((r) => QUEUE.ids.has(r.id) && r.verification_status !== "verified" && r.verification_status !== "flagged");
-  if (pendingHere) { if (AUTOADV) nextEntry(true); return; }
-  const nextDoc = (QUEUE.documents || []).find((d) => d.n_checked < d.n_items);
-  if (nextDoc && nextDoc.document_id !== DOCID) selectDoc(nextDoc.document_id);
+  const pendingHere = (DATA.records || []).some((r) => QUEUE.ids.has(r.id) && !isReviewed(r));
+  if (pendingHere) return AUTOADV ? nextEntry(true) : false;
+  if (jointRecs().some((r) => QUEUE.ids.has(r.id) && !isReviewed(r))) return false;      // the claims of this paper still wait
+  const next = DOCS.find((d) => { const q = queuePaper(d); return q && q.n_checked < q.n_items && d.document_id !== DOCID; });
+  if (next) { selectDoc(next.document_id); return true; }
+  return false;
 }
+function isReviewed(r) { return r.verification_status === "verified" || r.verification_status === "flagged"; }
 
 // The sidebar's colour for a paper: green once every entry is verified, orange while any is flagged.
 function docShade(d) {
-  const qd = queueDoc(d.document_id);
+  const qd = queuePaper(d);
   if (qd) return qd.n_checked >= qd.n_items ? "reviewed" : "";
-  if ((d.n_flagged || 0) > 0) return "flagged";
-  return d.n_records > 0 && (d.n_verified || 0) >= d.n_records ? "reviewed" : "";
+  const c = docCounts(d);
+  if (c.n_flagged > 0) return "flagged";
+  return c.n_records > 0 && c.n_verified >= c.n_records ? "reviewed" : "";
 }
 
 // Under the open paper in the sidebar: "Paper" + one line per entry (an experiment, a
@@ -702,7 +737,8 @@ function docSubList() {
   const groups = sheetGroups(ordered);          // display.sheet: one item per table, its columns are side by side in the sheet
   return `<div class="docsub">` + (paperPanelHasContent() ? item("paper", "📄 Paper", "") : "")
     + (groups ? groups.map((g) => item(g.open, `${g.label} · ${g.done} of ${g.n} verified`, g.status, g.active, `${g.label} ${g.done}/${g.n}`)).join("")
-             : ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join("")) + `</div>`;
+             : ordered.map(({ rec, i }) => item(i, entryTitle(VM, rec, i), rec.verification_status)).join(""))
+    + (JOINT && looseClaims().length ? item("claims", "Claims without a table", looseClaims().every(isReviewed) ? "verified" : "", PANEL_SEL === "claims") : "") + `</div>`;
 }
 
 // "Experiment PRISMA · Appraise systematic reviews …" → "Experiment PRISMA" for the narrow sidebar
@@ -756,7 +792,10 @@ async function load(docId) {
   $("#pages").innerHTML = '<p class="muted">Loading…</p>';
   await pendingSaves();             // an edit made a moment ago is on the server before we re-read
   if (DOCID !== docId) return;      // the coder moved on again meanwhile
-  DATA = await api.documentView(docId);
+  const partner = ((DOCS.find((d) => d.document_id === docId) || {}).partners || [])[0] || null;   // only a joint review groups partners
+  const [view, pview] = await Promise.all([api.documentView(docId), partner ? api.documentView(partner.document_id).catch(() => null) : null]);
+  if (DOCID !== docId) return;
+  DATA = view;
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
   // screened empty-state (not an empty card), but keep the sentinel so the reviewer can
   // CONFIRM "no records" (verify it) — remember whether the doc was screened.
@@ -772,6 +811,7 @@ async function load(docId) {
   }
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
+  JOINT = pview ? jointOf(pview, partner) : null;
   RO = !!DATA.read_only; CHAIN_RUNS = null;
   document.body.classList.toggle("ro", RO);
   const stored = (() => { try { return localStorage.getItem("metalens_triage"); } catch { return null; } })();
@@ -780,14 +820,39 @@ async function load(docId) {
   if (TRIAGE === "contested" && !hasChain()) TRIAGE = "low_conf";
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "checks_first" && (DATA.findings || []).length) TRIAGE = "checks";
   if (TRIAGE === "checks" && !(DATA.findings || []).length) TRIAGE = "low_conf";   // nothing found here: the next best order
-  renderPages($("#pages"), DATA.pages, DATA.evidence);
+  renderPages($("#pages"), DATA.pages, JOINT ? [...DATA.evidence, ...JOINT.data.evidence] : DATA.evidence);
   paintMarks(DATA.highlights || []);
   renderPanel();
   if (FOCUS_REC) { REFOCUS = FOCUS_REC; focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
   await loadPaperDocs(docId);
   if (DOCID !== docId) return;
   if (chainSpec()) loadChainAux(docId);
-  loadCitedBy(docId);
+  if (JOINT) loadJointCross(docId); else loadCitedBy(docId);
+}
+
+// The partner document of a joint review: its records (the drawn ones in a queue), its view model,
+// its evidence index — the evidence ids offset past the open document's, as the pages hold both.
+function jointOf(view, doc) {
+  view.records = (view.records || []).filter((r) => !r.screened_empty);
+  if (QUEUE) {
+    const ord = new Map((QUEUE.byDoc.get(doc.document_id) || []).map((it) => [it.record_id, it.ord]));
+    const drawn = view.records.filter((r) => ord.has(r.id)).sort((a, b) => ord.get(a.id) - ord.get(b.id));
+    view.records = QUEUE_ALL ? [...drawn, ...view.records.filter((r) => !ord.has(r.id))] : drawn;
+  }
+  const vm = viewModel(view);
+  return { doc, data: view, vm, ev: indexEvidence(view, vm), off: (DATA.evidence || []).length, cross: null };
+}
+function jointRecs() { return JOINT ? JOINT.data.records || [] : []; }
+// the claims' results against the transcribed tables: which column each resolves to, and whether
+// the estimate matches (the claims dataset's cross-check against its companion, the tables)
+async function loadJointCross(docId) {
+  if (!JOINT || !JOINT.doc._ds) return;
+  let cross = null;
+  try { cross = await api.crosscheck(JOINT.doc._ds); } catch { return; }
+  if (DOCID !== docId || !JOINT) return;
+  const mine = new Set(jointRecs().map((r) => r.id));
+  JOINT.cross = new Map(((cross && cross.rows) || []).filter((r) => mine.has(r.record_id)).map((r) => [`${r.record_id}|${r.path}`, r]));
+  if (!RAW) renderPanel();
 }
 
 // Scroll to a specific record's card, pulse it, and flash its first evidence (from a
@@ -1045,10 +1110,24 @@ function linkPaperCells(box) {
 
 // ── the panel ──────────────────────────────────────────────────────────────────
 function docProgress() {
-  const recs = DATA.records || [];
+  const recs = [...(DATA.records || []), ...jointRecs()];
   const reviewed = recs.filter((r) => r.verification_status === "verified" || r.verification_status === "flagged").length;
   const flagged = recs.filter((r) => r.verification_status === "flagged").length;
   return { reviewed, total: recs.length, flagged, done: recs.length > 0 && reviewed === recs.length };
+}
+// "2/12 tables reviewed · 3/6 claims" — a table is reviewed once every column of it has a verdict
+function progressText(pr) {
+  if (pr.done) return JOINT ? "✓ Paper reviewed" : "✓ Document reviewed";
+  const S = sheetSpec(), recs = DATA.records || [];
+  let t = `${recs.filter(isReviewed).length}/${recs.length} reviewed`;
+  if (S && !VM.legacy) {
+    const tables = new Map();
+    for (const r of recs) { const k = sheetKey(r, S), g = tables.get(k) || { n: 0, done: 0 }; g.n += 1; if (isReviewed(r)) g.done += 1; tables.set(k, g); }
+    const n = tables.size;
+    t = `${[...tables.values()].filter((g) => g.done === g.n).length}/${n} table${n === 1 ? "" : "s"} reviewed`;
+  }
+  if (JOINT) { const cs = jointRecs(); t += ` · ${cs.filter(isReviewed).length}/${cs.length} claim${cs.length === 1 ? "" : "s"}`; }
+  return t + (pr.flagged ? ` · ${pr.flagged} flagged` : "");
 }
 
 function renderPanel() {
@@ -1065,7 +1144,7 @@ function renderPanel() {
          ...(hasChain() ? [["contested", "contested first"]] : [])]
         .map(([v, t]) => `<option value="${v}"${TRIAGE === v ? " selected" : ""}>${t}</option>`).join("") + `</select>` : "";
   panel.innerHTML = `<div class="panelhead"><span><span class="progress${pr.done ? " done" : ""}" title="${esc(label)}">`
-    + `${pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`}</span>`
+    + `${esc(progressText(pr))}</span>`
     + ` <code title="${esc(DATA.schema_id || "")}">${esc(label)}</code>`
     // the preset file has moved to another contract since this paper was imported: say so
     + (DATA.field_defs && DATA.field_defs.live_schema_id && DATA.schema_id && DATA.field_defs.live_schema_id !== DATA.schema_id
@@ -1147,11 +1226,13 @@ function renderPanel() {
     if (PANEL_SEL === null) PANEL_SEL = TRIAGE === "order" && paperTab ? "paper" : orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings)[0].i;
     if (PANEL_SEL === "paper" && !paperTab) PANEL_SEL = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings)[0].i;
     renderEntryNav(panel, recs);
-    if (PANEL_SEL === "paper" || !recs[PANEL_SEL]) { renderPaperPanel(panel); setContextEvidence(null); }
-    else { renderRecordCard(panel, recs[PANEL_SEL]); setContextEvidence(EV.byRecord.get(recs[PANEL_SEL].id) || []); }
+    if (PANEL_SEL === "claims" && JOINT) { renderLooseClaims(panel); setContextEvidence(null); }
+    else if (PANEL_SEL === "paper" || !recs[PANEL_SEL]) { renderPaperPanel(panel); setContextEvidence(null); }
+    else { renderEntryCard(panel, recs[PANEL_SEL]); setContextEvidence(EV.byRecord.get(recs[PANEL_SEL].id) || []); }
   } else {
     renderPaperPanel(panel);
-    recs.forEach((rec) => renderRecordCard(panel, rec));
+    recs.forEach((rec) => renderEntryCard(panel, rec));
+    if (JOINT && looseClaims().length) renderLooseClaims(panel);
     setContextEvidence(EV.byRecord.get(recs[0].id) || []);
   }
   wirePanelHead();
@@ -1167,11 +1248,16 @@ function renderEntryNav(panel, recs) {
   const groups = sheetGroups(ordered);
   nav.innerHTML = (paperPanelHasContent()
       ? `<button class="rnav-tab${PANEL_SEL === "paper" ? " active" : ""}" data-sel="paper">📄 Paper</button>` : "")
-    + (groups ? groups.map((g) =>
-      `<button class="rnav-tab rnav-group${g.active ? " active" : ""}" data-sel="${g.open}" title="${esc(`${g.label} · ${g.done} of ${g.n} column${g.n === 1 ? "" : "s"} verified${g.needs ? ` · ${g.needs} to check` : ""}`)}">`
+    + (groups ? groups.map((g) => {
+      const nc = JOINT ? claimsForTable(g.items.map(({ rec }) => rec)).length : 0;
+      return `<button class="rnav-tab rnav-group${g.active ? " active" : ""}" data-sel="${g.open}" title="${esc(`${g.label} · ${g.done} of ${g.n} column${g.n === 1 ? "" : "s"} verified${g.needs ? ` · ${g.needs} to check` : ""}${nc ? ` · ${nc} claim${nc === 1 ? "" : "s"} cite it` : ""}`)}">`
         + `${esc(g.label)}<span class="dt-n">${g.done}/${g.n}</span><span class="st-dot ${esc(g.status)}"></span>`
         + (g.worst ? renderConfDot(g.worst, VM.levels, `lowest confidence: ${g.worst}`) : "")
-        + (g.needs && g.status !== "verified" ? `<span class="needs">${g.needs}</span>` : "") + `</button>`).join("")
+        + (g.needs && g.status !== "verified" ? `<span class="needs">${g.needs}</span>` : "")
+        + (nc ? `<span class="jc-n">${nc} claim${nc === 1 ? "" : "s"}</span>` : "") + `</button>`;
+    }).join("")
+      + (JOINT && looseClaims().length ? `<button class="rnav-tab${PANEL_SEL === "claims" ? " active" : ""}" data-sel="claims" title="claims of this paper whose results cite no table of it (a figure, the text)">`
+        + `Claims without a table<span class="dt-n">${looseClaims().filter(isReviewed).length}/${looseClaims().length}</span></button>` : "")
     : ordered.map(({ rec, i }) => {
       const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
       const needs = entryNeeds(VM, EV, rec, DATA.issues, DATA.findings);
@@ -1181,13 +1267,14 @@ function renderEntryNav(panel, recs) {
         + (needs && rec.verification_status !== "verified" ? `<span class="needs">${needs}</span>` : "") + `</button>`;
     }).join(""));
   panel.appendChild(nav);
-  nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => selectEntry(b.dataset.sel === "paper" ? "paper" : +b.dataset.sel)));
+  nav.querySelectorAll(".rnav-tab").forEach((b) => (b.onclick = () => selectEntry(selOf(b.dataset.sel))));
 }
+function selOf(v) { return v === "paper" || v === "claims" ? v : +v; }
 
 function selectEntry(sel) {
   PANEL_SEL = sel;
   renderPanel();
-  const rec = sel !== "paper" ? (DATA.records || [])[sel] : null;
+  const rec = typeof sel === "number" ? (DATA.records || [])[sel] : null;
   // a single-entry paper shows paper + card together: scroll to the part that was picked
   const target = rec ? document.querySelector(`.record[data-rid="${rec.id}"]`) : document.querySelector("#panel .study-block");
   if (target && target.scrollIntoView) target.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -1202,11 +1289,17 @@ function jumpToEntry(rec) {
   jumpToEvidence(DATA.evidence[ids[0]].page, ids[0]);
 }
 
+// an entry's card — or, with a declared sheet, the card of the table the entry is a column of
+function renderEntryCard(panel, rec) {
+  if (sheetSpec() && !VM.legacy) renderTableCard(panel, rec);
+  else renderRecordCard(panel, rec);
+}
+
 function renderRecordCard(panel, rec) {
   const card = document.createElement("div");
   card.className = "record"; card.dataset.rid = rec.id;
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
-  const myIssues = (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
+  const myIssues = recIssues(rec);
   const ch = rec.chain || null;
   const nCont = ch ? Object.values(ch.candidates || {}).filter((c) => Array.isArray(c) && c.length > 1).length : 0;
   const chainSum = ch && ch.support && ch.support.k
@@ -1238,6 +1331,9 @@ function renderRecordCard(panel, rec) {
 }
 
 function hasChain() { return (DATA.records || []).some((r) => r.chain && r.chain.support); }
+function recIssues(rec) {
+  return (DATA.issues || []).filter((i) => typeof i.path === "string" && i.path.startsWith(`${VM.entries.key}[${rec.entry_index}]`) && i.code !== "uncited_value" && i.code !== "uncited_row");
+}
 
 // green / yellow / red for how many runs stand behind an entry
 function supportClass(sup) {
@@ -1330,13 +1426,15 @@ function inlineEvidence(rec, f, shown) {
 
 // The declared layout: tabs → (group badges → fields → sub-entries) per tab, an "Other"
 // tab for anything undeclared the model returned. Every declared field appears, a missing
-// one visibly so.
-function renderEntryBody(rec) {
+// one visibly so. `skip` leaves fields out (a table card draws the sheet itself); `extrasInto`
+// puts the undeclared under the last tab instead of a tab of their own.
+function renderEntryBody(rec, { skip = null, extrasInto = false } = {}) {
   const crit = criteriaSpec();
   if (crit) return renderCriteriaBody(rec, crit);
   const fv = rec.field_values || {};
   const eopts = { editable: !RO, candidates: (rec.chain || {}).candidates || null };
-  const tabs = VM.tabs.map((t) => {
+  const vtabs = skip ? VM.tabs.map((t) => ({ ...t, fields: t.fields.filter((n) => !skip.has(n)) })).filter((t) => t.fields.length) : VM.tabs;
+  const tabs = vtabs.map((t) => {
     const defs = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "entry").map((x) => x.field);
     const children = t.fields.map((n) => VM.fieldIndex.get(n)).filter((x) => x && x.scope === "child_key").map((x) => x.child);
     // child-scope groups are rated per sub-entry and shown on each card, not on the tab
@@ -1365,7 +1463,9 @@ function renderEntryBody(rec) {
   const other = undeclared(VM, "entry", fv);
   if (other.length) {
     const extra = {}; other.forEach((k) => (extra[k] = fv[k]));
-    tabs.push({ t: { id: "_extra", label: "Other" }, html: `<p class="muted" style="font-size:12px;margin:0 0 6px">Returned by the model but not declared by the preset.</p>${renderValue(extra, eopts)}` });
+    const html = `<p class="muted" style="font-size:12px;margin:0 0 6px">Returned by the model but not declared by the preset.</p>${renderValue(extra, eopts)}`;
+    if (extrasInto && tabs.length) tabs[tabs.length - 1].html += `<div class="rv-extra">${html}</div>`;
+    else tabs.push({ t: { id: "_extra", label: "Other" }, html });
   }
   // a pipeline: each run's version of this entry, loaded when the tab is opened
   const runs = (rec.chain || {}).runs || [];
@@ -1373,6 +1473,7 @@ function renderEntryBody(rec) {
     tabs.push({ t: { id: "_runs", label: `Runs (${runs.length}${rec.chain.support && rec.chain.support.k ? `/${rec.chain.support.k}` : ""})` },
                 html: `<div class="runsbody" data-rid="${esc(rec.id)}"><span class="muted">open the tab to load the runs…</span></div>` });
   }
+  if (!tabs.length) return "";
   if (tabs.length === 1) return `<div class="subpanels"><div class="subpanel" data-vi="0">${tabs[0].html}</div></div>`;
   const strip = tabs.map(({ t }, i) => {
     const worst = worstLevel(VM, Object.fromEntries((t.groups || []).map((g) => [g, (rec.confidence || {})[g]]).filter(([, v]) => v)));
@@ -1384,10 +1485,12 @@ function renderEntryBody(rec) {
 
 // ── display.sheet: a table field as the printed table ──────────────────────────
 // One row per printed row, one column per entry of the same table (the entries whose `group`
-// fields agree: table number, panel), the cell's printed text in each. This entry's column is
-// the editable one; its siblings stand beside it for context, read-only, each opening its own
-// entry on a click. A standard-error (t, p, CI) row sits under its coefficient (`refers_to`),
-// whatever its own label says; statistics rows sit under a rule, as printed.
+// fields agree: the table number), the cell's printed text in each; with `panel`, the table's
+// panels stacked as printed — Panel A above Panel B, the columns aligned by their label. Every
+// cell is editable, and an edit goes to the entry (the column) it belongs to; the open entry's
+// column is tinted, and its other fields sit under the table (see renderTableCard). A
+// standard-error (t, p, CI) row sits under its coefficient (`refers_to`), whatever its own label
+// says; statistics rows sit under a rule, as printed.
 const SHEET_SUB = new Map([["se", "se"], ["t_stat", "t"], ["p_value", "p"], ["ci", "CI"]]);
 function sheetSpec() {
   const S = VM && VM.sheet;
@@ -1490,50 +1593,196 @@ function sheetLabel(rec, S) {
 function sheetToggle(list) {
   return `<div class="sh-foot"><button type="button" class="sh-toggle" title="${list ? "the cells laid out as the printed table" : "every cell with all its fields: row type, parsed value, the coefficient it belongs to"}">${list ? "▦ as printed" : "▤ every field"}</button></div>`;
 }
+// ── a joint workflow: the paper's claims under the tables their results cite ────────────────
+// A claim belongs under a table when one of its results resolves to a column of it (the claims'
+// cross-check against the tables) or names it ("Table 4", "Table IV"). Each claim keeps its own
+// verdict; "edit ↗" opens it in the claims document, where every field is editable.
+const ROMAN = { I: 1, V: 5, X: 10 };
+function romanValue(s) { let t = 0, prev = 0; for (const ch of [...s].reverse()) { const v = ROMAN[ch]; if (v < prev) t -= v; else { t += v; prev = v; } } return t; }
+function tableToken(tok) {                                 // "Table IV" → "4", "Table A.1" → "A1" (as crosscheck.table_token)
+  if (tok == null) return null;
+  const s = String(tok).toUpperCase().trim().replace(/^\s*TABLES?\s*/, "").replace(/[()[\]]/g, "").trim();
+  let m = /^([IVX]{1,6})$/.exec(s); if (m) return String(romanValue(m[1]));
+  m = /^([A-Z]?)[.\s-]*(\d{1,3})$/.exec(s); if (m) return `${m[1]}${parseInt(m[2], 10)}`;
+  m = /^([A-Z])[.\s-]*([IVX]{1,6})$/.exec(s); if (m) return `${m[1]}${romanValue(m[2])}`;
+  return null;
+}
+function jointRev() {
+  const rv = JOINT && JOINT.data.spec && JOINT.data.spec.display && JOINT.data.spec.display.review;
+  return rv && rv.layout === "chain" ? rv : null;
+}
+// a claim's results, each with the table it names and the column its estimate resolved to
+function claimLinks(c) {
+  const rs = (jointRev() || {}).results || {}, child = rs.child || "results", ex = rs.exhibit || ["source_table", "panel", "column"];
+  return ((c.field_values || {})[child] || []).map((row, j) => {
+    const x = (JOINT.cross && JOINT.cross.get(`${c.id}|${child}[${j}]`)) || {};
+    return { row, tok: tableToken(row[ex[0]]), rid: x.companion_record_id || null, status: x.status || null, detail: x.detail || "",
+             where: ex.map((f) => row[f]).filter((v) => v != null && String(v).trim() !== "").map(String).join(" · "),
+             label: rs.row ? row[rs.row] : null, value: rs.value ? row[rs.value] : null, se: rs.se ? row[rs.se] : null };
+  });
+}
+function linksToTable(c, recs) {
+  const S = sheetSpec(), tok = tableToken((recs[0].field_values || {})[(S.group || [])[0]]), ids = new Set(recs.map((r) => r.id));
+  return claimLinks(c).filter((l) => (l.rid && ids.has(l.rid)) || (tok && l.tok === tok));
+}
+function claimsForTable(recs) { return recs.length ? jointRecs().filter((c) => linksToTable(c, recs).length) : []; }
+function looseClaims() {
+  const S = sheetSpec(), all = DATA._all || DATA.records || [];
+  if (!S) return jointRecs();
+  const toks = new Set(all.map((r) => tableToken((r.field_values || {})[(S.group || [])[0]])).filter(Boolean)), ids = new Set(all.map((r) => r.id));
+  return jointRecs().filter((c) => !claimLinks(c).some((l) => (l.rid && ids.has(l.rid)) || (l.tok && toks.has(l.tok))));
+}
+const CC_WORD = { exact: "matches the table", mismatch: "differs from the table", no_estimate: "no estimate in the table", stated: "stated in the text",
+                  unlinked: "no column of the table found", figure: "from a figure" };
+function jointEv(id) { return id < JOINT.off ? DATA.evidence[id] : JOINT.data.evidence[id - JOINT.off]; }
+function jointClaimHtml(c, links) {
+  const rv = jointRev() || {}, fv = c.field_values || {}, e = rv.edge || {}, st = c.verification_status || "unverified";
+  const sign = e.sign && fv[e.sign] != null ? ((e.signs || {})[fv[e.sign]] || String(fv[e.sign])) : "";
+  const edge = e.from ? `${esc(String(fv[e.from] ?? "?"))} <span class="jc-arrow">→</span> ${esc(String(fv[e.to] ?? "?"))}${sign ? ` <span class="jc-sign">${esc(sign)}</span>` : ""}` : "";
+  const quotes = (rv.quotes || []).filter((q) => fv[q.field]).map((q) => {
+    const ids = (JOINT.ev.exact.get(`${c.id}|${q.field}`) || []).map((i) => i + JOINT.off);
+    const page = ids.length ? jointEv(ids[0]).page || 1 : null;
+    return `<div class="jc-q"><span class="jc-ql">${esc(q.label || formatKey(q.field))}</span>`
+      + (page ? ` <button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="show in the PDF">p.${page}</button>` : "")
+      + ` <span class="rv-qt">“${esc(String(fv[q.field]))}”</span></div>`;
+  }).join("");
+  const res = links.length ? `<ul class="jc-res">${links.map((l) => `<li>${esc(l.where || "result")}${l.label ? ` · ${esc(String(l.label))}` : ""}`
+    + `${l.value != null ? ` · <b>${esc(String(l.value))}</b>` : ""}${l.se != null ? ` <span class="muted">(${esc(String(l.se))})</span>` : ""}`
+    + (l.status ? ` <span class="jc-cc cc-${esc(l.status)}" title="${esc(l.detail)}">${CC_GLYPH[l.status] || ""} ${esc(CC_WORD[l.status] || l.status)}</span>` : "") + `</li>`).join("")}</ul>` : "";
+  return `<div class="jc-claim" data-rid="${esc(c.id)}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(JOINT.vm, c, c.entry_index)))}</b>`
+    + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + ` <span class="status ${esc(st)}">${esc(st)}</span>`
+    + `<span class="jc-acts"><button class="vbtn ok jc-v${st === "verified" ? " on" : ""}" data-status="verified" title="this claim is right">✓</button>`
+    + `<button class="vbtn flag jc-v${st === "flagged" ? " on" : ""}" data-status="flagged" title="something in this claim is wrong">⚑</button>`
+    + `<a class="jc-open" href="/workspace?doc=${esc(JOINT.doc.document_id)}&rec=${esc(c.id)}" data-doc="${esc(JOINT.doc.document_id)}" data-rec="${esc(c.id)}" title="edit this claim in the claims document">edit ↗</a></span></div>`
+    + (rv.statement && fv[rv.statement] ? `<div class="jc-stmt">${esc(String(fv[rv.statement]))}</div>` : "")
+    + quotes + res + `</div>`;
+}
+function jointClaimsHtml(claims, recs) {
+  if (!claims.length) return `<div class="jc-box jc-none muted">No claim of this paper cites this table.</div>`;
+  const done = claims.filter(isReviewed).length;
+  return `<div class="jc-box"><div class="jc-cap">Claims citing this table <span class="muted">· ${done} of ${claims.length} reviewed</span></div>`
+    + claims.map((c) => jointClaimHtml(c, recs ? linksToTable(c, recs) : claimLinks(c))).join("") + `</div>`;
+}
+function renderLooseClaims(panel) {
+  const box = document.createElement("div");
+  box.className = "record jc-loose";
+  const cs = looseClaims();
+  box.innerHTML = `<div class="rectitle">Claims without a table <span class="muted" style="font-weight:400">· their results cite no table of this paper (a figure, the text)</span></div>`
+    + (cs.length ? cs.map((c) => jointClaimHtml(c, claimLinks(c))).join("") : `<p class="muted">Every claim of this paper cites one of its tables.</p>`);
+  panel.appendChild(box);
+  wireSiblingLinks(box);
+  wireJointClaims(box);
+}
+function wireJointClaims(root) {
+  root.querySelectorAll(".jc-claim[data-rid]").forEach((el) => {
+    const c = jointRecs().find((x) => x.id === el.dataset.rid); if (!c) return;
+    if (!RO) el.querySelectorAll(".jc-v").forEach((b) => (b.onclick = () => sendVerifyClaim(el, c, b.dataset.status)));
+    el.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
+      const ids = b.dataset.eids.split(",").map(Number);
+      b.onclick = (ev) => { ev.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+      b.onmouseenter = () => showEvidence(ids);
+      b.onmouseleave = () => hideEvidence(ids);
+    });
+  });
+}
+async function sendVerifyClaim(el, c, status) {
+  const btns = el.querySelectorAll(".jc-v");
+  btns.forEach((b) => (b.disabled = true));
+  try {
+    await api.verify(c.id, { status });
+    c.verification_status = status;
+    maybeOfferRepublish();
+    const badge = el.querySelector(".status"); if (badge) { badge.textContent = status; badge.className = `status ${status}`; }
+    btns.forEach((b) => b.classList.toggle("on", b.dataset.status === status));
+    const cap = el.closest(".jc-box") && el.closest(".jc-box").querySelector(".jc-cap .muted");
+    if (cap) { const all = [...el.closest(".jc-box").querySelectorAll(".jc-claim[data-rid]")].map((x) => jointRecs().find((r) => r.id === x.dataset.rid)).filter(Boolean); cap.textContent = `· ${all.filter(isReviewed).length} of ${all.length} reviewed`; }
+    refreshNavState();
+    if (QUEUE) { queueMark(c, status); renderQueueBar(); renderDocTabs(); }
+    // the table and every claim under it reviewed → on to the next table
+    const card = el.closest(".tcard");
+    if (card) {
+      const recs = sheetCols((DATA.records || []).find((r) => r.id === card.dataset.rid) || {}, sheetSpec());
+      if (recs.every(isReviewed) && claimsForTable(recs).every(isReviewed)) { if (QUEUE) queueAdvance(); else if (AUTOADV) nextEntry(true); }
+    }
+  } catch (e) { alert("verify failed: " + e.message); }
+  finally { btns.forEach((b) => (b.disabled = false)); }
+}
+
+// the column an entry is, across the panels of its table: its printed label, else its position
+function sheetColKey(r, S) {
+  const v = S.column ? (r.field_values || {})[S.column] : null;
+  if (v != null && String(v).trim() !== "") return sheetNorm(v);
+  const c = S.col_index ? (sheetCells(r, S)[0] || {})[S.col_index] : null;
+  return `#${c == null || c === "" ? r.entry_index : c}`;
+}
+// the table's panels, in printed order (by label: "Panel A …" before "Panel B …"), each with its columns
+function sheetBlocks(rec, S) {
+  const blocks = new Map();
+  for (const r of sheetCols(rec, S)) {
+    const raw = S.panel ? (r.field_values || {})[S.panel] : null;
+    const k = sheetNorm(raw);
+    if (!blocks.has(k)) blocks.set(k, { key: k, label: raw == null ? "" : String(raw), recs: [] });
+    blocks.get(k).recs.push(r);
+  }
+  return [...blocks.values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+}
 function renderSheet(rec, def) {
   const S = sheetSpec();
-  const fv = rec.field_values || {};
-  const cols = sheetCols(rec, S), rows = sheetRows(cols, S);
-  const cap = (S.group || []).map((f) => fv[f]).filter((v) => v != null && String(v).trim() !== "").map(String).join(" · ");
-  const title = S.caption && fv[S.caption] != null ? String(fv[S.caption]) : "";
+  const blocks = sheetBlocks(rec, S);
   const colLabel = (r) => {
     const own = S.column ? (r.field_values || {})[S.column] : null;
     if (own != null && String(own).trim() !== "") return String(own);
     const printed = S.column_label ? (sheetCells(r, S)[0] || {})[S.column_label] : null;
     return printed != null && String(printed).trim() !== "" ? String(printed) : entryTitle(VM, r, r.entry_index);
   };
-  const heads = cols.map((r) => {
-    const me = r.id === rec.id, st = r.verification_status || "unverified";
-    return `<th class="sh-col${me ? " sh-me" : ""}"${me ? ` title="this column"` : ` data-rid="${esc(r.id)}" title="${esc(`${entryTitle(VM, r, r.entry_index)} · ${st} — open it`)}"`}>`
-      + `${esc(colLabel(r))}${me ? "" : `<span class="st-dot ${esc(st)}"></span>`}</th>`;
+  // the table's columns: every panel's, aligned by label, in printed order
+  const keys = [], seen = new Set();
+  for (const b of blocks) for (const r of b.recs) { const k = sheetColKey(r, S); if (!seen.has(k)) { seen.add(k); keys.push({ key: k, rec: r }); } }
+  const at = (b, k) => b.recs.find((r) => sheetColKey(r, S) === k) || null;
+  const mine = sheetColKey(rec, S);
+  const heads = keys.map(({ key, rec: r0 }) => `<th class="sh-col${key === mine ? " sh-me" : ""}" data-key="${esc(key)}" title="${esc(`column ${colLabel(r0)} — its specification below`)}">${esc(colLabel(r0))}</th>`).join("");
+  const hdrOf = (r) => { const h = r && S.header ? (r.field_values || {})[S.header] : null; return h == null ? "" : String(h); };
+  const hdrCells = (b) => keys.map(({ key, rec: r0 }) => {
+    const r = b ? at(b, key) : at(blocks[0], key) || r0, h = hdrOf(r);                  // a pipeline may write a sentence here (a balance table's rows)
+    return `<th class="${key === mine ? "sh-me" : ""}" data-key="${esc(key)}" title="${esc(h)}">${esc(h.length > 40 ? h.slice(0, 39).trimEnd() + "…" : h)}</th>`;
   }).join("");
-  const hdrs = cols.map((r) => (S.header ? (r.field_values || {})[S.header] : null));
-  const hdrRow = hdrs.some((h) => h != null && String(h).trim() !== "")
-    ? `<tr class="sh-hdr"><th></th>${cols.map((r, k) => {
-        const h = hdrs[k] == null ? "" : String(hdrs[k]);                 // a pipeline may write a sentence here (a balance table's rows)
-        return `<th class="${r.id === rec.id ? "sh-me" : ""}" title="${esc(h)}">${esc(h.length > 40 ? h.slice(0, 39).trimEnd() + "…" : h)}</th>`;
-      }).join("")}</tr>` : "";
-  let prevLabel = null, prevStat = false;
-  const body = rows.map((row) => {
-    const type = row.type == null ? "" : String(row.type);
-    const sub = SHEET_SUB.has(type), stat = type.startsWith("statistic"), rule = stat && !prevStat;
-    prevStat = stat;
-    const labelTxt = row.label == null ? "" : String(row.label);
-    if (type === "panel_header") { prevLabel = null; return `<tr class="sh-panel"><td colspan="${cols.length + 1}">${esc(labelTxt)}</td></tr>`; }
-    const hide = sub && (labelTxt.trim() === "" || sheetNorm(labelTxt) === prevLabel);    // as printed: the se row carries no label of its own
-    if (!sub) prevLabel = sheetNorm(labelTxt);
-    const cells = cols.map((r) => {
-      const me = r.id === rec.id, i = row.at.get(r.id);
-      if (i == null) return `<td class="sh-cell sh-blank${me ? " sh-me" : ""}"></td>`;
-      const c = sheetCells(r, S)[i] || {}, v = c[S.value], t = sheetTip(c, S, def), text = v == null ? "" : esc(String(v));
-      if (me) return `<td class="sh-cell sh-me"><span contenteditable="plaintext-only" class="rv-editable sh-val${text === "" ? " rv-empty" : ""}" data-path="${esc(`${S.field}[${i}].${S.value}`)}" title="${esc(t)}">${text}</span></td>`;
-      return `<td class="sh-cell sh-sib" data-rid="${esc(r.id)}" data-ci="${i}" title="${esc(t)}">${text}</td>`;
+  const top = keys.map(({ key, rec: r0 }) => hdrOf(at(blocks[0], key) || r0));
+  const hdrRow = top.some((h) => h.trim() !== "") ? `<tr class="sh-hdr"><th></th>${hdrCells(null)}</tr>` : "";
+  const finding = (r, i) => recFindings(r).filter((f) => typeof f.path === "string" && (f.path === `${S.field}[${i}]` || f.path.startsWith(`${S.field}[${i}].`)));
+  const SEV = { error: 2, warn: 1, info: 0 };
+  const body = blocks.map((b) => {
+    const rows = sheetRows(b.recs, S);
+    let out = "";
+    const ownHeader = rows.length && rows[0].type != null && String(rows[0].type) === "panel_header";
+    if ((blocks.length > 1 || b.label) && !ownHeader) out += `<tr class="sh-panel"><td colspan="${keys.length + 1}">${esc(b.label || "—")}</td></tr>`;
+    if (b !== blocks[0] && keys.some(({ key }, k) => { const r = at(b, key); return r && hdrOf(r) !== top[k]; })) out += `<tr class="sh-hdr sh-bhdr"><th></th>${hdrCells(b)}</tr>`;
+    let prevLabel = null, prevStat = false;
+    out += rows.map((row) => {
+      const type = row.type == null ? "" : String(row.type);
+      const sub = SHEET_SUB.has(type), stat = type.startsWith("statistic"), rule = stat && !prevStat;
+      prevStat = stat;
+      const labelTxt = row.label == null ? "" : String(row.label);
+      if (type === "panel_header") { prevLabel = null; return `<tr class="sh-panel"><td colspan="${keys.length + 1}">${esc(labelTxt)}</td></tr>`; }
+      const hide = sub && (labelTxt.trim() === "" || sheetNorm(labelTxt) === prevLabel);    // as printed: the se row carries no label of its own
+      if (!sub) prevLabel = sheetNorm(labelTxt);
+      const cells = keys.map(({ key }) => {
+        const r = at(b, key), i = r ? row.at.get(r.id) : null, me = r && r.id === rec.id;
+        if (i == null) return `<td class="sh-cell sh-blank${me ? " sh-me" : ""}"${r ? ` data-rid="${esc(r.id)}"` : ""}></td>`;
+        const c = sheetCells(r, S)[i] || {}, v = c[S.value], text = v == null ? "" : esc(String(v));
+        const fs = finding(r, i).sort((x, y) => (SEV[y.severity] || 0) - (SEV[x.severity] || 0));
+        const tip = [sheetTip(c, S, def), ...fs.map((f) => `${f.check}: ${f.message}`)].filter(Boolean).join(" · ");
+        const cls = `${RO ? "" : "rv-editable "}sh-val${text === "" ? " rv-empty" : ""}${fs.length ? ` cell-finding cf-${esc(fs[0].severity)}` : ""}`;
+        return `<td class="sh-cell${me ? " sh-me" : ""}" data-rid="${esc(r.id)}"><span ${RO ? "" : 'contenteditable="plaintext-only" '}class="${cls}" data-rid="${esc(r.id)}"`
+          + ` data-path="${esc(`${S.field}[${i}].${S.value}`)}" title="${esc(tip)}">${text}</span></td>`;
+      }).join("");
+      return `<tr class="sh-row${sub ? " sh-sub" : ""}${stat ? " sh-stat" : ""}${rule ? " sh-rule" : ""}">`
+        + `<td class="sh-lab" title="${esc(labelTxt + (type ? ` · ${type.replace(/_/g, " ")}` : ""))}">${hide ? "" : esc(labelTxt)}${sub ? `<span class="sh-type">${esc(SHEET_SUB.get(type))}</span>` : ""}</td>${cells}</tr>`;
     }).join("");
-    return `<tr class="sh-row${sub ? " sh-sub" : ""}${stat ? " sh-stat" : ""}${rule ? " sh-rule" : ""}">`
-      + `<td class="sh-lab" title="${esc(labelTxt + (type ? ` · ${type.replace(/_/g, " ")}` : ""))}">${hide ? "" : esc(labelTxt)}${sub ? `<span class="sh-type">${esc(SHEET_SUB.get(type))}</span>` : ""}</td>${cells}</tr>`;
+    return out;
   }).join("");
-  return `<div class="sheet" data-field="${esc(S.field)}"><div class="sh-cap">${esc(cap || def.label || S.field)}`
-    + `${title ? ` <span class="muted">${esc(title)}</span>` : ""}${cols.length > 1 ? ` <span class="muted sh-n">· ${cols.length} columns, this one tinted</span>` : ""}</div>`
+  const n = keys.length;
+  return `<div class="sheet" data-field="${esc(S.field)}"><div class="sh-cap muted">${n} column${n === 1 ? "" : "s"}${blocks.length > 1 ? ` · ${blocks.length} panels` : ""}`
+    + ` · every cell editable · the tinted column's specification is below</div>`
     + `<div class="rv-tablewrap"><table class="sh-t"><thead><tr><th class="sh-lab"></th>${heads}</tr>${hdrRow}</thead><tbody>${body}</tbody></table></div>`
     + sheetToggle(false) + `</div>`;
 }
@@ -1564,19 +1813,150 @@ function wireSheet(card, rec) {
   card.querySelectorAll(".sh-toggle").forEach((b) => (b.onclick = () => {
     SHEET_LIST = !SHEET_LIST;
     try { localStorage.setItem("metalens_sheet", SHEET_LIST ? "list" : "printed"); } catch { /* */ }
-    rerenderCard(card, rec);
+    renderPanel();
   }));
-  card.querySelectorAll("th.sh-col[data-rid]").forEach((th) => (th.onclick = () => focusRecord(th.dataset.rid)));
-  // a sibling's cell: its own column's evidence (the table it was read from), the number pinpointed on its row
-  card.querySelectorAll("td.sh-sib[data-rid]").forEach((td) => {
-    const r = (DATA.records || []).find((x) => x.id === td.dataset.rid); if (!r) return;
-    const p = `${S.field}[${td.dataset.ci}].${S.value}`;
+  // a heading opens that column — in the open column's panel, else the first panel that has it
+  card.querySelectorAll("th.sh-col[data-key]").forEach((th) => (th.onclick = () => {
+    const cur = (DATA.records || []).find((r) => r.id === card.dataset.rid) || rec;
+    const blocks = sheetBlocks(cur, S), mine = blocks.find((b) => b.recs.some((r) => r.id === cur.id));
+    const pick = [mine, ...blocks].filter(Boolean).map((b) => b.recs.find((r) => sheetColKey(r, S) === th.dataset.key)).find(Boolean);
+    if (pick) selectColumn(card, pick.id);
+  }));
+  card.querySelectorAll(".sh-val[data-rid]").forEach((cell) => {
+    const r = (DATA.records || []).find((x) => x.id === cell.dataset.rid); if (!r) return;
+    const p = cell.dataset.path;
+    cell.addEventListener("focus", () => selectColumn(card, r.id));
+    if (!RO) {
+      cell.dataset.orig = cell.textContent;
+      cell.addEventListener("blur", () => {
+        const now = cell.textContent;
+        if (now === cell.dataset.orig) return;
+        cell.classList.add("rv-edited");
+        cell.classList.toggle("rv-empty", now.trim() === "");
+        const val = now.trim() === "" ? null : now, orig = curVal(r, p);
+        saveFieldEdit(r, card, p, val, orig).then(() => { cell.dataset.orig = now; sheetFollow(r, card, p, val, orig); });
+      });
+    }
+    // its own column's evidence (the table it was read from), the number pinpointed on its row
     const hit = evidenceFor(EV, VM, r.id, p);
-    if (!hit) { td.onclick = () => locateAndFlash(td); return; }
-    td.classList.add(hit.kind === "exact" ? "rv-cited" : "rv-covered");
-    td.onmouseenter = () => showEvidence(hit.ids); td.onmouseleave = () => hideEvidence(hit.ids);
-    td.onclick = () => verifyAndJump(td, { ids: hit.ids, page: DATA.evidence[citeFor(td, hit.ids)].page, exact: hit.kind === "exact", kind: hit.kind, locate: tableLocate(r, p) });
+    if (!hit) { cell.addEventListener("click", () => locateAndFlash(cell)); return; }
+    cell.classList.add(hit.kind === "exact" ? "rv-cited" : "rv-covered");
+    cell.addEventListener("mouseenter", () => showEvidence(hit.ids));
+    cell.addEventListener("mouseleave", () => hideEvidence(hit.ids));
+    cell.addEventListener("click", () => verifyAndJump(cell, { ids: hit.ids, page: DATA.evidence[citeFor(cell, hit.ids)].page, exact: hit.kind === "exact", kind: hit.kind, locate: tableLocate(r, p) }));
   });
+}
+
+// ── a table on one card: every column of it, its panels stacked, one verdict for the table ─────
+// Under the table, the open column's own fields (outcome, specification, notes — the column is
+// picked by its heading or any of its cells); in a joint workflow the claims citing the table.
+function renderTableCard(panel, rec) {
+  const S = sheetSpec(), recs = sheetCols(rec, S);
+  const n = recs.length, done = recs.filter((r) => r.verification_status === "verified").length;
+  const status = recs.some((r) => r.verification_status === "flagged") ? "flagged" : done === n ? "verified" : "unverified";
+  const printed = S.caption ? (rec.field_values || {})[S.caption] : null;
+  const sdef = VM.fieldIndex.get(S.field).field;
+  const card = document.createElement("div");
+  card.className = "record tcard"; card.dataset.rid = rec.id;
+  card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${esc(sheetLabel(rec, S))}`
+    + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span></div>`
+    + tableNotesHtml(recs)
+    + (JOINT ? "" : citedByHtml(rec, recs.flatMap((r) => (CITED && CITED[r.id]) || [])))
+    + (SHEET_LIST ? `<div class="rv-root tc-list">${renderFields([sdef], rec.field_values || {}, "", { editable: !RO })}</div>${sheetToggle(true)}` : renderSheet(rec, sdef))
+    + (JOINT ? jointClaimsHtml(claimsForTable(recs), recs) : "")
+    + columnSectionHtml(rec)
+    + `<div class="verify verify-foot tc-foot"><span class="verify-lead muted">Checked the whole table?</span>`
+    + `<button class="vbtn ok${status === "verified" ? " on" : ""}" data-status="verified">✓ verify table</button>`
+    + `<button class="vbtn flag${status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag table</button></div>`;
+  panel.appendChild(card);
+  wireSiblingLinks(card);
+  wireSheet(card, rec);
+  const list = card.querySelector(".tc-list");
+  if (list) {                                          // "every field": the open column's cells as the typed table
+    linkCells(list, rec);
+    wireControls(list, (path, val) => saveFieldEdit(rec, list, path, val, curVal(rec, path)), true);
+    wireTableRows(list, rec, () => renderPanel());
+  }
+  wireColumnSection(card.querySelector(".tc-col"), rec);
+  if (!RO) card.querySelectorAll(".tc-foot .vbtn").forEach((b) => (b.onclick = () => sendVerifyTable(card, recs, b.dataset.status)));
+  if (JOINT) wireJointClaims(card);
+}
+// what the checks and the model's output say about the table, summed over its columns; the cells
+// themselves carry the marks
+function tableNotesHtml(recs) {
+  let html = "";
+  const iss = recs.flatMap(recIssues);
+  if (iss.length) html += `<div class="issue-note" title="${esc(iss.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${iss.length} structural issue${iss.length === 1 ? "" : "s"} in the model output — hover for details</div>`;
+  const fs = recs.flatMap(recFindings).filter((f) => f.severity !== "info");
+  if (fs.length) {
+    const errs = fs.filter((f) => f.severity === "error").length, byCode = new Map();
+    for (const f of fs) { const k = `${f.check}|${f.code}`; if (!byCode.has(k)) byCode.set(k, { f, n: 0 }); byCode.get(k).n += 1; }
+    const top = [...byCode.values()].sort((a, b) => b.n - a.n);
+    html += `<div class="check-note ${errs ? "cf-error" : "cf-warn"}" title="${esc(fs.map((f) => `${f.path || ""} — ${f.check}: ${f.message}`).join("\n"))}">`
+      + `✗ ${fs.length} check finding${fs.length === 1 ? "" : "s"} in this table${errs ? ` (${errs} error${errs === 1 ? "" : "s"})` : ""} — `
+      + esc(top.slice(0, 2).map(({ f, n }) => `${n > 1 ? `${n}× ` : ""}${f.check}: ${f.message}`).join(" · ")) + `${top.length > 2 ? " · …" : ""} · marked on the cells</div>`;
+  }
+  return html;
+}
+function columnSectionHtml(rec) {
+  const S = sheetSpec(), fv = rec.field_values || {};
+  const name = [S.column && fv[S.column], S.panel && fv[S.panel]].filter((x) => x != null && String(x).trim() !== "").map(String).join(" · ");
+  const st = rec.verification_status || "unverified";
+  return `<div class="tc-col" data-rid="${esc(rec.id)}"><div class="tc-colhead"><span><b>Column ${esc(name || entryTitle(VM, rec, rec.entry_index))}</b>`
+    + ` <span class="status ${esc(st)}">${esc(st)}</span> <span class="muted">· the tinted column; a heading or a cell opens another</span></span>`
+    + `<span><button class="histbtn" title="this column's change history">↻ history</button>`
+    + (RO ? "" : `<button class="recdel" title="delete this column">🗑</button>`) + `</span></div>`
+    + renderEntryBody(rec, { skip: new Set([S.field]), extrasInto: true })
+    + `<div class="histbody" hidden></div></div>`;
+}
+function wireColumnSection(sec, rec) {
+  if (!sec) return;
+  const hb = sec.querySelector(".histbtn"); if (hb) hb.onclick = () => toggleHistory(sec, rec);
+  const rd = sec.querySelector(".recdel"); if (rd) rd.onclick = () => doDeleteRecord(rec);
+  sec.querySelectorAll(".subtab").forEach((b) => (b.onclick = () => {
+    sec.querySelectorAll(".subtab").forEach((x) => x.classList.toggle("active", x === b));
+    sec.querySelectorAll(".subpanel").forEach((p) => p.classList.toggle("hidden", p.dataset.vi !== b.dataset.vi));
+  }));
+  wireConfBadges(sec);
+  linkCells(sec, rec);
+  wireControls(sec, (path, val) => saveFieldEdit(rec, sec, path, val, curVal(rec, path)), true);
+  wireTableRows(sec, rec, () => renderPanel());
+}
+// another column opened: the tint moves, the section under the table follows — the table stays,
+// so a cell being edited keeps its caret
+function selectColumn(card, rid) {
+  if (!card || card.dataset.rid === rid) return;
+  const idx = (DATA.records || []).findIndex((r) => r.id === rid); if (idx < 0) return;
+  const r = DATA.records[idx], S = sheetSpec();
+  PANEL_SEL = idx; card.dataset.rid = rid;
+  card.querySelectorAll(".sh-me").forEach((el) => el.classList.remove("sh-me"));
+  card.querySelectorAll(`td.sh-cell[data-rid="${rid}"]`).forEach((el) => el.classList.add("sh-me"));
+  const key = sheetColKey(r, S);
+  card.querySelectorAll(".sh-t th[data-key]").forEach((th) => th.classList.toggle("sh-me", th.dataset.key === key));
+  const old = card.querySelector(".tc-col");
+  if (old) {
+    const tmp = document.createElement("div"); tmp.innerHTML = columnSectionHtml(r);
+    const fresh = tmp.firstElementChild; old.replaceWith(fresh); wireColumnSection(fresh, r);
+  }
+  setContextEvidence(EV.byRecord.get(rid) || []);
+}
+// one verdict for the table: every column gets it
+async function sendVerifyTable(card, recs, status) {
+  const btns = card.querySelectorAll(".tc-foot .vbtn");
+  btns.forEach((b) => (b.disabled = true));
+  try {
+    await pendingSaves();                                // an edit made a moment ago lands before the verdict
+    const todo = recs.filter((r) => r.verification_status !== status);
+    await Promise.all(todo.map((r) => api.verify(r.id, { status })));
+    todo.forEach((r) => (r.verification_status = status));
+    if (todo.length) maybeOfferRepublish();
+    refreshNavState();
+    if (QUEUE) todo.forEach((r) => queueMark(r, status));
+    // on to the next table — unless claims under this one still wait for their verdicts
+    const claimsWait = JOINT && claimsForTable(recs).some((c) => !isReviewed(c));
+    const moved = !claimsWait && (QUEUE ? queueAdvance() : AUTOADV && nextEntry(true));
+    if (!moved) { if (QUEUE) { renderQueueBar(); renderDocTabs(); } renderPanel(); }
+  } catch (e) { alert("verify failed: " + e.message); btns.forEach((b) => (b.disabled = false)); }
 }
 // the text a cell is searched by in the PDF: a printed-table cell ("-1.292***", "(0.382)") by its bare number
 function cellText(cell) {
@@ -1800,6 +2180,7 @@ function wireCard(card, rec) {
 // Re-render one card in place after a structural edit (a table row added or removed),
 // keeping whichever tab the coder had open.
 function rerenderCard(card, rec) {
+  if (card.classList.contains("tcard")) { renderPanel(); return document.querySelector(".tcard") || card; }
   const active = card.querySelector(".subtab.active");
   const tmp = document.createElement("div");
   renderRecordCard(tmp, rec);
@@ -1895,7 +2276,7 @@ function refreshNavState() {
   const el = $(".progress");
   if (el) {
     el.classList.toggle("done", pr.done);
-    el.textContent = pr.done ? "✓ Document reviewed" : `${pr.reviewed}/${pr.total} reviewed${pr.flagged ? ` · ${pr.flagged} flagged` : ""}`;
+    el.textContent = progressText(pr);
   }
   document.querySelectorAll(".rnav-tab[data-sel]").forEach((b) => {
     if (b.dataset.sel === "paper") return;
@@ -1907,6 +2288,12 @@ function refreshNavState() {
     const recs = DATA.records || [];
     me.n_verified = recs.filter((r) => r.verification_status === "verified").length;
     me.n_flagged = recs.filter((r) => r.verification_status === "flagged").length;
+    const pd = JOINT && (me.partners || []).find((x) => x.document_id === JOINT.doc.document_id);
+    if (pd) {
+      const cs = jointRecs();
+      pd.n_verified = cs.filter((r) => r.verification_status === "verified").length;
+      pd.n_flagged = cs.filter((r) => r.verification_status === "flagged").length;
+    }
     const tab = document.querySelector(`#doctabs .doctab[data-id="${DOCID}"]`);
     if (tab) { tab.classList.remove("reviewed", "flagged"); const s = docShade(me); if (s) tab.classList.add(s); }
   }
@@ -1919,17 +2306,21 @@ function refreshNavState() {
   }
 }
 
-// Move to the next entry in triage order (skipping reviewed ones when `unreviewedOnly`).
+// Move to the next entry in triage order (skipping reviewed ones when `unreviewedOnly`); with a
+// sheet, to the next TABLE — the columns of the open one are on its card already. True when it moved.
 function nextEntry(unreviewedOnly, dir = 1) {
   const recs = DATA.records || [];
-  if (recs.length < 2) return;
+  if (recs.length < 2) return false;
   const order = orderedEntries(VM, EV, recs, TRIAGE, DATA.issues, DATA.findings).map(({ i }) => i);
-  const cur = PANEL_SEL === "paper" || PANEL_SEL === null ? -1 : order.indexOf(PANEL_SEL);
+  const cur = typeof PANEL_SEL !== "number" ? -1 : order.indexOf(PANEL_SEL);
+  const S = sheetSpec(), here = S && cur >= 0 ? sheetKey(recs[PANEL_SEL], S) : null;
   for (let step = 1; step <= order.length; step++) {
     const j = order[(cur + dir * step + order.length * step) % order.length];
+    if (here !== null && sheetKey(recs[j], S) === here) continue;
     const st = recs[j].verification_status;
-    if (!unreviewedOnly || (st !== "verified" && st !== "flagged")) { selectEntry(j); return; }
+    if (!unreviewedOnly || (st !== "verified" && st !== "flagged")) { selectEntry(j); return true; }
   }
+  return false;
 }
 
 // Keyboard flow: j/k next/prev entry, n next unreviewed, v verify, f flag, 1-9 tabs, ? help.
@@ -1948,8 +2339,8 @@ function mountKeys() {
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
     else if (e.key === "h") { setMarking(!MARKING); e.preventDefault(); }
-    else if (e.key === "v" && card) { const b = card.querySelector('.vbtn[data-status="verified"]'); if (b) b.click(); }
-    else if (e.key === "f" && card) { const b = card.querySelector('.vbtn[data-status="flagged"]'); if (b) b.click(); }
+    else if (e.key === "v" && card) { const b = card.querySelector('.vbtn:not(.jc-v)[data-status="verified"]'); if (b) b.click(); }
+    else if (e.key === "f" && card) { const b = card.querySelector('.vbtn:not(.jc-v)[data-status="flagged"]'); if (b) b.click(); }
     else if (/^[1-9]$/.test(e.key) && card) { const b = card.querySelectorAll(".subtab")[+e.key - 1]; if (b) b.click(); }
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
