@@ -359,9 +359,7 @@ async function init() {
   if (jobsParam) startJobTracking(jobsParam.split(",").filter(Boolean), sinceParam);
   else if (sinceParam) startRoundPoll(sinceParam);
   if (QUEUE) {
-    const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
-    DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
-    if (PROJECT_MEMBERS || (QUEUE.datasets || []).length > 1) DOCS = jointDocs(DOCS);     // a joint stage: a paper's sides on one page
+    queueOrder();
     const firstPending = DOCS.find((d) => { const q = queuePaper(d); return q && q.n_checked < q.n_items; });
     if (!wantDoc && firstPending) wantDoc = firstPending.document_id;
     renderQueueBar();
@@ -2185,8 +2183,25 @@ async function doDelete() {
 }
 
 // re-fetch the sidebar counts + the current document after a record add/delete
+// the papers in view, fetched as init() fetches them: a joint queue's or a workflow dataset's
+// sides tagged with their dataset (so a paper keeps its partners), else the dataset's documents
+async function fetchDocs() {
+  if (QUEUE && (QUEUE.datasets || []).length > 1) {
+    const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => (r.documents || []).map((d) => ({ ...d, _ds: ds }))).catch(() => [])));
+    return lists.flat();
+  }
+  if (PROJECT_MEMBERS) return workflowDocs();
+  return (await api.documents(PROJECT ? { dataset: PROJECT } : {})).documents || [];
+}
+// a queue: only its documents, in draw order; a joint stage's as one entry per paper
+function queueOrder() {
+  if (!QUEUE) return;
+  const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
+  DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
+  if ((PROJECT_MEMBERS || (QUEUE.datasets || []).length > 1) && !DOCS.some((d) => d.partners)) DOCS = jointDocs(DOCS);
+}
 async function reloadDoc() {
-  try { DOCS = (await api.documents(PROJECT ? { dataset: PROJECT } : {})).documents || []; } catch { /* */ }
+  try { DOCS = await fetchDocs(); queueOrder(); } catch { /* */ }
   renderDocTabs();
   await load(DOCID);
 }

@@ -33,7 +33,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - "＋ Regression column" opens the new entry (it used to land on the paper panel). A table the
   extraction missed is added from its card: "New table" asks for the table number, panel and
   column — fields the card otherwise leaves out — and shows its cells as a table to fill row by
-  row; naming it moves the card to its own tab.
+  row; naming it moves the card to its own tab. After ＋ or a delete, a paper of a joint review
+  keeps its other side and its per-column lines (the paper list was refetched without its grouping).
 
 - A workflow over linked datasets (econ: tables and claims) is reviewed per paper: the workspace
   lists each paper once, and the claims sit under the table their results cite (by the column an
