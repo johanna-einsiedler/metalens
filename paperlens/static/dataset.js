@@ -600,19 +600,40 @@ async function renderNext() {
 }
 
 // Fill a role of a workflow dataset: link one of my datasets under that role's preset, or make an empty one.
-async function openLinkForm(role, form, groupOf, done) {
+// A role of the group is filled one of three ways: a dataset the owner already has under the
+// role's preset is linked; or a new dataset is made for the role and filled on the Import page
+// (the pipeline's JSON + PDF files) or on the extract page (the preset's model call per paper —
+// not for an import-only preset, which has no prompt). `source` is the role's extract step's.
+async function openLinkForm(role, form, groupOf, done, source) {
   let g; try { g = await api.datasetGroup(groupOf); } catch (e) { alert(e.message); return; }
   const r = (g.roles || []).find((x) => x.role === role) || { candidates: [] };
+  const cands = r.candidates || [];
   form.hidden = false;
-  form.innerHTML = `<div class="ds-relform" style="margin-top:6px"><b>${esc(r.label || role)}</b> <span class="muted">· preset <code>${esc(r.preset || "")}</code></span>
-    <div style="margin-top:6px"><select data-lf="pick"><option value="">— make an empty dataset —</option>${(r.candidates || []).map((c) => `<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("")}</select>
-    <input data-lf="title" placeholder="title of the new dataset" style="margin-left:6px"/>
-    <button type="button" class="btn btn-primary btn-sm" data-lf="go">Link</button></div></div>`;
-  form.querySelector("[data-lf=go]").onclick = async () => {
-    const pick = form.querySelector("[data-lf=pick]").value;
-    try { await api.linkGroupRole(groupOf, pick ? { role, dataset_id: pick } : { role, create: true, title: form.querySelector("[data-lf=title]").value.trim() || null }); }
-    catch (e) { alert(e.message); return; }
+  form.innerHTML = `<div class="ds-relform lf" style="margin-top:6px"><b>${esc(r.label || role)}</b> <span class="muted">· preset <code>${esc(r.preset || "")}</code></span>
+    <div class="lf-opt"><b>Link a dataset you have</b> ${cands.length
+      ? `<select data-lf="pick">${cands.map((c) => `<option value="${esc(c.id)}">${esc(c.title)}</option>`).join("")}</select> <button type="button" class="btn btn-ghost btn-sm" data-lf="link">Link</button>`
+      : `<span class="muted">— none under this preset yet</span>`}</div>
+    <div class="lf-opt"><b>Import extraction files</b> <span class="muted">— a new dataset for this role, filled from JSON + PDF files on the Import page</span> <button type="button" class="btn btn-ghost btn-sm" data-lf="import">Import…</button></div>
+    ${source === "supplied" ? "" : `<div class="lf-opt"><b>Extract from PDFs</b> <span class="muted">— a new dataset for this role, filled by the preset's model call per paper</span> <button type="button" class="btn btn-ghost btn-sm" data-lf="extract">Extract…</button></div>`}
+    <div class="lf-opt"><input data-lf="title" placeholder="name of the new dataset (optional)" style="min-width:260px"/></div></div>`;
+  const title = () => form.querySelector("[data-lf=title]").value.trim() || null;
+  const make = async () => {
+    const g2 = await api.linkGroupRole(groupOf, { role, create: true, title: title() });
+    return ((g2.roles || {})[role] || {}).dataset_id;
+  };
+  const lk = form.querySelector("[data-lf=link]");
+  if (lk) lk.onclick = async () => {
+    try { await api.linkGroupRole(groupOf, { role, dataset_id: form.querySelector("[data-lf=pick]").value }); } catch (e) { alert(e.message); return; }
     done();
+  };
+  form.querySelector("[data-lf=import]").onclick = async () => {
+    let nid; try { nid = await make(); } catch (e) { alert(e.message); return; }
+    location.href = `/import?dataset=${encodeURIComponent(nid)}&back=${encodeURIComponent(groupOf)}`;
+  };
+  const ex = form.querySelector("[data-lf=extract]");
+  if (ex) ex.onclick = async () => {
+    let nid; try { nid = await make(); } catch (e) { alert(e.message); return; }
+    location.href = `/extract?dataset=${encodeURIComponent(nid)}`;
   };
 }
 
@@ -626,6 +647,8 @@ function renderWorkflowCard(host, w) {
   const supplied = ex.source === "supplied";
   // every supplied step whose documents enter a dataset (one per role in a group): an upload button each, all completed together
   const suppliedSteps = (w.steps || []).filter((s) => (s.kind === "extract" || s.kind === "agent") && s.source === "supplied" && !s.pipeline_of);
+  const unlinked = !!(w.group && (w.group.roles || []).some((r) => !r.dataset));         // a role without a dataset yet
+  const ready = !unlinked && suppliedSteps.length > 0 && suppliedSteps.every((s) => s.state === "fresh" || s.state === "stale");   // every side has papers
   const line = (st) => {
     const because = (st.because || []).join("; ");
     let what = "";
@@ -653,11 +676,8 @@ function renderWorkflowCard(host, w) {
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;
     // the fallback for what the Import page does by itself: nothing to upload, or a side that will get no files
     const ups = ((run.now || {}).uploads || []).filter((u) => !u.pending);
-    const goOn = !waiting ? "" : ups.length && ups.every((u) => !u.total)
-      ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="nothing to upload: the run goes on over the papers already in the datasets">Run the checks on what is here</button>`
-      : ups.some((u) => !u.total)
-        ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="the sides still waiting get no files: the run goes on with what arrived">Go on without the missing files</button>`
-        : ups.length ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="every side has its files: the run goes on">Go on with these files</button>` : "";
+    const goOn = waiting && ups.some((u) => u.total) && ups.some((u) => !u.total)
+      ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="the sides still waiting get no files: the run goes on with what arrived">Go on without the missing files</button>` : "";
     const sides = new Set((run.papers || []).map((p) => p.step_id)).size > 1;      // one file per side: say which
     const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${sides ? `${esc(p.step_id)} · ` : ""}${esc(p.status)}</small></span>`).join(" ");
     return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · ${pp.total ? `papers ${pp.done || 0} of ${pp.total}` : "no papers yet"}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
@@ -678,8 +698,10 @@ function renderWorkflowCard(host, w) {
       : `<span class="badge">${esc(r.role)}</span> <span class="muted">not linked</span>${mine ? ` <button class="btn btn-ghost btn-sm" data-link-role="${esc(r.role)}">link or create…</button>` : ""}`).join(" · ")}
       <span class="muted">· one run and one release cover them all</span><div id="wf-link-form" hidden></div></div>` : "";
   host.innerHTML = `<div class="ds-card-h">Workflow <span class="muted" style="font-weight:400">· ${esc(wf.title || wf.id)}${wf.implicit ? " (the preset's own process)" : ` v${wf.version} · <code>${esc(wf.contract)}</code>`}</span>
-      ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px">${supplied
-        ? `<button class="btn btn-ghost btn-sm" id="wf-start" title="start a run; then upload the pipeline's files for the new papers">Start a run</button>`
+      ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">${supplied
+        ? (unlinked ? `<span class="muted" style="font-size:12.5px">link or make a dataset for each side first</span>`
+          : `${ready ? `<button class="btn btn-primary btn-sm" id="wf-checks" title="run the checks and the review over the papers already in the datasets">Run the checks</button>` : `<span class="muted" style="font-size:12.5px">import or extract papers into the datasets first</span>`}
+             <button class="btn btn-ghost btn-sm" id="wf-start" title="a run that takes new papers' files uploaded into it, side by side">Start a run with uploads</button>`)
         : `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1" title="stage new PDFs; the run is planned (calls, credits) before it starts">Add papers</a>
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Each time papers are added, these steps run in this order. The release waits until every review below is done.</p>
@@ -693,6 +715,16 @@ function renderWorkflowCard(host, w) {
     start.disabled = true;
     try { await api.workflowStart(id, {}); await loadWorkflowCard(); }
     catch (e) { alert(`Could not start the run: ${e.message}`); start.disabled = false; }
+  };
+  // the checks over what the datasets hold: a run whose supplied steps take nothing new
+  const checks = $("#wf-checks");
+  if (checks) checks.onclick = async () => {
+    checks.disabled = true; checks.textContent = "Working…";
+    try {
+      const r = await api.workflowStart(id, {});
+      for (const s of suppliedSteps.length ? suppliedSteps : [ex]) await api.workflowComplete(r.id, s.id || "extract");
+      await loadWorkflowCard();
+    } catch (e) { alert(`Could not run the checks: ${e.message}`); loadWorkflowCard(); }
   };
   const cancel = $("#wf-cancel");
   if (cancel && run) cancel.onclick = async () => {
@@ -720,7 +752,8 @@ function renderWorkflowCard(host, w) {
     }
     loadWorkflowCard();
   };
-  host.querySelectorAll("[data-link-role]").forEach((b) => (b.onclick = () => openLinkForm(b.dataset.linkRole, $("#wf-link-form"), id, loadWorkflowCard)));
+  host.querySelectorAll("[data-link-role]").forEach((b) => (b.onclick = () => openLinkForm(b.dataset.linkRole, $("#wf-link-form"), id, loadWorkflowCard,
+    ((w.steps || []).find((s) => s.role === b.dataset.linkRole) || {}).source)));
   const set = $("#wf-set");
   if (set) set.onclick = () => { const v = $("#wf-pick").value; if (v !== "") joinWorkflow(w.available[+v], set); };
 }
@@ -735,7 +768,7 @@ function renderWorkflowDataset() {
   const memberRow = (m) => `<div class="ds-dashrow wd-member"><span class="badge ${m.dataset ? "tier-human_verified" : ""}">${esc(m.label || m.role)}</span>
       <span class="muted">preset <a href="/preset?id=${esc(m.preset_id)}">${esc(m.preset_title || m.preset_id)}</a> · ${m.source === "supplied" ? "uploaded" : "a model call per paper"}</span>
       ${m.dataset ? `→ <a href="/dataset?id=${esc(m.dataset.id)}">${esc(m.dataset.title || m.role)}</a> <span class="muted">· ${pl(m.dataset.n_papers, "paper")}, ${pl(m.dataset.n_records, "record")}${m.dataset.release ? ` · release v${m.dataset.release.number}` : " · not released"}</span>`
-        : `<span class="muted">→ not linked yet</span>${mine ? ` <button type="button" class="btn btn-ghost btn-sm" data-wd-link="${esc(m.role)}">Link or make a dataset…</button>` : ""}`}</div>`;
+        : `<span class="muted">→ not linked yet</span>${mine ? ` <button type="button" class="btn btn-ghost btn-sm" data-wd-link="${esc(m.role)}" data-wd-source="${esc(m.source || "")}">Link or make a dataset…</button>` : ""}`}</div>`;
   const cell = (p, m) => {
     const d = p.documents[m.role];
     if (!d) return `<td class="muted">missing</td>`;
@@ -777,7 +810,7 @@ function renderWorkflowDataset() {
         <label class="muted" style="font-size:12.5px"><input type="checkbox" id="wd-anyway"/> release even where a gate still holds (recorded)</label></div>
         <div id="wd-relmsg" style="font-size:13px;margin-top:6px"></div></div>` : ""}</div>`;
   const ren = $("#ds-rename"); if (ren) ren.onclick = doRename;
-  body.querySelectorAll("[data-wd-link]").forEach((b) => (b.onclick = () => openLinkForm(b.dataset.wdLink, $("#wd-link-form"), id, () => location.reload())));
+  body.querySelectorAll("[data-wd-link]").forEach((b) => (b.onclick = () => openLinkForm(b.dataset.wdLink, $("#wd-link-form"), id, () => location.reload(), b.dataset.wdSource)));
   const del = $("#wd-del");
   if (del) del.onclick = async () => {
     if (!confirm("Delete this workflow dataset? The linked datasets stay, with all their records and releases; they leave the workflow and become plain datasets again.")) return;

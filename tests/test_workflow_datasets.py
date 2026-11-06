@@ -112,7 +112,7 @@ def test_a_workflow_dataset_holds_the_linked_datasets_and_their_papers(monkeypat
     conn.close()
 
 
-def test_a_workflow_dataset_made_from_scratch_has_a_dataset_per_role(monkeypatch) -> None:
+def test_a_workflow_dataset_made_from_scratch_fills_its_roles_from_the_page(monkeypatch) -> None:
     _skip()
     _force_local(monkeypatch)
     sess = f"wfe-{uuid.uuid4().hex[:6]}"
@@ -121,11 +121,14 @@ def test_a_workflow_dataset_made_from_scratch_has_a_dataset_per_role(monkeypatch
     assert r.status_code == 200, r.text
     wd = r.json()
     g = c.get(f"/api/datasets/{wd['id']}/group", headers=H).json()
-    assert [x["role"] for x in g["roles"]] == ["tables", "claims"] and all(x["dataset"] for x in g["roles"])
-    titles = [x["dataset"]["title"] for x in g["roles"]]
+    assert [x["role"] for x in g["roles"]] == ["tables", "claims"] and all(x["dataset"] is None for x in g["roles"])   # link or make, per role
+    assert c.post(f"/api/datasets/{wd['id']}/workflow/runs", headers=H, json={}).status_code == 422   # nothing to run on yet
+    for role in ("tables", "claims"):                     # "make one" (the page then imports or extracts into it)
+        g = c.post(f"/api/datasets/{wd['id']}/group/link", headers=H, json={"role": role, "create": True}).json()
+    titles = [g["roles"][r]["title"] for r in ("tables", "claims")]
     assert titles == ["Validation — A — Regression tables", "Validation — A — Claims and their results"], titles
     conn = records.connect()
-    ds_t, ds_c = [x["dataset"]["dataset_id"] for x in g["roles"]]
+    ds_t, ds_c = [g["roles"][r]["dataset_id"] for r in ("tables", "claims")]
     assert records.get_dataset(conn, ds_c)["companion_dataset_id"] == ds_t     # the claims check reads the tables
     run = c.post(f"/api/datasets/{wd['id']}/workflow/runs", headers=H, json={}).json()
     assert run["status"] == "running" and run["now"]["phase"] == "waiting for uploads"    # a run starts at once: it waits for the files

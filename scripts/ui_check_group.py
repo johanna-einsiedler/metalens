@@ -85,17 +85,14 @@ def main() -> int:
         page.wait_for_selector("#ds-update:not([hidden])", timeout=30000)
         check("side of the workflow dataset" in page.locator("#ds-update").inner_text() and page.locator(f"#ds-update a[href^='/dataset?id={wd}']").count() >= 1,
               "the claims dataset points to its workflow dataset")
-        # a second run with nothing new to upload: "Uploads complete" completes both supplied steps, the checks run, the run ends
-        r = page.request.post(f"{a.url}/api/datasets/{a.tables}/workflow/runs", data={}, headers={"X-Session-Id": a.session})
-        check(r.ok, f"a second run starts ({r.status})")
+        # both sides hold papers: "Run the checks" starts a run that takes no uploads, runs the checks, ends
         page.goto(f"{a.url}/dataset?id={wd}")
-        page.wait_for_selector("#wf-complete", timeout=30000)
-        check(page.locator("#ds-update a", has_text="Upload the tables files").count() == 1 and page.locator("#ds-update a", has_text="Upload the claims files").count() == 1,
-              "one upload button per dataset role")
-        page.locator("#wf-complete").click()
-        page.wait_for_function("!document.querySelector('#wf-complete')", timeout=30000)
+        page.wait_for_selector("#wf-checks", timeout=30000)
+        check(page.locator("#wf-start").count() == 1 and "uploads" in page.locator("#wf-start").inner_text(), "a run with uploads stays on offer beside it")
+        page.locator("#wf-checks").click()
+        page.wait_for_function("() => { const r = document.querySelector('#ds-update .wf-run'); return r && /done/.test(r.textContent) && !document.querySelector('#wf-checks[disabled]'); }", timeout=60000)
         run_txt = page.locator("#ds-update .wf-run").inner_text()
-        check("done" in run_txt, f"Uploads complete ran the rest of the run: {run_txt[:90]}")
+        check("done" in run_txt, f"Run the checks ran the rest of the run: {run_txt[:90]}")
         chips = {t: page.locator("#ds-update .wf-row", has_text=t).locator(".badge").first.inner_text().strip()
                  for t in ("Contract check (tables)", "Number check", "Contract check (claims)", "Estimates against the tables")}
         check(all(v == "fresh" for v in chips.values()), f"the checks ran: {chips}")
