@@ -1597,7 +1597,19 @@ function sheetLabel(rec, S) {
     || entryTitle(VM, rec, rec.entry_index);
 }
 function sheetToggle(list) {
-  return `<div class="sh-foot"><button type="button" class="sh-toggle" title="${list ? "the cells laid out as the printed table" : "every cell with all its fields: row type, parsed value, the coefficient it belongs to"}">${list ? "▦ as printed" : "▤ every field"}</button></div>`;
+  return `<div class="sh-foot">${!list && !RO ? `<button type="button" class="sh-addrow" title="a printed row the extraction missed: added to every column of this table, at the bottom">＋ row</button> ` : ""}`
+    + `<button type="button" class="sh-toggle" title="${list ? "the cells laid out as the printed table" : "every cell with all its fields: row type, parsed value, the coefficient it belongs to"}">${list ? "▦ as printed" : "▤ every field"}</button></div>`;
+}
+// row indexes contiguous from 0 after a row left; an se row's refers_to follows its coefficient
+function renumberCells(cells, S) {
+  if (!S.row_index) return;
+  const was = new Map(cells.map((c, k) => [c && typeof c === "object" ? c[S.row_index] : null, k]));
+  cells.forEach((c, k) => {
+    if (!c || typeof c !== "object") return;
+    const ref = S.refers_to ? c[S.refers_to] : null;
+    c[S.row_index] = k;
+    if (S.refers_to && ref != null) c[S.refers_to] = was.has(ref) ? was.get(ref) : null;
+  });
 }
 // ── a joint workflow: the paper's claims under the tables their results cite ────────────────
 // A claim belongs under a table when one of its results resolves to a column of it (the claims'
@@ -1888,15 +1900,26 @@ function renderSheet(rec, def, note = null) {
   for (const b of blocks) for (const r of b.recs) { const k = sheetColKey(r, S); if (!seen.has(k)) { seen.add(k); keys.push({ key: k, rec: r }); } }
   const at = (b, k) => b.recs.find((r) => sheetColKey(r, S) === k) || null;
   const mine = sheetColKey(rec, S);
-  const heads = keys.map(({ key, rec: r0 }) => `<th class="sh-col${key === mine ? " sh-me" : ""}" data-key="${esc(key)}" title="${esc(`column ${colLabel(r0)} — its specification below`)}">${esc(colLabel(r0))}</th>`).join("");
+  const colOf = (key, r0) => at(blocks[0], key) || r0;                                  // the column's record in the first panel
+  const edit = (r, col, text, cls = "") => RO ? esc(text) : `<span class="rv-editable sh-colname${cls}" contenteditable="plaintext-only" data-rid="${esc(r.id)}" data-col="${esc(col)}" title="click to correct it">${esc(text)}</span>`;
+  const heads = keys.map(({ key, rec: r0 }) => {
+    const r = colOf(key, r0), own = S.column ? (r.field_values || {})[S.column] : null;
+    return `<th class="sh-col${key === mine ? " sh-me" : ""}" data-key="${esc(key)}" title="${esc(`column ${colLabel(r)} — click to open it`)}">${S.column ? edit(r, "column", own == null ? "" : String(own)) : esc(colLabel(r))}</th>`;
+  }).join("");
+  // the printed heading over the number, when the paper prints one ("Microcredit" over "(2)")
+  const printedOf = (r) => { const p = S.column_label ? (sheetCells(r, S)[0] || {})[S.column_label] : null; const t = p == null ? "" : String(p); return t && sheetNorm(t) !== sheetNorm((r.field_values || {})[S.column]) ? t : ""; };
+  const printed = keys.map(({ key, rec: r0 }) => printedOf(colOf(key, r0)));
+  const printedRow = printed.some(Boolean) ? `<tr class="sh-hdr sh-printed"><th></th>${keys.map(({ key, rec: r0 }, k) => `<th class="${key === mine ? "sh-me" : ""}" data-key="${esc(key)}" title="${esc(printed[k])}">${printed[k] ? edit(colOf(key, r0), "column_label", printed[k]) : ""}</th>`).join("")}</tr>` : "";
   const hdrOf = (r) => { const h = r && S.header ? (r.field_values || {})[S.header] : null; return h == null ? "" : String(h); };
   const hdrCells = (b) => keys.map(({ key, rec: r0 }) => {
-    const r = b ? at(b, key) : at(blocks[0], key) || r0, h = hdrOf(r);                  // a pipeline may write a sentence here (a balance table's rows)
-    return `<th class="${key === mine ? "sh-me" : ""}" data-key="${esc(key)}" title="${esc(h)}">${esc(h.length > 40 ? h.slice(0, 39).trimEnd() + "…" : h)}</th>`;
+    const r = b ? at(b, key) : colOf(key, r0), h = hdrOf(r);                             // a pipeline may write a sentence here (a balance table's rows)
+    return `<th class="${key === mine ? "sh-me" : ""}" data-key="${esc(key)}" title="${esc(h)}">${r && !RO && S.header ? edit(r, "header", h, " sh-hdrtxt") : esc(h.length > 40 ? h.slice(0, 39).trimEnd() + "…" : h)}</th>`;
   }).join("");
-  const top = keys.map(({ key, rec: r0 }) => hdrOf(at(blocks[0], key) || r0));
+  const top = keys.map(({ key, rec: r0 }) => hdrOf(colOf(key, r0)));
   const hdrRow = top.some((h) => h.trim() !== "") ? `<tr class="sh-hdr"><th></th>${hdrCells(null)}</tr>` : "";
   const finding = (r, i) => recFindings(r).filter((f) => typeof f.path === "string" && (f.path === `${S.field}[${i}]` || f.path.startsWith(`${S.field}[${i}].`)));
+  const typeDef = S.row_type ? (def.columns || []).find((c) => (typeof c === "string" ? c : c.name) === S.row_type) : null;
+  const typeOpts = typeDef && Array.isArray(typeDef.options) ? typeDef.options : null;
   const SEV = { error: 2, warn: 1, info: 0 };
   const body = blocks.map((b) => {
     const rows = sheetRows(b.recs, S);
@@ -1913,6 +1936,8 @@ function renderSheet(rec, def, note = null) {
       if (type === "panel_header") { prevLabel = null; return `<tr class="sh-panel"><td colspan="${keys.length + 1}">${esc(labelTxt)}</td></tr>`; }
       const hide = sub && (labelTxt.trim() === "" || sheetNorm(labelTxt) === prevLabel);    // as printed: the se row carries no label of its own
       if (!sub) prevLabel = sheetNorm(labelTxt);
+      const atStr = [...row.at.entries()].map(([rid, i]) => `${rid}:${i}`).join(",");
+      const tools = RO ? "" : `<span class="sh-rowtools">${S.row_type && typeOpts ? `<button type="button" class="sh-typebtn" data-type="${esc(type)}" title="the row's type (${esc(type ? type.replace(/_/g, " ") : "unset")}) — set on every column">type</button>` : ""}<button type="button" class="sh-rowdel" title="remove this row from every column of the table">✕</button></span>`;
       const cells = keys.map(({ key }) => {
         const r = at(b, key), i = r ? row.at.get(r.id) : null, me = r && r.id === rec.id;
         if (i == null) return `<td class="sh-cell sh-blank${me ? " sh-me" : ""}"${r ? ` data-rid="${esc(r.id)}"` : ""}></td>`;
@@ -1925,14 +1950,14 @@ function renderSheet(rec, def, note = null) {
           + ` data-path="${esc(`${S.field}[${i}].${S.value}`)}" title="${esc(tip)}">${text}</span></td>`;
       }).join("");
       return `<tr class="sh-row${sub ? " sh-sub" : ""}${stat ? " sh-stat" : ""}${rule ? " sh-rule" : ""}">`
-        + `<td class="sh-lab" title="${esc(labelTxt + (type ? ` · ${type.replace(/_/g, " ")}` : ""))}">${hide ? "" : esc(labelTxt)}${sub ? `<span class="sh-type">${esc(SHEET_SUB.get(type))}</span>` : ""}</td>${cells}</tr>`;
+        + `<td class="sh-lab" data-at="${esc(atStr)}" title="${esc(labelTxt + (type ? ` · ${type.replace(/_/g, " ")}` : ""))}">${hide ? "" : (RO ? esc(labelTxt) : `<span class="rv-editable sh-labtxt" contenteditable="plaintext-only">${esc(labelTxt)}</span>`)}${sub ? `<span class="sh-type">${esc(SHEET_SUB.get(type))}</span>` : ""}${tools}</td>${cells}</tr>`;
     }).join("");
     return out;
   }).join("");
   const n = keys.length;
-  return `<div class="sheet" data-field="${esc(S.field)}"><div class="sh-cap muted">${n} column${n === 1 ? "" : "s"}${blocks.length > 1 ? ` · ${blocks.length} panels` : ""}`
+  return `<div class="sheet" data-field="${esc(S.field)}" data-types="${esc((typeOpts || []).join(","))}"><div class="sh-cap muted">${n} column${n === 1 ? "" : "s"}${blocks.length > 1 ? ` · ${blocks.length} panels` : ""}`
     + ` · ${esc(note || "every cell editable · the tinted column's specification is below")}</div>`
-    + `<div class="rv-tablewrap"><table class="sh-t"><thead><tr><th class="sh-lab"></th>${heads}</tr>${hdrRow}</thead><tbody>${body}</tbody></table></div>`
+    + `<div class="rv-tablewrap"><table class="sh-t"><thead><tr><th class="sh-lab"></th>${heads}</tr>${printedRow}${hdrRow}</thead><tbody>${body}</tbody></table></div>`
     + sheetToggle(false) + `</div>`;
 }
 // The printed text is the value of record: when the coder corrects it, the parsed number and the
@@ -1962,6 +1987,84 @@ function wireSheet(card, rec) {
   card.querySelectorAll(".sh-toggle").forEach((b) => (b.onclick = () => {
     SHEET_LIST = !SHEET_LIST;
     try { localStorage.setItem("metalens_sheet", SHEET_LIST ? "list" : "printed"); } catch { /* */ }
+    renderPanel();
+  }));
+  const colRec = (rid) => (DATA.records || []).find((x) => x.id === rid);
+  // the cells of a row, column by column: "<rid>:<i>,…" on its label cell
+  const atOf = (el) => ((el.closest("td") || {}).dataset || {}).at ? el.closest("td").dataset.at.split(",").map((t) => { const [rid, i] = t.split(":"); return { r: colRec(rid), i: +i }; }).filter((x) => x.r) : [];
+  // a column's name, printed heading or outcome: typed on its heading
+  card.querySelectorAll(".sh-colname[data-rid]").forEach((el) => {
+    const r = colRec(el.dataset.rid); if (!r) return;
+    el.dataset.orig = el.textContent;
+    el.addEventListener("blur", async () => {
+      const now = el.textContent.trim(), was = (el.dataset.orig || "").trim(); if (now === was) return;
+      try {
+        if (el.dataset.col === "column") await saveFieldEdit(r, card, S.column, now || null, curVal(r, S.column));
+        else if (el.dataset.col === "header") await saveFieldEdit(r, card, S.header, now || null, curVal(r, S.header));
+        else { sheetCells(r, S).forEach((c) => { if (c && typeof c === "object") c[S.column_label] = now || null; }); await saveWholeRecord(r, [{ field_path: `${S.field}[*].${S.column_label}`, original_value: was, final_value: now }]); }
+      } catch (e) { alert("save failed: " + e.message); }
+      renderPanel();
+    });
+  });
+  // a row's name: on every column's cell of the row
+  card.querySelectorAll(".sh-labtxt").forEach((el) => {
+    el.dataset.orig = el.textContent;
+    el.addEventListener("blur", async () => {
+      const now = el.textContent.trim(); if (now === (el.dataset.orig || "").trim()) return;
+      for (const { r, i } of atOf(el)) {
+        const c = sheetCells(r, S)[i]; if (!c || typeof c !== "object") continue;
+        const was = c[S.row_label]; c[S.row_label] = now;
+        try { await saveWholeRecord(r, [{ field_path: `${S.field}[${i}].${S.row_label}`, original_value: was, final_value: now }]); } catch (e) { alert("save failed: " + e.message); }
+      }
+      renderPanel();
+    });
+  });
+  // "type" opens a menu in place of the button; a choice lands on every column's cell of the row
+  card.querySelectorAll(".sh-typebtn").forEach((b) => (b.onclick = () => {
+    const types = ((b.closest(".sheet") || {}).dataset || {}).types; if (!types) return;
+    const sel = document.createElement("select"); sel.className = "sh-typesel"; sel.title = "the row's type, set on every column";
+    sel.innerHTML = types.split(",").map((o) => `<option value="${esc(o)}"${o === b.dataset.type ? " selected" : ""}>${esc(o.replace(/_/g, " "))}</option>`).join("");
+    b.replaceWith(sel); sel.focus();
+    sel.onblur = () => { if (sel.isConnected) sel.replaceWith(b); };
+    sel.onchange = async () => {
+      sel.onblur = null;
+      for (const { r, i } of atOf(sel)) {
+        const c = sheetCells(r, S)[i]; if (!c || typeof c !== "object") continue;
+        const was = c[S.row_type]; c[S.row_type] = sel.value;
+        try { await saveWholeRecord(r, [{ field_path: `${S.field}[${i}].${S.row_type}`, original_value: was, final_value: sel.value }]); } catch (e) { alert("save failed: " + e.message); }
+      }
+      renderPanel();
+    };
+  }));
+  card.querySelectorAll(".sh-rowdel").forEach((b) => (b.onclick = async () => {
+    const items = atOf(b); if (!items.length) return;
+    const first = sheetCells(items[0].r, S)[items[0].i] || {};
+    if (!confirm(`Remove the row “${first[S.row_label] || "(no label)"}” from every column of this table? The change is logged.`)) return;
+    for (const { r, i } of items) {
+      const cells = sheetCells(r, S); if (!(i in cells)) continue;
+      const [gone] = cells.splice(i, 1); renumberCells(cells, S);
+      try { await saveWholeRecord(r, [{ field_path: `${S.field}[${i}]`, original_value: gone ? gone[S.value] : null, final_value: "(row removed)" }]); }
+      catch (e) { cells.splice(i, 0, gone); renumberCells(cells, S); alert("remove failed: " + e.message); }
+    }
+    renderPanel();
+  }));
+  card.querySelectorAll(".sh-addrow").forEach((b) => (b.onclick = async () => {
+    const cur = colRec(card.dataset.rid) || rec;
+    const label = prompt("The row's label, as printed:"); if (label == null || !label.trim()) return;
+    for (const r of sheetCols(cur, S)) {
+      if (!r.field_values) r.field_values = {};
+      if (!Array.isArray(r.field_values[S.field])) r.field_values[S.field] = [];
+      const cells = r.field_values[S.field], first = cells[0] && typeof cells[0] === "object" ? cells[0] : {};
+      const c = { [S.row_label]: label.trim(), [S.value]: null };
+      if (S.row_index) c[S.row_index] = cells.length;
+      if (S.row_type) c[S.row_type] = "coefficient";
+      for (const k of [S.numeric, S.refers_to, S.stars]) if (k) c[k] = null;
+      if (S.column_label) c[S.column_label] = first[S.column_label] ?? null;
+      if (S.col_index) c[S.col_index] = first[S.col_index] ?? null;
+      cells.push(c);
+      try { await saveWholeRecord(r, [{ field_path: `${S.field}[${cells.length - 1}]`, original_value: null, final_value: "(row added)" }]); }
+      catch (e) { cells.pop(); alert("add failed: " + e.message); }
+    }
     renderPanel();
   }));
   // a heading opens that column — in the open column's panel, else the first panel that has it
@@ -2013,7 +2116,8 @@ function renderTableCard(panel, rec) {
   const blank = recs.length === 1 && !sheetCells(rec, S).length;        // an entry added by hand: a table the pipeline missed
   const identDefs = (!named || blank) ? [...(S.group || []), S.panel, S.column].filter(Boolean).map((f) => (VM.fieldIndex.get(f) || {}).field).filter(Boolean) : [];
   card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${named ? esc(sheetLabel(rec, S)) : "New table"}`
-    + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span></div>`
+    + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span>`
+    + (RO ? "" : `<button class="recdel tc-del" title="delete this table — every column of it; for a table that is not a regression table">🗑</button>`) + `</div>`
     + (identDefs.length ? `<div class="tc-ident"><div class="muted" style="font-size:12.5px;margin-bottom:4px">A table the extraction missed: name it (as printed), then add its cells row by row below — one entry per column.</div>`
         + `<div class="rv-root">${renderFields(identDefs, fv, "", { editable: !RO })}</div></div>` : "")
     + tableNotesHtml(recs)
@@ -2034,6 +2138,12 @@ function renderTableCard(panel, rec) {
     wireControls(list, (path, val) => saveFieldEdit(rec, list, path, val, curVal(rec, path)), true);
     wireTableRows(list, rec, () => renderPanel());
   }
+  const td = card.querySelector(".tc-del");
+  if (td) td.onclick = async () => {
+    if (!confirm(`Delete ${named ? sheetLabel(rec, S) : "this table"} — all ${n} column${n === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    try { for (const r of recs) await api.deleteRecord(r.id); await reloadDoc(); }
+    catch (e) { alert("delete failed: " + e.message); }
+  };
   const ident = card.querySelector(".tc-ident");
   if (ident && !RO) wireControls(ident, (path, val) => saveFieldEdit(rec, ident, path, val, curVal(rec, path)).then(() => renderPanel()), true);
   wireColumnSection(card.querySelector(".tc-col"), rec);
@@ -2896,7 +3006,12 @@ function renderChainCard(panel, rec, rv) {
         + ` title="open this regression column in ${esc(sib.preset_title || "the tables document")} of this paper">column ↗</a>` : "";
       const ex = (R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" ");
       const val = row[R.value], se = R.se ? row[R.se] : null;
-      const rel = (which) => { const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return ""; return v === "direct" ? `<span class="tag">direct measure</span>` : `<span class="tag warn">${esc(v === "assignment" ? "assignment indicator (stands in for the cause)" : v)}</span>`; };
+      const rel = (which) => {
+        const f = which === "cause" ? R.cause_relation : R.effect_relation; const v = f ? row[f] : null; if (!v) return "";
+        if (v === "direct") return `<span class="tag" title="the regressor (outcome) measures the ${which} itself">direct measure</span>`;
+        if (v === "assignment") return `<span class="tag warn" title="the regressor is not the cause itself but the assignment to it — a treatment-group, reform or instrument indicator — so the coefficient is an intention-to-treat kind of effect">treatment-group indicator, stands in for the cause</span>`;
+        return `<span class="tag warn" title="a proxy: the regressor (outcome) measures the ${which} only indirectly">${esc(v)}</span>`;
+      };
       const role = R.role && row[R.role] && row[R.role] !== "main" ? ` <span class="tag">${esc(row[R.role])}</span>` : "";
       const stratum = [R.subgroup ? row[R.subgroup] : null, R.horizon ? row[R.horizon] : null].filter(Boolean)
         .map((x) => `<span class="tag chain-stratum">${esc(x)}</span>`).join("")
@@ -4386,7 +4501,7 @@ async function verifyAndJump(cell, hit) {
   const chased = NUM_RE.test(txt) && !isPageRef(cell.dataset.path);
   // presets with display.citation_flash:false (MASEMiner): the cited table/row is shown
   // steadily and only the number found inside it blinks
-  jumpToEvidence(hit.page, hit.ids, { flash: !(chased && VM && VM.citationFlash === false) });
+  jumpToEvidence(hit.page, hit.ids, { flash: !(chased && ((VM && VM.citationFlash === false) || cell.classList.contains("sh-val"))) });
   if (!chased) return;
   const num = txt.replace(/%$/, "");                 // keep commas; server tries both forms
   if (!hit.exact) {

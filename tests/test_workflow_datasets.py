@@ -147,6 +147,18 @@ def test_a_workflow_dataset_made_from_scratch_fills_its_roles_from_the_page(monk
     for step in ("tables", "claims"):
         view = c.post(f"/api/workflow-runs/{run['id']}/complete", headers=H, json={"step_id": step}).json()
     assert view["status"] == "done" and {j["step_id"] for j in view["papers"]} == {"tables", "claims"} and len(view["papers"]) == 3, view["status"]
+    # a second run over what the datasets hold (nothing uploaded): the joint review covers every paper of both sides,
+    # the panel offers the review, the gate holds the release until it is done
+    run2 = c.post(f"/api/datasets/{wd['id']}/workflow/runs", headers=H, json={}).json()
+    for step in ("tables", "claims"):
+        view = c.post(f"/api/workflow-runs/{run2['id']}/complete", headers=H, json={"step_id": step}).json()
+    assert view["status"] == "done"
+    q = c.get(f"/api/workflow-runs/{run2['id']}/queue/joint", headers=H).json()
+    n_rec = sum(x["n_records"] for x in view["papers"]) if view["papers"] else None
+    assert q["joint"] and q["progress"]["drawn"] >= 3 and q["progress"]["pending"] == q["progress"]["drawn"] and set(q["datasets"]) == {ds_t, ds_c}, q["progress"]
+    by = {s["id"]: s for s in c.get(f"/api/datasets/{wd['id']}/workflow", headers=H).json()["steps"]}
+    assert by["joint"]["gate"]["pending"] == q["progress"]["drawn"] and by["joint"]["gate"]["run_id"] == run2["id"]
+    assert c.get(f"/api/datasets/{wd['id']}/releases/pending", headers=H).json()["gate"]["open"] is False
     conn.close()
 
 

@@ -133,7 +133,9 @@ needs no workflow dataset; it runs on the dataset of that preset.
 
 A `review` step is a joint review stage: one gate over the documents the run made in the steps it
 names, whose worklist walks each paper's documents together in the workspace queue, across both
-datasets. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws papers.
+datasets — or, when the run made none (Run the checks over what the datasets hold), over every
+paper of those sides. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws
+papers. While a gate waits, the panel's primary action is "Review now · n".
 
 The workspace reviews a paper of a workflow dataset (or of a joint queue) on one page: the sidebar
 lists each paper once, its sides counted together; each regression table is one card — its panels

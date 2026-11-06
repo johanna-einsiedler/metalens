@@ -648,6 +648,9 @@ function renderWorkflowCard(host, w) {
   // every supplied step whose documents enter a dataset (one per role in a group): an upload button each, all completed together
   const suppliedSteps = (w.steps || []).filter((s) => (s.kind === "extract" || s.kind === "agent") && s.source === "supplied" && !s.pipeline_of);
   const unlinked = !!(w.group && (w.group.roles || []).some((r) => !r.dataset));         // a role without a dataset yet
+  // a review that waits for the owner, after the checks: the primary thing to do
+  const waitingGate = (w.steps || []).find((s) => s.gate && s.gate.pending && s.gate.run_id && !s.gate.draft);
+  const reviewNow = waitingGate ? `<a class="btn btn-primary btn-sm" href="/workspace?queue=${esc(waitingGate.gate.run_id)}:${esc(waitingGate.id)}" title="${esc(`${waitingGate.label || waitingGate.id}: ${waitingGate.gate.pending} of ${waitingGate.gate.total} still to check`)}">Review now · ${waitingGate.gate.pending}</a>` : "";
   const ready = !unlinked && suppliedSteps.length > 0 && suppliedSteps.every((s) => s.state === "fresh" || s.state === "stale");   // every side has papers
   const line = (st) => {
     const because = (st.because || []).join("; ");
@@ -698,7 +701,7 @@ function renderWorkflowCard(host, w) {
       : `<span class="badge">${esc(r.role)}</span> <span class="muted">not linked</span>${mine ? ` <button class="btn btn-ghost btn-sm" data-link-role="${esc(r.role)}">link or create…</button>` : ""}`).join(" · ")}
       <span class="muted">· one run and one release cover them all</span><div id="wf-link-form" hidden></div></div>` : "";
   host.innerHTML = `<div class="ds-card-h">Workflow <span class="muted" style="font-weight:400">· ${esc(wf.title || wf.id)}${wf.implicit ? " (the preset's own process)" : ` v${wf.version} · <code>${esc(wf.contract)}</code>`}</span>
-      ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">${supplied
+      ${mine && (!run || /^(done|failed|cancelled)$/.test(run.status)) ? `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">${reviewNow}${supplied
         ? (unlinked ? `<span class="muted" style="font-size:12.5px">link or make a dataset for each side first</span>`
           : `${ready ? `<button class="btn btn-primary btn-sm" id="wf-checks" title="run the checks and the review over the papers already in the datasets">Run the checks</button>` : `<span class="muted" style="font-size:12.5px">import or extract papers into the datasets first</span>`}
              <button class="btn btn-ghost btn-sm" id="wf-start" title="a run that takes new papers' files uploaded into it, side by side">Start a run with uploads</button>`)
