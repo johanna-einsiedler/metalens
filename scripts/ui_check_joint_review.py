@@ -73,7 +73,7 @@ def main() -> int:
         check(card.locator("thead th.sh-col").count() == 3, "three columns, the panels' columns aligned under one heading each")
         check(card.locator(".sh-val[contenteditable]").count() == 30, f"every cell of every column is editable ({card.locator('.sh-val[contenteditable]').count()} of 30)")
         ask = card.locator(".tc-asktab")
-        heads = [t.strip() for t in ask.locator("thead th").all_inner_texts()]
+        heads = [t.strip() for t in ask.locator("thead th").all_inner_texts() if t.strip()]
         check(card.locator(".tc-col").count() == 0 and card.locator(".subtab").count() == 0 and "Model" not in card.inner_text() and "Clustering" not in card.inner_text(),
               "no specification under the table: the review asks only what the workflow declares")
         check(heads == ["Column", "Target regressors", "SE type", "Fixed effects", "Controls", "Notes"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
@@ -198,8 +198,9 @@ def main() -> int:
               and page.locator(".tcard .tc-askcap").count() == 1, "＋ opens the new table's card; the claims and the per-column lines survive the reload")
         # ✕ at the end of a column's line deletes that column (here: the new table's only one)
         n_before = len(recs(seed["tables_doc"]))
+        page.once("dialog", lambda d: d.accept())
         page.locator(".tcard .tc-asktab .tc-coldel").first.click()
-        page.wait_for_timeout(1500)
+        page.wait_for_function("!document.querySelector('.tcard .tc-ident')", timeout=20000); page.wait_for_timeout(600)
         check(len(recs(seed["tables_doc"])) == n_before - 1 and page.locator(".rnav .rnav-group", has_text="New table").count() == 0 and page.locator(".rnav .rnav-group", has_text="col").count() == 0,
               "✕ on a column's line deletes the column; the empty table is gone")
         check(not errors, f"no script errors ({errors[:3]})")
