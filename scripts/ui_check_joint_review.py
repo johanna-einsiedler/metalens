@@ -196,6 +196,12 @@ def main() -> int:
         page.wait_for_selector(".tcard .tc-ident", timeout=20000)
         check(page.locator(".tcard > .rectitle").inner_text().startswith("New table") and page.locator(".rnav-tab[data-sel='claims']").count() == 1
               and page.locator(".tcard .tc-askcap").count() == 1, "＋ opens the new table's card; the claims and the per-column lines survive the reload")
+        # ✕ at the end of a column's line deletes that column (here: the new table's only one)
+        n_before = len(recs(seed["tables_doc"]))
+        page.locator(".tcard .tc-asktab .tc-coldel").first.click()
+        page.wait_for_timeout(1500)
+        check(len(recs(seed["tables_doc"])) == n_before - 1 and page.locator(".rnav .rnav-group", has_text="New table").count() == 0 and page.locator(".rnav .rnav-group", has_text="col").count() == 0,
+              "✕ on a column's line deletes the column; the empty table is gone")
         check(not errors, f"no script errors ({errors[:3]})")
         browser.close()
     print(("ALL OK" if not fails else f"{len(fails)} FAILED") + f" — {len(fails)} failure(s)")

@@ -2199,10 +2199,11 @@ function askedHtml(rec, ask) {
     const fv = r.field_values || {};
     const name = [S.column && fv[S.column], b.label].filter((x) => x != null && String(x).trim() !== "").map(String).join(" · ");
     return `<tr data-rid="${esc(r.id)}"${r.id === rec.id ? ' class="tc-me"' : ""}><th>${esc(name || entryTitle(VM, r, r.entry_index))}</th>`
-      + defs.map((f) => `<td>${f.name === S.target ? targetPick(r, S) : renderFields([f], fv, "", eopts)}</td>`).join("") + `</tr>`;
+      + defs.map((f) => `<td>${f.name === S.target ? targetPick(r, S) : renderFields([f], fv, "", eopts)}</td>`).join("")
+      + (RO ? "" : `<td><button type="button" class="tc-coldel" title="delete this column — a column the extraction invented or doubled; it cannot be undone">✕</button></td>`) + `</tr>`;
   })).join("");
   return `<div class="tc-ask"><div class="tc-askcap">Per column <span class="muted">· what the review checks besides the cells</span></div>`
-    + `<table class="tc-asktab"><thead><tr><th>Column</th>${defs.map((f) => `<th title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</th>`).join("")}</tr></thead>`
+    + `<table class="tc-asktab"><thead><tr><th>Column</th>${defs.map((f) => `<th title="${esc(f.help || "")}">${esc(f.label || formatKey(f.name))}</th>`).join("")}${RO ? "" : "<th></th>"}</tr></thead>`
     + `<tbody>${rows}</tbody></table></div>`;
 }
 function targetPick(r, S) {
@@ -2222,6 +2223,12 @@ function wireAsked(card) {
     wireControls(tr, (path, val) => saveFieldEdit(r, tr, path, val, curVal(r, path)), true);
     const sel = tr.querySelector(".tc-target");
     if (sel && !RO) sel.onchange = () => setTarget(r, sel.value === "" ? null : +sel.value);
+    const del = tr.querySelector(".tc-coldel");
+    if (del) del.onclick = async () => {
+      if (!confirm(`Delete column ${tr.querySelector("th").textContent.trim()} of this table? Its cells go with it; this cannot be undone.`)) return;
+      try { await api.deleteRecord(r.id); await reloadDoc(); }
+      catch (e) { alert("delete failed: " + e.message); }
+    };
   });
 }
 // a new target regressor for a column: the first target replaced (a table row keeps its other
