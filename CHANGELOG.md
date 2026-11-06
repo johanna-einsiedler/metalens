@@ -51,6 +51,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   one (no paper planned at the start) no longer closes after its first file.
 - My workspace → Workflows: a ✕ on a tile deletes a workflow of mine (its linked datasets stay,
   with their papers and verdicts) or takes a plain dataset out of its workflow.
+- The single-dataset econ workflows (`econ-claims`, `econ-regressions`) are taken down for now
+  (`meta.hidden`): not offered by New workflow or Add to a workflow, not listed on the Workflows
+  page; a dataset that declares one keeps running it, and its card still answers by id.
 - "＋ Regression column" opens the new entry (it used to land on the paper panel). A table the
   extraction missed is added from its card: "New table" asks for the table number, panel and
   column — fields the card otherwise leaves out — and shows its cells as a table to fill row by

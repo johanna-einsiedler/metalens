@@ -6,6 +6,7 @@
     "title": "Economics regression tables",
     "tagline": "Every regression table of an empirical economics article, transcribed by the Robustness-at-Scale pipeline, checked against its own contract, reviewed, released.",
     "description": "The pipeline that reads each article and writes one file per regression table runs outside Metalens; this workflow is how its output enters a dataset: the new papers' files are uploaded into a run, the declared contract is re-checked on the stored values, every new column is reviewed, and a release is cut only when the review is done.",
+    "hidden": true,
     "authors": [
       {
         "family": "Einsiedler",

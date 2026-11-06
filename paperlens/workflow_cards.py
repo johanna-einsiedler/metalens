@@ -102,6 +102,8 @@ def inventory(conn: psycopg.Connection, brand: brands.Brand | None = None) -> li
     out = []
     for wid, spec in card_workflows(brand).items():
         meta = spec.get("meta") or {}
+        if meta.get("hidden"):                      # taken down: not offered, not listed; its card still answers by id
+            continue
         ds = _public_datasets(conn, wid)
         n_runs = conn.execute("SELECT count(*) FROM workflow_run WHERE workflow_id = %s AND status = 'done'", (wid,)).fetchone()[0]
         out.append({"id": wid, "title": meta.get("title"), "tagline": meta.get("tagline"), "description": meta.get("description"),

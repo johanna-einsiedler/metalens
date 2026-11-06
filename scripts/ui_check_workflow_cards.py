@@ -4,7 +4,7 @@
     python3 scripts/ui_check_workflow_cards.py --url http://127.0.0.1:8019 --session <X-Session-Id> [--admin] [--shot /tmp/wfc]
 
 Checks /workflows (one tile per curated workflow with its steps and counts) and
-/workflow?id=econ-regressions (the sections, the steps with their preset links and review chips,
+/workflow?id=econ-regressions — a taken-down workflow, reached by id (the sections, the steps with their preset links and review chips,
 the review-policy table, the checks with their codes, the citation, "used by"); with --admin
 (a server in local mode moderates itself; pass --email/--password for an account listed in
 PAPERLENS_ADMINS on a hosted one) it cuts a release from the form and
@@ -49,17 +49,21 @@ def main() -> int:
         page.goto(f"{a.url}/workflows")
         page.wait_for_selector("#wf-tiles .tile", timeout=30000)
         tiles = page.locator("#wf-tiles .tile")
-        check(tiles.count() >= 3, f"the inventory lists the curated workflows ({tiles.count()} tiles)")
-        econ = page.locator("#wf-tiles .tile", has_text="Economics regression tables")
+        check(tiles.count() >= 2, f"the inventory lists the curated workflows ({tiles.count()} tiles)")
+        check(page.locator("#wf-tiles .tile", has_text="Economics regression tables").count() == 0 and page.locator("#wf-tiles .tile", has_text="Claims in empirical").count() == 0,
+              "the single-dataset econ workflows are taken down: not listed")
+        econ = page.locator("#wf-tiles .tile", has_text="Economics articles")
         check(econ.count() == 1 and "workflow ·" in econ.inner_text().lower(), "the econ tile carries the Workflow kicker")
-        check("review: sample of 30" in econ.inner_text() and "dataset" in econ.locator(".tile-foot").inner_text(), f"the tile names the review policy and counts: {econ.locator('.tile-foot').inner_text()}")
+        check("review" in econ.inner_text().lower() and "dataset" in econ.locator(".tile-foot").inner_text(), f"the tile names the review policy and counts: {econ.locator('.tile-foot').inner_text()}")
         nav = page.locator("header a", has_text="Workflows")
         check(nav.count() >= 1, "Workflows sits in the navigation")
         page.screenshot(path=f"{a.shot}-1-inventory.png", full_page=True)
-        # the card
+        # the card: the tile opens its own; a taken-down workflow's card still answers by id
         econ.locator("a.tile-a").click()
         page.wait_for_selector("#wc-body h1", timeout=30000)
-        check(page.url.endswith("/workflow?id=econ-regressions"), f"the tile opens the card: {page.url}")
+        check(page.url.endswith("/workflow?id=econ"), f"the tile opens the card: {page.url}")
+        page.goto(f"{a.url}/workflow?id=econ-regressions")
+        page.wait_for_selector("#wc-body h1", timeout=30000)
         check(page.locator("#wc-body h1").inner_text() == "Economics regression tables", "the card's title")
         anchors = [x.get_attribute("href") for x in page.locator("nav.pc-toc a").all()]
         check(anchors[:7] == ["#introduction", "#steps", "#review", "#checks", "#verification", "#versions", "#used-by"], f"the section nav: {anchors}")
