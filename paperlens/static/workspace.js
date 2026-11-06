@@ -2128,7 +2128,8 @@ function renderTableCard(panel, rec) {
     + (ask ? askedHtml(rec, ask) : columnSectionHtml(rec))
     + `<div class="verify verify-foot tc-foot"><span class="verify-lead muted">Checked the whole table?</span>`
     + `<button class="vbtn ok${status === "verified" ? " on" : ""}" data-status="verified">✓ verify table</button>`
-    + `<button class="vbtn flag${status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag table</button></div>`;
+    + `<button class="vbtn flag${status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag table</button>`
+    + (RO ? "" : `<input class="tc-note" placeholder="note — why flagged, what is off, a table that is no regression table (optional)" value="${esc(((recs.find((r) => r.note && r.note.text) || {}).note || {}).text || "")}" title="stored with the verdict, on every column, with your name and the time"/>`) + `</div>`;
   panel.appendChild(card);
   wireSiblingLinks(card);
   wireSheet(card, rec);
@@ -2292,9 +2293,10 @@ async function sendVerifyTable(card, recs, status) {
   btns.forEach((b) => (b.disabled = true));
   try {
     await pendingSaves();                                // an edit made a moment ago lands before the verdict
-    const todo = recs.filter((r) => r.verification_status !== status);
-    await Promise.all(todo.map((r) => api.verify(r.id, { status })));
-    todo.forEach((r) => (r.verification_status = status));
+    const note = ((card.querySelector(".tc-note") || {}).value || "").trim();
+    const todo = note ? recs : recs.filter((r) => r.verification_status !== status);   // a note goes on every column
+    await Promise.all(todo.map((r) => api.verify(r.id, note ? { status, notes: note } : { status })));
+    todo.forEach((r) => { r.verification_status = status; if (note) r.note = { text: note, status, by: "you", at: new Date().toISOString() }; });
     if (todo.length) maybeOfferRepublish();
     refreshNavState();
     if (QUEUE) todo.forEach((r) => queueMark(r, status));

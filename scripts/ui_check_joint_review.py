@@ -76,7 +76,7 @@ def main() -> int:
         heads = [t.strip() for t in ask.locator("thead th").all_inner_texts()]
         check(card.locator(".tc-col").count() == 0 and card.locator(".subtab").count() == 0 and "Model" not in card.inner_text() and "Clustering" not in card.inner_text(),
               "no specification under the table: the review asks only what the workflow declares")
-        check(heads == ["Column", "Target regressors", "SE type", "Fixed effects", "Controls"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
+        check(heads == ["Column", "Target regressors", "SE type", "Fixed effects", "Controls", "Notes"] and ask.locator("tbody tr").count() == 6, f"one line per column with what it asks: {heads}, {ask.locator('tbody tr').count()} rows")
         check(card.locator(".sh-val.sh-target").count() == 6 and all(t.strip() in ("0.14", "363", "205", "1,833", "1,834", "1,102") for t in card.locator(".sh-val.sh-target").all_inner_texts()),
               "each column's target regressor cell is marked in the table")
         page.screenshot(path=f"{a.shot}-1-table.png", full_page=True)
@@ -150,11 +150,14 @@ def main() -> int:
         page.wait_for_timeout(800)
         s1 = next(x for x in recs(seed["claims_doc"]) if x["field_values"]["claim_id"] == "S1")
         check(s1["verification_status"] == "verified", "the claim's ✓ verifies the claim")
-        # one verdict for the table: every column of it
+        # one verdict for the table: every column of it, with the note typed beside it
+        card.locator(".tc-foot .tc-note").fill("checked against p. 15")
         card.locator(".tc-foot .vbtn[data-status='verified']").click()
         page.wait_for_timeout(1500)
         t4 = [x for x in recs(seed["tables_doc"]) if x["field_values"]["table_number"] == "Table 4"]
         check(len(t4) == 6 and all(x["verification_status"] == "verified" for x in t4), "✓ verify table verifies all six columns of Table 4")
+        ev = page.request.get(f"{a.url}/api/records/{t4[0]['id']}/events", headers=H).json()["events"]
+        check(any((e.get("notes") or "") == "checked against p. 15" for e in ev), "the note is stored with the verdict on a column")
         t = page.locator(".tcard > .rectitle").inner_text() if page.locator(".tcard").count() else ""
         check(t.startswith("Table 3"), f"the review moves on to the next table: {t.splitlines()[0] if t else '—'}")
         check("1/2 tables reviewed" in page.locator(".progress").inner_text() and "1/3 claims" in page.locator(".progress").inner_text(),
