@@ -632,7 +632,7 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
     own = records.get_dataset(conn, dataset_id) or {"id": dataset_id}
     ds_of = step_datasets(conn, own, spec)
     group = group_of(conn, own)
-    open_by_step = {g["step_id"]: g for g in gates if not g.get("satisfied")}
+    open_by_step = {g["step_id"]: g for g in reversed(gates) if not g.get("satisfied")}   # gates come newest first: the latest run's wins
     later = {}
     for msg in later_problems(spec):
         sid = msg.split("'")[1] if msg.startswith("step '") else None
@@ -1280,14 +1280,23 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
 def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
     """A joint review stage: one gate over the documents this run made in the steps it names,
     step by step, so the worklist walks each paper's documents together (the tables, then the
-    claims). Opened as the stage declares (every paper, or a random draw of papers)."""
+    claims) — or, when the run made none (the checks over what the datasets hold), over every
+    paper of those sides. Opened as the stage declares (every paper, or a random draw of papers)."""
     doc_ids: list[str] = []
     for o in st.get("over") or []:
         osr = next((x for x in step_runs(conn, run["id"]) if x["step_id"] == o), None)
         for did in ((osr or {}).get("outputs") or {}).get("document_ids") or []:
             if did not in doc_ids:
                 doc_ids.append(did)
-    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": list(st.get("over") or [])}
+    whole = not doc_ids
+    if whole:                                             # a run over what the datasets hold: every paper of the reviewed sides
+        for o in st.get("over") or []:
+            d_id = dataset_for_step(conn, run, o)
+            for (did,) in conn.execute("""SELECT DISTINCT ON (ed.id) ed.id::text FROM record r JOIN extraction_document ed ON ed.id = r.document_id
+                                          WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false) ORDER BY ed.id""", (d_id,)).fetchall():
+                if did not in doc_ids:
+                    doc_ids.append(did)
+    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": list(st.get("over") or []), "whole": whole}
     _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, run["dataset_id"]))
     sr = get_step_run(conn, sr["id"])
     header = review_gate.open_gate(conn, sr, st)
