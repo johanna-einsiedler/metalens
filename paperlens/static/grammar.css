@@ -592,6 +592,7 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
 .tc-asktab tr.tc-me th { color: var(--accent); }
 .tc-asktab .rv-row { border: 0; padding: 0; margin: 0; display: block; }
 .tc-asktab .rv-key { display: none; }
+.tc-asktab td .rv-editable, .tc-asktab td .rv-listed { display: block; max-width: 300px; max-height: 4.6em; overflow: auto; white-space: pre-wrap; }   /* a long note scrolls; the line stays a line */
 .jc-fields { margin-top: 4px; }
 .jc-fields .rv-row { margin: 0; }
 .jc-restab { margin-top: 6px; }
