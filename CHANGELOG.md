@@ -42,9 +42,15 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   every side has its files. The panel keeps a fallback with a plain label — "Run the checks on
   what is here" when there is nothing to upload, "Go on without the missing files" when a side
   gets none.
-- "＋ New workflow" on a workflow over linked datasets makes one empty dataset per role, so a
-  run can start at once; a supplied step whose files arrive one by one (no paper planned at the
-  start) waits for "Uploads complete" instead of closing after its first file.
+- A workflow over linked datasets is set up on its page: "＋ New workflow" makes the workflow
+  dataset, and each role is then filled from "Link or make a dataset…" — link a dataset you have
+  under the role's preset, import extraction files into a new one (the Import page, back to the
+  workflow when they are in), or extract one from PDFs (not for an import-only preset). Once every
+  side has papers, **Run the checks** runs the workflow over them; "Start a run with uploads" (a
+  run that takes files uploaded into it) stays beside it. A supplied step whose files arrive one by
+  one (no paper planned at the start) no longer closes after its first file.
+- My workspace → Workflows: a ✕ on a tile deletes a workflow of mine (its linked datasets stay,
+  with their papers and verdicts) or takes a plain dataset out of its workflow.
 - "＋ Regression column" opens the new entry (it used to land on the paper panel). A table the
   extraction missed is added from its card: "New table" asks for the table number, panel and
   column — fields the card otherwise leaves out — and shows its cells as a table to fill row by

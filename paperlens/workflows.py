@@ -201,8 +201,7 @@ def create_workflow_dataset(conn, spec: dict, *, owner_user_id: str | None, sess
                             title: str | None = None, members: dict[str, str] | None = None, who=None) -> dict:
     """Make the dataset a workflow runs on. A workflow over several presets gets a workflow
     dataset — the group's own row, carrying the workflow — with the given datasets linked into
-    their roles (``{role: dataset id}``; the rest are linked or created later), or, given none,
-    with an empty dataset made for every role. A workflow over
+    their roles (``{role: dataset id}``; the rest are linked or created later). A workflow over
     one preset runs on a dataset of that preset, which carries the workflow itself. Returns the
     dataset to open."""
     roles = ws.roles(spec)
@@ -242,11 +241,8 @@ def create_workflow_dataset(conn, spec: dict, *, owner_user_id: str | None, sess
             conn.execute("UPDATE dataset SET group_id = %s::uuid, group_role = %s, workflow = %s, updated_at = now() WHERE id = %s::uuid",
                          (pid, role, wid, mid))
     out = records.get_dataset(conn, pid)
-    if not members:                                   # made from scratch: one empty dataset per role, so a run can start at once
-        for role in roles:
-            link_role(conn, out, role)
     _sync_companions(conn, out, spec)
-    return records.get_dataset(conn, pid)
+    return out
 
 
 def link_role(conn, dataset: dict, role: str, *, other_id: str | None = None, create_title: str | None = None, who=None) -> dict:

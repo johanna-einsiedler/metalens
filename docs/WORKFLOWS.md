@@ -111,6 +111,14 @@ Such a workflow lives on a **workflow dataset** of its own, one level above the 
   each side's document beside it, what the dataset-level steps made (a derive step's table), the
   Workflow panel with the runs, and one release for all of them.
 
+Each role is filled from the page's "Link or make a dataset…": a dataset the owner has under the
+role's preset is linked, or a new one is made for the role and filled on the Import page (the
+pipeline's JSON + PDF files; the page returns to the workflow when they are in) or on the extract
+page (the preset's model call per paper — not offered for an import-only preset). Once every side
+has papers, **Run the checks** starts a run whose supplied steps take nothing new and runs the
+checks and the review over what the datasets hold; "Start a run with uploads" takes new papers'
+files uploaded into the run instead.
+
 In storage the workflow dataset is the group's own row: its id is the `group_id` its members carry
 (each with its `group_role`). It is made from **My workspace → Workflows → New workflow**, or from a
 dataset's page (**Add to a workflow**, offered right after an import): the dataset joins in the role
