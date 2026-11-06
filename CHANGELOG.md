@@ -51,6 +51,19 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   one (no paper planned at the start) no longer closes after its first file.
 - My workspace → Workflows: a ✕ on a tile deletes a workflow of mine (its linked datasets stay,
   with their papers and verdicts) or takes a plain dataset out of its workflow.
+- The joint review covers every paper of the reviewed sides when the run brought no new ones
+  (the checks run over what the datasets hold), so the gate holds the release until the papers
+  are reviewed; the panel's primary action is then **Review now · n**, opening the worklist. The
+  panel shows the latest run's gate (it showed the oldest).
+- The table card: a row's name is typed in place and lands on every column; on hover a row shows
+  its type menu and ✕ (removed from every column, row indexes renumbered, an se row's link to its
+  coefficient kept); ＋ row adds a printed row the extraction missed to every column; a column's
+  number, its printed heading and its outcome are typed on the heading; the printed heading
+  ("Microcredit" over "(2)") is shown when it differs from the number; 🗑 on the card deletes the
+  table with every column. A click on a cell no longer blinks the table's caption before landing
+  on the number.
+- The chain card says what a relation tag means: "treatment-group indicator, stands in for the
+  cause" (with the preset's definition on hover) instead of "assignment indicator".
 - The single-dataset econ workflows (`econ-claims`, `econ-regressions`) are taken down for now
   (`meta.hidden`): not offered by New workflow or Add to a workflow, not listed on the Workflows
   page; a dataset that declares one keeps running it, and its card still answers by id.
