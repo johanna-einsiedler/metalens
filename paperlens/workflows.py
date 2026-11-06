@@ -1245,8 +1245,14 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
     if any(j["status"] not in JOB_TERMINAL for j in js):
         return False
     landed = [j for j in js if j["status"] in JOB_DONE]
-    if not js and not complete and st.get("source") == "supplied":
-        return False                                        # waiting for the pipeline's uploads
+    if not complete and st.get("source") == "supplied":
+        # waiting for the pipeline's uploads: until every paper planned at the start has landed —
+        # or, when none was planned and the files arrive one by one, until the owner says so
+        planned = {it.get("pdf_sha256") for s2 in ((run.get("plan") or {}).get("steps") or []) if s2.get("id") == sr["step_id"] for it in s2.get("items") or []}
+        if not planned:
+            return False
+        if any(j["pdf_sha256"] in planned and j["status"] not in JOB_TERMINAL for j in js):
+            return False
     failed = [{"pdf_sha256": j["pdf_sha256"], "filename": j["filename"], "error": j["error"]} for j in js if j["status"] == "failed"]
     if js and not landed and not complete:
         _set_sr(conn, sr["id"], status="failed", error=f"no paper landed: {failed[0]['error'] if failed else 'every job failed'}", finished_at=_now(),

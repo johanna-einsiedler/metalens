@@ -111,6 +111,14 @@ Such a workflow lives on a **workflow dataset** of its own, one level above the 
   each side's document beside it, what the dataset-level steps made (a derive step's table), the
   Workflow panel with the runs, and one release for all of them.
 
+Each role is filled from the page's "Link or make a dataset…": a dataset the owner has under the
+role's preset is linked, or a new one is made for the role and filled on the Import page (the
+pipeline's JSON + PDF files; the page returns to the workflow when they are in) or on the extract
+page (the preset's model call per paper — not offered for an import-only preset). Once every side
+has papers, **Run the checks** starts a run whose supplied steps take nothing new and runs the
+checks and the review over what the datasets hold; "Start a run with uploads" takes new papers'
+files uploaded into the run instead.
+
 In storage the workflow dataset is the group's own row: its id is the `group_id` its members carry
 (each with its `group_role`). It is made from **My workspace → Workflows → New workflow**, or from a
 dataset's page (**Add to a workflow**, offered right after an import): the dataset joins in the role
@@ -153,7 +161,10 @@ paper has landed, else from the last finished steps of the same kind on the serv
 is shown for a step that waits for people, or before anything could be measured. A run that
 waits for people reads "waiting for you" instead of "running": for uploads it lists what each
 supplied step has received ("none uploaded yet", "1 of 2 arrived") and how long it has waited,
-because nothing happens until the files arrive or the owner presses Uploads complete.
+because nothing happens until the files arrive. The Import page closes a side's uploads when its
+batch is in, so the run goes on by itself once every side has its files; the panel's fallback
+closes a side that gets no files ("Go on without the missing files") or runs the checks over what
+is already there when there is nothing to upload.
 
 ## Pipelines: k runs, a vote, a follow-up step
 

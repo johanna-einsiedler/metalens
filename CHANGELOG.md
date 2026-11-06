@@ -30,6 +30,35 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   coefficient's sub-row.
 - A missing confidence rating is not counted as a structural issue of the model output (an
   import carries no ratings).
+- Under a table, a claim is drawn as the claims document draws it (the chain layout: the edge
+  and its sign, the scope, the quotes with their page buttons, the results with their verdict
+  against the table, ✕ and ＋ result, OK / Flag with a note); ▤ edit opens its fields in place
+  and ▣ done closes them; "column ↗" on a result opens the cited column in the table above. A
+  paper with no regression table still shows its claims. The econ review asks of each column the
+  target regressor, the SE type, the fixed effects and the controls — what the blind coders
+  record from the table notes.
+- No "Uploads complete" to press: the Import page closes a side's uploads when its batch is in
+  (a batch with failures leaves it open), so a run over uploaded files goes on by itself once
+  every side has its files. The panel keeps a fallback with a plain label — "Run the checks on
+  what is here" when there is nothing to upload, "Go on without the missing files" when a side
+  gets none.
+- A workflow over linked datasets is set up on its page: "＋ New workflow" makes the workflow
+  dataset, and each role is then filled from "Link or make a dataset…" — link a dataset you have
+  under the role's preset, import extraction files into a new one (the Import page, back to the
+  workflow when they are in), or extract one from PDFs (not for an import-only preset). Once every
+  side has papers, **Run the checks** runs the workflow over them; "Start a run with uploads" (a
+  run that takes files uploaded into it) stays beside it. A supplied step whose files arrive one by
+  one (no paper planned at the start) no longer closes after its first file.
+- My workspace → Workflows: a ✕ on a tile deletes a workflow of mine (its linked datasets stay,
+  with their papers and verdicts) or takes a plain dataset out of its workflow.
+- The single-dataset econ workflows (`econ-claims`, `econ-regressions`) are taken down for now
+  (`meta.hidden`): not offered by New workflow or Add to a workflow, not listed on the Workflows
+  page; a dataset that declares one keeps running it, and its card still answers by id.
+- "＋ Regression column" opens the new entry (it used to land on the paper panel). A table the
+  extraction missed is added from its card: "New table" asks for the table number, panel and
+  column — fields the card otherwise leaves out — and shows its cells as a table to fill row by
+  row; naming it moves the card to its own tab. After ＋ or a delete, a paper of a joint review
+  keeps its other side and its per-column lines (the paper list was refetched without its grouping).
 
 - A workflow over linked datasets (econ: tables and claims) is reviewed per paper: the workspace
   lists each paper once, and the claims sit under the table their results cite (by the column an

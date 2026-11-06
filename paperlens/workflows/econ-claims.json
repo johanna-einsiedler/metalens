@@ -6,6 +6,7 @@
     "title": "Claims in empirical economics papers",
     "tagline": "The claims a paper states and the results that carry them, transcribed by the pipeline, checked against the companion tables, reviewed, released.",
     "description": "The claims files of the Robustness-at-Scale pipeline enter a dataset through this workflow: uploaded into a run, re-checked against the declared contract, every cited point estimate checked against the cells of the companion tables dataset, every new claim reviewed, then released.",
+    "hidden": true,
     "authors": [
       {
         "family": "Einsiedler",

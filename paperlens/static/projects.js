@@ -108,8 +108,19 @@ async function renderWorkflows(grid) {
     return `<div class="proj-tile-wrap"><a class="proj-tile" href="/dataset?id=${esc(w.id)}${w.kind === "workflow" ? "" : "#workflow"}">`
       + `<div class="pt-title">⛓ ${esc(w.title || "Untitled workflow")}</div>`
       + `<div class="pt-meta">${esc(w.workflow.title || w.workflow.id || "")}${w.workflow.version ? ` v${esc(String(w.workflow.version))}` : ""} · ${sides}</div>`
-      + `<div class="pt-meta">${runState(w.run)}</div></a></div>`;
+      + `<div class="pt-meta">${runState(w.run)}</div></a>`
+      + `<button type="button" class="pt-del" data-del="${esc(w.id)}" data-kind="${esc(w.kind)}" title="${w.kind === "workflow" ? "delete this workflow — its linked datasets stay, with their papers" : "take this dataset out of its workflow — the dataset stays"}">✕</button></div>`;
   }).join("") : '<p class="muted">No workflows yet. <b>＋ New workflow</b> makes the dataset a workflow runs on; a dataset page offers <b>Add to a workflow</b> too.</p>';
+  grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async () => {
+    const w = list.find((x) => x.id === b.dataset.del); if (!w) return;
+    const ask = w.kind === "workflow"
+      ? `Delete the workflow “${w.title || "Untitled workflow"}”? Its linked datasets stay, with their papers and verdicts; only the workflow, its runs and its releases go.`
+      : `Take “${w.title || "this dataset"}” out of its workflow? The dataset and its papers stay.`;
+    if (!confirm(ask)) return;
+    try { if (w.kind === "workflow") await api.deleteDataset(w.id); else await api.updateDatasetMeta(w.id, { workflow: null }); }
+    catch (e) { alert(e.message); return; }
+    renderWorkflows(grid);
+  }));
   const btn = document.querySelector("#wf-new"), form = document.querySelector("#wf-newform");
   if (!btn || !form) return;
   btn.onclick = async () => {
@@ -127,7 +138,7 @@ async function renderWorkflows(grid) {
     const pick = form.querySelector("#wf-new-pick"), help = form.querySelector("#wf-new-help");
     const say = () => {
       const w = avail[+pick.value] || {}, roles = linked(w);
-      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset; you then link or make one dataset per preset (${roles.join(", ")}).` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
+      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset with one dataset per preset (${roles.join(", ")}), ready for a run; a dataset you already have can be linked into its role on the page.` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
     };
     pick.onchange = say; say();
     form.querySelector("#wf-new-go").onclick = async () => {

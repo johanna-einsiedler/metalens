@@ -359,9 +359,7 @@ async function init() {
   if (jobsParam) startJobTracking(jobsParam.split(",").filter(Boolean), sinceParam);
   else if (sinceParam) startRoundPoll(sinceParam);
   if (QUEUE) {
-    const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
-    DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
-    if (PROJECT_MEMBERS || (QUEUE.datasets || []).length > 1) DOCS = jointDocs(DOCS);     // a joint stage: a paper's sides on one page
+    queueOrder();
     const firstPending = DOCS.find((d) => { const q = queuePaper(d); return q && q.n_checked < q.n_items; });
     if (!wantDoc && firstPending) wantDoc = firstPending.document_id;
     renderQueueBar();
@@ -854,6 +852,7 @@ async function loadJointCross(docId) {
   if (DOCID !== docId || !JOINT) return;
   const mine = new Set(jointRecs().map((r) => r.id));
   JOINT.cross = new Map(((cross && cross.rows) || []).filter((r) => mine.has(r.record_id)).map((r) => [`${r.record_id}|${r.path}`, r]));
+  JOINT.crossObj = Object.fromEntries(JOINT.cross);
   if (!RAW) renderPanel();
 }
 
@@ -1213,6 +1212,7 @@ function renderPanel() {
       + `<div class="empty-actions"><button class="btn btn-primary" id="empty-add">＋ Add a ${esc(VM.entries.label.toLowerCase())} manually</button>`
       + confirmBtn + `</div>`;
     panel.appendChild(box);
+    if (JOINT && looseClaims().length) renderLooseClaims(panel);     // a paper with no tables still has its claims to review
     wirePanelHead();
     const ea = $("#empty-add"); if (ea) ea.onclick = doAddFinding;   // seed a blank editable entry
     const nc = $("#noconfirm");
@@ -1658,6 +1658,10 @@ function resultCols() {
 // the fields the review asks, editable in place — an edit is a correction of the claim's record,
 // as in the claims document — and its results as an editable table, the rows citing THIS table
 // marked, each row's estimate checked against the table in its first cell.
+// A claim under a table is drawn as the claims document draws it (the chain layout: the edge,
+// the scope, the quotes, the results with their verdicts against the table, ✕ and ＋ result), and
+// flips to the editable field view on ▤ edit — the same card with the review's globals swapped
+// to the partner document while it renders. Without a chain layout, the field view only.
 function jointClaimHtml(c, links) {
   const rv = jointRev() || {}, fv = c.field_values || {}, e = rv.edge || {}, st = c.verification_status || "unverified";
   const vm = JOINT.vm, eopts = { editable: !RO };
@@ -1673,7 +1677,8 @@ function jointClaimHtml(c, links) {
   }).join("");
   return `<div class="jc-claim" data-rid="${esc(c.id)}" data-here="${esc(links.map((l) => l.j).join(","))}"><div class="jc-head"><b class="jc-id">${esc(shortTitle(entryTitle(vm, c, c.entry_index)))}</b>`
     + (edge ? ` <span class="jc-edge">${edge}</span>` : "") + ` <span class="status ${esc(st)}">${esc(st)}</span>`
-    + `<span class="jc-acts"><button class="vbtn ok jc-v${st === "verified" ? " on" : ""}" data-status="verified" title="this claim is right">✓</button>`
+    + `<span class="jc-acts">${jointRev() ? `<button type="button" class="histbtn jc-done" title="back to the claim as drawn">▣ done</button>` : ""}`
+    + `<button class="vbtn ok jc-v${st === "verified" ? " on" : ""}" data-status="verified" title="this claim is right">✓</button>`
     + `<button class="vbtn flag jc-v${st === "flagged" ? " on" : ""}" data-status="flagged" title="something in this claim is wrong">⚑</button>`
     + `<a class="jc-open" href="/workspace?doc=${esc(JOINT.doc.document_id)}&rec=${esc(c.id)}" data-doc="${esc(JOINT.doc.document_id)}" data-rec="${esc(c.id)}" title="every field of this claim, in the claims document">open ↗</a></span></div>`
     + fields + tables + `</div>`;
@@ -1685,37 +1690,115 @@ function claimLinksFor(el, c) {
   return claimLinks(c);
 }
 function rerenderClaim(el, c) {
-  const cur = document.querySelector(`.jc-claim[data-rid="${c.id}"]`) || el;
-  const tmp = document.createElement("div"); tmp.innerHTML = jointClaimHtml(c, claimLinksFor(cur, c));
-  const fresh = tmp.firstElementChild;
-  cur.replaceWith(fresh);
-  wireSiblingLinks(fresh); wireJointClaim(fresh, c);
+  const slot = (el && el.closest(".jc-slot")) || document.querySelector(`.jc-slot[data-rid="${c.id}"]`);
+  if (!slot) return;
+  slot.dataset.here = claimLinksFor(slot, c).map((l) => l.j).join(",");
+  slot.innerHTML = "";
+  fillClaimSlot(slot, c);
+}
+// the review's globals point at the partner document while the chain card renders
+function withJoint(fn) {
+  const saved = { VM, EV, DATA, cross: AUX.cross, concepts: AUX.concepts };
+  VM = JOINT.vm; EV = JOINT.ev; DATA = JOINT.data; AUX.cross = JOINT.crossObj || null; AUX.concepts = null;
+  try { return fn(); } finally { VM = saved.VM; EV = saved.EV; DATA = saved.DATA; AUX.cross = saved.cross; AUX.concepts = saved.concepts; }
+}
+function fillClaimSlot(slot, c) {
+  const links = (slot.dataset.here || "").split(",").filter(Boolean).map(Number);
+  if (!jointRev() || CHAIN_EDIT.has(c.id)) {
+    slot.innerHTML = jointClaimHtml(c, links.map((j) => ({ j })));
+    wireSiblingLinks(slot); wireJointClaim(slot.firstElementChild, c);
+    return;
+  }
+  withJoint(() => renderChainCard(slot, c, jointRev()));
+  postChainCard(slot.lastElementChild, c, new Set(links));
+}
+// the chain card, drawn for the partner document, made to live under a table of this one
+function postChainCard(card, c, here) {
+  card.classList.add("jc-claim"); card.dataset.rid = c.id;
+  // the evidence ids follow the open document's on the pages
+  card.querySelectorAll(".ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map((i) => +i + JOINT.off);
+    b.dataset.eids = ids.join(",");
+    b.onclick = (ev) => { ev.stopPropagation(); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
+  });
+  // the results: the rows citing this table marked; a row's column opened in the table above
+  card.querySelectorAll(".chain-res[data-path]").forEach((row) => {
+    const m = /\[(\d+)\]$/.exec(row.dataset.path);
+    if (m && here.has(+m[1])) row.classList.add("jc-here");
+    const x = JOINT.cross && JOINT.cross.get(`${c.id}|${row.dataset.path}`);
+    const idx = x && x.companion_record_id ? (DATA.records || []).findIndex((r) => r.id === x.companion_record_id) : -1;
+    if (idx < 0) return;
+    const line = row.querySelector(".chain-line"); if (!line) return;
+    const a = document.createElement("a"); a.href = "#"; a.className = "jc-col"; a.textContent = "column ↗"; a.title = "open this column in the table";
+    a.onclick = (ev) => {
+      ev.preventDefault();
+      const r = DATA.records[idx], S = sheetSpec(), tc = card.closest(".tcard"), mine = tc && (DATA.records || []).find((y) => y.id === tc.dataset.rid);
+      if (mine && S && sheetKey(mine, S) === sheetKey(r, S)) { selectColumn(tc, r.id); tc.querySelector(".sh-t").scrollIntoView({ block: "start", behavior: "smooth" }); }
+      else selectEntry(idx);
+    };
+    line.insertBefore(a, line.querySelector(".chain-resdel"));
+  });
+  // verdicts, edits, rows: the claim's, not the table's
+  card.querySelectorAll(".chain-foot .vbtn[data-status]").forEach((b) => { b.classList.add("jc-v"); b.onclick = () => sendVerifyClaim(card, c, b.dataset.status, chainNoteText(card)); });
+  const eb = card.querySelector(".chain-editbtn"); if (eb) eb.onclick = () => { CHAIN_EDIT.add(c.id); rerenderClaim(card, c); };
+  const rd = card.querySelector(".recdel"); if (rd) rd.onclick = () => doDeleteClaim(c);
+  const ed = card.querySelector(".chain-edge"); if (ed) ed.onclick = null;
+  const R = (jointRev() || {}).results || null;
+  if (R) {
+    card.querySelectorAll(".chain-resdel").forEach((b) => (b.onclick = async () => {
+      const j = Number(b.dataset.j), rows = (c.field_values || {})[R.child] || [], row = rows[j] || {};
+      const label = [(R.exhibit || []).map((n) => row[n]).filter(Boolean).join(" "), row[R.value]].filter((x) => x !== null && x !== undefined && x !== "").join(" · ") || "this row";
+      if (!confirm(`Remove ${label} from this claim? The change is logged and the claim stays.`)) return;
+      rows.splice(j, 1);
+      try { await saveWholeRecord(c, [{ field_path: `${R.child}[${j}]`, original_value: label, final_value: "(row removed)" }]); maybeOfferRepublish(); rerenderClaim(card, c); }
+      catch (e) { rows.splice(j, 0, row); alert("remove failed: " + e.message); }
+    }));
+    const add = card.querySelector(".chain-addres");
+    if (add) add.onclick = async () => {
+      const ch = (JOINT.vm.fieldIndex.get(R.child) || {}).child;
+      const blank = Object.fromEntries(((ch && ch.fields) || []).map((f) => [f.name, null]));
+      if (!c.field_values) c.field_values = {};
+      const rows = (c.field_values[R.child] = [...(c.field_values[R.child] || []), blank]);
+      try { await saveWholeRecord(c, [{ field_path: `${R.child}[${rows.length - 1}]`, original_value: null, final_value: "(row added)" }]); maybeOfferRepublish(); CHAIN_EDIT.add(c.id); rerenderClaim(card, c); }
+      catch (e) { rows.pop(); alert("add failed: " + e.message); }
+    };
+  }
+}
+async function doDeleteClaim(c) {
+  if (!confirm(`Delete claim "${shortTitle(entryTitle(JOINT.vm, c, c.entry_index))}"? This cannot be undone.`)) return;
+  try { await api.deleteRecord(c.id); await load(DOCID); }
+  catch (e) { alert("delete failed: " + e.message); }
+}
+function claimSlots(claims) {
+  return claims.map((c) => `<div class="jc-slot" data-rid="${esc(c.id)}"></div>`).join("");
 }
 function jointClaimsHtml(claims, recs) {
   if (!claims.length) return `<div class="jc-box jc-none muted">No claim of this paper cites this table.</div>`;
   const done = claims.filter(isReviewed).length;
-  return `<div class="jc-box"><div class="jc-cap">Claims citing this table <span class="muted">· ${done} of ${claims.length} reviewed</span></div>`
-    + claims.map((c) => jointClaimHtml(c, recs ? linksToTable(c, recs) : claimLinks(c))).join("") + `</div>`;
+  return `<div class="jc-box"><div class="jc-cap">Claims citing this table <span class="muted">· ${done} of ${claims.length} reviewed</span></div>${claimSlots(claims)}</div>`;
 }
 function renderLooseClaims(panel) {
   const box = document.createElement("div");
   box.className = "record jc-loose";
   const cs = looseClaims();
   box.innerHTML = `<div class="rectitle">Claims without a table <span class="muted" style="font-weight:400">· their results cite no table of this paper (a figure, the text)</span></div>`
-    + (cs.length ? cs.map((c) => jointClaimHtml(c, claimLinks(c))).join("") : `<p class="muted">Every claim of this paper cites one of its tables.</p>`);
+    + (cs.length ? claimSlots(cs) : `<p class="muted">Every claim of this paper cites one of its tables.</p>`);
   panel.appendChild(box);
-  wireSiblingLinks(box);
   wireJointClaims(box);
 }
 function wireJointClaims(root) {
-  root.querySelectorAll(".jc-claim[data-rid]").forEach((el) => {
-    const c = jointRecs().find((x) => x.id === el.dataset.rid);
-    if (c) wireJointClaim(el, c);
+  root.querySelectorAll(".jc-slot[data-rid]").forEach((slot) => {
+    const c = jointRecs().find((x) => x.id === slot.dataset.rid); if (!c) return;
+    slot.dataset.here = claimLinksFor(slot, c).map((l) => l.j).join(",");
+    slot.innerHTML = "";
+    fillClaimSlot(slot, c);
   });
 }
 function wireJointClaim(el, c) {
   const rv = jointRev() || {}, e = rv.edge || {};
   if (!RO) el.querySelectorAll(".jc-v").forEach((b) => (b.onclick = () => sendVerifyClaim(el, c, b.dataset.status)));
+  const dn = el.querySelector(".jc-done"); if (dn) dn.onclick = () => { CHAIN_EDIT.delete(c.id); rerenderClaim(el, c); };
   // a quote's page button beside its label
   for (const q of rv.quotes || []) {
     const key = el.querySelector(`.rv-row[data-field="${q.field}"] .rv-key`); if (!key) continue;
@@ -1748,15 +1831,17 @@ function wireJointClaim(el, c) {
   }, true);
   wireTableRows(el, c, () => rerenderClaim(el, c));
 }
-async function sendVerifyClaim(el, c, status) {
+async function sendVerifyClaim(el, c, status, notes) {
   const btns = el.querySelectorAll(".jc-v");
   btns.forEach((b) => (b.disabled = true));
   try {
-    await api.verify(c.id, { status });
+    await api.verify(c.id, notes === undefined ? { status } : { status, notes });
+    if (notes !== undefined) c.note = notes ? { text: notes, status, by: "you", at: new Date().toISOString() } : null;
     c.verification_status = status;
     maybeOfferRepublish();
     const badge = el.querySelector(".status"); if (badge) { badge.textContent = status; badge.className = `status ${status}`; }
     btns.forEach((b) => b.classList.toggle("on", b.dataset.status === status));
+    const rvw = el.querySelector(".chain-review"); if (rvw) rvw.hidden = status !== "flagged" && !c.note;
     const cap = el.closest(".jc-box") && el.closest(".jc-box").querySelector(".jc-cap .muted");
     if (cap) { const all = [...el.closest(".jc-box").querySelectorAll(".jc-claim[data-rid]")].map((x) => jointRecs().find((r) => r.id === x.dataset.rid)).filter(Boolean); cap.textContent = `· ${all.filter(isReviewed).length} of ${all.length} reviewed`; }
     refreshNavState();
@@ -1923,11 +2008,17 @@ function renderTableCard(panel, rec) {
   const ask = asksFor();                               // a joint workflow asks only what its validation checks
   const card = document.createElement("div");
   card.className = "record tcard"; card.dataset.rid = rec.id;
-  card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${esc(sheetLabel(rec, S))}`
+  const fv = rec.field_values || {};
+  const named = (S.group || []).some((f) => fv[f] != null && String(fv[f]).trim() !== "");
+  const blank = recs.length === 1 && !sheetCells(rec, S).length;        // an entry added by hand: a table the pipeline missed
+  const identDefs = (!named || blank) ? [...(S.group || []), S.panel, S.column].filter(Boolean).map((f) => (VM.fieldIndex.get(f) || {}).field).filter(Boolean) : [];
+  card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${named ? esc(sheetLabel(rec, S)) : "New table"}`
     + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span></div>`
+    + (identDefs.length ? `<div class="tc-ident"><div class="muted" style="font-size:12.5px;margin-bottom:4px">A table the extraction missed: name it (as printed), then add its cells row by row below — one entry per column.</div>`
+        + `<div class="rv-root">${renderFields(identDefs, fv, "", { editable: !RO })}</div></div>` : "")
     + tableNotesHtml(recs)
     + (JOINT ? "" : citedByHtml(rec, recs.flatMap((r) => (CITED && CITED[r.id]) || [])))
-    + (SHEET_LIST ? `<div class="rv-root tc-list">${renderFields([sdef], rec.field_values || {}, "", { editable: !RO })}</div>${sheetToggle(true)}`
+    + (SHEET_LIST || blank ? `<div class="rv-root tc-list">${renderFields([sdef], fv, "", { editable: !RO })}</div>${blank ? "" : sheetToggle(true)}`
         : renderSheet(rec, sdef, ask ? "every cell editable · the target regressor's cell underlined" : null))
     + (JOINT ? jointClaimsHtml(claimsForTable(recs), recs) : "")
     + (ask ? askedHtml(rec, ask) : columnSectionHtml(rec))
@@ -1943,6 +2034,8 @@ function renderTableCard(panel, rec) {
     wireControls(list, (path, val) => saveFieldEdit(rec, list, path, val, curVal(rec, path)), true);
     wireTableRows(list, rec, () => renderPanel());
   }
+  const ident = card.querySelector(".tc-ident");
+  if (ident && !RO) wireControls(ident, (path, val) => saveFieldEdit(rec, ident, path, val, curVal(rec, path)).then(() => renderPanel()), true);
   wireColumnSection(card.querySelector(".tc-col"), rec);
   wireAsked(card);
   if (!RO) card.querySelectorAll(".tc-foot .vbtn").forEach((b) => (b.onclick = () => sendVerifyTable(card, recs, b.dataset.status)));
@@ -2177,8 +2270,25 @@ async function doDelete() {
 }
 
 // re-fetch the sidebar counts + the current document after a record add/delete
+// the papers in view, fetched as init() fetches them: a joint queue's or a workflow dataset's
+// sides tagged with their dataset (so a paper keeps its partners), else the dataset's documents
+async function fetchDocs() {
+  if (QUEUE && (QUEUE.datasets || []).length > 1) {
+    const lists = await Promise.all(QUEUE.datasets.map((ds) => api.documents({ dataset: ds }).then((r) => (r.documents || []).map((d) => ({ ...d, _ds: ds }))).catch(() => [])));
+    return lists.flat();
+  }
+  if (PROJECT_MEMBERS) return workflowDocs();
+  return (await api.documents(PROJECT ? { dataset: PROJECT } : {})).documents || [];
+}
+// a queue: only its documents, in draw order; a joint stage's as one entry per paper
+function queueOrder() {
+  if (!QUEUE) return;
+  const order = new Map((QUEUE.documents || []).map((d, k) => [d.document_id, k]));
+  DOCS = DOCS.filter((d) => order.has(d.document_id)).sort((a, b) => order.get(a.document_id) - order.get(b.document_id));
+  if ((PROJECT_MEMBERS || (QUEUE.datasets || []).length > 1) && !DOCS.some((d) => d.partners)) DOCS = jointDocs(DOCS);
+}
 async function reloadDoc() {
-  try { DOCS = (await api.documents(PROJECT ? { dataset: PROJECT } : {})).documents || []; } catch { /* */ }
+  try { DOCS = await fetchDocs(); queueOrder(); } catch { /* */ }
   renderDocTabs();
   await load(DOCID);
 }
@@ -2235,6 +2345,9 @@ async function doAddFinding(extra) {
     await api.addRecord(DATA.document_id, { field_values: template });
     if (es) STAGE = es.index;
     await reloadDoc();
+    // the new entry opens: the last one, in a panel that shows one entry at a time
+    const recs = DATA.records || [];
+    if (recs.length > 1 && !es && !GRID && !RAW) { PANEL_SEL = recs.length - 1; renderPanel(); selectEntry(PANEL_SEL); }
   }
   catch (e) { alert("add failed: " + e.message); }
 }
@@ -2482,8 +2595,8 @@ function mountKeys() {
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
     else if (e.key === "h") { setMarking(!MARKING); e.preventDefault(); }
-    else if (e.key === "v" && card) { const b = card.querySelector('.vbtn:not(.jc-v)[data-status="verified"]'); if (b) b.click(); }
-    else if (e.key === "f" && card) { const b = card.querySelector('.vbtn:not(.jc-v)[data-status="flagged"]'); if (b) b.click(); }
+    else if (e.key === "v" && card) { const b = card.querySelector('.verify-foot .vbtn[data-status="verified"]') || card.querySelector('.vbtn:not(.jc-v)[data-status="verified"]'); if (b) b.click(); }
+    else if (e.key === "f" && card) { const b = card.querySelector('.verify-foot .vbtn[data-status="flagged"]') || card.querySelector('.vbtn:not(.jc-v)[data-status="flagged"]'); if (b) b.click(); }
     else if (/^[1-9]$/.test(e.key) && card) { const b = card.querySelectorAll(".subtab")[+e.key - 1]; if (b) b.click(); }
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }

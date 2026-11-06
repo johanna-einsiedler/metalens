@@ -226,10 +226,10 @@ def test_api_workflow_cards_releases_and_bundle(monkeypatch) -> None:
     r = c.patch(f"/api/datasets/{ds}", headers={"X-Session-Id": sess}, json={"workflow": WID}); assert r.status_code == 200, r.text
     lst = c.get("/api/workflows/cards").json()
     ids = {x["id"] for x in lst["cards"]}
-    assert {WID, "econ-claims", "masem"} <= ids and "zenodo" not in lst
-    econ = next(x for x in lst["cards"] if x["id"] == WID)
-    assert econ["latest"] is None and econ["contract"].startswith(f"{WID}@") and econ["counts"]["datasets"] >= 1
-    assert [s["kind"] for s in econ["steps"]][0] == "extract" and econ["review"][0]["mode"] == "sample"
+    assert {"econ", "masem"} <= ids and WID not in ids and "econ-claims" not in ids and "zenodo" not in lst   # taken down: not listed
+    econ = c.get(f"/api/workflows/{WID}/card").json()                                                           # its card still answers by id
+    assert econ["latest"] is None and econ["contract"].startswith(f"{WID}@") and len(econ["datasets"]) >= 1
+    assert [s["kind"] for s in econ["steps"]][0] == "extract" and next(s["review"] for s in econ["steps"] if s.get("review"))["mode"] == "sample"
     assert c.get("/api/workflows/no-such-workflow/card").status_code == 404
     card = c.get(f"/api/workflows/{WID}/card").json()
     assert card["id"] == WID and card["card_md"].startswith("## Introduction") and card["viewer"]["is_admin"] is False and "zenodo" not in card

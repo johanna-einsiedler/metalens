@@ -79,10 +79,12 @@ async function loadDatasets() {
     RUN_ID = new URLSearchParams(location.search).get("run") || null;
     RUN_STEP = new URLSearchParams(location.search).get("step") || "extract";
     RUN_BACK = new URLSearchParams(location.search).get("back") || null;   // the workflow dataset the run belongs to
-    if (RUN_ID) {
+    if (RUN_ID || RUN_BACK) {
       const note = document.createElement("p");
       note.className = "muted"; note.style.cssText = "font-size:13px;margin:6px 0 0";
-      note.innerHTML = `These uploads are the papers of a <b>workflow run</b> of “${esc(target.title || "this dataset")}”: each lands in the run, and the run goes on once you mark the uploads complete on the ${RUN_BACK ? "workflow" : "dataset"} page. <a href="/dataset?id=${esc(RUN_BACK || target.id)}#workflow">Back to the ${RUN_BACK ? "workflow" : "dataset"} →</a>`;
+      note.innerHTML = RUN_ID
+        ? `These uploads are the papers of a <b>workflow run</b> of “${esc(target.title || "this dataset")}”: each lands in the run, and the run goes on by itself once this import is done. <a href="/dataset?id=${esc(RUN_BACK || target.id)}#workflow">Back to the ${RUN_BACK ? "workflow" : "dataset"} →</a>`
+        : `These uploads fill “${esc(target.title || "this dataset")}”, a side of a workflow; you are back on the workflow when they are in. <a href="/dataset?id=${esc(RUN_BACK)}">Back to the workflow →</a>`;
       sel.closest(".field, .row, div")?.appendChild(note);
     }
   }
@@ -592,14 +594,22 @@ async function run() {
     } catch (e) { setStat(r.key, `✗ ${esc(e.message)}`, "warn"); }
   }
   RUNNING = false; $("#run").disabled = false;
+  // A workflow run's side is closed when its batch is in — the run goes on by itself (to the
+  // other side's uploads, or to the checks); a batch with failures leaves the side open, so the
+  // failed files can be imported again.
+  let went = "";
+  if (RUN_ID && done && done === rows.length) {
+    try { await api.workflowComplete(RUN_ID, RUN_STEP); went = " The run goes on."; }
+    catch (e) { went = ` The run was not told (${esc(e.message)}): go on from the workflow page.`; }
+  } else if (RUN_ID && done < rows.length) went = " The run waits: import the failed files again.";
   // Nothing opens by itself: the dataset's page shows what arrived and offers the next step
   // (review the data, or add the dataset to a workflow). Uploads of a workflow run go back to
-  // the workflow, where the run goes on.
+  // the workflow.
   const go = !datasetId ? "/workspace"
-    : RUN_ID ? `/dataset?id=${encodeURIComponent(RUN_BACK || datasetId)}#workflow`
+    : (RUN_ID || RUN_BACK) ? `/dataset?id=${encodeURIComponent(RUN_BACK || datasetId)}${RUN_ID ? "#workflow" : ""}`
     : `/dataset?id=${encodeURIComponent(datasetId)}&imported=${done}`;
   const extra = (replaced ? `, ${replaced} replaced` : "") + (skipped ? `, ${skipped} skipped` : "");
-  $("#status").innerHTML = `Imported ${done}/${rows.length}${extra}. <a href="${go}">${RUN_ID ? "Back to the workflow" : "Open the dataset"} →</a>`;
+  $("#status").innerHTML = `Imported ${done}/${rows.length}${extra}.${went} <a href="${go}">${RUN_ID || RUN_BACK ? "Back to the workflow" : "Open the dataset"} →</a>`;
   if (done) setTimeout(() => { location.href = go; }, 800);
 }
 

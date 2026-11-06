@@ -235,6 +235,11 @@ details.addmenu { position: relative; display: inline-block; }
 /* the tile's corner buttons (🗑, and ✎ on datasets) sit over the tile: keep the title clear of them */
 .proj-tile-wrap .pt-title { padding-right: 22px; overflow-wrap: anywhere; }
 .proj-tile-wrap:has(.pt-rename) .pt-title { padding-right: 44px; }
+.proj-tile-wrap .pt-del { position: absolute; top: 8px; right: 8px; border: 0; background: transparent; color: var(--text-muted); font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
+.proj-tile-wrap .pt-del:hover { color: var(--conf-low); background: var(--surface); }
+/* a role of a workflow dataset: link a dataset, import into a new one, extract into a new one */
+.lf .lf-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 6px; font-size: 13px; }
+.lf .lf-opt .muted { font-size: 12.5px; }
 .pt-del { position: absolute; top: 10px; right: 10px; border: none; background: none; cursor: pointer; font-size: 13px; opacity: .4; }
 .pt-del:hover { opacity: 1; }
 /* dataset activity feed: icon | what changed | when */
