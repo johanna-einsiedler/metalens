@@ -1197,6 +1197,10 @@
       "in": 10.0,
       "out": 50.0
     },
+    "claude-mythos-5-2": {
+      "in": 8.0,
+      "out": 40.0
+    },
     "claude-mythos-preview": {
       "in": 10.0,
       "out": 50.0
@@ -1332,6 +1336,22 @@
     "gemini-omni-1.2-flash": {
       "in": 1.5,
       "out": 9.0
+    },
+    "claude-fable-5-2": {
+      "in": 8.0,
+      "out": 40.0
+    },
+    "gemini-4-carbon": {
+      "in": 2.0,
+      "out": 10.0
+    },
+    "gemini-decision-1": {
+      "in": 0.1,
+      "out": 0.0
+    },
+    "gemini-4-hydrogen": {
+      "in": 1.5,
+      "out": 7.5
     },
     "gemini-2.0-flash-exp-image-generation": {
       "in": 0.0,
@@ -1590,5 +1610,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-11-09T06:38:50Z"
+  "generated_at": "2026-11-16T06:46:18Z"
 }
