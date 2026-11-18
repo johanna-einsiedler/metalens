@@ -192,6 +192,8 @@ export const api = {
   locateValue: (id, value, page, bands, opts) =>
     req(`/api/documents/${id}/locate?value=${encodeURIComponent(value)}&page=${page}${bands ? `&bands=${encodeURIComponent(bands)}` : ""}`
       + `${(opts && opts.anchor ? [].concat(opts.anchor) : []).map((a) => `&anchor=${encodeURIComponent(a)}`).join("")}${opts && opts.pageOnly ? "&page_only=true" : ""}`),
+  // the PDF pane's search box: every page `q` is printed on, with the box of each hit
+  searchPdf: (id, q) => req(`/api/documents/${id}/search?q=${encodeURIComponent(q)}`),
   // the model's verbatim response as stored at extraction time; null when none was kept
   rawResponse: async (id) => {
     const r = await fetch(`/api/documents/${id}/raw`, { credentials: "same-origin", headers: { "X-Session-Id": sid() } });

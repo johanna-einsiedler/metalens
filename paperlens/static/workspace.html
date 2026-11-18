@@ -19,9 +19,17 @@
       <div id="evpane" class="stg-evpane"></div>
       <div id="hsplitter" class="hsplitter" title="drag to resize"></div>
       <div id="pdfpane" class="pdfpane">
-        <div id="pdfzoom" class="pdfzoom" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)">
-          <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
-          <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+        <div class="pdftools">
+          <form id="pdfsearch" class="pdfsearch" role="search" title="search the PDF's text — Enter: next match, Shift+Enter: previous, Esc: clear (/ focuses the box)" hidden>
+            <input type="search" id="pdfsearch-q" placeholder="search the PDF" autocomplete="off" spellcheck="false" aria-label="search the PDF">
+            <span id="pdfsearch-k" class="pdfsearch-k"></span>
+            <button type="button" data-d="-1" title="previous match (Shift+Enter)" disabled>‹</button><button type="button" data-d="1" title="next match (Enter)" disabled>›</button>
+            <ul id="pdfsearch-list" class="pdfsearch-list" hidden></ul>
+          </form>
+          <div id="pdfzoom" class="pdfzoom" title="zoom the pages (also Ctrl/⌘ + mouse wheel over the PDF)">
+            <button type="button" data-z="out" title="zoom out">−</button><span id="pdfzoomval">fit</span>
+            <button type="button" data-z="in" title="zoom in">+</button><button type="button" data-z="fit" title="fit the pane width">fit</button>
+          </div>
         </div>
         <div id="pages" class="pages"><p class="muted">Select a document.</p></div>
       </div>

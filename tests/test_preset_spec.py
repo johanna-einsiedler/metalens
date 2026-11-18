@@ -508,11 +508,71 @@ def _stage_errors(mutate) -> list[str]:
     ("auto_id first not a string", lambda rv: rv["stages"][2].update(auto_id={"field": "row_id", "first": 1, "next": "T{n}"}), "auto_id.first must be a string"),
     ("bad id", lambda rv: rv["stages"][1].update(id="2 b"), "id must match"),
     ("no label", lambda rv: rv["stages"][1].pop("label"), "label is required"),
+    ("evidence other than none", lambda rv: rv["stages"][0].update(evidence="all"), "evidence must be 'items' (the default) or 'none'"),
+    ("evidence a flag", lambda rv: rv["stages"][0].update(evidence=False), "evidence must be 'items' (the default) or 'none'"),
+    ("sections not a list", lambda rv: rv["stages"][1].update(sections={"label": "A", "fields": ["n"]}), "sections must be a non-empty list"),
+    ("sections empty", lambda rv: rv["stages"][1].update(sections=[]), "sections must be a non-empty list"),
+    ("section unknown key", lambda rv: rv["stages"][1].update(sections=[{"label": "A", "fields": ["n"], "open": True}]), "sections[0]: unknown key 'open'"),
+    ("section without label", lambda rv: rv["stages"][1].update(sections=[{"fields": ["n"]}]), "sections[0].label is required"),
+    ("section help not a string", lambda rv: rv["stages"][1].update(sections=[{"label": "A", "help": 3, "fields": ["n"]}]), "sections[0].help must be a string"),
+    ("section without fields", lambda rv: rv["stages"][1].update(sections=[{"label": "A", "fields": []}]), "sections[0].fields must be a non-empty list"),
+    ("section field not of the stage", lambda rv: rv["stages"][1].update(sections=[{"label": "A", "fields": ["design"]}]), "'design' is not a paper or entry field of this stage"),
+    ("section field of a child", lambda rv: rv["stages"][2].update(sections=[{"label": "A", "fields": ["var1"]}]), "'var1' is not a paper or entry field of this stage"),
+    ("field in two sections", lambda rv: rv["stages"][1].update(sections=[{"label": "A", "fields": ["n"]}, {"label": "B", "fields": ["n", "sample_id"]}]), "'n' is already in another section"),
 ])
 def test_stages_review_rejects(label, mutate, needle) -> None:
     errs = _stage_errors(mutate)
     assert errs, f"{label}: expected an error"
     assert any(needle in e for e in errs), f"{label}: {errs}"
+
+
+def test_a_stage_may_show_no_evidence() -> None:
+    """``evidence: "none"`` on a stage is accepted on any level and changes nothing else: the stage
+    lists no items (a blind judgment); ``"items"`` spells out the default; the key never enters the
+    data contract."""
+    doc = _stages_doc()
+    doc["display"]["review"]["stages"][0]["evidence"] = "none"
+    doc["display"]["review"]["stages"][1]["evidence"] = "items"
+    doc["display"]["review"]["stages"][2]["evidence"] = "none"
+    spec = ps.normalize(doc)
+    errs, warns = ps.validate(spec)
+    assert not errs, errs
+    assert spec["display"]["review"]["stages"][0]["evidence"] == "none" and spec["display"]["review"]["stages"][1]["evidence"] == "items"
+    assert "evidence" not in spec["display"]["review"]["stages"][3]
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize(_stages_doc()))
+
+
+def test_a_stage_may_group_its_fields_in_sections() -> None:
+    """``sections`` on a stage: labelled blocks of the stage's paper or entry fields, in order; a
+    field in no section is fine (drawn after them); help is optional; the contract is unchanged."""
+    doc = _stages_doc()
+    doc["display"]["review"]["stages"][1]["sections"] = [{"label": "Identity", "fields": ["sample_id"]},
+                                                         {"label": "Size", "help": "as the paper states it", "fields": ["n"]}]
+    doc["display"]["review"]["stages"][0]["sections"] = [{"label": "Design", "fields": ["design"]}]
+    spec = ps.normalize(doc)
+    errs, _ = ps.validate(spec)
+    assert not errs, errs
+    assert [sc["label"] for sc in spec["display"]["review"]["stages"][1]["sections"]] == ["Identity", "Size"]
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize(_stages_doc()))
+
+
+def test_a_table_may_be_drawn_as_stacked_blocks() -> None:
+    """``display: "stacked"`` and ``lead`` on a table field are presentation: accepted on a table
+    (entry or paper level), the lead a column of it, and the schema id does not move."""
+    doc = copy.deepcopy(GOOD)
+    doc["entries"]["fields"][2].update(display="stacked", lead="a")
+    spec = ps.normalize(doc)
+    errs, _ = ps.validate(spec)
+    assert not errs, errs
+    assert spec["entries"]["fields"][2]["display"] == "stacked" and spec["entries"]["fields"][2]["lead"] == "a"
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize(GOOD))
+    plain = copy.deepcopy(GOOD); plain["entries"]["fields"][2]["display"] = "table"
+    assert not ps.validate(ps.normalize(plain))[0]
+    assert any("display must be 'table'" in e for e in _errors(lambda d: d["entries"]["fields"][2].update(display="grid")))
+    assert any("lead must name a column" in e for e in _errors(lambda d: d["entries"]["fields"][2].update(display="stacked", lead="zzz")))
+    assert any("display and lead only apply to table fields" in e for e in _errors(lambda d: d["paper"]["fields"][0].update(display="stacked")))
+    assert any("display and lead only apply to table fields" in e for e in _errors(lambda d: d["entries"]["fields"][1].update(lead="n")))
+    assert any("display and lead only apply to table fields" in e for e in _errors(lambda d: d["entries"]["fields"][2]["columns"][0].update(display="stacked")))
 
 
 def test_stages_review_entry_stage_may_carry_a_child() -> None:

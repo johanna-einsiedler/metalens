@@ -653,6 +653,24 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     return {"rects": rects, "found": bool(rects), "page": found_page}
 
 
+@app.get("/api/documents/{document_id}/search")
+def search_document(document_id: str, q: str, db=Depends(get_db),
+                    who: Principal = Depends(principal)) -> dict:
+    """Owner-only: every page on which ``q`` is printed, with the box of each hit in image pixels —
+    what the PDF pane's search box lists and walks. ``hits`` is ``[{page, rects}]`` in page order,
+    ``n`` the number of boxes, ``truncated`` whether the cap was reached; ``no_pdf`` when the paper
+    has no PDF to search."""
+    if not records.is_document_owner(db, document_id, who):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    from . import pdf_utils
+    store = storage.get_store()
+    key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
+    if not store.exists(key):
+        return {"hits": [], "n": 0, "truncated": False, "no_pdf": True}
+    hits, truncated = pdf_utils.search_text_rects(store.get(key), q)
+    return {"hits": hits, "n": sum(len(h["rects"]) for h in hits), "truncated": truncated}
+
+
 # ── the coder's marks: sentences kept with the paper, tied to no cell ─────────────────────────
 
 class HighlightBody(BaseModel):

@@ -68,7 +68,7 @@ export function renderPages(root, pages, evidence) {
 // the drawn rects that answer to one evidence id (a rect may carry several ids)
 const rectsFor = (id) => document.querySelectorAll(`rect.hl[data-eids~="${id}"]`);
 
-function clearSelection() {
+export function clearSelection() {
   document.querySelectorAll("rect.hl.sel, rect.hl.flash").forEach((r) => r.classList.remove("sel", "flash"));
   document.querySelectorAll("rect.hl.located").forEach((r) => r.remove());
 }

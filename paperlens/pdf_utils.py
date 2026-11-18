@@ -345,6 +345,46 @@ def locate_text_rects_any(pdf_bytes: bytes, text: str, *, prefer_page: int | Non
         doc.close()
 
 
+def search_text_rects(pdf_bytes: bytes, text: str, *, dpi: int = DISPLAY_DPI,
+                      limit: int = 300) -> tuple[list[dict], bool]:
+    """Every place literal ``text`` is printed in the PDF, page by page, for the viewer's search
+    box: ``[{"page": p, "rects": [[x, y, w, h], …]}, …]`` in image pixels (the viewer's DPI), pages
+    in order and the hits in reading order on each; case-insensitive, a line-end hyphen joined.
+    Under two characters finds nothing (noise). ``limit`` caps the rects kept over all pages; the
+    second value says whether it was reached."""
+    t = (text or "").strip()
+    if len(t) < 2:
+        return [], False
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        scale = dpi / 72.0
+        _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
+        out: list[dict] = []
+        kept = 0
+        for p in range(1, len(doc) + 1):
+            page = doc[p - 1]
+            try:
+                rects = page.search_for(t, flags=_DEHY) if _DEHY else page.search_for(t)
+            except Exception:
+                rects = page.search_for(t)
+            if not rects:
+                continue
+            room = limit - kept
+            if room <= 0:
+                return out, True
+            cut = rects[:room]
+            out.append({"page": p, "rects": [[round(r.x0 * scale, 2), round(r.y0 * scale, 2),
+                                              round((r.x1 - r.x0) * scale, 2), round((r.y1 - r.y0) * scale, 2)]
+                                             for r in cut]})
+            kept += len(cut)
+            if len(cut) < len(rects):
+                return out, True
+        return out, False
+    finally:
+        doc.close()
+
+
 def pdf_to_images(pdf_bytes: bytes, dpi: int = EXTRACTION_DPI, fmt: str = "png") -> list[str]:
     """Convert PDF bytes to a list of base64-encoded images, one per page.
 
