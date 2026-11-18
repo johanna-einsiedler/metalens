@@ -106,12 +106,28 @@ main.split { display: flex; height: calc(100vh - 53px); }
 /* the review panel can be dragged as wide as the window allows; the PDF pane then scrolls
    sideways and can be zoomed instead of shrinking into an unreadable strip */
 .panel { width: 480px; flex: 0 0 auto; min-width: 0; overflow: auto; padding: 16px; background: var(--surface); }
-.pdfzoom { position: absolute; top: 8px; right: 18px; z-index: 6; display: flex; align-items: center; gap: 2px;
+/* the strip over the pages' top right: the search box, then the zoom */
+.pdftools { position: absolute; top: 8px; right: 18px; z-index: 6; display: flex; align-items: flex-start; gap: 6px; }
+.pdfzoom, .pdfsearch { display: flex; align-items: center; gap: 2px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px 4px;
   font-size: 12px; color: var(--text-muted); box-shadow: var(--shadow-sm); }
-.pdfzoom button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
-.pdfzoom button:hover { background: var(--bg); }
+.pdfzoom button, .pdfsearch button { border: 0; background: none; cursor: pointer; font: inherit; font-size: 13px; padding: 2px 7px; border-radius: 4px; color: var(--text); }
+.pdfzoom button:hover, .pdfsearch button:hover { background: var(--bg); }
+.pdfsearch button:disabled { opacity: .35; cursor: default; }
 .pdfzoom #pdfzoomval { min-width: 34px; text-align: center; }
+/* the search box: the text typed, the match counter, ‹ ›, and under it the pages found */
+.pdfsearch { position: relative; margin: 0; }
+.pdfsearch input { border: 0; background: none; font: inherit; font-size: 13px; color: var(--text); width: 118px; padding: 2px 4px; outline: none; transition: width .15s; }
+.pdfsearch:focus-within input { width: 170px; }
+.pdfsearch input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.pdfsearch.busy input { opacity: .55; }
+.pdfsearch-k { min-width: 38px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pdfsearch-k:empty { display: none; }
+.pdfsearch-list { position: absolute; top: 100%; right: 0; margin: 4px 0 0; padding: 4px 0; list-style: none; min-width: 150px; max-height: 240px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); font-size: 12px; }
+.pdfsearch-list li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 10px; cursor: pointer; color: var(--text); white-space: nowrap; }
+.pdfsearch-list li:hover, .pdfsearch-list li.cur { background: var(--bg); }
+.pdfsearch-list li.cur span:first-child { font-weight: 600; }
 .splitter { flex: 0 0 6px; cursor: col-resize; background: var(--bg); border-right: 1px solid var(--border); border-left: 1px solid var(--border); }
 .splitter:hover, .splitter.drag { background: var(--accent-3); }
 .panelhead { margin-bottom: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

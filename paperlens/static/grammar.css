@@ -469,6 +469,9 @@ body.stg-split .hsplitter { display: block; flex: 0 0 6px; cursor: row-resize; b
 /* the PDF collapsed: a strip along the foot of the column, the evidence taking the rest */
 body.stg-pdf-closed .hsplitter { display: none; }
 body.stg-pdf-closed .stg-evpane { flex: 1 1 auto; }
+/* a stage with evidence "none" lists no items: the upper pane shrinks to the coder's marks, the PDF takes the column */
+body.stg-split.stg-noev:not(.stg-pdf-closed) .stg-evpane { flex: 0 0 auto; max-height: 40%; }
+body.stg-split.stg-noev:not(.stg-pdf-closed) .hsplitter { display: none; }
 body.stg-pdf-closed #pdfpane { flex: 0 0 34px; border-top: 1px solid var(--border); background: var(--surface); }
 body.stg-pdf-closed #pdfpane > :not(.stg-pdf-strip) { display: none; }
 .stg-pdf-strip { display: none; }

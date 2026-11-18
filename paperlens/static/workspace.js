@@ -10,7 +10,7 @@
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
 import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow } from "/static/grammar.js";
-import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
+import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, clearSelection, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
@@ -136,6 +136,79 @@ function mountPdfZoom() {
     e.preventDefault(); z = e.deltaY < 0 ? z * 1.1 : z / 1.1; apply();
   }, { passive: false });
   apply();
+}
+
+// ── the PDF pane's search box ──────────────────────────────────────────────────
+// The text typed is looked up in the PDF's text layer (every page, case-insensitive); the list
+// under the box names the pages found with their match counts, a click goes to the first match
+// on that page; Enter / Shift+Enter (or › ‹) walk the matches; the current match is painted as a
+// located value — it stays until the next pick (a cell, an item, a search) clears it; Esc clears.
+let SEARCH = { q: "", doc: null, hits: [], flat: [], cur: -1, truncated: false };
+function mountPdfSearch() {
+  const form = $("#pdfsearch"), input = $("#pdfsearch-q"), k = $("#pdfsearch-k"), list = $("#pdfsearch-list");
+  if (!form || !input) return;
+  let timer = null, seq = 0;
+  const show = () => {
+    const n = SEARCH.flat.length, cur = SEARCH.flat[SEARCH.cur];
+    k.textContent = !SEARCH.q ? "" : n ? `${SEARCH.cur + 1} / ${n}${SEARCH.truncated ? "+" : ""}` : "none";
+    k.title = SEARCH.truncated ? "more matches than are listed — type more of the text" : "";
+    form.querySelectorAll("button[data-d]").forEach((b) => (b.disabled = n < 2));
+    list.hidden = !SEARCH.hits.length;
+    list.innerHTML = SEARCH.hits.map((h, i) => `<li data-i="${i}"${cur && cur.page === h.page ? ' class="cur"' : ""}><span>p. ${h.page}</span><span class="muted">${h.rects.length} match${h.rects.length === 1 ? "" : "es"}</span></li>`).join("");
+  };
+  const paint = (m) => {
+    flashRects(m.page, [m.rect]);
+    const img = document.querySelector(`#page-${m.page} img.pageimg`);   // a page not drawn yet: paint again when it is
+    if (img && !img.complete) img.addEventListener("load", () => { if (SEARCH.flat[SEARCH.cur] === m) flashRects(m.page, [m.rect]); }, { once: true });
+  };
+  const go = (i) => {
+    if (!SEARCH.flat.length) return;
+    SEARCH.cur = (i + SEARCH.flat.length) % SEARCH.flat.length;
+    if (stagesSpec() && !stagePdfOpen()) togglePdf(true, false);          // the staged layout's collapsed column opens on the match
+    paint(SEARCH.flat[SEARCH.cur]);
+    show();
+  };
+  const clear = () => { SEARCH = { q: "", doc: DOCID, hits: [], flat: [], cur: -1, truncated: false }; clearSelection(); show(); };
+  const run = async () => {
+    const q = input.value.trim();
+    if (!q) { clear(); return; }
+    if (q.length < 2 || !DOCID || (q === SEARCH.q && SEARCH.doc === DOCID)) return;
+    const my = ++seq; form.classList.add("busy");
+    try {
+      const r = await api.searchPdf(DOCID, q);
+      if (my !== seq) return;
+      const hits = r.hits || [];
+      SEARCH = { q, doc: DOCID, hits, truncated: !!r.truncated, cur: -1, flat: hits.flatMap((h) => h.rects.map((rect) => ({ page: h.page, rect }))) };
+      if (SEARCH.flat.length) go(0); else { clearSelection(); show(); }
+    } catch (e) {
+      if (my !== seq) return;
+      SEARCH = { q, doc: DOCID, hits: [], flat: [], cur: -1, truncated: false }; show(); k.textContent = "failed"; k.title = e.message || "";
+    } finally { if (my === seq) form.classList.remove("busy"); }
+  };
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 350); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault(); clearTimeout(timer);
+      if (input.value.trim() !== SEARCH.q || SEARCH.doc !== DOCID) run(); else go(SEARCH.cur + (e.shiftKey ? -1 : 1));
+    } else if (e.key === "Escape") { e.preventDefault(); clearTimeout(timer); input.value = ""; clear(); input.blur(); }
+  });
+  form.addEventListener("submit", (e) => e.preventDefault());
+  form.querySelectorAll("button[data-d]").forEach((b) => (b.onclick = () => go(SEARCH.cur + Number(b.dataset.d))));
+  list.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-i]"); if (!li) return;
+    const page = SEARCH.hits[Number(li.dataset.i)].page;
+    go(SEARCH.flat.findIndex((m) => m.page === page));
+    input.focus();
+  });
+}
+// A new document: the matches belonged to the old pages; the box keeps its text (Enter looks it
+// up again) and hides when the paper has no PDF.
+function resetPdfSearch() {
+  SEARCH = { q: "", doc: null, hits: [], flat: [], cur: -1, truncated: false };
+  const form = $("#pdfsearch"); if (!form) return;
+  form.hidden = !(DATA && DATA.pages && DATA.pages.length);
+  $("#pdfsearch-k").textContent = ""; $("#pdfsearch-list").hidden = true; $("#pdfsearch-list").innerHTML = "";
+  form.querySelectorAll("button[data-d]").forEach((b) => (b.disabled = true));
 }
 
 // ── the coder's highlighter ────────────────────────────────────────────────────
@@ -294,6 +367,7 @@ async function init() {
   mountMarking();
   mountTips();
   mountPdfZoom();
+  mountPdfSearch();
   mountKeys();
   window.addEventListener("popstate", onPopState);
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
@@ -821,6 +895,7 @@ async function load(docId) {
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "checks_first" && (DATA.findings || []).length) TRIAGE = "checks";
   if (TRIAGE === "checks" && !(DATA.findings || []).length) TRIAGE = "low_conf";   // nothing found here: the next best order
   renderPages($("#pages"), DATA.pages, JOINT ? [...DATA.evidence, ...JOINT.data.evidence] : DATA.evidence);
+  resetPdfSearch();
   paintMarks(DATA.highlights || []);
   renderPanel();
   if (FOCUS_REC) { REFOCUS = FOCUS_REC; focusRecord(FOCUS_REC); FOCUS_REC = null; }   // one-shot deep-link focus
@@ -2714,13 +2789,14 @@ function mountKeys() {
     else if (e.key === "k" || e.key === "[") { nextEntry(false, -1); e.preventDefault(); }
     else if (e.key === "n") { nextEntry(true, 1); e.preventDefault(); }
     else if (e.key === "h") { setMarking(!MARKING); e.preventDefault(); }
+    else if (e.key === "/" && $("#pdfsearch-q") && !$("#pdfsearch").hidden) { if (stagesSpec() && !stagePdfOpen()) togglePdf(true, false); $("#pdfsearch-q").focus(); $("#pdfsearch-q").select(); e.preventDefault(); }
     else if (e.key === "v" && card) { const b = card.querySelector('.verify-foot .vbtn[data-status="verified"]') || card.querySelector('.vbtn:not(.jc-v)[data-status="verified"]'); if (b) b.click(); }
     else if (e.key === "f" && card) { const b = card.querySelector('.verify-foot .vbtn[data-status="flagged"]') || card.querySelector('.vbtn:not(.jc-v)[data-status="flagged"]'); if (b) b.click(); }
     else if (/^[1-9]$/.test(e.key) && card) { const b = card.querySelectorAll(".subtab")[+e.key - 1]; if (b) b.click(); }
     else if (e.key === "?") {
       const old = $(".kbd-help"); if (old) { old.remove(); return; }
       const h = document.createElement("div"); h.className = "kbd-help";
-      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>h</kbd> mark sentences · <kbd>?</kbd> close`
+      h.innerHTML = `<b>Keys</b> · <kbd>j</kbd>/<kbd>k</kbd> next/prev entry · <kbd>n</kbd> next unreviewed · <kbd>v</kbd> verify · <kbd>f</kbd> flag · <kbd>1</kbd>–<kbd>9</kbd> tab${staged ? " · <kbd>]</kbd>/<kbd>[</kbd> next/prev stage · <kbd>→</kbd>/<kbd>←</kbd> next/prev item" : ""} · <kbd>h</kbd> mark sentences · <kbd>/</kbd> search the PDF · <kbd>?</kbd> close`
         + `<br><label style="font-size:12px"><input type="checkbox" id="kbd-auto"${AUTOADV ? " checked" : ""}/> auto-advance after verify / flag</label>`;
       document.body.appendChild(h);
       $("#kbd-auto").onchange = (ev) => { AUTOADV = ev.target.checked; try { localStorage.setItem("metalens_autoadvance", AUTOADV ? "1" : "0"); } catch { /* */ } };
@@ -3547,7 +3623,7 @@ function setStageControl(on) {
   } else {
     if (nav) nav.remove();
     if (strip) strip.remove();
-    document.body.classList.remove("stg-pdf-closed");
+    document.body.classList.remove("stg-pdf-closed", "stg-noev");
     const ev = $("#evpane"); if (ev) ev.innerHTML = "";
     STAGE_SHOWN = "";
   }
@@ -3943,9 +4019,13 @@ function renderStagesPanel(panel, rv) {
     + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(units)}</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(units)} here</button>`) : "");
   panel.appendChild(bar);
   if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }
+  // evidence "none": the coder judges from the paper — no item list, no fold, no highlights of
+  // the items in the PDF; the page tags of a paper table's rows still open the page
+  const noEv = st.evidence === "none";
+  document.body.classList.toggle("stg-noev", noEv);
   const { groups, parsed, recs } = mergedItems(rv);
-  const inStage = groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
-  const rest = groups.filter((g) => !inStage.includes(g));
+  const inStage = noEv ? [] : groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
+  const rest = noEv ? [] : groups.filter((g) => !inStage.includes(g));
   // the cursor: on the first item when a stage opens (or the paper changes), else where it was
   const key = `${DOCID}|${STAGE}`;
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
@@ -3953,14 +4033,14 @@ function renderStagesPanel(panel, rv) {
   STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
   // EVIDENCE in the right column's upper pane, FIELDS in the panel
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
-  evbox.innerHTML = `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
+  evbox.innerHTML = noEv ? "" : `<div class="evi-sub stg-head">Evidence${inStage.length ? ` · ${inStage.length} item${inStage.length === 1 ? "" : "s"}` : ""}</div>`;
   inStage.forEach((g, i) => {
     const el = renderEviItem(g, parsed.get(g.n), recs, null, { bare: true });
     el.dataset.i = String(i); if (i === STAGE_CUR) el.classList.add("cur");
     el.title = "click: show in the PDF (→ / ← move on)";
     evbox.appendChild(el);
   });
-  if (!inStage.length) evbox.insertAdjacentHTML("beforeend", `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`);
+  if (!inStage.length && !noEv) evbox.insertAdjacentHTML("beforeend", `<p class="muted stg-noitems">No item bears on this stage's fields; judge them from the PDF.</p>`);
   if (rest.length) {
     const det = document.createElement("details"); det.className = "stg-other";
     det.innerHTML = `<summary>other evidence (${rest.length})</summary>`;
@@ -3985,7 +4065,8 @@ function renderStagesPanel(panel, rv) {
     el.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable]")) return; stageCursor(Number(el.dataset.i)); });
     if (g.ids.length) { el.addEventListener("mouseenter", () => showEvidence(g.ids)); el.addEventListener("mouseleave", () => hideEvidence(g.ids)); }
   });
-  setContextEvidence(inStage.flatMap((g) => g.ids));
+  setContextEvidence(noEv ? null : inStage.flatMap((g) => g.ids));
+  if (noEv) clearSelection();                              // the item lit on the previous stage goes dark
   if (STAGE_SHOWN !== `${key}|${STAGE_CUR}`) stageShowItem();     // a new stage or paper: the PDF moves; an edit's redraw leaves it
 }
 

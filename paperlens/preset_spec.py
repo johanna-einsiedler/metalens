@@ -86,7 +86,7 @@ _ALLOWED_KEYS = {
               "column", "header", "caption", "group", "panel", "target"},
     "tab": {"id", "label", "fields"},
     # a stage of the staged review layout: the fields of ONE level, and what may be copied between rows
-    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline"},
+    "stage": {"id", "label", "help", "paper_fields", "fields", "child", "child_fields", "children", "copy_from_sibling", "auto_id", "accept_rows", "match", "link", "inline", "evidence"},
     "link": {"child", "field", "value", "label", "when", "skip_when"},
     "stage_child": {"key", "fields"},
     "copy": {"when", "fields", "child"},
@@ -2148,7 +2148,10 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     them, one per level, on a stage with the entry's fields and a child's — what "add" writes into
     ``field`` (a string field of that level): ``first`` when no sibling has a value there, else
     ``next`` with ``{n}`` the smallest number not yet used (``{"field": "arm_id", "first": "C",
-    "next": "T{n}"}`` gives C, T1, T2 …). The workspace shows a stage in its left panel — the instruction, the items whose
+    "next": "T{n}"}`` gives C, T1, T2 …). A stage may carry ``evidence: "none"``: it shows no
+    evidence items — no list, no "other evidence" fold, none of them lit in the PDF — so the coder
+    judges from the paper itself (a blind judgment); the page tags of a paper table's rows still
+    open the PDF. The workspace shows a stage in its left panel — the instruction, the items whose
     bears_on meets its fields as one bare list (page and quote) with a cursor over them, then its
     cells (once), then a "next" button — and the PDF column, collapsed to a strip until opened
     (two fifths of the window by default), follows the cursor to the current item's page while
@@ -2188,6 +2191,8 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
             E(f"{at}.label is required")
         if not (isinstance(st.get("help"), str) and st["help"].strip()):
             W(f"{at}: no help — the coder gets no instruction at the top of the stage")
+        if st.get("evidence") not in (None, "none"):
+            E(f"{at}.evidence must be 'none' when given (the stage lists no evidence items, folds none away and lights none in the PDF — the coder judges from the paper)")
         levels = [k for k in ("paper_fields", "fields", "child", "children") if st.get(k) is not None]
         if not levels or (st.get("child") is None) != (st.get("child_fields") is None) or (st.get("child") is not None and st.get("children") is not None):
             E(f"{at} must name fields of at least ONE level (paper_fields; fields, the entry; child + child_fields, or children: [{{key, fields}}]), alone or together")

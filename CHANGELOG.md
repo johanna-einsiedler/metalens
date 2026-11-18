@@ -8,6 +8,16 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A search box over the PDF, and a stage that shows no evidence
+
+- The PDF pane has a search box (top right, `/` focuses it): the text typed is looked up in the
+  PDF's text layer, every page it is printed on is listed with its match count, a click goes to the
+  first match there, Enter and Shift+Enter walk the matches, and the current match is painted on
+  the page as a located value is. Backed by `GET /api/documents/{id}/search?q=` (owner-only).
+- A stage of the staged review may say `evidence: "none"`: it lists no evidence items, folds none
+  away and lights none in the PDF — the coder judges from the paper itself; the page tags of a
+  paper table's rows still open the PDF. Display only: the data contract is unchanged.
+
 ### The joint review on one page, a regression table on one card
 
 - A workflow's review step can say what it asks of each side (`asks`): the `econ` joint review

@@ -508,11 +508,26 @@ def _stage_errors(mutate) -> list[str]:
     ("auto_id first not a string", lambda rv: rv["stages"][2].update(auto_id={"field": "row_id", "first": 1, "next": "T{n}"}), "auto_id.first must be a string"),
     ("bad id", lambda rv: rv["stages"][1].update(id="2 b"), "id must match"),
     ("no label", lambda rv: rv["stages"][1].pop("label"), "label is required"),
+    ("evidence other than none", lambda rv: rv["stages"][0].update(evidence="all"), "evidence must be 'none' when given"),
+    ("evidence a flag", lambda rv: rv["stages"][0].update(evidence=False), "evidence must be 'none' when given"),
 ])
 def test_stages_review_rejects(label, mutate, needle) -> None:
     errs = _stage_errors(mutate)
     assert errs, f"{label}: expected an error"
     assert any(needle in e for e in errs), f"{label}: {errs}"
+
+
+def test_a_stage_may_show_no_evidence() -> None:
+    """``evidence: "none"`` on a stage is accepted on any level and changes nothing else: the stage
+    lists no items (a blind judgment); the key never enters the data contract."""
+    doc = _stages_doc()
+    doc["display"]["review"]["stages"][0]["evidence"] = "none"
+    doc["display"]["review"]["stages"][2]["evidence"] = "none"
+    spec = ps.normalize(doc)
+    errs, warns = ps.validate(spec)
+    assert not errs, errs
+    assert spec["display"]["review"]["stages"][0]["evidence"] == "none" and "evidence" not in spec["display"]["review"]["stages"][1]
+    assert ps.schema_id(spec) == ps.schema_id(ps.normalize(_stages_doc()))
 
 
 def test_stages_review_entry_stage_may_carry_a_child() -> None:
