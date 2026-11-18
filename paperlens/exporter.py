@@ -82,6 +82,10 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
     metadata["engine"] = {"name": "metalens", "version": __version__, "git_sha": _git_sha()}
 
     default_model = (ov.get("recipe") or {}).get("model")
+    from . import coders
+    cb = coders.export_block(conn, dataset_id)              # the coders' codings, by label
+    if cb["coders"]:
+        metadata["coders"] = cb["coders"]
     papers = []
     verbatim: dict[str | None, frozenset] = {}
     for (doc_id, filename) in doc_rows:
@@ -99,7 +103,13 @@ def materialize_dataset(conn, dataset_id: str, *, published_url: str | None = No
         # a public file: every quotation — evidence and verbatim fields — cut to 200 characters (quotes.py)
         pub = quotes.cap_document(reconstruct.reconstruct_publishable(records.load(conn, str(doc_id))), names=verbatim[sid])
         name = filename or (pub.get("paper_metadata") or {}).get("title") or str(doc_id)
+        doc_codings = {}
+        for rid, cs in cb["by_record"].items():
+            if conn.execute("SELECT 1 FROM record WHERE id = %s::uuid AND document_id = %s", (rid, doc_id)).fetchone():
+                doc_codings[rid] = cs
         papers.append({"filename": name, "model": model, "result": pub,
+                       **({"codings": {"records": doc_codings, "paper": cb["by_document"].get(str(doc_id), [])}}
+                          if doc_codings or cb["by_document"].get(str(doc_id)) else {}),
                        # per-paper provenance: enough to re-run the same extraction later
                        "provenance": {"resolved_model": ex.get("resolved_model"),
                                       "prompt_sha256": drow[0] if drow else None,

@@ -21,6 +21,7 @@ async function init() {
   }
   renderDatasets(dsGrid, me);
   renderWorkflows(document.querySelector("#workflows"));
+  renderCoded(document.querySelector("#coded"));
   renderPresets(preGrid, me);
   const load = document.querySelector("#pj-load");
   if (load && preGrid) {                          // a preset someone sent as a file → one of mine
@@ -213,6 +214,20 @@ async function renderDatasets(grid, me) {
     try { const r = await api.renameDataset(b.dataset.id, title); cell.textContent = r.title; }
     catch (ex) { alert("rename failed: " + ex.message); }
   }));
+}
+
+// "Coding for" — the datasets other owners let this account code (paperlens/coders.py): what the
+// coder enters there is their own coding; the owner sees every coder's.
+async function renderCoded(grid) {
+  const sec = document.querySelector("#coded-section");
+  if (!grid || !sec) return;
+  let list = [];
+  try { list = (await api.codedDatasets()).datasets || []; } catch { return; }
+  if (!list.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  grid.innerHTML = list.map((d) => `<div class="proj-tile-wrap"><a class="proj-tile" href="/workspace?project=${esc(d.id)}" title="code these papers">`
+    + `<div class="pt-title">${esc(d.workflow_title ? `${d.workflow_title} · ${d.group_role || d.title}` : d.title || "untitled")}</div>`
+    + `<div class="pt-meta">${d.n_records} record${d.n_records === 1 ? "" : "s"} · <span class="pt-vis">coding</span>${d.workflow_dataset_id ? ` · <a href="/dataset?id=${esc(d.workflow_dataset_id)}" title="the workflow dataset">workflow ↗</a>` : ` · <a href="/dataset?id=${esc(d.id)}">dataset ↗</a>`}</div></a></div>`).join("");
 }
 
 // Analyses/dashboards are disabled in the beta — show a "coming soon" note

@@ -30,10 +30,9 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   supplied` waits for the pipeline's uploads — the only choice for an import-mode preset),
   `check` (a rule from the registry in `paperlens/checks.py`; writes findings, never data),
   `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `release`
-  (`gate` lists the steps that must be fresh and reviewed). `agent`
-  and `input.previous` are grammar-valid and refused at plan time until their release, and so
-  is a second extract step: a workflow runs one preset into one dataset for now (claims and
-  tables stay two datasets joined by the companion cross-check); linked datasets: see below.
+  (`gate` lists the steps that must be fresh and reviewed). `agent` steps are grammar-valid and
+  refused at plan time until their release. Several extract steps are fine when each names its
+  dataset role (linked datasets, below); `k` runs with a `vote`, `input.previous` and loops run.
 - **Review** is an attribute of a step: `mode: none | all | sample`, `unit: entry | paper`,
   `blocks: next | release` (default `release`: later steps run, only the release waits). A
   draft-producing step defaults to `all`, an extract step to `none`. `sample` draws `n` records
@@ -256,6 +255,35 @@ derived page (used once, never stored). The committed unit is listed with the da
 units, frozen into releases (`derived` in the snapshot) and exported as `tables/<step>.json` with
 its sources' quotes as evidence. Correcting a record after the unit was made makes it stale.
 
+## Coders
+
+A dataset has one owner. The owner may let other accounts **code** it: `POST
+/api/datasets/{id}/coders {email}` (the Coders card on the dataset page; a grant on a workflow
+dataset covers its linked datasets). A coder reads the owner's papers — the pages, the quotes,
+the records as imported — and codes them in a **coding of their own**: their values for the
+editable fields and table rows, their verdict, their note, their paper-level values and their
+marks (`record_coding`, `document_coding`, `coding_event`, `coder_highlight`). Nothing a coder
+does touches the record as stored, its verification status or its events: no coder sees
+another's coding, the owner sees every coding (a chip per coder on each record; *view as* a
+coder's coding, read-only), and the badge counts a coder's verdict as it counts the owner's.
+Coders may not add or delete entries, change the paper's identity, set a field across records
+or delete a document: the shape of the data stays the owner's. A listed coder's verdicts and
+edits always land in their coding — the owner's too, once they list themselves.
+
+A step's review may say `coders: N`: when its gate opens, every paper of it is assigned to N of
+the dataset's coders (round-robin in join order, so the load is even; `workflow_assignment`),
+the gate's items become one per (record, coder), each coder's queue (`GET
+/api/workflow-runs/{rid}/queue/{step}`, `/workspace?queue=`) lists their own papers, and the
+gate is satisfied when every assigned coder gave their verdict — never by the owner's. With
+fewer coders than N the gate waits (`needs_coders`) and assigns once the owner has added
+enough; the owner may move a paper between coders (`POST …/assign`) until a verdict was given.
+`coders` is part of the workflow's contract.
+
+Exports carry every coding (`codings` per record, `paper_codings` per paper, coders by label —
+`coder_1`, `coder_2` … — with emails for the owner alone); a release freezes them (`codings` in
+the snapshot, `codings.json` in the zip) next to the paper-level values, and a new coding counts
+as a change since the last release.
+
 ## Versions and citation
 
 A workflow with a card (`card.file`) is curated: it is listed on `/workflows`, has a card page
@@ -283,3 +311,5 @@ release, run_id}`. See `REPRODUCIBILITY.md`.
 | `GET /api/datasets/{id}/workflow` | the panel: steps with states, the active run, the gate |
 | `POST …/workflow/plan`, `POST …/workflow/runs`, `GET …/workflow/runs` | plan, start, list |
 | `GET /api/workflow-runs/{rid}`, `POST …/advance`, `/resume`, `/complete`, `/cancel`, `/retry`, `GET …/issues` | one run |
+| `GET /api/workflow-runs/{rid}/queue/{step}[?coder=]`, `POST …/assign` | a gate's worklist (a coder's own); who reviews a paper |
+| `GET/POST /api/datasets/{id}/coders`, `DELETE …/coders/{user}`, `GET /api/datasets?coder=1` | the dataset's coders; the datasets I code |

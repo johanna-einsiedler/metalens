@@ -535,23 +535,41 @@ def papers_records(paper_id: str, db=Depends(get_db)) -> dict:
 def list_documents(limit: int = 50, dataset: str | None = None, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
     """The principal's extraction documents (their workspace index); optionally
-    restricted to a single project via ``dataset``."""
+    restricted to a single project via ``dataset`` — a dataset the caller codes lists its
+    documents with the caller's own verdicts counted."""
+    from . import coders
+    as_coder = who.user_id if dataset and coders.is_coder(db, dataset, who) else None
     return {"documents": records.list_documents(
         db, limit=limit, owner_user_id=who.user_id, session_id=who.session_id,
-        dataset_id=dataset)}
+        dataset_id=dataset, as_coder=as_coder)}
 
 
 @app.get("/api/documents/{document_id}/view")
-def document_view(document_id: str, db=Depends(get_db),
+def document_view(document_id: str, coder: str | None = None, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Full viewer payload: paper + schema grammar + pages + records + evidence rects.
-    Owner-only — documents and their page images are NEVER public (the bright wall);
-    this is also the mint-time gate for the page-image URLs in the payload."""
-    if not records.is_document_owner(db, document_id, who):
+    The owner's, or a coder's of the dataset — documents and their page images are NEVER public
+    (the bright wall); this is also the mint-time gate for the page-image URLs in the payload.
+    A coder gets the document with THEIR coding laid over it (paperlens/coders.py); the owner
+    gets the record as stored plus a summary of every coding, or one coder's coding read-only
+    with ``?coder=<user id>``."""
+    from . import coders as _coders
+    role, ds = _doc_reader(db, document_id, who)
+    if role is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     v = records.document_view(db, document_id)
     if v is None:
         raise HTTPException(status_code=404, detail="Document not found.")
+    labels = _coders.labels_for(db, ds) if ds else {}
+    if role == "coder":
+        v = _coders.apply(db, v, who.user_id, label=(labels.get(who.user_id) or {}).get("label"))
+    else:
+        if coder:
+            if coder not in labels:
+                raise HTTPException(status_code=404, detail="Not a coder of this dataset.")
+            v = _coders.apply(db, v, coder, read_only=True, label=labels[coder]["label"])
+        if ds:
+            v["codings"] = _coders.summary(db, document_id, ds)
     # Local backend: sign page urls so the owner's <img> tags fetch through the gate (a run of a
     # pipeline shows its final's pages, so the token is the final's).
     if isinstance(storage.get_store(), storage.LocalObjectStore):
@@ -565,7 +583,7 @@ def document_view(document_id: str, db=Depends(get_db),
 def document_chain(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner: the pipeline behind a document — its provenance, each run with its records and
     quotes (the drill-down), and the trace from every final value back to a run's quote."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     group = records.chain_group(db, document_id)
     if group is None:
@@ -595,7 +613,7 @@ def paper_documents(document_id: str, db=Depends(get_db), who: Principal = Depen
     document and the claims document of one article, say), each with its review counts, its
     datasets and the companion pairs among them — what the workspace draws as the paper's
     document strip, so a reviewer finishes a paper on both sides before moving to the next."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     out = records.documents_for_paper(db, document_id, owner_user_id=who.user_id, session_id=who.session_id)
     if out is None:
@@ -619,7 +637,7 @@ def locate_value(document_id: str, value: str, page: int, bands: str | None = No
     ``bands`` (``y0:y1,…`` in image pixels of ``page``) restricts the search to the cited
     table row(s): a value covered only by a row citation is pinpointed INSIDE that row,
     never anywhere else on the page."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
     store = storage.get_store()
@@ -660,7 +678,7 @@ def search_document(document_id: str, q: str, db=Depends(get_db),
     what the PDF pane's search box lists and walks. ``hits`` is ``[{page, rects}]`` in page order,
     ``n`` the number of boxes, ``truncated`` whether the cap was reached; ``no_pdf`` when the paper
     has no PDF to search."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import pdf_utils
     store = storage.get_store()
@@ -685,7 +703,7 @@ class HighlightBody(BaseModel):
 @app.get("/api/documents/{document_id}/highlights")
 def list_highlights(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Owner-only: the coder's marks on this paper, in page order."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"highlights": records.list_highlights(db, document_id)}
 
@@ -698,7 +716,7 @@ def add_highlight(document_id: str, body: HighlightBody, db=Depends(get_db),
     sentence, or takes the words between the two points in reading order (``paperlens.marks``);
     the mark is stored with its text and one rectangle per line and returned. 404 when no word
     is there."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     store = storage.get_store()
     key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
@@ -719,8 +737,8 @@ def delete_highlight(highlight_id: str, db=Depends(get_db), who: Principal = Dep
     h = records.get_highlight(db, highlight_id)
     if h is None:
         raise HTTPException(status_code=404, detail="Mark not found.")
-    if not records.is_document_owner(db, h["document_id"], who):
-        raise HTTPException(status_code=403, detail="Not your document.")
+    if not (records.is_document_owner(db, h["document_id"], who) or (who.user_id and h.get("created_by") == who.user_id)):
+        raise HTTPException(status_code=403, detail="Not your mark.")
     return records.delete_highlight(db, highlight_id)
 
 
@@ -729,7 +747,7 @@ def document_raw_response(document_id: str, db=Depends(get_db),
                           who: Principal = Depends(principal)) -> Response:
     """Owner-only: the model's verbatim response for this document (or the JSON that was
     imported), exactly as stored at extraction time. 404 for documents from before it was kept."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     store = storage.get_store()
     key = storage.raw_key(document_id)
@@ -762,7 +780,7 @@ def document_text(document_id: str, page: int | None = None, db=Depends(get_db),
     """Owner-only: the reusable parsed text layer of the source PDF (a 'parsed text'
     preview, and the substrate for re-extraction). Returns the full markdown, or one
     1-indexed page when ``page`` is given. ``cached=false`` = not parsed yet."""
-    if not records.is_document_owner(db, document_id, who):
+    if not _doc_reader(db, document_id, who)[0]:
         raise HTTPException(status_code=404, detail="Document not found.")
     from . import parsed
     store = storage.get_store()
@@ -824,7 +842,11 @@ def create_dataset(body: DatasetCreate, db=Depends(get_db),
 
 
 @app.get("/api/datasets")
-def list_datasets(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def list_datasets(coder: bool = False, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The datasets the caller may see; ``?coder=1``: the ones the caller codes (paperlens/coders.py)."""
+    if coder:
+        from . import coders as _coders
+        return {"datasets": _coders.datasets_for(db, who.user_id) if who.user_id else []}
     return {"datasets": records.list_datasets(
         db, owner_user_id=who.user_id, session_id=who.session_id)}
 
@@ -853,12 +875,9 @@ def dataset_rows(dataset: list[str] | None = Query(None), db=Depends(get_db),
 @app.get("/api/datasets/{dataset_id}")
 def get_dataset(dataset_id: str, db=Depends(get_db),
                 who: Principal = Depends(principal)) -> dict:
+    role = _dataset_access(db, dataset_id, who)
     d = records.get_dataset(db, dataset_id)
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    if d["visibility"] != "public" and not records.is_dataset_owner(db, dataset_id, who):
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    owner = records.is_dataset_owner(db, dataset_id, who)
+    owner = role == "owner"
     d["records"] = records.dataset_records(db, dataset_id)
     if not owner:                                                   # verbatim fields cut for a public reader
         d["records"] = records.cap_field_values(db, d["records"])
@@ -873,18 +892,19 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
                      who: Principal = Depends(principal)) -> dict:
     """Recipe + computed stats + papers list for the dataset overview page. Same
     owner-or-public gate as get_dataset (404 for non-owners on private datasets)."""
+    from . import coders as _coders
+    role = _dataset_access(db, dataset_id, who)
     d = records.get_dataset(db, dataset_id)
-    if d is None:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-    owner = records.is_dataset_owner(db, dataset_id, who)
-    if d["visibility"] != "public" and not owner:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
+    owner = role == "owner"
     if d.get("kind") == "workflow":           # the row linked datasets hang from: their papers, side by side
         from . import workflows
         ov = workflows.overview(db, d, owner=bool(owner))
         ov["viewer_is_owner"] = bool(owner)
+        ov["viewer_is_coder"] = role == "coder"
         ov["viewer_is_anonymous"] = not who.user_id
         ov["review_asks"] = workflows.review_asks(db, d)
+        if owner:
+            ov["coders"] = _coders.coders_of(db, dataset_id)
         return ov
     ov = records.dataset_overview(db, dataset_id)
     if d.get("group_id"):                      # a side of a joint workflow: what its joint review asks
@@ -912,7 +932,10 @@ def dataset_overview(dataset_id: str, db=Depends(get_db),
         (dataset_id,)).fetchone())
     ov["recipe"] = rec
     ov["viewer_is_owner"] = bool(owner)
+    ov["viewer_is_coder"] = role == "coder"
     ov["viewer_is_anonymous"] = not who.user_id
+    if owner:
+        ov["coders"] = _coders.coders_of(db, dataset_id)
     # an imported dataset has no owner; a moderator is the only one who can remove it
     ov["ownerless"] = records.dataset_is_ownerless(db, dataset_id)
     if not owner:                        # don't leak the uploader's local filenames publicly
@@ -929,6 +952,38 @@ def _require_admin(db, who: Principal) -> dict:
     if not admins.is_admin(user):
         raise HTTPException(status_code=403, detail="This account does not moderate this server.")
     return user
+
+
+def _doc_reader(db, document_id: str, who: Principal) -> tuple[str | None, str | None]:
+    """Who the caller is to a document: ``("coder", dataset id)`` when they code the dataset its
+    records sit in (a listed coder's view and writes are their coding, the owner's too), else
+    ``("owner", dataset id | None)``, else ``(None, None)``. Coder first: an owner who listed
+    themselves codes like anyone else."""
+    from . import coders
+    ds = coders.coder_of_document(db, document_id, who)
+    if ds:
+        return "coder", ds
+    if records.is_document_owner(db, document_id, who):
+        row = db.execute("SELECT dataset_id::text FROM record WHERE document_id = %s::uuid AND dataset_id IS NOT NULL LIMIT 1",
+                         (document_id,)).fetchone() if records._is_uuid(document_id) else None   # noqa: SLF001
+        return "owner", row[0] if row else None
+    return None, None
+
+
+def _dataset_access(db, dataset_id: str, who: Principal) -> str:
+    """404 unless the dataset is public, the caller's or coded by the caller; the role:
+    ``owner`` | ``coder`` | ``public``."""
+    from . import coders
+    d = records.get_dataset(db, dataset_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    if records.is_dataset_owner(db, dataset_id, who):
+        return "owner"
+    if coders.is_coder(db, dataset_id, who):
+        return "coder"
+    if d.get("visibility") == "public":
+        return "public"
+    raise HTTPException(status_code=404, detail="Dataset not found.")
 
 
 def _dataset_gate(db, dataset_id: str, who: Principal) -> bool:
@@ -1618,10 +1673,10 @@ def _refuse_run(db, document_id: str | None) -> None:
         raise HTTPException(status_code=409, detail="This is a run of a pipeline: review and edit its final document instead.")
 
 
-def _run_or_404(db, run_id: str, who: Principal) -> dict:
-    from . import workflows
+def _run_or_404(db, run_id: str, who: Principal, *, coder_too: bool = False) -> dict:
+    from . import coders, workflows
     run = workflows.get_run(db, run_id)
-    if run is None or not workflows.is_run_owner(run, who):
+    if run is None or not (workflows.is_run_owner(run, who) or (coder_too and coders.coder_of_run(db, run, who))):
         raise HTTPException(status_code=404, detail="Run not found.")
     return run
 
@@ -1779,9 +1834,12 @@ def dataset_workflow(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     """The dataset page's Workflow panel: the declared steps with their state, the active run,
     the past runs, the release gate. Anyone who may see the dataset sees the states; the owner
     also sees the work a run would do and may start one."""
-    from . import workflows
-    owner = _dataset_gate(db, dataset_id, who)
-    return workflows.panel(db, dataset_id, who=who, owner=owner)
+    from . import coders, workflows
+    role = _dataset_access(db, dataset_id, who)
+    out = workflows.panel(db, dataset_id, who=who, owner=role == "owner")
+    if role == "coder":
+        out["viewer_coder"] = next(({"user_id": c["user_id"], "label": c["label"]} for c in coders.coders_of(db, dataset_id) if c["user_id"] == who.user_id), None)
+    return out
 
 
 class GroupLinkBody(BaseModel):
@@ -1796,7 +1854,7 @@ def dataset_group(dataset_id: str, db=Depends(get_db), who: Principal = Depends(
     """The dataset group this dataset belongs to (the workflow's dataset roles and their datasets),
     and — for the owner — the datasets that could fill an unlinked role."""
     from . import workflow_spec as ws, workflows
-    owner = _dataset_gate(db, dataset_id, who)
+    owner = _dataset_access(db, dataset_id, who) == "owner"
     d = records.get_dataset(db, dataset_id) or {}
     spec, _implicit = workflows.resolve(db, d)
     roles = ws.roles(spec)
@@ -1914,7 +1972,7 @@ def workflow_run_get(run_id: str, db=Depends(get_db), who: Principal = Depends(p
     """The run with its steps, gates and papers — advanced first, so a poll never shows a run
     that is waiting on nothing."""
     from . import workflows
-    run = _run_or_404(db, run_id, who)
+    run = _run_or_404(db, run_id, who, coder_too=True)
     if run["status"] not in workflows.TERMINAL:
         run = workflows.advance(db, run_id) or run
     return workflows.run_view(db, run)
@@ -1977,22 +2035,50 @@ def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who:
 
 
 @app.get("/api/workflow-runs/{run_id}/queue/{step_id}")
-def workflow_run_queue(run_id: str, step_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+def workflow_run_queue(run_id: str, step_id: str, coder: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """A review gate as a worklist: the drawn (or all) records of the step in order, with their
     verdicts, the documents they sit in, the progress and what comes next. The owner's, or a
     reader's of a public dataset (states only)."""
-    from . import review_gate, workflows
+    from . import coders, review_gate, workflows
     run = workflows.get_run(db, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
+    as_coder = None
     if not workflows.is_run_owner(run, who):
-        d = records.get_dataset(db, run["dataset_id"]) or {}
-        if d.get("visibility") != "public":
-            raise HTTPException(status_code=404, detail="Run not found.")
+        if coders.coder_of_run(db, run, who):
+            as_coder = who.user_id                                  # a coder's queue: their assignment alone
+        else:
+            d = records.get_dataset(db, run["dataset_id"]) or {}
+            if d.get("visibility") != "public":
+                raise HTTPException(status_code=404, detail="Run not found.")
+    elif coder:                                                    # the owner looking at one coder's queue
+        as_coder = coder
     sr = next((s for s in workflows.step_runs(db, run_id) if s["step_id"] == step_id), None)
     if sr is None:
         raise HTTPException(status_code=404, detail="Step not found.")
-    return review_gate.queue(db, run, sr)
+    return review_gate.queue(db, run, sr, coder=as_coder)
+
+
+class AssignBody(BaseModel):
+    step_id: str
+    document_id: str
+    coders: list[str] = []                 # user ids of the dataset's coders who review this paper
+
+
+@app.post("/api/workflow-runs/{run_id}/assign")
+def workflow_run_assign(run_id: str, body: AssignBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The owner's hand on one paper's assignment in a gate reviewed by coders: who reviews it."""
+    from . import review_gate, workflows
+    run = _run_or_404(db, run_id, who)
+    sr = next((s for s in workflows.step_runs(db, run_id) if s["step_id"] == body.step_id), None)
+    if sr is None or not (sr.get("review") or {}).get("coders"):
+        raise HTTPException(status_code=404, detail="No coders' gate on this step.")
+    try:
+        out = review_gate.reassign(db, sr, body.document_id, body.coders)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return {**out, "gate": review_gate.state(db, workflows.get_step_run(db, sr["id"]))}
 
 
 @app.get("/api/workflow-runs/{run_id}/issues")
@@ -2701,6 +2787,9 @@ def dataset_export(dataset_id: str, db=Depends(get_db),
     if d["visibility"] != "public" and not owner:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     out = records.dataset_export(db, dataset_id)
+    if owner and out.get("coders"):
+        from . import coders as _coders
+        out["coders"] = _coders.export_block(db, dataset_id, with_emails=True)["coders"]
     if not owner:                        # don't leak the uploader's local filenames
         names = {sid: quotes.verbatim_names(records.schema_spec(db, sid))
                  for (sid,) in db.execute("SELECT DISTINCT schema_id FROM record WHERE dataset_id = %s::uuid AND schema_id IS NOT NULL",
@@ -2806,8 +2895,11 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
                         who: Principal = Depends(principal)) -> dict:
     """Owner-only: correct the paper identity (title / year / venue / authors) shown in the
     Study-information panel. The paper row is DOI-deduped, so this applies to every document
-    that shares the paper."""
-    if not records.is_document_owner(db, document_id, who):
+    that shares the paper. A coder of the dataset may set the declared paper-level ``fields``
+    — in their coding (paperlens/coders.py); the identity stays the owner's."""
+    from . import coders
+    role, _ds = _doc_reader(db, document_id, who)
+    if role is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     _refuse_run(db, document_id)
     row = db.execute("SELECT paper_id, schema_id FROM extraction_document WHERE id = %s::uuid",
@@ -2820,6 +2912,8 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
         v = getattr(body, k)
         if v is not None:
             fields[k] = v
+    if fields and role == "coder":
+        raise HTTPException(status_code=403, detail="The paper's identity is the owner's to change; your coding holds the declared fields.")
     if fields:
         if not row[0]:
             raise HTTPException(status_code=400, detail="Document has no paper record.")
@@ -2833,9 +2927,12 @@ def edit_document_paper(document_id: str, body: PaperEdit, db=Depends(get_db),
         if unknown:
             raise HTTPException(status_code=422, detail=(
                 f"Not declared paper-level fields of this preset: {', '.join(unknown)}"))
-        out.update(records.set_paper_metadata_fields(
-            db, document_id, body.fields, verifier_user_id=who.user_id,
-            verifier_kind="maintainer" if who.user_id else "community"))
+        if role == "coder":
+            out.update(coders.set_paper_fields(db, document_id, who.user_id, body.fields))
+        else:
+            out.update(records.set_paper_metadata_fields(
+                db, document_id, body.fields, verifier_user_id=who.user_id,
+                verifier_kind="maintainer" if who.user_id else "community"))
     return out
 
 
@@ -3250,6 +3347,15 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     Who may: the record's owner, anything; anyone else only on a record they can READ (it sits
     in a public dataset) and only an opinion (verified / flagged, with notes) — never a change of
     the values. A record id alone opens nothing: ids travel with published dashboards."""
+    from . import coders
+    rec0 = records.get_record(db, record_id)
+    if rec0 and rec0.get("document_id") and coders.coder_of_document(db, rec0["document_id"], who):
+        _refuse_run(db, rec0["document_id"])                       # a coder's verdict, edit or note: their coding, never the record
+        try:
+            return coders.verify(db, record_id, who.user_id, status=body.status, diff=body.diff, notes=body.notes,
+                                 field_values=body.field_values, patch=body.patch)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
     mine = records.records_all_owned(db, [record_id], who)
@@ -3268,9 +3374,55 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
 
 @app.get("/api/records/{record_id}/events")
 def record_events(record_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The record's history — a coder's own, when the caller codes the dataset."""
+    from . import coders
+    rec0 = records.get_record(db, record_id)
+    if rec0 and rec0.get("document_id") and coders.coder_of_document(db, rec0["document_id"], who):
+        return {"record_id": record_id, "events": coders.events(db, record_id, who.user_id), "coding": True}
     if not records.record_is_visible(db, record_id, who):
         raise HTTPException(status_code=404, detail="Record not found.")
     return {"record_id": record_id, "events": records.record_events(db, record_id)}
+
+
+# ── coders: the accounts the owner lets code a dataset ────────────────────────
+
+class CoderBody(BaseModel):
+    email: str
+
+
+@app.get("/api/datasets/{dataset_id}/coders")
+def dataset_coders(dataset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the dataset's coders in join order (a workflow dataset's grants cover its members)."""
+    from . import coders
+    if _dataset_access(db, dataset_id, who) != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner manages the coders.")
+    return {"coders": coders.coders_of(db, dataset_id)}
+
+
+@app.post("/api/datasets/{dataset_id}/coders")
+def dataset_coder_add(dataset_id: str, body: CoderBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: let the account with this email code the dataset — its papers, read; its records,
+    coded independently (paperlens/coders.py)."""
+    from . import coders
+    if _dataset_access(db, dataset_id, who) != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner manages the coders.")
+    if not who.user_id:
+        raise HTTPException(status_code=401, detail="Sign in to add coders.")
+    try:
+        return {"coder": coders.add(db, dataset_id, body.email, by=who.user_id)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No account with that email.")
+
+
+@app.delete("/api/datasets/{dataset_id}/coders/{user_id}")
+def dataset_coder_remove(dataset_id: str, user_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: withdraw a coder's access; their codings stay as the record of what was done."""
+    from . import coders
+    if _dataset_access(db, dataset_id, who) != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner manages the coders.")
+    if not records._is_uuid(user_id):   # noqa: SLF001
+        raise HTTPException(status_code=404, detail="Coder not found.")
+    return coders.remove(db, dataset_id, user_id)
 
 
 # ── accounts (Phase 2b) ───────────────────────────────────────────────────────

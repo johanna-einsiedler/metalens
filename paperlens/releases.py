@@ -56,8 +56,17 @@ def fingerprint(conn: psycopg.Connection, dataset_id: str) -> str:
              SELECT 'd:' || step || ':' || version::text FROM dataset_derived
                WHERE dataset_id = %s::uuid AND status = 'committed'
              UNION ALL
-             SELECT 'r:' || id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done') s""",
-        (dataset_id, dataset_id, dataset_id, dataset_id)).fetchone()[0]
+             SELECT 'r:' || id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done'
+             UNION ALL
+             SELECT 'c:' || rc.record_id::text || ':' || rc.coder_user_id::text || ':' || rc.updated_at::text      -- the coders' codings
+               FROM record_coding rc JOIN record r ON r.id = rc.record_id WHERE r.dataset_id = %s::uuid
+             UNION ALL
+             SELECT DISTINCT 'pc:' || dc.document_id::text || ':' || dc.coder_user_id::text || ':' || dc.updated_at::text
+               FROM document_coding dc JOIN record r ON r.document_id = dc.document_id WHERE r.dataset_id = %s::uuid
+             UNION ALL
+             SELECT DISTINCT 'pm:' || ed.id::text || ':' || md5(coalesce(ed.paper_metadata_raw::text, ''))                -- the paper-level values
+               FROM extraction_document ed JOIN record r ON r.document_id = ed.id WHERE r.dataset_id = %s::uuid AND ed.paper_metadata_raw IS NOT NULL) s""",
+        (dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id)).fetchone()[0]
     return data if extra == "d41d8cd98f00b204e9800998ecf8427e" else f"{data}:{extra[:16]}"
 
 
@@ -79,8 +88,14 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
            "source": source, "child_rid": crid, "row_rid": rrid, "context": context}
           for sid, rid, doc, ei, fp, snippet, page, source, crid, rrid, context
           in analysis_table.evidence_rows(conn, [r["doc"] for r in recs])]
-    from . import checks, crosscheck, derived, pages, vocabulary, workflows
+    from . import checks, coders, crosscheck, derived, pages, vocabulary, workflows
     fz = crosscheck.frozen(conn, dataset_id)
+    # the declared paper-level values per document (a coder's answers in a stages preset live
+    # there), and every coder's coding — frozen with the records they belong to
+    pm = {did: raw for did, raw in conn.execute(
+        """SELECT DISTINCT ed.id::text, ed.paper_metadata_raw FROM extraction_document ed JOIN record r ON r.document_id = ed.id
+           WHERE r.dataset_id = %s::uuid AND ed.paper_metadata_raw IS NOT NULL""", (dataset_id,)).fetchall() if isinstance(raw, dict)}
+    cb = coders.export_block(conn, dataset_id)
     vocabs = vocabulary.snapshot(conn, dataset_id)
     pgs = pages.snapshot(conn, dataset_id)
     wf = workflow_block(conn, dataset_id)
@@ -88,7 +103,9 @@ def snapshot(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     wspec = workflows.resolve(conn, src["dataset"])[0] if src["dataset"].get("workflow") else None
     drv = derived.snapshot(conn, dataset_id, wspec) if wspec else []
     return {"format": FORMAT, "schema_id": src["schema_id"], "spec": src["spec"], "records": recs,
-            "corrected": src["corrected"], "evidence": ev, **({"crosscheck": fz} if fz else {}),
+            "corrected": src["corrected"], "evidence": ev, **({"paper_metadata": pm} if pm else {}),
+            **({"codings": {"coders": cb["coders"], "records": cb["by_record"], "papers": cb["by_document"]}} if cb["by_record"] or cb["by_document"] else {}),
+            **({"crosscheck": fz} if fz else {}),
             **({"vocabularies": vocabs} if vocabs else {}), **({"pages": pgs} if pgs else {}),
             **({"workflow": wf} if wf else {}), **({"findings": findings} if findings else {}),
             **({"derived": drv} if drv else {})}
@@ -150,7 +167,21 @@ def diff_snapshots(prev: dict | None, new: dict) -> dict:
                    "newly_flagged": sum(1 for k in both if ra[k].get("status") != "flagged" and rb[k].get("status") == "flagged")},
         "preset_changed": prev is not None and _spec_sha(prev.get("spec")) != _spec_sha(new.get("spec")),
         "n_papers": len(b), "n_records": len(rb),
+        **({"codings": _codings_diff(prev, new)} if (new.get("codings") or (prev or {}).get("codings")) else {}),
     }
+
+
+def _codings_diff(prev: dict | None, new: dict) -> dict:
+    """How the coders' codings moved between two snapshots: codings added or changed, per record."""
+    a = ((prev or {}).get("codings") or {}).get("records") or {}
+    b = (new.get("codings") or {}).get("records") or {}
+    key = lambda cs: {c.get("coder"): (c.get("status"), _canonical(c.get("values"))) for c in cs}   # noqa: E731
+    added = changed = 0
+    for rid, cs in b.items():
+        kb, ka = key(cs), key(a.get(rid) or [])
+        added += sum(1 for c in kb if c not in ka)
+        changed += sum(1 for c in kb if c in ka and ka[c] != kb[c])
+    return {"added": added, "changed": changed, "n_coders": len((new.get("codings") or {}).get("coders") or [])}
 
 
 # ── rows ─────────────────────────────────────────────────────────────────────

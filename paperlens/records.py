@@ -484,7 +484,7 @@ def count_documents_for_session(conn: psycopg.Connection, session_id: str | None
 
 def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                    owner_user_id: str | None = None, session_id: str | None = None,
-                   dataset_id: str | None = None) -> list[dict]:
+                   dataset_id: str | None = None, as_coder: str | None = None) -> list[dict]:
     """Recent extraction documents with their paper title + record count (viewer index).
 
     Scoped to the principal: a document belongs to whoever owns the DOCUMENT or any
@@ -493,19 +493,22 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
     extraction that yielded ZERO records is still visible to (and deletable by) its
     owner, instead of becoming an invisible orphan. With no principal given (both
     None) it returns all documents — back-compat for tests/admin. ``dataset_id``
-    further restricts to documents with records in that project."""
+    further restricts to documents with records in that project. ``as_coder`` (a user id) lists
+    the documents of the datasets that account codes too, with ITS verdicts counted (its coding,
+    not the record's status) — the sidebar a coder works from."""
     rows = conn.execute(
         """SELECT d.id, d.paper_id, d.schema_id, d.created_at, d.filename,
                   p.title, p.doi,
                   count(r.id) FILTER (WHERE NOT COALESCE(r.screened_empty, false)) AS n_records,
-                  count(*) FILTER (WHERE r.verification_status = 'verified'
+                  count(*) FILTER (WHERE (CASE WHEN %s::text IS NULL THEN r.verification_status ELSE coalesce(rc.verification_status, 'unverified') END) = 'verified'
                                      AND NOT COALESCE(r.screened_empty, false)) AS n_verified,
-                  count(*) FILTER (WHERE r.verification_status = 'flagged'
+                  count(*) FILTER (WHERE (CASE WHEN %s::text IS NULL THEN r.verification_status ELSE coalesce(rc.verification_status, 'unverified') END) = 'flagged'
                                      AND NOT COALESCE(r.screened_empty, false)) AS n_flagged,
                   bool_or(COALESCE(r.screened_empty, false)) AS screened
            FROM extraction_document d
            LEFT JOIN paper p ON p.id = d.paper_id
            LEFT JOIN record r ON r.document_id = d.id
+           LEFT JOIN record_coding rc ON rc.record_id = r.id AND %s::text IS NOT NULL AND rc.coder_user_id::text = %s::text
            WHERE d.role <> 'run'
            GROUP BY d.id, p.title, p.doi
            HAVING ((%s::text IS NULL AND %s::text IS NULL)
@@ -513,13 +516,18 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                        AND (d.owner_user_id::text = %s OR bool_or(r.owner_user_id::text = %s)))
                    OR (%s::text IS NOT NULL
                        AND ((d.session_id = %s AND d.owner_user_id IS NULL)
-                            OR bool_or(r.session_id = %s AND r.owner_user_id IS NULL))))
+                            OR bool_or(r.session_id = %s AND r.owner_user_id IS NULL)))
+                   OR (%s::text IS NOT NULL
+                       AND bool_or(r.dataset_id IN (SELECT c.dataset_id FROM dataset_coder c WHERE c.user_id::text = %s::text
+                                                    UNION SELECT d2.id FROM dataset d2 JOIN dataset_coder c2 ON c2.dataset_id = d2.group_id WHERE c2.user_id::text = %s::text))))
               AND (%s::text IS NULL OR bool_or(r.dataset_id::text = %s::text))
            ORDER BY d.created_at DESC
            LIMIT %s""",
-        (owner_user_id, session_id,
+        (as_coder, as_coder, as_coder, as_coder,
+         owner_user_id, session_id,
          owner_user_id, owner_user_id, owner_user_id,
          session_id, session_id, session_id,
+         as_coder, as_coder, as_coder,
          dataset_id, dataset_id, limit),
     ).fetchall()
     return [
@@ -1078,14 +1086,19 @@ def dataset_credibility(conn: psycopg.Connection, dataset_id: str) -> dict:
         by_record.setdefault(rid, []).append((status, diff))
         if status in ("verified", "flagged", "unverified"):
             last_verdict[rid] = status
-    audited_records = [evs for rid, evs in by_record.items()
-                       if last_verdict.get(rid) != "unverified"]
-    audited = len(audited_records)
+    # …and so is one a CODER gave a verdict on (paperlens/coders.py): the coders' verdicts and
+    # value changes count exactly as the owner's — the catalogue SQL below keeps the same rule
+    from . import coders as _coders
+    cod = _coders.badge_counts(conn, dataset_id)
+    owner_audited = {rid for rid in by_record if last_verdict.get(rid) != "unverified"}
+    coder_audited = {rid for rid, c in cod.items() if c["audited"]}
+    audited = len(owner_audited | coder_audited)
 
     agreed = 0
-    for evs in audited_records:
+    for rid in owner_audited | coder_audited:
+        evs = by_record.get(rid, [])
         disagreed = any(s == "flagged" for s, _ in evs) or \
-            any(_diff_changes_value(d) for _, d in evs)
+            any(_diff_changes_value(d) for _, d in evs) or bool((cod.get(rid) or {}).get("disagreed"))
         if not disagreed:
             agreed += 1
 
@@ -1496,12 +1509,19 @@ def public_datasets_with_badges(conn: psycopg.Connection,
                  (array_agg(status ORDER BY created_at DESC, id DESC) FILTER (WHERE status IN ('verified', 'flagged', 'unverified')))[1] AS last_verdict
           FROM verification_event WHERE record_id IS NOT NULL GROUP BY record_id
         ),
+        cod AS (                                    -- the coders' codings count as the owner's verdicts do (records.dataset_credibility)
+          SELECT rc.record_id,
+                 bool_or(rc.verification_status IN ('verified', 'flagged')) AS audited,
+                 bool_or(rc.verification_status = 'flagged' OR (rc.field_values IS NOT NULL AND rc.field_values <> r0.field_values)) AS disagreed
+          FROM record_coding rc JOIN record r0 ON r0.id = rc.record_id GROUP BY rc.record_id
+        ),
         rec AS (
           SELECT r.dataset_id,
                  count(*) AS n_records,
-                 count(*) FILTER (WHERE ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified') AS audited,
-                 count(*) FILTER (WHERE ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified' AND NOT ev.disagreed) AS agreed
-          FROM record r LEFT JOIN ev ON ev.record_id = r.id
+                 count(*) FILTER (WHERE (ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified') OR coalesce(cod.audited, false)) AS audited,
+                 count(*) FILTER (WHERE ((ev.record_id IS NOT NULL AND ev.last_verdict IS DISTINCT FROM 'unverified') OR coalesce(cod.audited, false))
+                                    AND NOT coalesce(ev.disagreed, false) AND NOT coalesce(cod.disagreed, false)) AS agreed
+          FROM record r LEFT JOIN ev ON ev.record_id = r.id LEFT JOIN cod ON cod.record_id = r.id
           WHERE r.dataset_id IS NOT NULL AND NOT COALESCE(r.screened_empty, false)
           GROUP BY r.dataset_id
         )
@@ -2104,12 +2124,25 @@ def dataset_export(conn: psycopg.Connection, dataset_id: str) -> dict | None:
             h = _highlight_row(row)
             papers[h["document_id"]]["highlights"].append({k: h[k] for k in ("page", "text", "rects", "created_at", "created_by", "note")})
 
+    # the coders' codings (paperlens/coders.py): per record each coder's values, verdict and note;
+    # per paper each coder's paper-level values. Coders are named by label; the route adds emails
+    # for the owner alone.
+    from . import coders as _coders
+    cb = _coders.export_block(conn, dataset_id)
+    for p in papers.values():
+        for rec in p["records"]:
+            if rec["record_id"] in cb["by_record"]:
+                rec["codings"] = cb["by_record"][rec["record_id"]]
+        if p["document_id"] in cb["by_document"]:
+            p["paper_codings"] = cb["by_document"][p["document_id"]]
+
     return {
         "title": d["title"], "slug": d["slug"], "description": d["description"],
         "visibility": d["visibility"], "cite_as": d["cite_as"],
         "created_at": d["created_at"], "updated_at": d["updated_at"],
         "recipe": ov.get("recipe"), "stats": ov.get("stats"),
         "credibility": ov.get("credibility"),
+        **({"coders": cb["coders"]} if cb["coders"] else {}),
         "papers": list(papers.values()),
     }
 

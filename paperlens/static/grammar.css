@@ -680,6 +680,14 @@ tr.stg-group.dropped td { color: var(--text-muted); text-decoration: line-throug
              border: 1px solid #ecdfc8; border-radius: var(--radius-sm); }
 body.ro .verify, body.ro .recdel, body.ro .rv-addrow, body.ro .rv-rowdel, body.ro .rv-rowsel, body.ro .rv-rowdel-sel,
 body.ro #addfinding, body.ro #deldoc, body.ro .rv-cand:not([disabled]) { display: none !important; }
+/* coders (paperlens/coders.py): a coder changes values and gives verdicts in their own coding, never the shape of the data;
+   the owner sees a chip per coding on each record and may look at one coder's coding (read-only) */
+body.coder .recdel, body.coder #deldoc, body.coder #addfinding, body.coder .stg-addtask, body.coder .stg-copy, body.coder #empty-add,
+body.coder .study-ident[contenteditable="false"] ~ * { display: none !important; }
+.coding-head { font-size: 12px; color: var(--text-muted); margin-left: 8px; white-space: nowrap; align-self: center; }
+.coding-head b { color: var(--text); }
+.coding-head select { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.coding-chip { font-size: 10px; padding: 0 5px; margin-left: 4px; cursor: help; }
 
 /* support colours (how many runs stand behind an entry), the definition hover card, issue list */
 .chain-sum.s-all { color: var(--conf-high, #2c6e2c); }

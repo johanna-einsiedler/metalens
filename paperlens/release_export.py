@@ -180,6 +180,15 @@ def build(conn, release: dict) -> dict[str, bytes]:
                                          "note": "what the workflow's deterministic checks found on the records of this release; findings never change a reviewer's verdict",
                                          "run_id": findings.get("run_id"), "findings": findings.get("findings") or []})
         meta["files"] = sorted(set(meta["files"]) | {"findings.json"})
+    codings = (release.get("snapshot") or {}).get("codings")
+    if codings:
+        meta["codings"] = {"n_coders": len(codings.get("coders") or []), "n_records": len(codings.get("records") or {}), "file": "codings.json"}
+        files["codings.json"] = _dumps({"format": FORMAT, "format_version": FORMAT_VERSION,
+                                        "note": "the coders' codings of this release's records: per record each coder's values, verdict and note; "
+                                                "per paper each coder's paper-level values. Coders are named by label (coder_1 …), never by account.",
+                                        "coders": [{"label": c.get("label")} for c in codings.get("coders") or []],
+                                        "records": codings.get("records") or {}, "papers": codings.get("papers") or {}})
+        meta["files"] = sorted(set(meta["files"]) | {"codings.json"})
     meta["files"] = sorted(set(meta["files"]) | {"tile-prompt.md"})
     files["release.json"] = json.dumps(meta, ensure_ascii=False, indent=1, default=str).encode("utf-8")
     files["README.md"] = _readme(meta).encode("utf-8")
