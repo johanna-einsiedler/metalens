@@ -17,6 +17,15 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - A stage of the staged review may say `evidence: "none"`: it lists no evidence items, folds none
   away and lights none in the PDF — the coder judges from the paper itself; the page tags of a
   paper table's rows still open the PDF. Display only: the data contract is unchanged.
+- A stage may group its fields in `sections: [{label, help?, fields}]`: labelled blocks, stacked
+  in order, each with its fields in the usual rows (`inline` pairs still apply inside a block);
+  a field in no section follows them as before.
+- A table field may say `display: "stacked"` (with `lead` naming the column drawn as each block's
+  head, the first by default): one block per row — the row's page tag and the head's first line,
+  the rest of the head as a paragraph, then the other columns as label-and-control lines — in
+  place of the table; the cells, "＋ row" and "✕" are the table's own. Presentation keys: the
+  schema id does not move, and a stored schema row takes them from the live file as it takes
+  wording.
 
 ### The joint review on one page, a regression table on one card
 

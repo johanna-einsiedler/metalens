@@ -339,7 +339,7 @@ rect.hl.ctx { fill: var(--highlight); stroke: none; }
 .rv-rowdel-h, .rv-rowdel-c { width: 18px; }
 .rv-rowdel { border: none; background: none; color: var(--text-muted); cursor: pointer;
              font-size: 11px; padding: 0 2px; opacity: 0; transition: opacity .12s; }
-tr:hover .rv-rowdel { opacity: .75; }
+tr:hover .rv-rowdel, .rv-stackrow:hover .rv-rowdel { opacity: .75; }
 .rv-rowdel:hover { color: #b3261e; opacity: 1; }
 /* the same two buttons on a sub-entry (an arm, a result): a card's ✕ sits at the end of its head line */
 .rv-childcards .rv-tableadd, .rv-child + .rv-tableadd { margin: 2px 0 6px; }
@@ -426,6 +426,26 @@ tr:hover .rv-rowdel { opacity: .75; }
 .stg-cells { border-top: 2px solid var(--border); padding-top: 10px; }
 .stg-entry { margin-bottom: 10px; }
 .stg-fields { margin-top: 4px; }
+/* a stage's sections: the fields in labelled blocks, stacked */
+.stg-section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin: 0 0 10px; background: var(--surface); }
+.stg-section-h { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); font-weight: 700; margin: 0 0 4px; }
+.stg-section-help { font-size: 12.5px; line-height: 1.45; margin: 0 0 6px; }
+.stg-section-help p { margin: 0 0 4px; } .stg-section-help p:last-child { margin: 0; }
+.stg-section .rv-obj > .rv-row:last-child, .stg-section .rv-inline:last-child > .rv-row { border-bottom: 0; }
+/* a table drawn as stacked blocks: one block per row, the lead column its head (first line set off), the other columns as lines */
+.rv-stack { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 2px; }
+.rv-stackrow { position: relative; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 26px 6px 10px; background: var(--surface); }
+.rv-stackrow > .rv-rowdel { position: absolute; top: 6px; right: 6px; font-size: 12px; }
+.rv-stacklead { font-size: 13px; line-height: 1.5; }
+.rv-stacklead > .rv-rowcite { float: left; width: auto; margin: 2px 6px 0 0; padding: 0 !important; }
+.rv-stacklead > .rv-rowcite:empty { display: none; }
+.rv-stacklead > .rv-editable, .rv-stacklead > .rv-cell, .rv-stacklead > .rv-null, .rv-stacklead > .rv-missing { display: block; white-space: pre-wrap; }
+.rv-stacklead > .rv-editable::first-line, .rv-stacklead > .rv-cell::first-line { font-weight: 600; color: var(--text); }
+.rv-stacklead > .rv-editable.rv-empty { min-height: 1.5em; }
+.rv-stackrest { margin-top: 6px; clear: both; }
+.rv-stackrest .rv-obj, .stg-cells .rv-stackrest .rv-obj { grid-template-columns: 1fr; }
+.rv-stackrest .rv-row { padding: 4px 0; }
+.rv-stackrest .rv-obj > .rv-row:last-child { border-bottom: 0; }
 .stg-empty { font-size: 12.5px; margin: 0 0 8px; }
 .stg-addtask { display: block; margin: 4px 0 10px; }
 .stg-copy { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 2px; font-size: 12px; }

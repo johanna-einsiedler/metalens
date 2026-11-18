@@ -228,7 +228,7 @@ export function rowTitleOf(child, r, k) {
 function renderTypedValue(f, v, path, opts) {
   const t = f.type || "string";
   const editable = !!opts.editable;
-  if (t === "table") return renderTypedTable(f, v, path, opts);
+  if (t === "table") return f.display === "stacked" ? renderStackedTable(f, v, path, opts) : renderTypedTable(f, v, path, opts);
   if (v === undefined) return `<span class="rv-missing" title="declared by the preset, not returned by the model">—</span>`;
   if (t === "enum" && editable && (Array.isArray(f.options) ? f.options.length : false)) {
     const options = _opts(f);
@@ -323,6 +323,41 @@ function renderTypedTable(f, v, path, opts) {
   }).join("");
   return `<div class="rv-tablewrap"><table class="rv-table rv-typed"><thead><tr><th class="rv-rowcite"></th>${head}</tr></thead>`
     + `<tbody>${body}</tbody></table>${addBtn ? `<div class="rv-tableadd">${addBtn}</div>` : ""}</div>`;
+}
+
+// A declared table drawn as STACKED BLOCKS (`display: "stacked"` on the field): one block per
+// row — the row's citation slot and the lead column (`lead`, else the first column) as the head,
+// its first line set off and the rest of its text as a paragraph, then the other columns as
+// label-and-control lines. The cells, "＋ row" and "✕" are the typed table's own (same paths,
+// same classes), so editing, citing and row tools work unchanged.
+function renderStackedTable(f, v, path, opts) {
+  const cols = f.columns || [];
+  const lead = cols.find((c) => c.name === f.lead) || cols[0];
+  const addBtn = opts.editable && cols.length
+    ? `<button type="button" class="rv-addrow" data-path="${esc(path)}" title="add a row — logged as a correction"`
+      + ` data-blank="${esc(JSON.stringify(blankRow(cols)))}">＋ row</button>`
+    : "";
+  const rows = Array.isArray(v) ? v : (v && Array.isArray(v._table) ? v._table : null);
+  if (rows === null || rows === undefined) return `<span class="rv-missing">—</span> ${addBtn}`;
+  if (!rows.length) return `<span class="rv-null">empty</span> ${addBtn}`;
+  const others = cols.filter((c) => c !== lead);
+  const names = cols.map((c) => c.name);
+  const blocks = rows.map((r, i) => {
+    const base = `${path}[${i}]`;
+    const extra = (r && typeof r === "object") ? Object.keys(r).filter((k) => !names.includes(k) && !SKIP.has(k)) : [];
+    const headTip = lead ? fieldTip(lead) : "";
+    return `<div class="rv-stackrow" data-row="${i}">`
+      + (opts.editable ? `<button type="button" class="rv-rowdel" data-path="${esc(path)}" data-row="${i}" title="remove this row — logged as a correction">✕</button>` : "")
+      + `<div class="rv-stacklead"${headTip ? ` title="${esc(headTip)}"` : ""}><span class="rv-rowcite" data-rowpath="${esc(base)}"></span>`
+      + (lead ? renderTypedValue(lead, r ? r[lead.name] : undefined, `${base}.${lead.name}`, opts) : "") + `</div>`
+      + (others.length || extra.length
+        ? `<div class="rv-stackrest">${renderFields(others, r || {}, base, opts)}`
+          + (extra.length ? `<div class="rv-obj">${extra.map((k) => `<div class="rv-row rv-decl" data-field="${esc(k)}"><div class="rv-key" data-path="${esc(`${base}.${k}`)}">${esc(formatKey(k))}</div><div class="rv-val">${renderNode(r[k], `${base}.${k}`, opts)}</div></div>`).join("")}</div>` : "")
+          + `</div>`
+        : "")
+      + `</div>`;
+  }).join("");
+  return `<div class="rv-stack">${blocks}</div>${addBtn ? `<div class="rv-tableadd">${addBtn}</div>` : ""}`;
 }
 
 // Declared fields of one object level, in declaration order. `defs` is the field list,

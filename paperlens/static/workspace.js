@@ -3388,10 +3388,29 @@ function eviChildren(lower) {
   return out;
 }
 
-function eviPaperBlock(names) {
+function eviPaperBlock(names, st = null) {
   const defs = VM.paper.fields.filter((f) => names.includes(f.name));
   if (!defs.length) return "";
-  return `<div class="evi-paper paper-fields"><div class="evi-sub">Study</div><div class="rv-root">${renderFields(defs, DATA.paper_metadata || {}, "", { editable: true })}</div></div>`;
+  return `<div class="evi-paper paper-fields"><div class="evi-sub">Study</div><div class="rv-root">${sectionedFields(st, defs, DATA.paper_metadata || {}, "", { editable: true })}</div></div>`;
+}
+// A stage's `sections`: the fields named by each section drawn as one labelled block (the label,
+// the optional help, then the fields in the usual rows), the blocks stacked in order; a field of
+// this level in no section follows them as today. Without sections: the plain field rows.
+function sectionedFields(st, defs, values, basePath, opts) {
+  const secs = st && Array.isArray(st.sections) ? st.sections : [];
+  const byName = new Map(defs.map((f) => [f.name, f]));
+  const placed = new Set();
+  let html = "";
+  for (const sc of secs) {
+    const own = (Array.isArray(sc.fields) ? sc.fields : []).map((n) => byName.get(n)).filter((f) => f && !placed.has(f.name));
+    if (!own.length) continue;
+    own.forEach((f) => placed.add(f.name));
+    html += `<div class="stg-section"><div class="stg-section-h">${esc(sc.label || "")}</div>`
+      + (sc.help ? `<div class="stg-section-help muted">${renderMarkdown(sc.help)}</div>` : "")
+      + renderFields(own, values, basePath, opts) + `</div>`;
+  }
+  const rest = defs.filter((f) => !placed.has(f.name));
+  return html + (rest.length ? renderFields(rest, values, basePath, opts) : "");
 }
 
 function eviEntryBlock(rec, names, kids) {
@@ -3786,7 +3805,7 @@ function stageCellsBlock(st, L, recs) {
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>`;
   const unit = VM.entries.label.toLowerCase();
   if (L.paper) {                                           // the paper's cells first
-    box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper));
+    box.insertAdjacentHTML("beforeend", eviPaperBlock(L.paper, st));
     inlineRows(box, st);
     if (L.match) matchBlocks(box, L, recs);
     if (L.accept && L.kidOf(L.accept.child)) acceptButtons(box, L);
@@ -3802,7 +3821,7 @@ function stageCellsBlock(st, L, recs) {
     const fv = rec.field_values || {};
     if (L.entry) {
       const defs = VM.entries.fields.filter((f) => L.names.has(f.name));
-      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${renderFields(defs, fv, "", { editable: true })}</div>`);
+      card.insertAdjacentHTML("beforeend", `<div class="rv-root stg-fields">${sectionedFields(st, defs, fv, "", { editable: true })}</div>`);
       inlineRows(card, st);
     }
     for (const kid of L.kids) {                              // each child's rows under the entry's cells
@@ -3905,13 +3924,13 @@ function linkSelects(card, st, rec) {
 // A paper table's rows that have evidence of their own (paper_metadata.<table>[i]) get a page
 // tag in their citation cell, and the row jumps to it on a click away from its controls.
 function wirePaperRowCites(panel) {
-  panel.querySelectorAll(".evi-paper .rv-decl[data-field] table.rv-typed").forEach((table) => {
+  panel.querySelectorAll(".evi-paper .rv-decl[data-field] table.rv-typed, .evi-paper .rv-decl[data-field] .rv-stack").forEach((table) => {
     const field = table.closest(".rv-decl").dataset.field;
-    table.querySelectorAll("tbody tr[data-row]").forEach((tr) => {
+    table.querySelectorAll("tbody tr[data-row], :scope > .rv-stackrow[data-row]").forEach((tr) => {
       const want = `paper_metadata.${field}[${tr.dataset.row}]`;
       const ids = (DATA.evidence || []).map((ev, i) => ({ ev, i })).filter(({ ev }) => ev.field_path === want).map(({ i }) => i);
       if (!ids.length) return;
-      const page = DATA.evidence[ids[0]].page || 1, cite = tr.querySelector("td.rv-rowcite");
+      const page = DATA.evidence[ids[0]].page || 1, cite = tr.querySelector("td.rv-rowcite, .rv-stacklead > .rv-rowcite");
       if (cite && !cite.children.length) cite.innerHTML = `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p.${page}</button>`;
       tr.classList.add("stg-cited");
       tr.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable], .rv-selwrap")) return; jumpToEvidence(page, ids); });

@@ -113,3 +113,21 @@ def test_a_stored_row_gains_the_new_file_s_help_and_display() -> None:
     assert records.refresh_stored_presets(conn, {new["id"]: meta}) == [sid]
     conn.commit()
     conn.execute("DELETE FROM schema WHERE id IN (%s, %s)", (sid, other_id)); conn.commit()
+
+
+def test_the_layout_keys_reach_a_stored_row() -> None:
+    """A row minted before the engine knew ``display`` / ``lead`` on a table and ``sections`` /
+    ``evidence`` on a stage takes them from the live file: presentation, not contract."""
+    old = ps.normalize(OLD)
+    d = _new_file()
+    d["entries"]["fields"][1].update(display="stacked", lead="text")
+    d["display"]["review"]["stages"][0].update(evidence="none", sections=[{"label": "Design", "fields": ["design"]}])
+    new = ps.normalize(d)
+    assert ps.schema_id(old) == ps.schema_id(new)
+    out = ps.refreshed_spec(old, new)
+    assert out is not None
+    tbl = out["entries"]["fields"][1]
+    assert tbl["display"] == "stacked" and tbl["lead"] == "text" and tbl["type"] == "table"
+    st = out["display"]["review"]["stages"][0]
+    assert st["evidence"] == "none" and st["sections"] == [{"label": "Design", "fields": ["design"]}]
+    assert ps.content_hash(out) == ps.content_hash(old)
