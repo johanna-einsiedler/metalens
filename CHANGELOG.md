@@ -8,6 +8,18 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work review as a workflow
+
+- The three validation presets of the GenAI-at-work review (`genai-work-judgment`,
+  `genai-work-extraction-check`, `genai-work-routed`; import mode, generated in the review
+  project and copied here) are bundled, and `genai-work` is a bundled workflow over them: three
+  supplied steps into three linked datasets, every paper reviewed whole, the judgment pass by
+  two coders per paper, the other two by one, the release gated on all three. A card documents it.
+- `scripts/seed_accounts.py` gained a workflow mode (a manifest with `workflow`, `owner`,
+  `coders`, `papers` per role): as the owner it makes or finds the workflow dataset, links one
+  dataset per role, adds the coders by email, starts a run, uploads each side's files into it
+  and completes the sides. No coder password travels in the manifest.
+
 ### Coders: one owner, several independent codings
 
 - The owner of a dataset may let other accounts code it (the Coders card on the dataset page,
