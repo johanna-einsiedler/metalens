@@ -75,7 +75,7 @@ _ALLOWED_KEYS = {
     "entries": {"key", "label", "help", "cardinality", "id_field", "title", "evidence", "fields", "children"},
     "child": {"key", "label", "help", "title", "evidence", "layout", "fields"},
     "field": {"name", "label", "type", "help", "required", "range", "options", "allow_other",
-              "columns", "evidence", "confidence", "verbatim", "display", "lead"},
+              "columns", "evidence", "confidence", "verbatim", "display", "lead", "inline"},
     "column": {"name", "label", "type", "help", "required", "range", "options", "allow_other", "verbatim"},
     "confidence": {"levels", "notes", "groups"},
     "group": {"id", "label", "scope", "help"},
@@ -580,6 +580,19 @@ def validate(spec: dict) -> tuple[list[str], list[str]]:
                 cnames_ = [c.get("name") for c in (f.get("columns") or []) if isinstance(c, dict)]
                 if "lead" in f and f["lead"] not in cnames_:
                     E(f"{at}.lead must name a column of the table (the one drawn as each block's head)")
+        if "inline" in f:                                 # groups of a stacked table's columns drawn on one line inside every block
+            if column or ftype != "table" or f.get("display") != "stacked":
+                E(f"{at}.inline only applies to a table field drawn as stacked blocks (display: 'stacked')")
+            else:
+                cnames_ = [c.get("name") for c in (f.get("columns") or []) if isinstance(c, dict)]
+                head = f.get("lead", cnames_[0] if cnames_ else None)
+                il = f["inline"]
+                names_ = [n for g in il for n in g] if isinstance(il, list) and all(isinstance(g, list) for g in il) else []
+                if (not isinstance(il, list) or not il
+                        or any(not isinstance(g, list) or len(g) < 2 or any(not isinstance(n, str) or n not in cnames_ or n == head for n in g) for g in il)):
+                    E(f"{at}.inline must list groups of two or more of the table's columns other than the lead (drawn on one line inside every block)")
+                elif len(set(names_)) != len(names_):
+                    E(f"{at}.inline names a column twice — a column belongs to one group")
         if not column:
             ev = f.get("evidence", _default_evidence(f))
             allowed = EVIDENCE_BY_KIND["table" if ftype == "table" else "scalar"]
@@ -1087,7 +1100,7 @@ _WORDING_KEYS = ("label", "help", "title")
 # Publication policy, not shape: a field declared `verbatim` holds a quotation of the paper, which
 # public copies cut to 200 characters (paperlens/quotes.py). Flagging a field never re-versions data.
 _POLICY_KEYS = ("verbatim",)
-_DISPLAY_KEYS = ("display", "lead")                  # how a table is drawn: presentation, not data
+_DISPLAY_KEYS = ("display", "lead", "inline")        # how a table is drawn: presentation, not data
 
 
 def data_contract(spec: dict) -> dict:
@@ -1111,7 +1124,7 @@ def data_contract(spec: dict) -> dict:
 # so a preset file with the SAME schema id may bring them up to date on rows minted from an older
 # copy of the file — the tooltips, the auto ids and every layout change then reach what a coder
 # already imported.
-_REFRESH_WORDING = ("label", "help", "title", "tagline", "description", "display", "lead")
+_REFRESH_WORDING = ("label", "help", "title", "tagline", "description", "display", "lead", "inline")
 
 
 def merge_wording(stored, live):
@@ -2168,7 +2181,9 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     "stacked"`` (with ``lead`` naming the column drawn as each block's head, the first by default):
     one block per row — the row's page tag and the head's first line, the rest of the head as a
     paragraph, then the other columns as label-and-control lines — instead of a table; the cells,
-    the "＋ row" and the "✕" are the table's own. The workspace shows a stage in its left panel — the instruction, the items whose
+    the "＋ row" and the "✕" are the table's own. Such a table may say ``inline: [[column names…], …]``:
+    each group's columns are drawn on one line inside every block (a text or string column takes
+    the remaining width). The workspace shows a stage in its left panel — the instruction, the items whose
     bears_on meets its fields as one bare list (page and quote) with a cursor over them, then its
     cells (once), then a "next" button — and the PDF column, collapsed to a strip until opened
     (two fifths of the window by default), follows the cursor to the current item's page while
