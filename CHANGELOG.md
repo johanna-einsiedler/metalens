@@ -29,6 +29,12 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - A click on a stacked block's head, or on the text of a paper table's row, opens the row's
   passage in the PDF as its page tag does (the cell keeps the caret, so editing is unchanged; a
   further click inside the cell being edited only moves it); the tag says so on hover.
+- A stacked table may say `inline: [[column names…], …]`: each group's columns are drawn on one
+  line inside every block (a text or string column takes the rest of the line) instead of one
+  under the other. Presentation: the schema id does not move, and a stored row takes it from the
+  live file as it takes `display` and `lead`.
+- In the stage pane, a paper table's label ("Tasks", "Arms", "Subgroups") reads as a heading: 15px,
+  bold, in the text colour, with room above it; the ⓘ keeps its size.
 
 ### The joint review on one page, a regression table on one card
 

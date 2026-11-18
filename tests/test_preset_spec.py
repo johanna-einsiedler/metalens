@@ -575,6 +575,41 @@ def test_a_table_may_be_drawn_as_stacked_blocks() -> None:
     assert any("display and lead only apply to table fields" in e for e in _errors(lambda d: d["entries"]["fields"][2]["columns"][0].update(display="stacked")))
 
 
+def test_a_stacked_table_may_draw_column_groups_on_one_line() -> None:
+    """``inline: [[columns…], …]`` on a stacked table is presentation: each group's columns are
+    drawn side by side inside every block. Accepted only on a table drawn as stacked blocks, the
+    names columns of it other than the lead, each in one group; the schema id does not move, and
+    a stored row takes the key from the live file as it takes ``display`` and ``lead``."""
+    doc = copy.deepcopy(GOOD)
+    doc["entries"]["fields"][2]["columns"] = [{"name": "a", "type": "number"}, {"name": "b", "type": "string"},
+                                              {"name": "c", "type": "enum", "options": ["x", "y"]}]
+    plain = ps.normalize(copy.deepcopy(doc))
+    doc["entries"]["fields"][2].update(display="stacked", lead="a", inline=[["b", "c"]])
+    spec = ps.normalize(doc)
+    errs, _ = ps.validate(spec)
+    assert not errs, errs
+    assert spec["entries"]["fields"][2]["inline"] == [["b", "c"]]
+    assert ps.schema_id(spec) == ps.schema_id(plain)
+    assert ps.refreshed_spec(plain, spec)["entries"]["fields"][2]["inline"] == [["b", "c"]]
+
+    def errs_of(mutate) -> list[str]:
+        d = copy.deepcopy(doc)
+        mutate(d)
+        try:
+            ps.normalize(d)
+        except ps.SpecError as e:
+            return e.errors
+        return []
+    only_stacked = "inline only applies to a table field drawn as stacked blocks"
+    assert any(only_stacked in e for e in errs_of(lambda d: d["entries"]["fields"][2].pop("display")))
+    assert any(only_stacked in e for e in errs_of(lambda d: d["entries"]["fields"][1].update(inline=[["a", "b"]])))
+    assert any(only_stacked in e for e in errs_of(lambda d: d["entries"]["fields"][2]["columns"][1].update(inline=[["a", "b"]])))
+    for bad in ([["b"]], [["b", "zzz"]], [["a", "b"]], "b,c", []):      # one name · not a column · the lead · not a list · empty
+        assert any("inline must list groups of two or more of the table's columns other than the lead" in e
+                   for e in errs_of(lambda d, bad=bad: d["entries"]["fields"][2].update(inline=bad))), bad
+    assert any("names a column twice" in e for e in errs_of(lambda d: d["entries"]["fields"][2].update(inline=[["b", "c"], ["c", "b"]])))
+
+
 def test_stages_review_entry_stage_may_carry_a_child() -> None:
     """A stage may name the entry's fields together with one child's (each entry's cells, then its
     rows): its auto_id is then a list, one per level, copy_from_sibling applies to the rows, and a

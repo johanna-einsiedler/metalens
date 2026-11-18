@@ -445,7 +445,13 @@ tr:hover .rv-rowdel, .rv-stackrow:hover .rv-rowdel { opacity: .75; }
 .rv-stackrest { margin-top: 6px; clear: both; }
 .rv-stackrest .rv-obj, .stg-cells .rv-stackrest .rv-obj { grid-template-columns: 1fr; }
 .rv-stackrest .rv-row { padding: 4px 0; }
-.rv-stackrest .rv-obj > .rv-row:last-child { border-bottom: 0; }
+.rv-stackrest .rv-obj > .rv-row:last-child, .rv-stackrest .rv-obj > .rv-inline:last-child > .rv-row { border-bottom: 0; }
+/* a stacked table's `inline` groups: the columns' rows side by side inside the block — a control keeps its width,
+   a text or string column takes the rest of the line (and drops to a line of its own when the block is narrow) */
+.rv-stackrest .rv-inline { margin: 0; padding: 0; border-left: 0; gap: 0 16px; flex-wrap: wrap; }
+.rv-stackrest .rv-inline > .rv-row { flex: 0 0 auto; }
+.rv-stackrest .rv-inline > .rv-row.rv-grow { flex: 1 1 12em; }
+.rv-stackrest .rv-inline > .rv-row.rv-grow > .rv-val { flex: 1 1 auto; }
 .stg-empty { font-size: 12.5px; margin: 0 0 8px; }
 .stg-addtask { display: block; margin: 4px 0 10px; }
 .stg-copy { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 6px 0 2px; font-size: 12px; }
@@ -461,6 +467,9 @@ tr:hover .rv-rowdel, .rv-stackrow:hover .rv-rowdel { opacity: .75; }
 #pagespane .stg-pane-nav .stg-pane-k { min-width: 84px; text-align: center; }
 .stg-head { margin: 0 0 6px; }
 .stg-cells .rv-obj { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+/* a table's label row in the stage pane reads as a heading ("Tasks", "Arms", "Subgroups"); the ⓘ keeps its size */
+.stg-cells .rv-row-block > .rv-key { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 14px; }
+.stg-cells :is(.rv-obj, .stg-fields) > .rv-row-block:first-child > .rv-key { margin-top: 0; }
 /* the stage's evidence: one plain list — number and page on a line, then the quote or the table —
    items parted by a thin rule, the current one marked by a left accent */
 .stg-evidence { margin: 8px 0 14px; }

@@ -328,8 +328,9 @@ function renderTypedTable(f, v, path, opts) {
 // A declared table drawn as STACKED BLOCKS (`display: "stacked"` on the field): one block per
 // row — the row's citation slot and the lead column (`lead`, else the first column) as the head,
 // its first line set off and the rest of its text as a paragraph, then the other columns as
-// label-and-control lines. The cells, "＋ row" and "✕" are the typed table's own (same paths,
-// same classes), so editing, citing and row tools work unchanged.
+// label-and-control lines (the field's `inline` groups side by side on one line). The cells,
+// "＋ row" and "✕" are the typed table's own (same paths, same classes), so editing, citing and
+// row tools work unchanged.
 function renderStackedTable(f, v, path, opts) {
   const cols = f.columns || [];
   const lead = cols.find((c) => c.name === f.lead) || cols[0];
@@ -351,7 +352,7 @@ function renderStackedTable(f, v, path, opts) {
       + `<div class="rv-stacklead"${headTip ? ` title="${esc(headTip)}"` : ""}><span class="rv-rowcite" data-rowpath="${esc(base)}"></span>`
       + (lead ? renderTypedValue(lead, r ? r[lead.name] : undefined, `${base}.${lead.name}`, opts) : "") + `</div>`
       + (others.length || extra.length
-        ? `<div class="rv-stackrest">${renderFields(others, r || {}, base, opts)}`
+        ? `<div class="rv-stackrest">${renderFields(others, r || {}, base, opts, f.inline)}`
           + (extra.length ? `<div class="rv-obj">${extra.map((k) => `<div class="rv-row rv-decl" data-field="${esc(k)}"><div class="rv-key" data-path="${esc(`${base}.${k}`)}">${esc(formatKey(k))}</div><div class="rv-val">${renderNode(r[k], `${base}.${k}`, opts)}</div></div>`).join("")}</div>` : "")
           + `</div>`
         : "")
@@ -361,17 +362,33 @@ function renderStackedTable(f, v, path, opts) {
 }
 
 // Declared fields of one object level, in declaration order. `defs` is the field list,
-// `obj` the values, `basePath` "" for an entry, "records[2]" for a sub-entry row.
-export function renderFields(defs, obj, basePath, opts) {
-  const rows = defs.map((f) => {
+// `obj` the values, `basePath` "" for an entry, "records[2]" for a sub-entry row. `inline`
+// (groups of field names) draws each group's rows side by side in one flex line, placed where
+// the group's first member stands; a text or string row in a group grows to take the rest of
+// the line. A group with fewer than two members among `defs` is drawn as plain rows.
+export function renderFields(defs, obj, basePath, opts, inline) {
+  const row = (f, grouped) => {
     const path = basePath ? `${basePath}.${f.name}` : f.name;
     const v = obj ? obj[f.name] : undefined;
     const block = f.type === "table" || (v && typeof v === "object" && !Array.isArray(v) && f.type !== "multi" && f.type !== "list");
     const conf = f.confidence ? ` data-group="${esc(f.confidence)}"` : "";
     const tip = fieldTip(f);
-    return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}"${conf} data-field="${esc(f.name)}">`
+    const grow = grouped && (f.type === "text" || f.type === "string" || !f.type) ? " rv-grow" : "";
+    return `<div class="rv-row${block ? " rv-row-block" : ""} rv-decl${v === undefined ? " rv-row-missing" : ""}${grow}"${conf} data-field="${esc(f.name)}">`
       + `<div class="rv-key${tip ? " rv-key-help" : ""}" data-path="${esc(path)}"${tip ? ` title="${esc(tip)}" data-tip="${esc(tip)}"` : ""}>${esc(f.label || formatKey(f.name))}${tip ? `<span class="rv-help" title="${esc(tip)}" data-tip="${esc(tip)}" tabindex="0">ⓘ</span>` : ""}</div>`
       + `<div class="rv-val${block ? " rv-nested" : ""}">${renderTypedValue(f, v, path, opts)}${basePath ? "" : renderCandidates(f, v, path, opts)}</div></div>`;
+  };
+  const groups = (Array.isArray(inline) ? inline : []).filter((g) => Array.isArray(g) && g.length >= 2)
+    .map((g) => g.map((n) => defs.find((d) => d.name === n)).filter(Boolean)).filter((g) => g.length >= 2);
+  const groupOf = new Map();
+  groups.forEach((g) => g.forEach((d) => { if (!groupOf.has(d.name)) groupOf.set(d.name, g); }));
+  const drawn = new Set();
+  const rows = defs.map((f) => {
+    const g = groupOf.get(f.name);
+    if (!g) return row(f, false);
+    if (drawn.has(g)) return "";
+    drawn.add(g);
+    return `<div class="rv-inline">${g.map((d) => row(d, true)).join("")}</div>`;
   }).join("");
   return `<div class="rv-obj">${rows}</div>`;
 }

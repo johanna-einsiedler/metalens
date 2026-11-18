@@ -6,7 +6,8 @@
 
 --doc: a document under a staged preset whose --sections-stage declares `sections` and an `inline`
 pair inside one of them, with at least one field of the stage in no section, and whose
---stacked-stage shows a paper table declared `display: "stacked"` with row evidence. Checks: the
+--stacked-stage shows a paper table declared `display: "stacked"` with row evidence and the `inline`
+group --inline (its columns side by side inside every block; the tables' labels drawn as headings). Checks: the
 sections render as labelled blocks in order, the help under the label, each block holding its
 fields, an inline pair kept on one line inside its block, the fields in no section after the
 last block; a select edited inside a block is saved; the stacked table shows one block per row —
@@ -38,6 +39,7 @@ def main() -> int:
     ap.add_argument("--stacked-stage", type=int, default=1)
     ap.add_argument("--table", default="j_tasks")
     ap.add_argument("--typed-table", default="j_arms")
+    ap.add_argument("--inline", default="category,verdict,note", help="the columns --table declares as one `inline` group ('' for none)")
     ap.add_argument("--shots", default=None)
     a = ap.parse_args()
     fails: list[str] = []
@@ -119,13 +121,37 @@ def main() -> int:
         check(geo["tagLeftOfText"] and geo["block"] and geo["wrap"] and geo["lines"] >= 2, f"the tag sits on the head's first line, the text wraps as a paragraph under it ({geo})")
         fields = first.locator(".rv-stackrest .rv-row[data-field]").evaluate_all("els => els.map(e => e.dataset.field)")
         check(len(fields) >= 2 and all(f not in ("task",) for f in fields), f"the other columns follow as label-and-control lines: {fields}")
-        one_per_line = page.evaluate("() => { const rs = [...document.querySelector('.rv-stackrow .rv-stackrest').querySelectorAll('.rv-row[data-field]')]; return rs.every((r, i) => i === 0 || r.getBoundingClientRect().top >= rs[i - 1].getBoundingClientRect().bottom - 1); }")
-        check(one_per_line, "each on its own line")
+        # the block's lines — an ungrouped row, or an `inline` group of rows — each under the one before
+        one_per_line = page.evaluate("() => { const rs = [...document.querySelector('.rv-stackrow .rv-stackrest .rv-obj').children].filter(e => e.matches('.rv-row[data-field], .rv-inline')); return rs.every((r, i) => i === 0 || r.getBoundingClientRect().top >= rs[i - 1].getBoundingClientRect().bottom - 1); }")
+        check(one_per_line, "each line (a row, or an inline group) under the one before")
+        # the field's `inline` groups: the named columns side by side on one line inside the block, the text column taking the rest
+        grp = [x for x in a.inline.split(",") if x]
+        if grp:
+            wrap = first.locator(".rv-stackrest .rv-inline")
+            if wrap.count():
+                inside = wrap.first.locator(".rv-row[data-field]").evaluate_all("els => els.map(e => e.dataset.field)")
+                tops = wrap.first.locator(".rv-row[data-field]").evaluate_all("els => els.map(e => Math.round(e.getBoundingClientRect().top))")
+                widths = wrap.first.locator(".rv-row[data-field]").evaluate_all("els => Object.fromEntries(els.map(e => [e.dataset.field, Math.round(e.getBoundingClientRect().width)]))")
+                # the growing row (a text or string column) ends where the line ends; the controls keep their own width
+                fill = wrap.first.evaluate("w => { const g = w.querySelector('.rv-row.rv-grow'); if (!g) return null; const wb = w.getBoundingClientRect(), gb = g.getBoundingClientRect(); return { field: g.dataset.field, gap: Math.round(wb.right - gb.right) }; }")
+            else:
+                inside, tops, widths, fill = [], [], {}, None
+            check(inside == grp, f"the inline group's rows sit in one flex wrapper: {inside}")
+            check(len(tops) == len(grp) and len(set(tops)) == 1, f"… on one line (tops {tops})")
+            check(fill is not None and fill["gap"] <= 2, f"the text column takes the rest of the line ({fill}, widths {widths})")
+            check(decl.locator(".rv-stackrest .rv-inline").count() == decl.locator(".rv-stack > .rv-stackrow").count(), "every block draws the group")
         check(first.locator(".rv-stackrest .rv-selwrap select").count() >= 1, "an enum column is the usual select")
         xb = first.locator(":scope > .rv-rowdel")
         pos = page.evaluate("() => { const b = document.querySelector('.rv-stackrow'), x = b.querySelector(':scope > .rv-rowdel'); const bb = b.getBoundingClientRect(), xb = x.getBoundingClientRect(); return xb.right <= bb.right && xb.top - bb.top < 20 && bb.right - xb.right < 20; }")
         check(xb.count() == 1 and pos, "✕ sits at the block's top right")
         check(decl.locator(".rv-tableadd .rv-addrow").count() == 1, "＋ row under the list")
+        # the tables' labels read as headings in the stage pane: 15px bold, room above all but the first, the ⓘ at its 10px
+        hk = page.evaluate("""() => [...document.querySelectorAll('#panel .stg-cells .evi-paper .rv-row-block > .rv-key')].map(k => {
+            const cs = getComputedStyle(k), i = k.querySelector('.rv-help');
+            return { field: k.closest('.rv-row').dataset.field, size: cs.fontSize, weight: cs.fontWeight, mt: cs.marginTop, help: i ? getComputedStyle(i).fontSize : null }; })""")
+        check(len(hk) >= 2 and all(h["size"] == "15px" and h["weight"] == "700" for h in hk), f"the tables' labels are headings (15px, bold): {[(h['field'], h['size'], h['weight']) for h in hk]}")
+        check(bool(hk) and hk[0]["mt"] == "0px" and all(h["mt"] == "14px" for h in hk[1:]), f"the first heading has no top margin, the next ones 14px ({[h['mt'] for h in hk]})")
+        check(all(h["help"] in (None, "10px") for h in hk), "the ⓘ keeps its 10px")
         shot("stacked.png")
         # an edit in a block writes the table's cell
         vsel = first.locator('.rv-stackrest .rv-row[data-field="verdict"] select').first if first.locator('.rv-stackrest .rv-row[data-field="verdict"] select').count() else first.locator(".rv-stackrest .rv-selwrap select").first
