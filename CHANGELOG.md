@@ -26,6 +26,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   place of the table; the cells, "＋ row" and "✕" are the table's own. Presentation keys: the
   schema id does not move, and a stored schema row takes them from the live file as it takes
   wording.
+- A click on a stacked block's head, or on the text of a paper table's row, opens the row's
+  passage in the PDF as its page tag does (the cell keeps the caret, so editing is unchanged; a
+  further click inside the cell being edited only moves it); the tag says so on hover.
 
 ### The joint review on one page, a regression table on one card
 

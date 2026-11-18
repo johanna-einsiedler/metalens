@@ -3922,7 +3922,10 @@ function linkSelects(card, st, rec) {
 }
 
 // A paper table's rows that have evidence of their own (paper_metadata.<table>[i]) get a page
-// tag in their citation cell, and the row jumps to it on a click away from its controls.
+// tag in their citation cell, and the row opens the passage on a click: on its text — the head
+// of a stacked block, a cell of a table row — as much as on the tag. The text is editable, so
+// the click also places the caret; a further click inside the cell being edited only moves it.
+// Controls (buttons, selects, ticks) and cells with a citation of their own keep their own job.
 function wirePaperRowCites(panel) {
   panel.querySelectorAll(".evi-paper .rv-decl[data-field] table.rv-typed, .evi-paper .rv-decl[data-field] .rv-stack").forEach((table) => {
     const field = table.closest(".rv-decl").dataset.field;
@@ -3931,9 +3934,17 @@ function wirePaperRowCites(panel) {
       const ids = (DATA.evidence || []).map((ev, i) => ({ ev, i })).filter(({ ev }) => ev.field_path === want).map(({ i }) => i);
       if (!ids.length) return;
       const page = DATA.evidence[ids[0]].page || 1, cite = tr.querySelector("td.rv-rowcite, .rv-stacklead > .rv-rowcite");
-      if (cite && !cite.children.length) cite.innerHTML = `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="${esc(DATA.evidence[ids[0]].snippet || "")}">p.${page}</button>`;
+      const snippet = DATA.evidence[ids[0]].snippet || "";
+      if (cite && !cite.children.length) cite.innerHTML = `<button type="button" class="ev-cite" data-eids="${ids.join(",")}" data-page="${page}" title="${esc(`open the passage, p. ${page}${snippet ? "\n" + snippet : ""}`)}">p.${page}</button>`;
       tr.classList.add("stg-cited");
-      tr.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable], .rv-selwrap")) return; jumpToEvidence(page, ids); });
+      let editing = false;   // the click landed in the cell that already had the caret
+      tr.addEventListener("mousedown", (e) => { const ed = e.target.closest("[contenteditable]"); editing = !!ed && document.activeElement === ed; });
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("button, a, select, input, label, .rv-selwrap, .rv-multi")) return;
+        if (e.target.closest(".rv-cited, .rv-cited-nofix, .rv-linked, .rv-covered")) return;   // its own citation jumps by itself
+        if (editing) return;
+        jumpToEvidence(page, ids);
+      });
       tr.addEventListener("mouseenter", () => showEvidence(ids)); tr.addEventListener("mouseleave", () => hideEvidence(ids));
       const b = cite && cite.querySelector(".ev-cite[data-eids]");
       if (b) { b.onclick = (e) => { e.stopPropagation(); jumpToEvidence(page, ids); }; }

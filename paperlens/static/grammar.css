@@ -515,6 +515,8 @@ body.stg-split .stg-entry .rv-uncited { box-shadow: none; }                /* th
 body.stg-split .stg-entry .rv-uncited::after { content: none; }
 .stg-cells tr.stg-cited { cursor: pointer; }
 .stg-cells tr.stg-cited:hover td { background: var(--accent-wash); }
+.stg-cells .rv-stackrow.stg-cited .rv-stacklead { cursor: pointer; }           /* the head opens the passage, as the tag does */
+.stg-cells .rv-stackrow.stg-cited .rv-stacklead:hover { background: var(--accent-wash); }
 .stg-cells .rv-typed .rv-selwrap { white-space: nowrap; }
 .stg-units, .stg-misses { margin: 0 0 8px; font-size: 12px; }
 .stg-units ul, .stg-misses ul { margin: 2px 0 4px 18px; padding: 0; }

@@ -2,7 +2,7 @@
 """Browser check of a stage's `sections` and of a table drawn as stacked blocks (`display: "stacked"`).
 
     python3 scripts/ui_check_stage_sections.py --url http://127.0.0.1:8018 --doc <document id> --session <X-Session-Id>
-                                               [--sections-stage 0] [--stacked-stage 1] [--table j_tasks] [--shots DIR]
+                                               [--sections-stage 0] [--stacked-stage 1] [--table j_tasks] [--typed-table j_arms] [--shots DIR]
 
 --doc: a document under a staged preset whose --sections-stage declares `sections` and an `inline`
 pair inside one of them, with at least one field of the stage in no section, and whose
@@ -12,8 +12,10 @@ fields, an inline pair kept on one line inside its block, the fields in no secti
 last block; a select edited inside a block is saved; the stacked table shows one block per row —
 the row's page tag before the lead column, the lead's first line set off from the rest, the other
 columns as label-and-control lines, ✕ at the top right — no table; a select in a block saves into
-that row; ＋ row adds a block and ✕ removes it; a page tag lights the row's passage; no script
-errors. Needs the system python with playwright installed; prints a check list and exits non-zero
+that row; ＋ row adds a block and ✕ removes it; a page tag lights the row's passage, and so does a
+click on the block's head (the head keeps the caret; a further click inside it moves the caret
+only) and on the text of a row of --typed-table, a paper table drawn as a table with row evidence
+on the same stage; the tag says what it does on hover; no script errors. Needs the system python with playwright installed; prints a check list and exits non-zero
 on a failure.
 """
 import argparse
@@ -35,6 +37,7 @@ def main() -> int:
     ap.add_argument("--sections-stage", type=int, default=0)
     ap.add_argument("--stacked-stage", type=int, default=1)
     ap.add_argument("--table", default="j_tasks")
+    ap.add_argument("--typed-table", default="j_arms")
     ap.add_argument("--shots", default=None)
     a = ap.parse_args()
     fails: list[str] = []
@@ -150,6 +153,37 @@ def main() -> int:
         tag.click(); page.wait_for_timeout(600)
         sel_pages = page.locator("rect.hl.sel").evaluate_all("els => els.map(r => r.closest('.page').id)")
         check(sel_pages and all(s == f"page-{tp}" for s in sel_pages), f"a block's page tag lights its passage on p. {tp}")
+
+        # ── the row's text opens the passage too ──
+        sel_of = lambda: page.locator("rect.hl.sel").evaluate_all("els => els.map(r => r.closest('.page').id)")
+        unsel = lambda: page.evaluate("() => document.querySelectorAll('rect.hl.sel').forEach(r => r.classList.remove('sel'))")
+        blocks = decl.locator(".rv-stack > .rv-stackrow")
+        tag0, tag1 = blocks.nth(0).locator(".rv-stacklead .ev-cite").first, blocks.nth(1).locator(".rv-stacklead .ev-cite").first
+        p0, p1 = tag0.get_attribute("data-page"), tag1.get_attribute("data-page")
+        title = tag0.get_attribute("title") or ""
+        check(title.startswith(f"open the passage, p. {p0}"), f"the tag says what it does: {title.splitlines()[0]!r}")
+        check(tag0.evaluate("b => getComputedStyle(b).cursor") == "pointer", "and shows a pointer")
+        check(blocks.nth(0).locator(".rv-stacklead").evaluate("h => getComputedStyle(h).cursor") == "pointer", "the head shows a pointer")
+        tag1.click(); page.wait_for_timeout(500)   # the selection sits on the second block's page first
+        lead0 = blocks.nth(0).locator(".rv-stacklead > .rv-editable, .rv-stacklead > .rv-cell").first
+        lead0.click(); page.wait_for_timeout(600)
+        sp = sel_of()
+        check(p0 != p1 and sp and all(s == f"page-{p0}" for s in sp), f"a click on the block's head lights its passage on p. {p0} (was p. {p1})")
+        check(page.evaluate("() => { const r = document.querySelector('rect.hl.sel'); if (!r) return false; const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; }"), "and scrolls the PDF to it")
+        check(page.evaluate("() => !!document.activeElement && document.activeElement.classList.contains('rv-editable') && !!document.activeElement.closest('.rv-stacklead')"), "the head keeps the caret for editing")
+        unsel(); lead0.click(); page.wait_for_timeout(400)
+        check(not sel_of(), "a further click inside the head being edited only moves the caret")
+        # a table drawn as a table: its row's text does the same
+        tdecl = page.locator(f'#panel .stg-cells .evi-paper .rv-decl[data-field="{a.typed_table}"]')
+        check(tdecl.count() == 1 and tdecl.locator("table.rv-typed").count() == 1, f"{a.typed_table} is drawn as a table")
+        trs = tdecl.locator("table.rv-typed tbody tr.stg-cited")
+        check(trs.count() >= 2, f"its rows carry page tags ({trs.count()})")
+        tp0 = trs.nth(0).locator("td.rv-rowcite .ev-cite").get_attribute("data-page"); tp1 = trs.nth(1).locator("td.rv-rowcite .ev-cite").get_attribute("data-page")
+        trs.nth(1).locator("td.rv-rowcite .ev-cite").click(); page.wait_for_timeout(400)
+        trs.nth(0).locator("td .rv-editable").first.click(); page.wait_for_timeout(600)
+        sp = sel_of()
+        check(tp0 != tp1 and sp and all(s == f"page-{tp0}" for s in sp), f"a click on a table row's text lights its passage on p. {tp0} (was p. {tp1})")
+        shot("row-click.png")
 
         check(not errors, "no script errors" + (f": {errors[:3]}" if errors else ""))
         browser.close()
