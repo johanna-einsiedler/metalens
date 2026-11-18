@@ -1,0 +1,231 @@
+{
+  "format": 2,
+  "id": "genai-work-extraction-check",
+  "version": 4,
+  "meta": {
+    "title": "GenAI at work — extraction check — v4",
+    "tagline": "One exhibit per paper: the cells as printed against their units.",
+    "description": "The extraction-check workflow of the validation: for each paper one table or figure, drawn at random among those the estimates cite, with every cited cell as printed and the unit it was mapped to; the coder confirms value and mapping cell by cell, adds the cells the extraction missed, and can flag the paper for a full review. Taxonomy schema b5ed1ca67c; codebook in labeling/codebook.md.",
+    "mode": "import",
+    "hidden": false,
+    "brands": [
+      "metalens"
+    ]
+  },
+  "prompt": {
+    "text": "",
+    "params": {}
+  },
+  "paper": {
+    "fields": [
+      {
+        "name": "x_exhibit",
+        "type": "string",
+        "label": "Exhibit",
+        "evidence": "none",
+        "help": "the table or figure drawn for this paper, its page, its panels and the number of cited cells"
+      },
+      {
+        "name": "x_cells",
+        "type": "table",
+        "label": "Cited cells",
+        "help": "one row per estimate read from this exhibit: the cell as printed and the unit it was mapped to",
+        "evidence": "row",
+        "columns": [
+          {
+            "name": "estimate_id",
+            "type": "string",
+            "label": "Estimate"
+          },
+          {
+            "name": "panel",
+            "type": "string",
+            "label": "Panel"
+          },
+          {
+            "name": "row_label",
+            "type": "string",
+            "label": "Row"
+          },
+          {
+            "name": "column",
+            "type": "string",
+            "label": "Column"
+          },
+          {
+            "name": "value_as_printed",
+            "type": "string",
+            "label": "Value as printed"
+          },
+          {
+            "name": "se_as_printed",
+            "type": "string",
+            "label": "SE as printed"
+          },
+          {
+            "name": "arm_stats",
+            "type": "string",
+            "label": "Arm statistics",
+            "help": "n and mean of the reference and the treatment arm when the exhibit prints them"
+          },
+          {
+            "name": "unit",
+            "type": "string",
+            "label": "Unit",
+            "help": "task · arm vs reference · outcome · subgroup · horizon"
+          },
+          {
+            "name": "role",
+            "type": "string",
+            "label": "Role"
+          },
+          {
+            "name": "value_ok",
+            "type": "enum",
+            "label": "Value right?",
+            "options": [
+              "yes",
+              "no",
+              "unsure"
+            ],
+            "help": "is the value (and SE) exactly what the exhibit prints in that cell?"
+          },
+          {
+            "name": "mapping_ok",
+            "type": "enum",
+            "label": "Mapping right?",
+            "options": [
+              "yes",
+              "no",
+              "unsure"
+            ],
+            "help": "is this cell an estimate of that unit (those arms, that outcome, subgroup and horizon)?"
+          },
+          {
+            "name": "note",
+            "type": "string",
+            "label": "Note"
+          }
+        ]
+      },
+      {
+        "name": "notes",
+        "type": "text",
+        "label": "Notes",
+        "evidence": "none",
+        "help": "anything worth recording about this paper: a doubt, a rule you applied, a place to look at again"
+      },
+      {
+        "name": "evidence_items",
+        "type": "table",
+        "label": "Evidence",
+        "evidence": "none",
+        "columns": [
+          {
+            "name": "n",
+            "type": "integer",
+            "label": "No.",
+            "required": true
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "label": "Page"
+          },
+          {
+            "name": "kind",
+            "type": "enum",
+            "label": "Kind",
+            "options": [
+              "passage",
+              "table"
+            ],
+            "required": true
+          },
+          {
+            "name": "text",
+            "type": "text",
+            "label": "Text",
+            "verbatim": true,
+            "help": "the passage verbatim; for a table its caption and rows as markdown"
+          },
+          {
+            "name": "note",
+            "type": "string",
+            "label": "Note"
+          },
+          {
+            "name": "bears_on",
+            "type": "list",
+            "label": "Bears on"
+          }
+        ]
+      }
+    ]
+  },
+  "entries": {
+    "key": "review",
+    "label": "Paper",
+    "help": "one per paper; the done button and the full-review flag",
+    "cardinality": "one",
+    "id_field": "review_id",
+    "title": "{review_id}",
+    "evidence": "none",
+    "fields": [
+      {
+        "name": "review_id",
+        "type": "string",
+        "label": "Review",
+        "evidence": "none"
+      },
+      {
+        "name": "full_review",
+        "type": "enum",
+        "label": "Full review needed",
+        "evidence": "none",
+        "options": [
+          {
+            "value": "no",
+            "label": "no"
+          },
+          {
+            "value": "yes",
+            "label": "yes"
+          }
+        ],
+        "help": "yes when what you saw makes the whole extraction of this paper doubtful; say why"
+      },
+      {
+        "name": "full_review_why",
+        "type": "string",
+        "label": "Why",
+        "evidence": "none"
+      }
+    ]
+  },
+  "display": {
+    "entries": "cards",
+    "paper_panel": "open",
+    "review": {
+      "layout": "stages",
+      "items": "evidence_items",
+      "verify": "paper",
+      "stages": [
+        {
+          "id": "cells",
+          "label": "Cells",
+          "paper_fields": [
+            "x_exhibit",
+            "x_cells",
+            "notes"
+          ],
+          "fields": [
+            "full_review",
+            "full_review_why"
+          ],
+          "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from; its transcription is in the pane, its page tag opens it in the PDF. For every row: is the value exactly as printed, and is the cell an estimate of the unit named? Add a row (＋) for a cell of this exhibit that estimates an AI-versus-reference contrast and is not listed (leave its Estimate blank). Press done; set *Full review needed* when what you saw makes the paper's whole extraction doubtful."
+        }
+      ]
+    }
+  }
+}
