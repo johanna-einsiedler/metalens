@@ -8,6 +8,37 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work review as a workflow
+
+- The three validation presets of the GenAI-at-work review (`genai-work-judgment`,
+  `genai-work-extraction-check`, `genai-work-routed`; import mode, generated in the review
+  project and copied here) are bundled, and `genai-work` is a bundled workflow over them: three
+  supplied steps into three linked datasets, every paper reviewed whole, the judgment pass by
+  two coders per paper, the other two by one, the release gated on all three. A card documents it.
+- `scripts/seed_accounts.py` gained a workflow mode (a manifest with `workflow`, `owner`,
+  `coders`, `papers` per role): as the owner it makes or finds the workflow dataset, links one
+  dataset per role, adds the coders by email, starts a run, uploads each side's files into it
+  and completes the sides. No coder password travels in the manifest.
+
+### Coders: one owner, several independent codings
+
+- The owner of a dataset may let other accounts code it (the Coders card on the dataset page,
+  `POST /api/datasets/{id}/coders {email}`; a grant on a workflow dataset covers its linked
+  datasets). A coder reads the owner's papers and codes them in a coding of their own — values,
+  table rows, verdicts, notes, paper-level fields, marks — that no other coder sees; the record
+  as stored, its status and its events never move. The owner sees a chip per coding on every
+  record and may look at one coder's coding read-only ("view as"). Coders may not add or delete
+  entries, change a paper's identity, set a field across records or delete a document.
+- A workflow step's review may say `coders: N`: the gate assigns every paper to N coders in turn,
+  each coder's queue lists their own papers, and the gate closes on the coders' verdicts, never the
+  owner's; it waits while the dataset has fewer than N coders. The owner may move a paper
+  between coders until a verdict was given. `coders` is part of the workflow's contract.
+- The badge counts a coder's verdict as the owner's; exports carry every coding by label
+  (`codings`, `paper_codings`, `coders`), releases freeze them (`codings.json`) together with the
+  declared paper-level values, which a release now carries too, and a new coding counts as a
+  change since the last release. A coder's workspace lists the datasets they code under
+  "Coding for".
+
 ### A search box over the PDF, and a stage that shows no evidence
 
 - The PDF pane has a search box (top right, `/` focuses it): the text typed is looked up in the

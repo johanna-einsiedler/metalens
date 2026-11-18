@@ -65,7 +65,7 @@ _ALLOWED_KEYS = {
     "crosscheck": set(),
     "loop": {"steps", "until", "max_iterations"},
     "release": {"gate"},
-    "review": {"mode", "unit", "n", "share", "seed", "stratify", "blocks", "oversample_flagged"},
+    "review": {"mode", "unit", "n", "share", "seed", "stratify", "blocks", "oversample_flagged", "coders"},
 }
 
 
@@ -525,6 +525,14 @@ def _validate_review(rv, st, pspec, at, E, W) -> None:
         E(f"{at}.oversample_flagged must be a boolean")
     if mode == "sample" and st.get("kind") in DRAFT_KINDS:
         E(f"{at}: a draft is reviewed whole — mode 'all' or 'none'")
+    coders = rv.get("coders")                               # each paper reviewed by N of the dataset's coders, independently
+    if coders is not None:
+        if not (isinstance(coders, int) and not isinstance(coders, bool) and coders >= 1):
+            E(f"{at}.coders must be an integer ≥ 1 (how many coders each paper gets)")
+        elif mode == "none":
+            E(f"{at}.coders needs a review (mode 'all' or 'sample')")
+        elif st.get("kind") in DRAFT_KINDS:
+            E(f"{at}.coders: a draft is committed by the owner, not coded")
     if mode != "sample":
         for k in ("n", "share", "seed", "stratify"):
             if rv.get(k) is not None:

@@ -12,6 +12,13 @@ inflate the badge). The outcome of a drawn record is read at verdict time from t
 the draw: checked when the last verdict is verified or flagged, disagreed when a flag or a
 value-changing correction followed the draw — the badge's own rules. Only the random items enter
 the sample estimate; supplement items (a check's findings) never do.
+
+A step that says ``review.coders: N`` is reviewed by the dataset's coders (``paperlens/coders.py``):
+when the gate opens, every paper of it is assigned to N coders (round-robin over the coders in
+join order, so the load is even and the draw is deterministic; ``workflow_assignment``), the
+items become one per (record, coder), and a coder's verdict is read from their coding — never
+from the record's own status. With fewer coders than N the gate waits (``needs_coders``) and
+assigns as soon as the owner has added enough.
 """
 from __future__ import annotations
 
@@ -177,8 +184,163 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
                        "strata": d["strata"], "drawn_at": header["opened_at"]})
         if not d["items"]:
             header["satisfied_at"] = header["opened_at"]
+    if header["mode"] != "none" and rv.get("coders"):
+        header["coders"] = int(rv["coders"])
+        _assign(conn, step_run, header)
     conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), step_run["id"]))
     return header
+
+
+# ── coders: who reviews which paper ───────────────────────────────────────────
+
+def _run_dataset(conn, run_id: str) -> str | None:
+    r = conn.execute("SELECT dataset_id::text FROM workflow_run WHERE id = %s::uuid", (run_id,)).fetchone()
+    return r[0] if r else None
+
+
+def _gate_documents(conn, step_run: dict, header: dict) -> list[str]:
+    """The documents a gate covers, in queue order (paper-major)."""
+    mode = header.get("mode", "none")
+    if mode == "sample":
+        return [r[0] for r in conn.execute("SELECT DISTINCT ON (document_id) document_id::text FROM workflow_sample WHERE step_run_id = %s::uuid AND document_id IS NOT NULL ORDER BY document_id, ord",
+                                           (step_run["id"],)).fetchall()]
+    if header.get("record_ids") is not None:
+        rows = conn.execute("SELECT DISTINCT document_id::text FROM record WHERE id = ANY(%s::uuid[]) ORDER BY document_id", (list(header["record_ids"]),)).fetchall()
+        return [r[0] for r in rows]
+    return list(header.get("document_ids") or (step_run.get("outputs") or {}).get("document_ids") or [])
+
+
+def _assign(conn, step_run: dict, header: dict) -> None:
+    """Paper i → coders[(i + j) mod n] for j < N: every paper gets N distinct coders, every coder
+    an even share. Nothing is assigned while the dataset has fewer than N coders."""
+    from . import coders as _coders
+    n_want = int(header.get("coders") or 0)
+    ds = _run_dataset(conn, step_run["run_id"])
+    pool = _coders.coders_of(conn, ds) if ds else []
+    if len(pool) < n_want:
+        header["assigned"] = False; header["needs_coders"] = n_want; header["n_coders"] = len(pool)
+        return
+    docs = _gate_documents(conn, step_run, header)
+    rows = []
+    for i, did in enumerate(docs):
+        for j in range(n_want):
+            c = pool[(i + j) % len(pool)]
+            rows.append((str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], did, c["user_id"], i * n_want + j))
+    with conn.transaction():
+        conn.execute("DELETE FROM workflow_assignment WHERE step_run_id = %s::uuid", (step_run["id"],))
+        if rows:
+            with conn.cursor() as cur:
+                cur.executemany("""INSERT INTO workflow_assignment (id, run_id, step_run_id, step_id, document_id, coder_user_id, ord)
+                                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s::uuid, %s::uuid, %s)""", rows)
+    header["assigned"] = True; header["n_coders"] = len(pool); header.pop("needs_coders", None)
+
+
+def ensure_assigned(conn, step_run: dict) -> dict:
+    """A gate that waited for coders assigns its papers once the owner has added enough; the
+    header is updated in place and stored."""
+    header = step_run.get("review") or {}
+    if header.get("coders") and not header.get("assigned") and header.get("mode", "none") != "none":
+        _assign(conn, step_run, header)
+        if header.get("assigned"):
+            conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), step_run["id"]))
+            step_run["review"] = header
+    return header
+
+
+def assignments(conn, step_run_id: str) -> dict[str, list[str]]:
+    """{document id: [coder user ids]} in assignment order."""
+    out: dict[str, list[str]] = {}
+    for did, uid in conn.execute("SELECT document_id::text, coder_user_id::text FROM workflow_assignment WHERE step_run_id = %s::uuid ORDER BY ord",
+                                 (step_run_id,)).fetchall():
+        out.setdefault(did, []).append(uid)
+    return out
+
+
+def reassign(conn, step_run: dict, document_id: str, user_ids: list[str]) -> dict:
+    """The owner's hand on one paper's assignment. A coder who already gave a verdict on one of
+    its records cannot be taken off it (their coding would hang in the air)."""
+    from . import coders as _coders
+    ds = _run_dataset(conn, step_run["run_id"])
+    pool = {c["user_id"]: c for c in (_coders.coders_of(conn, ds) if ds else [])}
+    want = []
+    for u in user_ids or []:
+        if u not in pool:
+            raise ValueError(f"{u} is not a coder of this dataset")
+        if u not in want:
+            want.append(u)
+    if not want:
+        raise ValueError("a paper needs at least one coder")
+    current = assignments(conn, step_run["id"]).get(document_id, [])
+    for u in current:
+        if u not in want and conn.execute(
+                """SELECT 1 FROM record_coding rc JOIN record r ON r.id = rc.record_id
+                   WHERE r.document_id = %s::uuid AND rc.coder_user_id = %s::uuid AND rc.verification_status IN ('verified', 'flagged') LIMIT 1""",
+                (document_id, u)).fetchone():
+            raise ValueError(f"{pool[u]['label']} already gave a verdict on this paper")
+    base = conn.execute("SELECT COALESCE(max(ord), -1) FROM workflow_assignment WHERE step_run_id = %s::uuid", (step_run["id"],)).fetchone()[0]
+    with conn.transaction():
+        conn.execute("DELETE FROM workflow_assignment WHERE step_run_id = %s::uuid AND document_id = %s::uuid", (step_run["id"], document_id))
+        with conn.cursor() as cur:
+            cur.executemany("""INSERT INTO workflow_assignment (id, run_id, step_run_id, step_id, document_id, coder_user_id, ord)
+                               VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s::uuid, %s::uuid, %s)""",
+                            [(str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], document_id, u, base + 1 + k) for k, u in enumerate(want)])
+    return {"document_id": document_id, "coders": [{"user_id": u, "label": pool[u]["label"]} for u in want]}
+
+
+def _codings(conn, record_ids: list[str]) -> dict[tuple, dict]:
+    """{(record id, coder id): {status, changed}} — the coders' verdicts and whether they changed a value."""
+    if not record_ids:
+        return {}
+    out = {}
+    for rid, uid, status, changed in conn.execute(
+            """SELECT rc.record_id::text, rc.coder_user_id::text, rc.verification_status, (rc.field_values IS NOT NULL AND rc.field_values <> r.field_values)
+               FROM record_coding rc JOIN record r ON r.id = rc.record_id WHERE rc.record_id = ANY(%s::uuid[])""", (record_ids,)).fetchall():
+        out[(rid, uid)] = {"status": status, "changed": bool(changed)}
+    return out
+
+
+def _coding_events(conn, record_ids: list[str]) -> dict[tuple, list[tuple]]:
+    """{(record id, coder id): [(status, diff, created_at)]} in time order — a sampled gate reads a
+    coder's verdict from the events after the draw, as it does the owner's."""
+    if not record_ids:
+        return {}
+    out: dict[tuple, list[tuple]] = {}
+    for rid, uid, status, diff, created in conn.execute(
+            """SELECT record_id::text, coder_user_id::text, status, diff, created_at FROM coding_event
+               WHERE record_id = ANY(%s::uuid[]) ORDER BY created_at, id""", (record_ids,)).fetchall():
+        out.setdefault((rid, uid), []).append((status, diff, created))
+    return out
+
+
+def _with_coders(conn, step_run: dict, header: dict, base: list[dict]) -> list[dict]:
+    """One item per (record, assigned coder), the verdict read from the coder's coding."""
+    from . import coders as _coders
+    ensure_assigned(conn, step_run)
+    header = step_run.get("review") or header
+    if not header.get("assigned"):
+        return [{**it, "checked": False, "disagreed": False, "coder_user_id": None, "coder": None, "unassigned": True} for it in base]
+    asg = assignments(conn, step_run["id"])
+    ds = _run_dataset(conn, step_run["run_id"])
+    labels = _coders.labels_for(conn, ds) if ds else {}
+    rec_ids = [it["record_id"] for it in base]
+    sample = header.get("mode") == "sample"
+    cod = _codings(conn, rec_ids) if not sample else {}
+    evs = _coding_events(conn, rec_ids) if sample else {}
+    when = _drawn_at(header) if sample else None
+    out, k = [], 0
+    for it in base:
+        for uid in asg.get(it.get("document_id") or "", []):
+            if sample:
+                o = outcome(evs.get((it["record_id"], uid)), when)
+                checked, disagreed = o["checked"], o["disagreed"]
+            else:
+                c = cod.get((it["record_id"], uid)) or {}
+                checked = c.get("status") in VERDICTS
+                disagreed = c.get("status") == "flagged" or bool(c.get("changed"))
+            out.append({**it, "ord": k, "coder_user_id": uid, "coder": (labels.get(uid) or {}).get("label", "former"),
+                        "checked": checked, "disagreed": disagreed, "status": (cod.get((it["record_id"], uid)) or {}).get("status", "unverified") if not sample else it["status"]})
+            k += 1
+    return out
 
 
 # ── reading a gate ────────────────────────────────────────────────────────────
@@ -243,7 +405,7 @@ def items(conn: psycopg.Connection, step_run: dict) -> list[dict]:
             o = outcome(ev.get(rid), when)
             out.append({"record_id": rid, "document_id": did, "paper_id": pid, "entry_index": ei, "status": st, "kind": kind,
                         "stratum": stratum or {}, "ord": ord_, "checked": o["checked"], "disagreed": o["disagreed"]})
-        return out
+        return _with_coders(conn, step_run, header, out) if header.get("coders") else out
     rec_ids = header.get("record_ids")
     docs = list(header.get("document_ids") or (step_run.get("outputs") or {}).get("document_ids") or [])
     if rec_ids is not None:
@@ -262,9 +424,10 @@ def items(conn: psycopg.Connection, step_run: dict) -> list[dict]:
     else:
         return []
     ev = _events(conn, [r[0] for r in rows])
-    return [{"record_id": rid, "document_id": did, "paper_id": pid, "entry_index": ei, "status": st, "kind": kind, "ord": k,
-             "checked": st in VERDICTS, "disagreed": outcome(ev.get(rid), None)["disagreed"]}
-            for k, (rid, did, pid, ei, st) in enumerate(rows)]
+    out = [{"record_id": rid, "document_id": did, "paper_id": pid, "entry_index": ei, "status": st, "kind": kind, "ord": k,
+            "checked": st in VERDICTS, "disagreed": outcome(ev.get(rid), None)["disagreed"]}
+           for k, (rid, did, pid, ei, st) in enumerate(rows)]
+    return _with_coders(conn, step_run, header, out) if header.get("coders") else out
 
 
 def state(conn: psycopg.Connection, step_run: dict) -> dict:
@@ -300,7 +463,29 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
            "documents": sorted({i["document_id"] for i in its if not i["checked"] and i.get("document_id")})}
     if mode == "sample":
         out.update({k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "exhaustive", "strata", "drawn")})
+    if header.get("coders"):
+        header = step_run.get("review") or header                  # ensure_assigned may have written it
+        out.update({"coders": header.get("coders"), "n_coders": header.get("n_coders", 0), "assigned": bool(header.get("assigned")),
+                    **({"needs_coders": header["needs_coders"]} if header.get("needs_coders") else {}),
+                    "by_coder": by_coder(its)})
     return out
+
+
+def by_coder(items_: list[dict]) -> list[dict]:
+    """Per coder: their items, checked, pending — what the owner's panel and a coder's queue bar show."""
+    acc: dict[str, dict] = {}
+    for it in items_:
+        uid = it.get("coder_user_id")
+        if not uid:
+            continue
+        a = acc.setdefault(uid, {"user_id": uid, "label": it.get("coder"), "total": 0, "checked": 0, "pending": 0, "disagreed": 0,
+                                  "papers": set(), "papers_done": set()})
+        a["total"] += 1; a["checked"] += 1 if it["checked"] else 0; a["pending"] += 0 if it["checked"] else 1
+        a["disagreed"] += 1 if it["checked"] and it["disagreed"] else 0
+        a["papers"].add(it.get("paper_id") or it.get("document_id"))
+    for a in acc.values():
+        a["papers"] = len(a["papers"]); a.pop("papers_done", None)
+    return sorted(acc.values(), key=lambda a: a["label"] or "")
 
 
 def override(conn: psycopg.Connection, step_run: dict, who: str | None) -> dict:
@@ -338,9 +523,11 @@ def blocking_release(gates: list[dict]) -> list[dict]:
 
 # ── the queue (what a reviewer works through) ─────────────────────────────────
 
-def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
+def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | None = None) -> dict:
     """The gate of one step as a worklist: its items in draw order with their verdicts, the
-    documents they sit in, the progress, and what comes next when every item has a verdict."""
+    documents they sit in, the progress, and what comes next when every item has a verdict.
+    ``coder`` narrows it to one coder's assignment (their own queue; the owner looking at one
+    coder's); the gate's satisfaction stays the whole gate's."""
     header = step_run.get("review") or {}
     st = state(conn, step_run)
     if header.get("draft"):
@@ -349,6 +536,9 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
                 "progress": {"drawn": 1, "checked": st["checked"], "pending": st["pending"], "disagreed": 0}, "satisfied": st["satisfied"],
                 "next": "release" if st["blocks"] == "release" else "resume", "run_status": run["status"]}
     its = items(conn, step_run)
+    all_items = its
+    if coder:
+        its = [it for it in its if it.get("coder_user_id") == coder]
     docs: dict[str, dict] = {}
     for it in its:
         d = docs.setdefault(it.get("document_id") or "", {"document_id": it.get("document_id"), "n_items": 0, "n_checked": 0, "first_ord": it["ord"]})
@@ -379,14 +569,21 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict) -> dict:
     if done:
         nxt = ({"action": "resume"} if run["status"] == f"awaiting_review:{step_run['step_id']}"
                else {"action": "release", "url": f"/dataset?id={run['dataset_id']}#workflow"})
-    return {"run_id": run["id"], "dataset_id": run["dataset_id"], "step": step_run["step_id"], "kind": step_run["kind"], "mode": header.get("mode"),
-            "unit": header.get("unit", "entry"), "blocks": header.get("blocks", "release"),
-            "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
-            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
-            "joint": step_run["kind"] == "review",
-            "progress": {"drawn": len(its), "checked": st["checked"], "pending": st["pending"], "disagreed": st["disagreed"],
-                         "papers": len(papers), "papers_done": n_papers_done},
-            "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}
+    checked = sum(1 for i in its if i["checked"])
+    out = {"run_id": run["id"], "dataset_id": run["dataset_id"], "step": step_run["step_id"], "kind": step_run["kind"], "mode": header.get("mode"),
+           "unit": header.get("unit", "entry"), "blocks": header.get("blocks", "release"),
+           "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
+           "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
+           "joint": step_run["kind"] == "review",
+           "progress": {"drawn": len(its), "checked": checked, "pending": len(its) - checked,
+                        "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "papers": len(papers), "papers_done": n_papers_done},
+           "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}
+    if header.get("coders"):
+        out.update({"coders": header.get("coders"), "assigned": bool((step_run.get("review") or header).get("assigned")),
+                    **({"needs_coders": st["needs_coders"]} if st.get("needs_coders") else {}),
+                    "by_coder": by_coder(all_items), "viewer_coder": coder,
+                    "gate": {"checked": st["checked"], "pending": st["pending"], "total": st["total"]}})
+    return out
 
 
 # ── the dataset's sample estimate (for the badge) ─────────────────────────────
@@ -407,6 +604,12 @@ def dataset_sample(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     for srid, run_id, step_id, header in rows:
         sr = {"id": srid, "run_id": run_id, "step_id": step_id, "review": header or {}, "outputs": {}}
         its = [i for i in items(conn, sr) if i["kind"] == "random"]
+        if (header or {}).get("coders"):                        # one unit per drawn record: checked when any coder checked it
+            per: dict[str, dict] = {}
+            for i in its:
+                a = per.setdefault(i["record_id"], {**i, "checked": False, "disagreed": False})
+                a["checked"] = a["checked"] or i["checked"]; a["disagreed"] = a["disagreed"] or (i["checked"] and i["disagreed"])
+            its = list(per.values())
         c = sum(1 for i in its if i["checked"]); d = sum(1 for i in its if i["checked"] and i["disagreed"])
         f = int((header or {}).get("frame_n") or 0)
         steps.append({"run_id": run_id, "step": step_id, "unit": (header or {}).get("unit"), "frame": f, "drawn": len(its), "checked": c, "disagreed": d,

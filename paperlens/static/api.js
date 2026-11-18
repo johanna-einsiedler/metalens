@@ -112,7 +112,8 @@ export const api = {
   workflowCancel: (rid) => req(`/api/workflow-runs/${rid}/cancel`, { method: "POST" }),
   workflowRetry: (rid, body) => req(`/api/workflow-runs/${rid}/retry`, json(body || {})),
   workflowIssues: (rid, step) => req(`/api/workflow-runs/${rid}/issues${step ? `?step=${encodeURIComponent(step)}` : ""}`),
-  workflowQueue: (rid, step) => req(`/api/workflow-runs/${rid}/queue/${encodeURIComponent(step)}`),
+  workflowQueue: (rid, step, coder) => req(`/api/workflow-runs/${rid}/queue/${encodeURIComponent(step)}${coder ? `?coder=${encodeURIComponent(coder)}` : ""}`),
+  assignPaper: (rid, body) => req(`/api/workflow-runs/${rid}/assign`, json(body)),      // {step_id, document_id, coders: [user ids]}
   workflowCards: () => req(`/api/workflows/cards`),
   workflowCard: (id) => req(`/api/workflows/${encodeURIComponent(id)}/card`),
   createWorkflowRelease: (id, body) => req(`/api/workflows/${encodeURIComponent(id)}/releases`, json({ notes: "", ...(body || {}) })),
@@ -185,7 +186,12 @@ export const api = {
   setDocumentField: (docId, key, value) => req(`/api/documents/${docId}/set-field`, json({ key, value })),
   updatePaper: (docId, fields) => req(`/api/documents/${docId}/paper`, { method: "PATCH",
     headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
-  documentView: (id) => req(`/api/documents/${id}/view`),
+  documentView: (id, coder) => req(`/api/documents/${id}/view${coder ? `?coder=${encodeURIComponent(coder)}` : ""}`),   // coder: the owner's look at one coding
+  // coders: the accounts the owner lets code a dataset, each in a coding of their own
+  coders: (id) => req(`/api/datasets/${id}/coders`),
+  addCoder: (id, email) => req(`/api/datasets/${id}/coders`, json({ email })),
+  removeCoder: (id, userId) => req(`/api/datasets/${id}/coders/${encodeURIComponent(userId)}`, { method: "DELETE" }),
+  codedDatasets: () => req(`/api/datasets?coder=1`),
   paperDocuments: (id) => req(`/api/documents/${id}/paper-documents`),   // this paper's documents, one per preset
   recordEvents: (id) => req(`/api/records/${id}/events`),
   // `bands` ("y0:y1,…", image pixels of `page`) restricts the search to the cited table row(s)

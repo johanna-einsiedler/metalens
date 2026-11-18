@@ -18,6 +18,7 @@ function fmtDate(iso) {
 let OV = null, OWNER = false, ANON = false, ADMIN = false, AUDIT = null, ZEN = { configured: false, sandbox: false, allowed: false };   // ZEN: may this account mint a DOI here?
 let JUST_SAVED = new URLSearchParams(location.search).get("saved") === "1";   // arrived from "Save" in the review
 const IMPORTED = new URLSearchParams(location.search).get("imported");          // arrived from the import page: offer the next step
+let CODER = false;                                                              // the viewer codes this dataset (paperlens/coders.py)
 
 async function init() {
   if (!id) { body.innerHTML = '<p class="muted">No dataset id.</p>'; return; }
@@ -28,6 +29,7 @@ async function init() {
   OWNER = !!OV.viewer_is_owner || !!(me && me.email && OV.owner_user_id && OV.owner_user_id === me.id);
   ANON = !!OV.viewer_is_anonymous;
   ADMIN = !!(me && me.is_admin);
+  CODER = !!OV.viewer_is_coder && !OWNER;
   if (OV.kind === "workflow") { renderWorkflowDataset(); return; }   // the row linked datasets hang from
   render();
   loadAudit();
@@ -76,7 +78,8 @@ function render() {
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
-    </div>` : ""}
+    </div>` : CODER ? `<div class="ds-actions"><a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}" title="the papers of this dataset, coded in your own name — what you enter is your coding; the owner sees every coder's">Code the papers</a>
+      <span class="muted" style="font-size:12.5px">You code this dataset for its owner.</span></div>` : ""}
     <div id="ds-next"></div>
 
     <!-- 1 · the dataset itself: numbers, recipe, papers, history -->
@@ -160,6 +163,8 @@ function render() {
       <p class="muted" style="font-size:13px;margin:0 0 8px">This dataset was imported from the datasets repository, so it has no owner and nobody can withdraw it the usual way. Deleting removes it and its records from Metalens. The copy in the repository on GitHub is untouched — if the folder is still on the default branch, the hourly sync will import it again.</p>
       <button type="button" class="btn btn-ghost btn-sm" id="ds-modkill">Delete this dataset</button> <span class="muted" id="ds-modmsg" style="font-size:13px"></span></div>` : ""}
 
+    ${OWNER && !ANON ? codersCard() : ""}
+
     <!-- 6 · owner-only extras that most datasets never need -->
     ${OWNER && !ANON ? `<details class="ds-adv" id="ds-advanced" style="margin:10px 0 0"><summary class="muted" style="font-size:13px;cursor:pointer">Advanced</summary>
       <div class="ds-card" style="margin-top:8px"><div class="ds-card-h">Vocabulary <span class="muted" style="font-weight:400;font-size:12.5px">· harmonise a column into concepts</span>
@@ -191,6 +196,7 @@ function render() {
   loadDashboards();
   loadExternal();
   loadWorkflowCard();
+  loadCoders();
   renderNext();
   loadCrosscheck();
   loadVocabularies();
@@ -498,6 +504,7 @@ async function loadWorkflowCard() {
   WF = w; host.hidden = false;
   if (w.member_of) renderMemberCard(host, w);
   else renderWorkflowCard(host, w);
+  if ($("#ds-coderlist")) loadCoders();                  // the coders' tallies read the gates
   if (!WF_SCROLLED && location.hash === "#workflow") { WF_SCROLLED = true; host.scrollIntoView({ block: "start" }); }
   if (w.current_run && !/^(done|failed|cancelled)$/.test(w.current_run.status) && !w.current_run.status.startsWith("awaiting")) {
     clearTimeout(WF_TIMER);
@@ -665,11 +672,18 @@ function renderWorkflowCard(host, w) {
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "review") what = `both sides of each paper: ${(st.over || []).join(" → ")}`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
-    const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
+    const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.coders ? `, ${st.review.coders} coder${st.review.coders === 1 ? "" : "s"} per paper` : ""}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
     const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
-      : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
+      : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending && !st.gate.coders ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
+    // a gate reviewed by coders: who has how much left (the owner may open one coder's queue); a coder sees their own share
+    const coders = st.gate && st.gate.coders
+      ? (st.gate.needs_coders ? ` <span class="muted">· waits for ${st.gate.needs_coders} coders per paper (${st.gate.n_coders || 0} added${mine ? ", see Coders below" : ""})</span>`
+        : ` <span class="muted">· by coder: ${(st.gate.by_coder || []).map((b) => mine ? `<a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}&coder=${esc(b.user_id)}" title="this coder's queue, read-only">${esc(b.label)}</a> ${b.checked}/${b.total}` : `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}</span>`)
+      : "";
+    const me = w.viewer_coder, mineGate = me && st.gate && st.gate.coders ? (st.gate.by_coder || []).find((b) => b.user_id === me.user_id) : null;
+    const codeNow = mineGate && mineGate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}"><b>code your ${mineGate.pending} →</b></a>` : "";
     const now = st.id === cur ? ` <span class="badge wf-nowchip" title="the step the run is on">${(run.now || {}).waiting_for_you ? "waiting for you" : `<span class="spin"></span> running`}</span>` : "";
-    return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
+    return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${coders}${codeNow}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
@@ -798,10 +812,13 @@ function renderWorkflowDataset() {
     ${OWNER ? `<div class="ds-actions">
       ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}">Review the papers</a>` : ""}
       <a class="btn btn-ghost btn-sm" href="#workflow">Workflow and runs</a>
-      <button type="button" class="btn btn-ghost btn-sm" id="wd-del">Delete workflow dataset</button></div>` : ""}
+      <button type="button" class="btn btn-ghost btn-sm" id="wd-del">Delete workflow dataset</button></div>` : CODER ? `<div class="ds-actions">
+      ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}" title="the papers of every side, coded in your own name">Code the papers</a>` : ""}
+      <a class="btn btn-ghost btn-sm" href="#workflow">Workflow and runs</a> <span class="muted" style="font-size:12.5px">You code this workflow's papers for its owner.</span></div>` : ""}
     <div class="ds-card" id="wd-members"><div class="ds-card-h">Linked datasets <span class="muted" style="font-weight:400">· one per preset</span></div>
       <p class="muted" style="font-size:13px;margin:0 0 6px">Each preset's results live in a dataset of their own. This workflow dataset links them, runs the workflow over them and releases them together; it holds no records itself.</p>
       ${members.map(memberRow).join("")}<div id="wd-link-form" hidden></div></div>
+    ${mine ? codersCard() : ""}
     <span id="workflow"></span><div class="ds-card" id="ds-update" hidden></div>
     <div class="ds-card" id="wd-papers"><div class="ds-card-h">Papers <span class="muted">(${st.n_papers || 0})</span></div>${papers}</div>
     ${made ? `<div class="ds-card"><div class="ds-card-h">Made from the papers</div>${made}</div>` : ""}
@@ -832,6 +849,42 @@ function renderWorkflowDataset() {
     relBtn.disabled = false;
   };
   loadWorkflowCard();
+  loadCoders();
+}
+
+// ── coders: the accounts the owner lets code this dataset's papers, each in a coding of their own ──
+function codersCard() {
+  return `<div class="ds-card" id="ds-coders"><div class="ds-card-h">Coders <span class="muted" style="font-weight:400;font-size:12.5px">· accounts that code these papers, each independently</span></div>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">A coder reads your papers and gives every record their own values, verdict and note — their coding. Coders never see each other's; you see all of them (on a paper: <i>view</i> a coder's coding). Exports and releases carry every coding by label (coder_1, coder_2 …). A workflow step that says <code>coders: N</code> assigns each paper to N of them.</p>
+    <div id="ds-coderlist" class="muted" style="font-size:13px">…</div>
+    <form id="ds-coderform" style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap"><input id="ds-coderemail" type="email" placeholder="the coder's account email" required style="flex:1;min-width:200px;max-width:320px"/>
+      <button class="btn btn-ghost btn-sm" type="submit">Add coder</button><span class="muted" id="ds-codermsg" style="font-size:12.5px"></span></form></div>`;
+}
+async function loadCoders() {
+  const list = $("#ds-coderlist"); if (!list) return;
+  let cs = [];
+  try { cs = (await api.coders(id)).coders || []; } catch (e) { list.textContent = e.message; return; }
+  const prog = {};                                               // per coder, what the workflow's open gates ask of them
+  for (const st of (WF && WF.steps) || []) for (const b of (st.gate && st.gate.by_coder) || []) {
+    const p = prog[b.user_id] || (prog[b.user_id] = { checked: 0, total: 0 }); p.checked += b.checked; p.total += b.total;
+  }
+  const fromGroup = (c) => c.scope === "group" && OV.kind !== "workflow";
+  list.innerHTML = cs.length ? cs.map((c) => `<div class="ds-dashrow"><span class="badge">${esc(c.label)}</span> ${esc(c.email)}
+      <span class="muted">· since ${esc((c.added_at || "").slice(0, 10))}${fromGroup(c) ? " · via the workflow dataset" : ""}${prog[c.user_id] ? ` · ${prog[c.user_id].checked} of ${prog[c.user_id].total} to check done` : ""}</span>
+      ${fromGroup(c) ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-rm-coder="${esc(c.user_id)}" style="margin-left:8px" title="withdraw the access; the coding stays">Remove</button>`}</div>`).join("")
+    : `<p class="muted" style="margin:0">No coders yet. Add an account by its email; the coder then finds this dataset under “Coding for” in their workspace.</p>`;
+  list.querySelectorAll("[data-rm-coder]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("Withdraw this coder's access? Their coding stays.")) return;
+    try { await api.removeCoder(id, b.dataset.rmCoder); loadCoders(); } catch (e) { alert(e.message); }
+  }));
+  const form = $("#ds-coderform");
+  if (form) form.onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $("#ds-codermsg"), email = $("#ds-coderemail").value.trim();
+    msg.textContent = "adding…";
+    try { const r = await api.addCoder(id, email); msg.textContent = `${r.coder.label} added.`; $("#ds-coderemail").value = ""; loadCoders(); }
+    catch (ex) { msg.textContent = ex.message; }
+  };
 }
 
 // ── dashboards built elsewhere: URL, the release they show, last check ─────────────────────────

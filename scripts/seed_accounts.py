@@ -22,6 +22,22 @@ own private copy, create the dataset under the preset's schema, import each pair
 its PDF so the quotes are located. Re-running is safe: an existing preset (same title) and
 dataset (same title) are reused and papers already in the dataset are skipped. No model is
 called and no credits are needed. Keep the manifest out of git — it holds passwords.
+
+A manifest with ``workflow`` seeds a WORKFLOW instead — one owner, the coders added by email,
+one workflow dataset for the study (paperlens/coders.py, docs/WORKFLOWS.md):
+
+    {"base": "https://metalens.tech", "workflow": "genai-work", "title": "GenAI at work — validation",
+     "owner": {"email": "owner@example.org", "password": "…"},
+     "coders": ["coder-a@example.org", {"email": "coder-b@example.org", "password": "…"}],
+     "produced_by": "pipeline v4",
+     "papers": {"judgment": "../import_judgment", "check": "../import_check", "routed": "../import_routed"},
+     "only": {"judgment": ["0ae57f3a2520", "1b2c3d4e5f60"]}}
+
+As the owner (registered or signed in): find the workflow dataset by title or make it, link a
+dataset for every role it lacks, add each coder (an account that exists; given with a password,
+it is registered first), start a run (or use the active one), upload each side's pairs that its
+dataset lacks into the run with the step, then mark each side listed under ``papers`` complete.
+The coders' passwords never travel: a coder registers on their own and is added by email.
 """
 from __future__ import annotations
 
@@ -129,6 +145,109 @@ def seed(c: httpx.Client, acct: dict, spec: dict, folder: Path | None, root: Pat
     c.post("/api/auth/logout")
 
 
+# ── a workflow: one owner, coders by email, one workflow dataset, a run fed side by side ──
+
+def _workflow_panel(c: httpx.Client, wd: str) -> dict:
+    r = c.get(f"/api/datasets/{wd}/workflow")
+    if r.status_code != 200:
+        _die(f"workflow panel of {wd}: {r.status_code} {r.text[:200]}")
+    return r.json()
+
+
+def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_factory=None) -> dict:
+    """The owner path (see the module docstring). ``client_factory`` makes a fresh client for
+    registering a coder given with a password, so the owner's session stays the owner's."""
+    wf, title = m["workflow"], m.get("title") or m["workflow"]
+    owner = m.get("owner") or {}
+    for k in ("email", "password"):
+        if not owner.get(k):
+            _die(f"the owner is missing `{k}`")
+    only = m.get("only") or {}
+    todo = {role: pairs(root / folder, only.get(role), root) for role, folder in (m.get("papers") or {}).items()}
+    coders = [{"email": x} if isinstance(x, str) else dict(x) for x in (m.get("coders") or [])]
+    if dry:
+        print(f"\n{owner['email']} → workflow “{wf}”, dataset “{title}”")
+        print(f"  would add {len(coders)} coder(s): {', '.join(x['email'] for x in coders) or '—'}")
+        for role, items in todo.items():
+            print(f"  {role}: would upload {len(items)} paper(s)")
+        return {"dry": True}
+    # the coders' accounts first (their own sessions, never the owner's)
+    for x in coders:
+        if x.get("password"):
+            with (client_factory() if client_factory else httpx.Client(base_url=c.base_url, timeout=c.timeout)) as cc:
+                print(f"  {sign_in(cc, x['email'], x['password'])}: {x['email']}")
+                cc.post("/api/auth/logout")
+    print(f"\n{owner['email']}")
+    print(f"  {sign_in(c, owner['email'], owner['password'])}")
+    # the workflow dataset, by title
+    mine = c.get("/api/workflow-datasets").json().get("workflows") or []
+    wf_of = lambda w: (w.get("workflow") or {}).get("id") if isinstance(w.get("workflow"), dict) else str(w.get("workflow") or "").split("@")[0]   # noqa: E731
+    wd = next((w for w in mine if w.get("title") == title and (not wf_of(w) or wf_of(w) == wf)), None)
+    if wd is None:
+        r = c.post("/api/workflow-datasets", json={"workflow": wf, "title": title})
+        if r.status_code != 200:
+            _die(f"could not make the workflow dataset: {r.status_code} {r.text[:200]}")
+        wd = r.json(); how = "made"
+    else:
+        how = "found"
+    wid = wd["id"]
+    print(f"  {how}: {c.base_url}/dataset?id={wid}")
+    # one dataset per role
+    g = c.get(f"/api/datasets/{wid}/group").json()
+    for item in g.get("roles") or []:
+        if not item.get("dataset"):
+            r = c.post(f"/api/datasets/{wid}/group/link", json={"role": item["role"], "create": True})
+            if r.status_code != 200:
+                _die(f"could not link a dataset for {item['role']}: {r.status_code} {r.text[:200]}")
+            print(f"  linked a new dataset for {item['role']}")
+    # the coders
+    have = {x["email"] for x in c.get(f"/api/datasets/{wid}/coders").json().get("coders") or []}
+    for x in coders:
+        if x["email"].lower() in have:
+            continue
+        r = c.post(f"/api/datasets/{wid}/coders", json={"email": x["email"]})
+        print(f"  {'coder added' if r.status_code == 200 else 'coder NOT added'}: {x['email']}{'' if r.status_code == 200 else ' — ' + r.text[:120]}")
+    # the run and its sides
+    panel = _workflow_panel(c, wid)
+    run = panel.get("current_run")
+    if not run or run.get("status") in ("done", "failed", "cancelled"):
+        r = c.post(f"/api/datasets/{wid}/workflow/runs", json={})
+        if r.status_code != 200:
+            _die(f"could not start a run: {r.status_code} {r.text[:200]}")
+        run = r.json(); print(f"  run started: {run['id']}")
+    else:
+        print(f"  run in progress: {run['id']} ({run.get('status')})")
+    sides = {s["role"]: s for s in panel.get("steps") or [] if s.get("kind") == "extract" and s.get("role")}
+    summary = {}
+    for role, items in todo.items():
+        side = sides.get(role)
+        if side is None or not side.get("dataset_id"):
+            _die(f"the workflow has no linked side {role!r}")
+        have = {d.get("filename") for d in c.get("/api/documents", params={"dataset": side["dataset_id"], "limit": 5000}).json()["documents"]}
+        done = skipped = failed = 0
+        for paper_id, js, pdf in items:
+            if pdf.name in have:
+                skipped += 1; continue
+            data = {"result": js.read_text(), "run_id": run["id"], "step_id": side["id"]}
+            if m.get("produced_by"):
+                data["produced_by"] = m["produced_by"]
+            r = c.post("/api/ingest-pdf", data=data, files={"pdf": (pdf.name, pdf.read_bytes(), "application/pdf")})
+            if r.status_code != 200:
+                failed += 1; print(f"  ✗ {role} {paper_id}: {r.status_code} {r.text[:160]}"); continue
+            done += 1
+            j = r.json()
+            print(f"  ✓ {role} {paper_id}: {j.get('n_records')} record(s), {j.get('n_highlights')} quote(s) located, {j.get('n_pages')} pages")
+        r = c.post(f"/api/workflow-runs/{run['id']}/complete", json={"step_id": side["id"]})
+        print(f"  {role}: {done} imported · {skipped} already there · {failed} failed · side {'complete' if r.status_code == 200 else 'NOT completed: ' + r.text[:120]}")
+        summary[role] = {"imported": done, "skipped": skipped, "failed": failed}
+    view = c.get(f"/api/workflow-runs/{run['id']}").json()
+    print(f"  run {view.get('status')}; gates: " + "; ".join(
+        f"{s['step_id']} {s['review'].get('checked', 0)}/{s['review'].get('total', 0)}" + (f" (waits for {s['review']['needs_coders']} coders)" if s.get("review", {}).get("needs_coders") else "")
+        for s in view.get("steps") or [] if s.get("review")))
+    c.post("/api/auth/logout")
+    return {"workflow_dataset": wid, "run": run["id"], "sides": summary, "status": view.get("status")}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("manifest", type=Path)
@@ -140,6 +259,10 @@ def main() -> None:
     base = (args.base or m.get("base") or "").rstrip("/")
     if not base:
         _die("no server: set `base` in the manifest or pass --base")
+    if m.get("workflow"):
+        with httpx.Client(base_url=base, timeout=httpx.Timeout(1800.0, connect=30.0)) as c:
+            seed_workflow(c, m, root, args.dry_run)
+        return
     spec = json.loads((root / m["preset"]).read_text())
     if spec.get("format") != 2 or not (spec.get("meta") or {}).get("title"):
         _die(f"{m['preset']} is not a format-2 preset file")

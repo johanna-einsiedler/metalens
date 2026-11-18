@@ -813,3 +813,59 @@ FROM (SELECT DISTINCT ON (group_id) group_id, title, owner_user_id, session_id, 
       FROM dataset WHERE group_id IS NOT NULL AND group_role IS NOT NULL
       ORDER BY group_id, created_at) g
 WHERE NOT EXISTS (SELECT 1 FROM dataset p WHERE p.id = g.group_id);
+
+-- ── coders: accounts the owner lets code a dataset's papers, each with a coding of their own ──
+-- A grant on a workflow dataset covers its linked datasets. A coder's coding of a record holds
+-- the values they settled on (NULL = as stored), their verdict and their note; their paper-level
+-- values sit in document_coding; their marks are the coder_highlight rows they made. Nothing
+-- here touches record.field_values, record.verification_status or verification_event: another
+-- coder, and the owner's record, never see a coder's coding by accident.
+CREATE TABLE IF NOT EXISTS dataset_coder (
+    dataset_id uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    added_by   uuid,
+    added_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (dataset_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS dataset_coder_user_idx ON dataset_coder(user_id);
+CREATE TABLE IF NOT EXISTS record_coding (
+    record_id           uuid NOT NULL REFERENCES record(id) ON DELETE CASCADE,
+    coder_user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    field_values        jsonb,                                -- the coder's values; NULL = the record as stored
+    verification_status text NOT NULL DEFAULT 'unverified',   -- verified | flagged | unverified
+    notes               text,
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (record_id, coder_user_id)
+);
+CREATE INDEX IF NOT EXISTS record_coding_coder_idx ON record_coding(coder_user_id);
+CREATE TABLE IF NOT EXISTS document_coding (
+    document_id    uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
+    coder_user_id  uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    paper_metadata jsonb,                                     -- the coder's paper-level values (a full copy once edited)
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (document_id, coder_user_id)
+);
+CREATE TABLE IF NOT EXISTS coding_event (                    -- a coder's own audit trail; no reader of verification_event sees it
+    id            uuid PRIMARY KEY,
+    coder_user_id uuid NOT NULL,
+    record_id     uuid REFERENCES record(id) ON DELETE CASCADE,
+    document_id   uuid REFERENCES extraction_document(id) ON DELETE CASCADE,
+    status        text NOT NULL,                              -- verified | flagged | unverified | corrected | noted
+    diff          jsonb,
+    notes         text,
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS coding_event_record_idx ON coding_event(record_id, created_at);
+CREATE INDEX IF NOT EXISTS coding_event_document_idx ON coding_event(document_id, created_at);
+CREATE TABLE IF NOT EXISTS workflow_assignment (             -- which coder reviews which paper of a gate
+    id            uuid PRIMARY KEY,
+    run_id        uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_run_id   uuid NOT NULL REFERENCES workflow_step_run(id) ON DELETE CASCADE,
+    step_id       text NOT NULL,
+    document_id   uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
+    coder_user_id uuid NOT NULL,
+    ord           integer NOT NULL,
+    assigned_at   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (step_run_id, document_id, coder_user_id)
+);
+CREATE INDEX IF NOT EXISTS workflow_assignment_coder_idx ON workflow_assignment(coder_user_id);

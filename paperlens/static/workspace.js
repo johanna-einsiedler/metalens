@@ -43,6 +43,8 @@ let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 let QUEUE = null;                                        // ?queue=<run>:<step>: a review gate's worklist — the drawn records, in draw order
 let QUEUE_ALL = false;                                   // show every entry of the open paper, not only the drawn ones
+let CODER = false;                                       // the viewer codes this dataset (paperlens/coders.py): what they see and change is their own coding
+let VIEW_AS = null;                                      // the owner looking at one coder's coding (?coder=<user id>), read-only
 try { TRIAGE = localStorage.getItem("metalens_triage") || TRIAGE; AUTOADV = localStorage.getItem("metalens_autoadvance") !== "0"; } catch { /* */ }
 let TRIAGE_FROM_URL = false;                             // ?triage=checks from the Workflow panel: this visit's order, over the preset's default
 try { const t = new URLSearchParams(location.search).get("triage"); if (t) { TRIAGE = t; TRIAGE_FROM_URL = true; } } catch { /* */ }
@@ -378,12 +380,13 @@ async function init() {
   const jobsParam = q.get("jobs");    // comma list of this round's job ids → track pending/errors
   FOCUS_REC = q.get("rec") || null;   // focus + flash a specific record (from a chart)
   let wantDoc = q.get("doc");
+  VIEW_AS = q.get("coder") || null;
   // a review gate's worklist: the dataset's papers that carry drawn records, the first pending one open
   const queueParam = q.get("queue");
   if (queueParam && queueParam.includes(":")) {
     const [qr, qs] = queueParam.split(":");
     try {
-      QUEUE = await api.workflowQueue(qr, qs);
+      QUEUE = await api.workflowQueue(qr, qs, VIEW_AS);
       QUEUE.byDoc = new Map();
       for (const it of QUEUE.items || []) { if (!QUEUE.byDoc.has(it.document_id)) QUEUE.byDoc.set(it.document_id, []); QUEUE.byDoc.get(it.document_id).push(it); }
       QUEUE.ids = new Set((QUEUE.items || []).map((it) => it.record_id));
@@ -748,7 +751,9 @@ function renderQueueBar() {
   const done = p.pending === 0;
   const exit = `/workspace?project=${encodeURIComponent(QUEUE.dataset_id)}`;
   const what = (QUEUE.joint && p.papers ? `${p.papers_done || 0} of ${p.papers} paper${p.papers === 1 ? "" : "s"} done · ` : "")
-    + (QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`);
+    + (QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`)
+    + (QUEUE.needs_coders ? ` · waits for ${QUEUE.needs_coders} coders` : QUEUE.viewer_coder ? " · your share" : "")
+    + (!QUEUE.viewer_coder && (QUEUE.by_coder || []).length ? ` · ${QUEUE.by_coder.map((b) => `${b.label} ${b.checked}/${b.total}`).join(", ")}` : "");
   bar.hidden = false;
   bar.innerHTML = `<span class="qb-label">Review queue · <b>${esc(QUEUE.step)}</b></span>
     <span class="qb-count"><b>${p.checked}</b> of ${p.drawn} checked${p.disagreed ? ` · ${p.disagreed} disagreed` : ""} <span class="muted">· ${esc(what)}</span></span>
@@ -867,7 +872,7 @@ async function load(docId) {
   await pendingSaves();             // an edit made a moment ago is on the server before we re-read
   if (DOCID !== docId) return;      // the coder moved on again meanwhile
   const partner = ((DOCS.find((d) => d.document_id === docId) || {}).partners || [])[0] || null;   // only a joint review groups partners
-  const [view, pview] = await Promise.all([api.documentView(docId), partner ? api.documentView(partner.document_id).catch(() => null) : null]);
+  const [view, pview] = await Promise.all([api.documentView(docId, VIEW_AS), partner ? api.documentView(partner.document_id, VIEW_AS).catch(() => null) : null]);
   if (DOCID !== docId) return;
   DATA = view;
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
@@ -886,8 +891,10 @@ async function load(docId) {
   VM = viewModel(DATA);
   EV = indexEvidence(DATA, VM);
   JOINT = pview ? jointOf(pview, partner) : null;
-  RO = !!DATA.read_only; CHAIN_RUNS = null;
+  CODER = !!(DATA.coding && !DATA.coding.read_only);
+  RO = !!DATA.read_only || !!(DATA.coding && DATA.coding.read_only); CHAIN_RUNS = null;
   document.body.classList.toggle("ro", RO);
+  document.body.classList.toggle("coder", CODER);
   const stored = (() => { try { return localStorage.getItem("metalens_triage"); } catch { return null; } })();
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "low_confidence_first") TRIAGE = "low_conf";
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "contested_first" && hasChain()) TRIAGE = "contested";
@@ -1103,10 +1110,11 @@ function identRow(label, field, value, isNum) {
   const v = value == null ? "" : String(value);
   return `<div class="rv-row"><div class="rv-key">${esc(label)}</div>`
     + `<div class="rv-val"><span class="rv-editable study-ident${isNum ? " rv-num" : ""}"`
-    + ` contenteditable="plaintext-only" data-field="${esc(field)}">${esc(v)}</span></div></div>`;
+    + ` contenteditable="${CODER || RO ? "false" : "plaintext-only"}" data-field="${esc(field)}">${esc(v)}</span></div></div>`;
 }
 
 function wireStudyIdentity(box) {
+  if (CODER || RO) return;                                         // the paper's identity is the owner's
   box.querySelectorAll(".study-ident").forEach((cell) => {
     cell.dataset.orig = cell.textContent;
     cell.addEventListener("blur", () => {
@@ -1160,8 +1168,13 @@ function wirePaperTableRows(box, rerender) {
 
 // A study-constant edit writes to EVERY record (one call) + syncs in-memory records/CONSTANT.
 function saveStudyField(key, value) {
+  const orig = Object.fromEntries((DATA.records || []).map((r) => [r.id, r.field_values ? r.field_values[key] : undefined]));
   (DATA.records || []).forEach((r) => { if (r.field_values) r.field_values[key] = value; });
   CONSTANT[key] = value;
+  if (CODER)                                                       // a coder's coding: the cell set on each record, one correction each
+    return Promise.all((DATA.records || []).map((r) => api.verify(r.id, { status: "corrected", patch: [{ field_path: key, value }],
+                                                                           diff: [{ field_path: key, original_value: orig[r.id] ?? null, final_value: value }] })))
+      .catch((e) => alert("save failed: " + e.message));
   return api.setDocumentField(DATA.document_id, key, value)
     .catch((e) => alert("save failed: " + e.message));
 }
@@ -1226,6 +1239,7 @@ function renderPanel() {
     + (DATA.field_defs && DATA.field_defs.live_schema_id && DATA.schema_id && DATA.field_defs.live_schema_id !== DATA.schema_id
         ? ` <span class="muted schema-live" title="this paper was imported under ${esc(DATA.schema_id)}; the preset file is now ${esc(DATA.field_defs.live_schema_id)} — another contract, so its fields and layout do not reach this paper until it is imported again">preset file now ${esc(DATA.field_defs.live_label || DATA.field_defs.live_schema_id)}</span>` : "")
     + ` ${triage}</span>`
+    + codingHead()
     + `<span class="dlbtns">`
     // a staged preset keeps its head short: no view toggles, no grid, no ＋ entry (the stage adds), no CSV
     + (reviewSpec() && !GRID && !RAW && !stagesSpec() ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
@@ -1241,8 +1255,8 @@ function renderPanel() {
     + (PROJECT && !PROJECT_MEMBERS ? `<details class="addmenu" id="dsdl"><summary class="btn btn-ghost" title="every paper of this dataset as one file">⬇ Dataset ▾</summary>`
         + `<div class="addmenu-pop"><a href="#" data-dl="json-all">All papers · JSON</a><a href="#" data-dl="csv-all">All papers · CSV</a>`
         + `<a href="#" data-dl="json-reviewed">Reviewed records only · JSON</a><a href="#" data-dl="csv-reviewed">Reviewed records only · CSV</a></div></details>` : "")
-    + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`)
-    + `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button></span></div>`;
+    + (stagesSpec() || CODER ? "" : `<button class="btn btn-ghost" id="addfinding" title="add a manual ${esc(VM.entries.label.toLowerCase())}">＋ ${esc(VM.entries.label)}</button>`)
+    + (CODER ? "" : `<button class="btn btn-ghost" id="deldoc" title="delete this document + its PDF/pages">🗑</button>`) + `</span></div>`;
   if (RAW) {                            // Raw: ONE consolidated response, not a block per entry
     const raw = {
       paper_metadata: DATA.paper_metadata || DATA.paper || null,
@@ -1386,14 +1400,13 @@ function renderRecordCard(panel, rec) {
   card.innerHTML =
     `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
     + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>`
+    + codingChips(rec)
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + chainSum
     + (ch && (ch.trace || (ch.runs || []).length) ? `<button class="histbtn tracebtn" title="where every value comes from: the run and the quote">⛓ trace</button>` : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + `<button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + (RO ? `<div class="ro-banner">Run ${(DATA.pass_index ?? 0) + 1} of a pipeline — read-only. `
-        + (DATA.pages_document_id && DATA.pages_document_id !== DATA.document_id
-            ? `<a href="/workspace?doc=${encodeURIComponent(DATA.pages_document_id)}">the reviewed document ↗</a>` : "") + `</div>` : "")
+    + roBanner()
     + citedByHtml(rec)
     + (myIssues.length ? `<div class="issue-note" title="${esc(myIssues.map((i) => `${i.path}: ${i.message}`).join("\n"))}">⚠ ${myIssues.length} structural issue${myIssues.length === 1 ? "" : "s"} in the model output — hover for details</div>` : "")
     + checkNoteHtml(rec)
@@ -1405,6 +1418,33 @@ function renderRecordCard(panel, rec) {
     + `<div class="histbody" hidden></div><div class="tracebody" hidden></div>`;
   wireCard(card, rec);
   panel.appendChild(card);
+}
+
+// ── coders (paperlens/coders.py): a coder's own coding; the owner's view of every coding ──
+// Who is coding: a coder is told whose coding the screen holds; the owner picks one coder's
+// coding to look at (read-only) or the record as stored.
+function codingHead() {
+  if (DATA.coding && !DATA.coding.read_only) return `<span class="coding-head" title="your verdicts and edits are your own coding; the owner sees every coder's, no coder sees another's">coding as <b>${esc(DATA.coding.label)}</b></span>`;
+  const cs = (DATA.codings && DATA.codings.coders) || [];
+  if (!cs.length && !VIEW_AS) return "";
+  return `<span class="coding-head">view <select id="viewas" title="the record as stored, or one coder's coding (read-only)"><option value="">as stored</option>`
+    + cs.map((c) => `<option value="${esc(c.user_id)}"${VIEW_AS === c.user_id ? " selected" : ""}>${esc(c.label)}${c.email ? ` · ${esc(c.email)}` : ""}</option>`).join("") + `</select></span>`;
+}
+// the owner's chips: one per coder who touched this record — their verdict, whether they changed a value, their note on hover
+function codingChips(rec) {
+  const cs = DATA.codings && DATA.codings.records && DATA.codings.records[rec.id];
+  if (!cs || !cs.length) return "";
+  return cs.map((c) => `<span class="status ${esc(c.status)} coding-chip" title="${esc(`${c.coder}: ${c.status}${c.changed ? " · changed a value" : ""}${c.note ? "\n" + c.note : ""}`)}">${esc(c.coder)} ${c.status === "verified" ? "✓" : c.status === "flagged" ? "⚑" : "·"}${c.changed ? "✎" : ""}</span>`).join("");
+}
+function roBanner() {
+  if (!RO) return "";
+  if (DATA.coding && DATA.coding.read_only) {
+    const u = new URL(location.href); u.searchParams.delete("coder");
+    return `<div class="ro-banner">${esc(DATA.coding.label)}'s coding — read-only. <a href="${esc(u.pathname + u.search)}">the record as stored ↗</a></div>`;
+  }
+  return `<div class="ro-banner">Run ${(DATA.pass_index ?? 0) + 1} of a pipeline — read-only. `
+    + (DATA.pages_document_id && DATA.pages_document_id !== DATA.document_id
+        ? `<a href="/workspace?doc=${encodeURIComponent(DATA.pages_document_id)}">the reviewed document ↗</a>` : "") + `</div>`;
 }
 
 function hasChain() { return (DATA.records || []).some((r) => r.chain && r.chain.support); }
@@ -2193,6 +2233,7 @@ function renderTableCard(panel, rec) {
   card.innerHTML = `<div class="rectitle"${printed ? ` title="${esc(String(printed))}"` : ""}>${named ? esc(sheetLabel(rec, S)) : "New table"}`
     + `<span class="status ${status}">${status === "unverified" ? `${done} of ${n} column${n === 1 ? "" : "s"} verified` : status}</span>`
     + (RO ? "" : `<button class="recdel tc-del" title="delete this table — every column of it; for a table that is not a regression table">🗑</button>`) + `</div>`
+    + roBanner()
     + (identDefs.length ? `<div class="tc-ident"><div class="muted" style="font-size:12.5px;margin-bottom:4px">A table the extraction missed: name it (as printed), then add its cells row by row below — one entry per column.</div>`
         + `<div class="rv-root">${renderFields(identDefs, fv, "", { editable: !RO })}</div></div>` : "")
     + tableNotesHtml(recs)
@@ -2331,7 +2372,7 @@ function columnSectionHtml(rec) {
   const name = [S.column && fv[S.column], S.panel && fv[S.panel]].filter((x) => x != null && String(x).trim() !== "").map(String).join(" · ");
   const st = rec.verification_status || "unverified";
   return `<div class="tc-col" data-rid="${esc(rec.id)}"><div class="tc-colhead"><span><b>Column ${esc(name || entryTitle(VM, rec, rec.entry_index))}</b>`
-    + ` <span class="status ${esc(st)}">${esc(st)}</span> <span class="muted">· the tinted column; a heading or a cell opens another</span></span>`
+    + ` <span class="status ${esc(st)}">${esc(st)}</span>${codingChips(rec)} <span class="muted">· the tinted column; a heading or a cell opens another</span></span>`
     + `<span><button class="histbtn" title="this column's change history">↻ history</button>`
     + (RO ? "" : `<button class="recdel" title="delete this column">🗑</button>`) + `</span></div>`
     + renderEntryBody(rec, { skip: new Set([S.field]), extrasInto: true })
@@ -2404,7 +2445,10 @@ function wirePanelHead() {
   const save = $("#dlsave"); if (save && !PROJECT) save.onclick = doSave;
   syncJobWait();
   const af = $("#addfinding"); if (af) af.onclick = doAddFinding;
-  $("#deldoc").onclick = doDelete;
+  const dd = $("#deldoc"); if (dd) dd.onclick = doDelete;
+  const va = $("#viewas"); if (va) va.onchange = () => {            // the owner: one coder's coding, or the record as stored
+    const u = new URL(location.href); if (va.value) u.searchParams.set("coder", va.value); else u.searchParams.delete("coder"); location.href = u.toString();
+  };
   $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
   const g = $("#gridtoggle"); if (g) g.onclick = () => { GRID = !GRID; renderPanel(); };
   const tr = $("#triage"); if (tr) tr.onchange = () => {
@@ -3130,9 +3174,9 @@ function renderChainCard(panel, rec, rv) {
   const label = (rv.support_labels || {})[support] || (rv.refined && fv[rv.refined] ? "abstract announces it · the introduction spells it out" : "");
   const worst = worstLevel(VM, { ...(rec.confidence || {}), ...Object.assign({}, ...Object.values(rec.child_confidence || {})) });
   card.innerHTML = `<div class="rectitle"><code class="chain-id">${esc(idField ? fv[idField] || "" : entryTitle(VM, rec, rec.entry_index))}</code>`
-    + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>` + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
+    + `<span class="status ${rec.verification_status}">${rec.verification_status}</span>` + codingChips(rec) + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<span style="margin-left:auto"></span><button class="histbtn chain-editbtn" title="every field of this claim, editable — corrections are logged">▤ edit</button><button class="histbtn" title="change history">↻ history</button><button class="recdel" title="delete this ${esc(VM.entries.label.toLowerCase())}">🗑</button></div>`
-    + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
+    + roBanner() + edge + (scope.length ? `<div class="chain-scope muted">${scope.map(esc).join(" · ")}</div>` : "")
     + `<dl class="chain-dl">${dl}</dl>`
     + `<div class="chain-foot"><button class="vbtn ok${rec.verification_status === "verified" ? " on" : ""}" data-status="verified">OK</button>`
     + `<button class="vbtn flag${rec.verification_status === "flagged" ? " on" : ""}" data-status="flagged">Flag</button>`
@@ -3520,6 +3564,7 @@ function eviStripEl(rec) {
   const groups = own ? [] : Object.entries(rec.confidence || {}).filter(([g]) => VM.groups[g]);
   card.innerHTML = `<div class="rectitle">${esc(entryTitle(VM, rec, rec.entry_index))}`
     + (own ? "" : `<span class="status ${esc(rec.verification_status)}">${esc(rec.verification_status)}</span>`)
+    + codingChips(rec)
     + (worst ? renderConfDot(worst, VM.levels, `lowest confidence: ${worst}`) : "")
     + `<button class="histbtn" title="change history">↻ history</button>`
     + (stagesOpen() ? `<button class="histbtn reccopy" title="a new ${esc(VM.entries.label.toLowerCase())} with this one's cells and rows copied; the id continues the series">⧉ copy</button>` : "")
@@ -4303,6 +4348,7 @@ window.addEventListener("beforeunload", (e) => { if (PENDING.size) { e.preventDe
 // new version — the GitHub copy is what people cite, so it should not silently drift.
 let REPUBLISH_OFFERED = false;
 async function maybeOfferRepublish() {
+  if (CODER) return;                                               // a coding changes no published dataset
   if (!PROJECT || REPUBLISH_OFFERED) return;
   REPUBLISH_OFFERED = true;
   try {
