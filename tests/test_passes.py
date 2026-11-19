@@ -438,3 +438,56 @@ def test_k_runs_of_a_pass_are_folded_by_the_chains_matcher(tmp_path, monkeypatch
     r = c.post(f"/api/workflow-runs/{rid2}/papers", headers=H, files={"pdf": ("omicron.pdf", eps, "application/pdf")}, data={"api_key": "k", "model": "m"})
     assert r.status_code == 200 and "1 of 2 runs failed" in r.json()["failed"]["title"]
     conn.close()
+
+
+def test_a_failed_paper_of_a_chain_is_retried_from_the_kept_pdf_and_swept_texts_go(tmp_path, monkeypatch) -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from paperlens import retention, storage
+    _force_local(monkeypatch)
+    fake = _Fake(); monkeypatch.setattr(providers, "generate_json", fake)
+    conn = records.connect(); records.init_db(conn)
+    _workflow(tmp_path, monkeypatch)
+    sess = f"retry-{uuid.uuid4().hex[:6]}"
+    ds = _dataset(conn, sess)
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-pass"}).status_code == 200
+    pdf = _pdf("psi"); sha = _sha(pdf)
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": [{"sha256": sha, "filename": "psi.pdf"}]}).json(); rid = run["id"]
+    fake.fail_on = "psi"
+    r = c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": ("psi.pdf", pdf, "application/pdf")}, data={"api_key": "k", "model": "m"})
+    assert r.status_code == 200 and r.json()["failed"] == {"title": "the model refused this paper"}
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "failed" and view["jobs"]["failed"] == 2                       # title refused; words failed upstream
+    # the retry needs the key on an own-key run; then the paper runs again from the kept PDF and text — but the run is terminal
+    assert c.post(f"/api/workflow-runs/{rid}/retry", headers=H, json={"api_key": "k"}).status_code == 409
+    # a run that is still live: the second paper fails, is retried, the run finishes
+    fake.fail_on = None
+    pdfs = {"phi": _pdf("phi"), "chi": _pdf("chi")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    run2 = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json(); rid2 = run2["id"]
+    fake.fail_on = "chi"
+    for n, b in pdfs.items():
+        assert c.post(f"/api/workflow-runs/{rid2}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    view = c.get(f"/api/workflow-runs/{rid2}", headers=H).json()
+    assert view["status"] == "done" and view["jobs"]["failed"] == 2 and view["steps"][0]["outputs"]["n_papers"] == 1
+    fake.fail_on = None
+    conn.rollback()
+    with conn.transaction():
+        conn.execute("UPDATE workflow_run SET status = 'running' WHERE id = %s::uuid", (rid2,))   # a retry while the run is live
+    conn.commit()
+    r = c.post(f"/api/workflow-runs/{rid2}/retry", headers=H, json={})
+    assert r.status_code == 422 and "API key" in r.text                                       # an own-key run: the key comes with the retry
+    r = c.post(f"/api/workflow-runs/{rid2}/retry", headers=H, json={"api_key": "k", "model": "m"})
+    assert r.status_code == 200 and r.json()["retried"] == [_sha(pdfs["chi"])] and r.json()["skipped"] == []
+    view = c.get(f"/api/workflow-runs/{rid2}", headers=H).json()
+    assert view["status"] == "done" and view["jobs"]["failed"] == 0 and view["steps"][0]["outputs"]["n_papers"] == 2
+    assert c.get(f"/api/workflow-runs/{rid2}/passes/words/{_sha(pdfs['chi'])}", headers=H).json()["output"]["title_len"] > 0
+    # the page text of a PDF no live run and no document holds goes with the sweep; the run keeps its paper list
+    store = storage.get_store()
+    assert store.exists(storage.paper_text_key(sha))
+    out = retention.remove_orphans(conn, store)
+    assert out["page_texts"] >= 1 and not store.exists(storage.paper_text_key(sha))
+    conn.rollback()
+    assert conn.execute("SELECT status FROM workflow_paper WHERE run_id = %s::uuid AND pdf_sha256 = %s", (rid, sha)).fetchone() == ("swept",)
+    conn.close()

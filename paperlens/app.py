@@ -2146,8 +2146,15 @@ def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who:
         raise _refused(exc)
     if run["status"] in workflows.TERMINAL:
         raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
+    from . import passes
+    from . import workflow_spec as ws
+    kinds = {sid: st.get("kind") for sid, st in ws.steps_by_id(run["workflow"]).items()}
+    chain, plain = [j for j in failed if kinds.get(j["step_id"]) in ("pass", "compute")], [j for j in failed if kinds.get(j["step_id"]) not in ("pass", "compute")]
     try:
-        out = workflows.requeue_papers(db, run, failed, who=who, api_key=body.api_key or None, base_url=body.base_url, model=body.model or None)
+        out = workflows.requeue_papers(db, run, plain, who=who, api_key=body.api_key or None, base_url=body.base_url, model=body.model or None) if plain else {"retried": [], "skipped": []}
+        if chain:
+            more = passes.requeue_papers(db, run, chain, api_key=body.api_key or None, base_url=(body.base_url or "").strip() or None, model=body.model or None)
+            out = {"retried": out["retried"] + more["retried"], "skipped": out["skipped"] + more["skipped"]}
     except workflows.RunRefused as exc:
         raise _refused(exc)
     db.commit()

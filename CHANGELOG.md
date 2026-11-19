@@ -8,6 +8,16 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A chain's failed papers are retried; page texts are swept
+
+- `POST /api/workflow-runs/{rid}/retry` runs a chain's failed papers again from the PDF and page
+  text the run kept: the paper's failed or cancelled jobs of every pass and compute step go back
+  to pending, their step-runs count their papers again once it lands, and the paper's chain is
+  dispatched anew (a pass with its output stored is skipped; an own-key run passes the key with
+  the retry, a credit run spends the passes' calls again). A terminal run is not retried.
+- The retention sweep drops the page text of a PDF that no live run and no document holds; the
+  run keeps its paper list, the paper marked `swept`.
+
 ### The panel follows a chain
 
 - The dataset page's Workflow panel names pass and compute steps (the registered code, the runs

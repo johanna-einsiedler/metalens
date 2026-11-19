@@ -171,7 +171,27 @@ def forget_session(conn: psycopg.Connection, session_id: str) -> dict:
 def remove_orphans(conn: psycopg.Connection, store=None) -> dict:
     """Paper rows nothing references any more, and the hash-keyed parsed text (plus its
     blobs) of PDFs no document holds any more."""
-    out = {"papers": 0, "parsed": 0}
+    out = {"papers": 0, "parsed": 0, "page_texts": 0}
+    # the page text a chain run kept for a PDF, once no run of it is live and no document holds the PDF
+    if conn.execute("SELECT to_regclass('workflow_paper')").fetchone()[0] is not None:
+        gone = conn.execute(
+            """SELECT DISTINCT wp.pdf_sha256 FROM workflow_paper wp
+               WHERE wp.status <> 'swept'
+                 AND NOT EXISTS (SELECT 1 FROM extraction_document d WHERE d.pdf_sha256 = wp.pdf_sha256)
+                 AND NOT EXISTS (SELECT 1 FROM workflow_run r JOIN workflow_paper w2 ON w2.run_id = r.id
+                                 WHERE w2.pdf_sha256 = wp.pdf_sha256 AND r.status NOT IN ('done', 'failed', 'cancelled'))""").fetchall()
+        for (sha,) in gone:
+            if store is not None:
+                from . import storage as _storage
+                try:
+                    key = _storage.paper_text_key(sha)
+                    if store.exists(key):
+                        store.delete(key)
+                except Exception:  # noqa: BLE001 - best effort
+                    pass
+            with conn.transaction():
+                conn.execute("UPDATE workflow_paper SET status = 'swept' WHERE pdf_sha256 = %s", (sha,))   # the run keeps its paper list
+            out["page_texts"] += 1
     with conn.transaction():
         out["papers"] = conn.execute(
             """DELETE FROM paper p

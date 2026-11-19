@@ -705,3 +705,56 @@ def compute_fields(conn, run: dict, st: dict, pdf_sha256: str, *, document_id: s
     found = [{**f, "document_id": f.get("document_id") or document_id} for f in (out.get("findings") or []) if isinstance(f, dict)]
     n_found = store_findings(conn, run["id"], st["id"], pdf_sha256, found, check=code, document_id=document_id)
     return {"edited_records": n_records, "edited_fields": n_fields, "findings": n_found, "log": ctx.log_lines}
+
+
+# ── retries ─────────────────────────────────────────────────────────
+
+def requeue_papers(conn, run: dict, job_rows: list[dict], *, api_key: str | None = None, base_url: str | None = None,
+                   model: str | None = None) -> dict:
+    """Run the failed papers of a chain again: the paper's failed or cancelled jobs of every pass
+    and compute step go back to pending and its chain is dispatched again from the PDF and page
+    text the run kept (a pass with its output stored is skipped). An own-key run needs the key
+    here, as a retry of an extract step does; a credit run spends the passes' calls again."""
+    from . import credits, worker, workflows
+    from . import workflow_spec as ws
+    by_id = ws.steps_by_id(run["workflow"])
+    chain_steps = {sid for sid, st in by_id.items() if st.get("kind") in ("pass", "compute")}
+    out = {"retried": [], "skipped": []}
+    staged = {p["pdf_sha256"] for p in papers_of(conn, run["id"])}
+    own = not run.get("use_credits")
+    if own and not (api_key or base_url):
+        raise workflows.RunRefused("This run uses your own API key: pass it to run the papers again.", 422, {"needs_key": next(iter(chain_steps), None)})
+    seen: set[str] = set()
+    for j in job_rows:
+        sha = j["pdf_sha256"]
+        if j["step_id"] not in chain_steps or sha in seen:
+            continue
+        seen.add(sha)
+        if sha not in staged:
+            out["skipped"].append({"pdf_sha256": sha, "why": "no stored PDF (upload it again)"}); continue
+        n_calls = 0
+        for sid in chain_steps:
+            job = next((x for x in workflows.jobs(conn, run["id"], sid) if x["pdf_sha256"] == sha), None)
+            if job and job["status"] in ("failed", "cancelled"):
+                credits_ = workflows.calls_per_paper(run["workflow"], sid) if (run.get("use_credits") and by_id[sid].get("kind") == "pass") else 0
+                workflows._set_job(conn, job["id"], status="pending", error=None, credits=credits_, refunded=False)  # noqa: SLF001
+                n_calls += credits_
+                sr = next((x for x in workflows.step_runs(conn, run["id"]) if x["step_id"] == sid), None)
+                if sr and sr["status"] in ("done", "failed"):          # the step counts its papers again once this one lands
+                    workflows._set_sr(conn, sr["id"], status="running", error=None, finished_at=None)  # noqa: SLF001
+        if run.get("use_credits") and n_calls:
+            uid = run.get("started_by")
+            if not (uid and credits.try_consume(conn, uid, model=run.get("model") or credits.credit_model(), n=n_calls, reason="workflow retry")):
+                out["skipped"].append({"pdf_sha256": sha, "why": "not enough credits"}); continue
+            workflows._touch(conn, run["id"], credits_consumed=run["credits"]["consumed"] + n_calls, credits_planned=run["credits"]["planned"] + n_calls)  # noqa: SLF001
+        conn.commit()
+        job_id = worker.enqueue("pass_job", run["id"], sha, api_key=api_key or "", base_url=base_url, model=model or None, _expires=3600)
+        if job_id:
+            for sid in chain_steps:
+                job = next((x for x in workflows.jobs(conn, run["id"], sid) if x["pdf_sha256"] == sha and x["status"] == "pending"), None)
+                if job:
+                    workflows.mark_queued(conn, job["id"], job_id)
+        else:
+            run_paper(conn, run["id"], sha, model=model, api_key=api_key or "", base_url=base_url, advance_run=False)
+        out["retried"].append(sha)
+    return out

@@ -393,6 +393,12 @@ Workflow panel, which opens the same page with `&run=<id>`. The panel names pass
 with the registered code, the runs per paper, the last run's papers, reuse, failures, calls and
 findings by code.
 
+A chain's failed papers are retried with `POST /api/workflow-runs/{rid}/retry` (the key with it on
+an own-key run) while the run is live: the paper's failed jobs of every pass and compute step go
+back to pending and its chain runs again from the PDF and page text the run kept, a pass with
+its output stored skipped. The page text of a PDF no live run and no document holds goes with the
+retention sweep.
+
 ### Repeated runs
 
 `k` on a pass step runs the pass k times per paper — each run stored with its index — and the
