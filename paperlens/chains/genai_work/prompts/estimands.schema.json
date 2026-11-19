@@ -1,0 +1,263 @@
+{
+ "type": "object",
+ "properties": {
+  "tasks": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "quote": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "task_id": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "sample": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "task_id",
+     "name",
+     "description",
+     "sample",
+     "quote",
+     "page"
+    ]
+   }
+  },
+  "arms": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "quote": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "arm_id": {
+      "type": "string"
+     },
+     "task_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "label": {
+      "type": "string"
+     },
+     "is_reference": {
+      "type": "boolean"
+     },
+     "control_type": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "treatment": {
+      "type": "string"
+     },
+     "sample": {
+      "type": "string"
+     },
+     "n": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "n_quote": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "n_page": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "arm_id",
+     "task_ids",
+     "label",
+     "is_reference",
+     "control_type",
+     "treatment",
+     "sample",
+     "n",
+     "n_quote",
+     "n_page",
+     "quote",
+     "page"
+    ]
+   }
+  },
+  "outcomes": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "quote": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "outcome_id": {
+      "type": "string"
+     },
+     "measure": {
+      "type": "string"
+     },
+     "unit": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "direction": {
+      "type": "string"
+     },
+     "how_measured": {
+      "type": "string"
+     },
+     "finding_type": {
+      "type": "string"
+     },
+     "measure_kind": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "outcome_class": {
+      "type": "string"
+     },
+     "measured_on": {
+      "type": "string"
+     },
+     "finding_type_proposed": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "measure_kind_proposed": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "outcome_id",
+     "measure",
+     "unit",
+     "direction",
+     "how_measured",
+     "finding_type",
+     "measure_kind",
+     "outcome_class",
+     "measured_on",
+     "finding_type_proposed",
+     "measure_kind_proposed",
+     "quote",
+     "page"
+    ]
+   }
+  },
+  "estimands": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "quote": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "estimand_id": {
+      "type": "string"
+     },
+     "task_id": {
+      "type": "string"
+     },
+     "arm_id": {
+      "type": "string"
+     },
+     "vs_arm_id": {
+      "type": "string"
+     },
+     "outcome_id": {
+      "type": "string"
+     },
+     "subgroup": {
+      "type": "string"
+     },
+     "horizon": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "contrast_type": {
+      "type": "string"
+     },
+     "contrast_type_proposed": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "exhibits": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "statement": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "estimand_id",
+     "task_id",
+     "arm_id",
+     "vs_arm_id",
+     "outcome_id",
+     "subgroup",
+     "horizon",
+     "contrast_type",
+     "contrast_type_proposed",
+     "exhibits",
+     "statement",
+     "quote",
+     "page"
+    ]
+   }
+  }
+ },
+ "required": [
+  "tasks",
+  "arms",
+  "outcomes",
+  "estimands"
+ ]
+}

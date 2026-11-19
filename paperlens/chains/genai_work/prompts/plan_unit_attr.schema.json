@@ -1,0 +1,81 @@
+{
+ "type": "object",
+ "properties": {
+  "units": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "unit_id": {
+      "type": "string"
+     },
+     "level": {
+      "type": "string",
+      "enum": [
+       "individual",
+       "team",
+       "firm",
+       "occupation",
+       "region_or_country",
+       "other"
+      ]
+     },
+     "unit_size": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "quote": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "page": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "unit_id",
+     "level",
+     "unit_size",
+     "quote",
+     "page"
+    ]
+   }
+  },
+  "pointers": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "pointer_id": {
+      "type": "string"
+     },
+     "unit_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "may_hold": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "pointer_id",
+     "unit_ids",
+     "may_hold"
+    ]
+   }
+  }
+ },
+ "required": [
+  "units",
+  "pointers"
+ ]
+}

@@ -1,0 +1,40 @@
+{
+ "type": "object",
+ "properties": {
+  "claims": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "estimate_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "coverage": {
+      "type": "string"
+     },
+     "why": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "estimate_ids",
+     "coverage",
+     "why"
+    ]
+   }
+  }
+ },
+ "required": [
+  "claims"
+ ]
+}

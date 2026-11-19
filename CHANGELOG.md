@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step one: its prompts, taxonomy and text as files
+
+- `paperlens/chains/genai_work/` holds the review project's chain as content: the 26 prompt and
+  schema files of its passes (exhibits, estimands, estimates, design, the two claims calls, the
+  five headline-plan calls, the run matcher) and `taxonomy.json`, rendered by
+  `scripts/export_genai_chain.py` from the project's own code byte for byte, so `hashes.split_hash()`
+  and `design_hash()` reproduce the versions the project runs under (`2b9af957a9`, `afbb8492d2`;
+  the tests pin them). `text.py` copies the project's quote normalisation, snapping and checking,
+  its section scanner, sentence splitter, abstract cut and table rendering over a `Pages` object;
+  `taxonomy.py` reads the snapshot. The passes themselves follow.
+
 ### A chain's failed papers are retried; page texts are swept
 
 - `POST /api/workflow-runs/{rid}/retry` runs a chain's failed papers again from the PDF and page

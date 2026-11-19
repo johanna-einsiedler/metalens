@@ -1,0 +1,138 @@
+{
+ "type": "object",
+ "properties": {
+  "tables": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "caption": {
+      "type": "string"
+     },
+     "panels": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "panel": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "header": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "rows": {
+         "type": "array",
+         "items": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        }
+       },
+       "required": [
+        "panel",
+        "header",
+        "rows"
+       ]
+      }
+     },
+     "notes": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "page",
+     "caption",
+     "panels",
+     "notes"
+    ]
+   }
+  },
+  "figures": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "page": {
+      "type": "integer"
+     },
+     "caption": {
+      "type": "string"
+     },
+     "numbers": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string"
+        },
+        "value": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "label",
+        "value"
+       ]
+      }
+     },
+     "note": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "page",
+     "caption",
+     "numbers",
+     "note"
+    ]
+   }
+  },
+  "text_numbers": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "page": {
+      "type": "integer"
+     },
+     "quote": {
+      "type": "string"
+     },
+     "about": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "page",
+     "quote",
+     "about"
+    ]
+   }
+  }
+ },
+ "required": [
+  "tables",
+  "figures",
+  "text_numbers"
+ ]
+}

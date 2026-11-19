@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-CHAINS = ("_demo",)                      # explicit, in import order; a chain adds itself here
+CHAINS = ("_demo", "genai_work")         # explicit, in import order; a chain adds itself here
 KINDS = ("pass", "match", "compute", "check")
 REGISTRY: dict[str, dict] = {}
 _LOADED = False

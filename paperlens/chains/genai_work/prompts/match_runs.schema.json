@@ -1,0 +1,53 @@
+{
+ "type": "object",
+ "properties": {
+  "pairs": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "a": {
+      "type": "string"
+     },
+     "b": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "a",
+     "b",
+     "why"
+    ]
+   }
+  },
+  "b_unpaired": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "b": {
+      "type": "string"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "b",
+     "reason",
+     "why"
+    ]
+   }
+  }
+ },
+ "required": [
+  "pairs",
+  "b_unpaired"
+ ]
+}

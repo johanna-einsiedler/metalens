@@ -1,0 +1,1019 @@
+{
+ "type": "object",
+ "properties": {
+  "study": {
+   "type": "object",
+   "properties": {
+    "scale": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "string"
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "research_design": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "string"
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "identification_strategy": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "string"
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "experimental_design": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "unit_of_analysis": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "string"
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "data_source": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "period_start_year": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "period_start_month": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "period_end_year": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "integer",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "period_end_month": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "sample_size": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "integer"
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "preregistered": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "incentivized": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "focus_topic": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "focus_topic_secondary": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      },
+      "proposed": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page",
+      "proposed"
+     ]
+    },
+    "focus_dimension": {
+     "type": "object",
+     "properties": {
+      "value": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "quote": {
+       "type": "string"
+      },
+      "page": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "value",
+      "quote",
+      "page"
+     ]
+    },
+    "study_notes": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "confidence": {
+     "type": "object",
+     "properties": {
+      "design": {
+       "type": "object",
+       "properties": {
+        "level": {
+         "type": "string",
+         "enum": [
+          "high",
+          "medium",
+          "low"
+         ]
+        },
+        "notes": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "level",
+        "notes"
+       ]
+      }
+     },
+     "required": [
+      "design"
+     ]
+    }
+   },
+   "required": [
+    "scale",
+    "research_design",
+    "identification_strategy",
+    "experimental_design",
+    "unit_of_analysis",
+    "data_source",
+    "period_start_year",
+    "period_start_month",
+    "period_end_year",
+    "period_end_month",
+    "sample_size",
+    "preregistered",
+    "incentivized",
+    "focus_topic",
+    "focus_topic_secondary",
+    "focus_dimension",
+    "study_notes",
+    "confidence"
+   ]
+  },
+  "tasks": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "task_id": {
+      "type": "string"
+     },
+     "task_name": {
+      "type": "string"
+     },
+     "task_label": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       },
+       "proposed": {
+        "type": [
+         "string",
+         "null"
+        ]
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page",
+       "proposed"
+      ]
+     },
+     "soc_major_group": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "task_structure": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "task_embodiment": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "knowledge_education": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "string"
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "goal_path_specification": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "string"
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "interdependence": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "string"
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "resources_context": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "string"
+       },
+       "quote": {
+        "type": "string"
+       },
+       "page": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "value",
+       "quote",
+       "page"
+      ]
+     },
+     "task_notes": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "arms": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "arm_id": {
+         "type": "string"
+        },
+        "arm_label": {
+         "type": "string"
+        },
+        "is_baseline": {
+         "type": "boolean"
+        },
+        "control_type": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          },
+          "proposed": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page",
+          "proposed"
+         ]
+        },
+        "sample_population": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": "string"
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "sample_population_type": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          },
+          "proposed": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page",
+          "proposed"
+         ]
+        },
+        "sample_expertise": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "sample_representativeness": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "countries": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "n_arm": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "integer",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "arm_description": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": "string"
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "arm_notes": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "ai_model": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "ai_role": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          },
+          "proposed": {
+           "type": [
+            "string",
+            "null"
+           ]
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page",
+          "proposed"
+         ]
+        },
+        "is_agentic": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "boolean",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "ai_measure": {
+         "type": "object",
+         "properties": {
+          "value": {
+           "type": [
+            "string",
+            "null"
+           ]
+          },
+          "quote": {
+           "type": "string"
+          },
+          "page": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "value",
+          "quote",
+          "page"
+         ]
+        },
+        "confidence": {
+         "type": "object",
+         "properties": {
+          "arm": {
+           "type": "object",
+           "properties": {
+            "level": {
+             "type": "string",
+             "enum": [
+              "high",
+              "medium",
+              "low"
+             ]
+            },
+            "notes": {
+             "type": "string"
+            }
+           },
+           "required": [
+            "level",
+            "notes"
+           ]
+          }
+         },
+         "required": [
+          "arm"
+         ]
+        }
+       },
+       "required": [
+        "arm_id",
+        "arm_label",
+        "is_baseline",
+        "control_type",
+        "sample_population",
+        "sample_population_type",
+        "sample_expertise",
+        "sample_representativeness",
+        "countries",
+        "n_arm",
+        "arm_description",
+        "arm_notes",
+        "ai_model",
+        "ai_role",
+        "is_agentic",
+        "ai_measure",
+        "confidence"
+       ]
+      }
+     },
+     "confidence": {
+      "type": "object",
+      "properties": {
+       "task": {
+        "type": "object",
+        "properties": {
+         "level": {
+          "type": "string",
+          "enum": [
+           "high",
+           "medium",
+           "low"
+          ]
+         },
+         "notes": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "level",
+         "notes"
+        ]
+       },
+       "complexity": {
+        "type": "object",
+        "properties": {
+         "level": {
+          "type": "string",
+          "enum": [
+           "high",
+           "medium",
+           "low"
+          ]
+         },
+         "notes": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "level",
+         "notes"
+        ]
+       }
+      },
+      "required": [
+       "task",
+       "complexity"
+      ]
+     }
+    },
+    "required": [
+     "task_id",
+     "task_name",
+     "task_label",
+     "soc_major_group",
+     "task_structure",
+     "task_embodiment",
+     "knowledge_education",
+     "goal_path_specification",
+     "interdependence",
+     "resources_context",
+     "task_notes",
+     "arms",
+     "confidence"
+    ]
+   }
+  }
+ },
+ "required": [
+  "study",
+  "tasks"
+ ]
+}
