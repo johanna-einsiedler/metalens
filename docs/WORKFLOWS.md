@@ -410,6 +410,16 @@ record, plus `n_runs`, `k` and the runs that failed). A paper lands when at leas
 step-run's outputs count papers by their number of runs (`by_runs`); `GET …/passes/{step}/{sha}
 ?role=run&pass_index=i` serves one run.
 
+The GenAI-at-work chain's matchers (`genai_work.match_exhibits`, `match_estimands`,
+`match_estimates`, `match_design`) take the first run as the primary and align every further run
+to it by content (tasks by name, arms by label and use, outcomes by measure, estimands by
+structure and wording; the leftovers paired by the model once). The primary comes back with
+`_runs` (`found`, `of`, `alt`) on its tasks, estimates, study, tasks and arms — the contract the
+record card reads — and, for the design, the cells a majority of three readings settles adopted
+(`settled_by`); the stability record holds the alignments, the per-unit statuses, the issues
+(`runs_disagree`, `not_in_all_runs`, `task_count_differs`, `runs_settled`, `runs_unsettled`,
+`runs_wording`) and the metrics for the assembly and the checks to lift.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:

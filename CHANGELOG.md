@@ -8,6 +8,28 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step two: the four passes and their matchers
+
+- `paperlens/chains/genai_work/passes.py` registers the chain's extraction passes as pass code —
+  `genai_work.exhibits`, `.estimands`, `.estimates`, `.design` — a port of the project's `split.py`
+  over the engine's `ctx`: the same user texts, the short-form retry on a cut answer, the estimates
+  request in parts above 100 estimands, halved when the answer does not fit, with one completion
+  request for the estimands no answer mentioned; and the post-processing inside the pass (quote
+  checks and snapping, table cells, the derived finding types, contrasts and roles), so a stored
+  pass output equals the file the project writes. `canon_ids` (the codebook's T1/C/T1 numbering)
+  is there for the assembly to apply. A replay test runs the four passes on a project paper's
+  cached answers and asserts the stored files, byte for byte, when the project is on the machine.
+- `match.py` registers the matchers for `k` runs — `match_exhibits`, `match_estimands`,
+  `match_estimates`, `match_design` — the project's `stability.py` and `match_runs.py` without
+  files or scipy (a pure-Python Hungarian assignment, tested optimal against brute force). Every
+  further run is aligned to the first by content; the estimands the alignment leaves unmatched on
+  both sides go to the model once (the `match_runs` prompt); estimates are compared estimand by
+  estimand, design cells settled by majority over three readings (settled cells adopted with
+  `settled_by`, unsettled ones flagged). The primary output carries `_runs` (found, of, alt) on
+  its units, the stability record the alignments, the per-unit statuses, the issues
+  (`runs_disagree`, `not_in_all_runs`, `task_count_differs`, `runs_settled`, `runs_unsettled`,
+  `runs_wording`) and the metrics; the fixture paper's runs reproduce its `stability.json`.
+
 ### The GenAI-at-work chain, step one: its prompts, taxonomy and text as files
 
 - `paperlens/chains/genai_work/` holds the review project's chain as content: the 26 prompt and
