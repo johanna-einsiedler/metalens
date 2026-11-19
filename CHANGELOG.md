@@ -8,6 +8,76 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Unit fields stacked; the grammar tests follow the renderer
+
+- A template block may say `stack: true`: its shown fields are drawn one under the other — a
+  task's name, its description beneath; an arm's label, then its treatment — instead of side by
+  side. The judgment template's tasks, arms and outcomes stack.
+- The three JavaScript grammar tests CI had failed on since 30 October now expect what the renderer
+  draws: a field's one ⓘ carrying its help and every option's definition, and a row id (`_rid`) on
+  every blank row.
+
+### The validation presets retired; the seeder seeds a project
+
+- The three validation presets of the GenAI-at-work review (`genai-work-judgment`,
+  `genai-work-extraction-check`, `genai-work-routed`) are no longer bundled: the three review
+  templates over the extraction record took their place in `genai-work` v4. A dataset imported
+  under one of them keeps its stored schema and renders as it did.
+- `scripts/seed_accounts.py` seeds a **project** (`/api/projects*`): found or made by title, a
+  dataset linked for every role it lacks, the people added by email, each task's people set where
+  the manifest's `tasks` says so (`{"review_judgment": {"coders": 1}}` — a count or emails), the
+  run started and each side's files uploaded as before; the summary names the review tasks and
+  what each waits for.
+
+### Project releases
+
+- A project is released as one (`project_release`, `POST /api/projects/{id}/releases`): every
+  linked dataset under its own number (kept when unchanged), the workflow's contract and its newest
+  run, the review statistics per task and coder, one badge over all the datasets, the gate as it
+  stood (held unless overridden, recorded). `GET …/releases[/{n}]` and `…/{n}/export` (a zip of
+  `project.json`, `README.md` and every member's release files under `members/<role>/`). The project
+  page's Releases card lists them and releases through the project. A member's frozen findings and
+  sample draws now read its project's runs, and a member's fingerprint moves with them.
+
+### Access follows the task; the GenAI-at-work workflow reads one record
+
+- A person added to a project is in its pool — a label and the project's page — and reads the
+  papers of the datasets a review task assigned them in, for as long as the run is live and they
+  are in the pool (`coders.ASSIGNED_DATASETS_SQL`; the "Coding for" list and the documents listing
+  follow it). A grant on a plain dataset is as it was. The owner says, per task, how many of the
+  project's people review each paper or which ones (`PATCH /api/projects/{id}/tasks/{step_id}`,
+  `project_task_config`), over the workflow's own number; a gate waiting for coders assigns at once.
+- `genai-work` v4 (`@e62c0d84`): one dataset — the pipeline's extraction record — and three review
+  tasks over it with the bundled templates: the judgment by two coders, the extraction check of one
+  exhibit per paper (a draw of rows), the routed papers only (a filter); the record checks on
+  arrival, the contract check after the coding, the release gated on all three. The seeder
+  uploads the extraction side alone (`papers: {extraction: …}`).
+
+### Projects, by their own name
+
+- A workflow's instance is a **project** (`paperlens/projects.py`): the workflow dataset row read as
+  one — its datasets, its people, its runs, its review **tasks** (the review step-runs of a run,
+  each with its template, datasets, gate and who reviews which paper) and its releases. `GET/POST
+  /api/projects`, `GET/PATCH/DELETE /api/projects/{id}`, `…/people`, `…/tasks` (the owner moves a
+  paper between coders through `…/tasks/{step_run_id}/assign`), `GET /api/me/tasks` (a coder's own
+  tasks, with what is left of their share). The page is `/project?id=` (a project opened as a
+  dataset redirects there); it gained a Review tasks card with the assignment matrix. The workspace
+  lists Projects (＋ New project) and My review tasks; links into the review workspace name the
+  dataset (`?dataset=`, the old `?project=` still read).
+
+### A review of rows, and a review step's filter
+
+- A review step may review the ROWS of a paper table (`unit: row`, `table`): every row
+  (`mode: all`) or `per_paper` of them per paper (`mode: sample`), drawn with the step's seed and
+  the paper's id so a paper's draw never moves; the gate's items carry the drawn row's `unit_key`,
+  the verdict is the paper's, and such a draw never enters the dataset's sample estimate
+  (`workflow_sample.unit_key`; the unique key of a draw now includes it). A review step's `where`
+  keeps the rows (unit row) or the papers (the other units) that meet it, in the templates' small
+  grammar. A task's view carries the drawn rows (`task.sampled`), which a template's `only_sampled`
+  and `sampled` filters read: the check task shows the drawn exhibit and its cells alone, and the
+  required answers follow the draw. `_coding_events` now carries the verifier kind, so a sampled
+  gate with coders reads a coder's verdict (it raised before).
+
 ### Review templates: what a review asks, answered into the coding
 
 - A **review template** (`paperlens/templates/<id>.json`, `paperlens/templates.py`) says how a

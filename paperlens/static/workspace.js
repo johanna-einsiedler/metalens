@@ -375,7 +375,7 @@ async function init() {
   window.addEventListener("popstate", onPopState);
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
-  PROJECT = q.get("project") || null;
+  PROJECT = q.get("dataset") || q.get("project") || null;   // the dataset in view (the old key, project, is read too)
   const docsParam = q.get("docs");    // comma list → scope to one extraction round
   const sinceParam = q.get("since");  // ISO time → docs from this extraction round (live)
   const jobsParam = q.get("jobs");    // comma list of this round's job ids → track pending/errors
@@ -750,7 +750,7 @@ function renderQueueBar() {
   if (!QUEUE) { bar.hidden = true; return; }
   const p = QUEUE.progress || {};
   const done = p.pending === 0;
-  const exit = `/workspace?project=${encodeURIComponent(QUEUE.dataset_id)}`;
+  const exit = `/workspace?dataset=${encodeURIComponent(QUEUE.dataset_id)}`;
   const what = (QUEUE.joint && p.papers ? `${p.papers_done || 0} of ${p.papers} paper${p.papers === 1 ? "" : "s"} done · ` : "")
     + (QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`)
     + (QUEUE.needs_coders ? ` · waits for ${QUEUE.needs_coders} coders` : QUEUE.viewer_coder ? " · your share" : "")
@@ -3311,7 +3311,7 @@ function stagesSpec() {
 // draws the stages, the coder's answers are theirs, the paper is done when the required ones are in
 function taskMode() { return !!(DATA && DATA.task && DATA.template && Array.isArray(DATA.template.stages)); }
 function taskKey() { return taskMode() ? `${DATA.task.run_id}:${DATA.task.step_id}` : null; }
-function taskOwed() { return taskMode() && CODER ? taskCompleteness(DATA.template, DATA, DATA.answers || {}, VM) : { required: 0, missing: [], complete: true }; }   // the owner answers nothing
+function taskOwed() { return taskMode() && CODER ? taskCompleteness(DATA.template, DATA, DATA.answers || {}, VM, DATA.task.sampled || null) : { required: 0, missing: [], complete: true }; }   // the owner answers nothing
 function reviewSpec() { return chainSpec() || evidenceSpec() || stagesSpec(); }
 function reviewToggleLabel() { return chainSpec() ? "⛓ Chain" : stagesSpec() ? "☰ Stages" : "❝ Evidence"; }
 function reviewToggleTitle() {
@@ -3744,7 +3744,7 @@ function taskCellsBlock(st, recs) {
   const box = document.createElement("div"); box.className = "stg-cells tq-cells";
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>` + (st.blocks || []).map((bl) => blockHtml(bl, {
     data: DATA, vm: VM, answers: DATA.answers || {}, byCoder: DATA.answers_by_coder || null, editable: CODER && !RO, owner: !CODER,
-    evidence: DATA.evidence || [] })).join("");
+    evidence: DATA.evidence || [], sampled: DATA.task.sampled || null })).join("");   // sampled: a row review's drawn rows of this paper
   return box;
 }
 async function saveAnswer(unitKey, recId, values) {

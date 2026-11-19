@@ -12,7 +12,7 @@ never on the record. A preset's ``display.review`` keeps working as its implicit
                     whether every paper field no block shows is dropped (``paper_fields: "unshown"``)
   * ``stages``    — ordered; each ``{id, label, help, evidence, blocks}``
   * ``blocks``    — ``{unit, label, help, show, title, marks, group_by_entry, where, only_sampled,
-                    mask_numbers, questions, add, sections, inline}``
+                    mask_numbers, stack, questions, add, sections, inline}``
   * ``questions`` — field declarations the coder answers: ``{name, type, label, help, options |
                     options_from, allow_other, required, required_when}``
 
@@ -50,7 +50,7 @@ _ALLOWED = {
     "blind": {"fields", "paper_fields"},
     "stage": {"id", "label", "help", "evidence", "blocks"},
     "block": {"unit", "label", "help", "show", "title", "marks", "group_by_entry", "where", "only_sampled", "mask_numbers",
-              "questions", "add", "sections", "inline"},
+              "stack", "questions", "add", "sections", "inline"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
     "mark": {"when", "when_nonempty", "text"},
@@ -143,6 +143,7 @@ def normalize(doc: dict) -> dict:
             bl.setdefault("mask_numbers", False)
             bl.setdefault("group_by_entry", False)
             bl.setdefault("only_sampled", False)
+            bl.setdefault("stack", False)
             for q in bl["questions"] if isinstance(bl["questions"], list) else []:
                 if isinstance(q, dict):
                     q.setdefault("type", "string")
@@ -356,7 +357,7 @@ def _validate_block(bl: Any, at: str, pspec: dict | None, E, W) -> None:
         for n in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", bl["title"]):
             if n not in fields:
                 E(f"{at}.title: {{{n}}} is not a field of the unit")
-    for k in ("group_by_entry", "only_sampled", "mask_numbers"):
+    for k in ("group_by_entry", "only_sampled", "mask_numbers", "stack"):
         if not isinstance(bl.get(k, False), bool):
             E(f"{at}.{k} must be a boolean")
     if bl.get("group_by_entry") and uk is not None and uk[0] != "child":

@@ -520,7 +520,10 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
                             OR bool_or(r.session_id = %s AND r.owner_user_id IS NULL)))
                    OR (%s::text IS NOT NULL
                        AND bool_or(r.dataset_id IN (SELECT c.dataset_id FROM dataset_coder c WHERE c.user_id::text = %s::text
-                                                    UNION SELECT d2.id FROM dataset d2 JOIN dataset_coder c2 ON c2.dataset_id = d2.group_id WHERE c2.user_id::text = %s::text))))
+                                                    UNION SELECT (jsonb_array_elements_text(COALESCE(sr.outputs -> 'datasets', '[]'::jsonb)))::uuid
+                                                      FROM workflow_assignment a JOIN workflow_step_run sr ON sr.id = a.step_run_id
+                                                      JOIN workflow_run wr ON wr.id = a.run_id JOIN dataset_coder c2 ON c2.dataset_id = wr.dataset_id AND c2.user_id = a.coder_user_id
+                                                      WHERE a.coder_user_id::text = %s::text AND wr.status NOT IN ('cancelled', 'failed', 'planned')))))
               AND (%s::text IS NULL OR bool_or(r.dataset_id::text = %s::text))
            ORDER BY d.created_at DESC
            LIMIT %s""",
@@ -1570,8 +1573,9 @@ def _samples_for(conn: psycopg.Connection, dataset_ids: list[str]) -> dict[str, 
     try:
         from . import review_gate
         with_draws = {str(r[0]) for r in conn.execute(
-            """SELECT DISTINCT r.dataset_id FROM workflow_run r JOIN workflow_step_run sr ON sr.run_id = r.id
-               WHERE r.dataset_id = ANY(%s::uuid[]) AND sr.review ->> 'mode' = 'sample'""", (dataset_ids,)).fetchall()}
+            """SELECT DISTINCT d.id FROM dataset d JOIN workflow_run r ON (r.dataset_id = d.id OR (d.group_id IS NOT NULL AND r.group_id = d.group_id))
+               JOIN workflow_step_run sr ON sr.run_id = r.id
+               WHERE d.id = ANY(%s::uuid[]) AND sr.review ->> 'mode' = 'sample'""", (dataset_ids,)).fetchall()}
         for did in with_draws:
             smp = review_gate.dataset_sample(conn, did)
             if smp:

@@ -716,6 +716,8 @@ body.coder .study-ident[contenteditable="false"] ~ * { display: none !important;
 .tq-title .tq-del { margin-left: auto; border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 0 4px; }
 .tq-title .tq-del:hover { color: #b3261e; }
 .tq-shown .rv-obj { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+/* a block with `stack: true`: the unit's shown fields one under the other (a task's name, its description beneath) */
+.tq-shown.tq-stack .rv-obj { grid-template-columns: minmax(0, 1fr); }
 .tq-q { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
 .tq-q .rv-key { color: var(--accent); }
 .tq-group-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 10px 0 2px; }

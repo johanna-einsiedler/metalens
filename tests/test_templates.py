@@ -66,6 +66,16 @@ def _errors(mutate) -> list[str]:
     return tp.validate(tp.normalize(doc), EXT)[0]
 
 
+def test_a_block_stacks_its_shown_fields_only_when_told() -> None:
+    tpl = tp.normalize(copy.deepcopy(GOOD))
+    assert all(bl["stack"] is False for st in tpl["stages"] for bl in st["blocks"])          # side by side by default
+    assert any("stack must be a boolean" in e for e in _errors(lambda d: d["stages"][0]["blocks"][1].__setitem__("stack", "yes")))
+    assert _errors(lambda d: d["stages"][0]["blocks"][1].__setitem__("stack", True)) == []
+    assert tp.template_id(tp.normalize(copy.deepcopy(GOOD))) == tp.template_id(tp.normalize({**copy.deepcopy(GOOD), "stages": [
+        {**GOOD["stages"][0], "blocks": [GOOD["stages"][0]["blocks"][0], {**GOOD["stages"][0]["blocks"][1], "stack": True}, *GOOD["stages"][0]["blocks"][2:]]},
+        *GOOD["stages"][1:]]}))                                                              # layout, not contract
+
+
 def test_the_good_template_normalizes_validates_and_hashes_what_it_asks() -> None:
     tpl = tp.normalize(copy.deepcopy(GOOD))
     assert tp.validate(tpl, EXT) == ([], [])
@@ -161,9 +171,10 @@ def test_the_bundled_templates_validate_against_their_preset_and_hash_stably() -
 
 
 def test_a_presets_own_review_is_its_implicit_template() -> None:
-    jud = presets.load_all()["genai-work-judgment"]
-    t = tp.from_preset(jud)
-    assert t["source"] == "preset" and t["for"] == "genai-work-judgment" and t["layout"] == "stages" and t["stages"] == jud["display"]["review"]["stages"]
+    rc = presets.load_all()["register-claims"]
+    t = tp.from_preset(rc)
+    assert t["source"] == "preset" and t["for"] == "register-claims" and t["layout"] == "chain"
+    assert all(t[k] == v for k, v in rc["display"]["review"].items())
     assert tp.from_preset({"id": "x", "display": {}}) is None
 
 

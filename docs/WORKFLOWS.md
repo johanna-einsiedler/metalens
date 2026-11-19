@@ -37,7 +37,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   steps are fine when each names its dataset role (linked datasets, below); `k` runs with a
   `vote`, `input.previous` and loops run.
 - **A review is a step.** `{"kind": "review", "over": [steps], "template": "<id>", "mode": "all" | "sample", "unit":
-  "entry" | "paper", "blocks": "next" | "release", "coders": N, "new_only": true}`: `over` names
+  "entry" | "paper" | "row", "blocks": "next" | "release", "coders": N, "new_only": true, "where": {…}}`: `over` names
   the earlier extract steps it reads (several: a joint review, each paper's documents of those
   steps in one worklist), or one derive step (the review is the draft's commit). `blocks`
   (default `release`) says whether an unsatisfied gate holds the next step or only the release.
@@ -50,9 +50,17 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   reports the draws: "Sampled 30/412 · 93% agree", with the estimated error rate and its 95%
   interval in the long label, next to the audited share; a record verified outside a draw never
   enters the estimate. `new_only: false` reviews every paper of the sides on every run, not only
-  the run's new ones. `template` names a review template (below): how the coder checks the
-  records and what they answer; it must be `for` the preset of every step the review reads, and
-  is part of the contract. A data step no review step covers is never reviewed: an extract step's
+  the run's new ones. `unit: row` reviews the ROWS of a paper table (`table`, one of the read
+  preset's): `mode: all` every row, `mode: sample` `per_paper` of them per paper, drawn with a
+  seed of the step's `seed` and the paper's id (a paper's draw never moves when papers are
+  added; `n` and `share` do not apply); the gate's items carry the drawn row's `unit_key`
+  (`"<table>#<_rid>"`), the verdict is the paper's (read from its first record), and a draw of
+  rows never enters the dataset's sample estimate. `where` keeps what meets it — the rows, for
+  `unit: row` (keys are the table's columns); the papers, otherwise (keys are paper fields,
+  `paper_metadata.<field>` too), the same small grammar as a template block's. `template` names
+  a review template (below): how the coder checks the records and what they answer; it must be
+  `for` the preset of every step the review reads. `table`, `per_paper`, `where` and `template`
+  are part of the contract. A data step no review step covers is never reviewed: an extract step's
   records count as AI-only, a draft is committed at once. The form before — `"review": {…}` on
   the extract or derive step — is still read: it becomes the review step `<step>_review` right
   after it, with the same contract (below).
@@ -104,6 +112,44 @@ the gate has a verdict or the owner resumes with `override`, which the gate reco
 `blocks: release` lets the run finish and holds the release: `POST /api/datasets/{id}/releases`
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
+
+## Projects
+
+A **project** is a workflow's instance: one owner, the datasets it links (one per preset role),
+the people who code for it, its runs, its review tasks and its releases (`paperlens/projects.py`,
+`/project?id=`, `POST /api/projects {workflow, title?, datasets?}`, `GET /api/projects`, `GET
+/api/projects/{id}` — members, papers, runs, the tasks of the latest run, the owner's people, the
+viewer's role — `PATCH`/`DELETE /api/projects/{id}`, `GET`/`POST`/`DELETE
+/api/projects/{id}/people[/{user}]`). Internally it is the **workflow dataset** of the linked
+datasets (below): the row whose id is their `group_id`; a person added to the project codes every
+linked dataset's papers. A **task** is a review step-run of a run — its template, the datasets it
+reads, its gate, its coders and who reviews which paper (`GET /api/projects/{id}/tasks[?run=]`,
+`POST /api/projects/{id}/tasks/{step_run_id}/assign {document_id, coders}` until a verdict was
+given). `GET /api/me/tasks` lists the tasks a live run assigned the caller a paper in, with what
+is left of their share and the queue to code it in; the workspace shows them under "My review
+tasks". A workflow over one preset runs on a dataset of that preset and is not a project row.
+
+**Access follows the task.** A person added to a project is in its pool: they see the project's
+page and have a label (`coder_1` …), nothing of its papers yet. A task that assigns them a paper
+opens every paper of the datasets that task reads (`outputs.datasets` of the review step-run),
+for as long as the run is live and they are in the pool; a run that is done keeps their own
+coding readable; taken out of the pool, they read nothing. A grant on a plain dataset (one not
+in a project) opens every paper of it at once, as before. **The owner's hand on a task**: `PATCH
+/api/projects/{id}/tasks/{step_id} {coders: N | [emails] | null}` says how many of the project's
+people review each paper of that task, or which ones, over the workflow's own `coders`
+(`project_task_config`); it is read when the task's gate opens, and a gate still waiting for
+coders assigns at once — a solo pilot runs a two-coder judgment with one.
+
+**A project release** (`POST /api/projects/{id}/releases {notes, allow_stale, override_gates}`,
+`GET …/releases[/{n}[/export]]`; `project_release`) is one number for the project: every linked
+dataset released under its own number (kept at its latest when unchanged), the workflow's contract
+and its newest finished run, the review statistics per task and coder (what each gate asked, what
+was checked and disagreed, each coder's share), one badge over all the datasets (the badge rule
+over their summed counts, "across N datasets"), and the project's gate as it stood — held unless
+overridden, which the release records. The export is a zip of `project.json`, `README.md` and
+every member's own release files under `members/<role>/`. The project moved since a release when a
+member's data moved since its own latest release, a member was released or linked since, or a
+newer run finished. A member's frozen findings and sample draws are read from its project's runs.
 
 ## Linked datasets and a joint review
 
@@ -347,7 +393,8 @@ enum, multi, list), `label`, `help`, `options` or `options_from` (an enum or mul
 preset, or several with a value `prefix` and a `label_prefix`), `allow_other`, `required`,
 `required_when` (the same small grammar, over the unit's values and its answers). `add` lets the
 coder add a unit the paper has and the list lacks: its `fields` are answered like questions, under
-a key of the coder's own. `sections` and `inline` lay the block out as a stage does. `blind.fields`
+a key of the coder's own. `sections` and `inline` lay the block out as a stage does; `stack: true`
+draws the shown fields one under the other — a task's name, its description beneath — not side by side. `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
@@ -361,8 +408,11 @@ every write is a `coding_event` (status `noted`), never a disagreement. A review
 `template` opens its gate with the template (`review.template`, `review.template_id`); the queue
 names the **task** (`<run>:<step>`), and `GET /api/documents/{id}/view?task=` serves the document
 through it: a coder gets the projection — blind values gone, numbers masked, the template under
-`template`, their `answers` — and `POST /api/documents/{id}/answers {task, record_id?, unit,
-answers}` writes theirs (422 for a value outside the options or an unknown unit). The workspace
+`template`, their `answers`; in a review of rows also `task.sampled` (the drawn rows' keys and
+their columns' values), which a block's `only_sampled` and a `where` with `sampled:
+"<table>.<column>"` read, so the check task shows the drawn exhibit and its cells alone — and
+`POST /api/documents/{id}/answers {task, record_id?, unit, answers}` writes theirs (422 for a
+value outside the options or an unknown unit). The workspace
 draws a template stage as its blocks, a card per unit with the questions under the shown fields,
 and says how many required answers are owed; `done` (and a verdict sent with `task`) is refused
 while any is missing. The owner reads every coder's answers under each unit (`answers_by_coder`)

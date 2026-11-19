@@ -399,13 +399,19 @@ def for_run(conn: psycopg.Connection, run_id: str, step_id: str | None = None) -
 
 def frozen(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     """The findings of the dataset's newest finished run, for a release snapshot."""
+    from . import workflows
+    where, args = workflows._run_scope(conn, dataset_id)   # noqa: SLF001 - a member's runs are its project's
     run = conn.execute(
-        """SELECT id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done'
+        f"""SELECT id::text FROM workflow_run WHERE {where} AND status = 'done'
              AND EXISTS (SELECT 1 FROM workflow_finding f WHERE f.run_id = workflow_run.id)
-           ORDER BY created_at DESC LIMIT 1""", (dataset_id,)).fetchone()
+           ORDER BY created_at DESC LIMIT 1""", args).fetchone()
     if not run:
         return None
     rows = for_run(conn, run[0])
+    gid = conn.execute("SELECT group_id::text FROM dataset WHERE id = %s::uuid", (dataset_id,)).fetchone()
+    if gid and gid[0] and gid[0] != dataset_id:                   # a member: the findings on its own records
+        own = {r[0] for r in conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid", (dataset_id,)).fetchall()}
+        rows = [f for f in rows if not f.get("record_id") or f["record_id"] in own]
     by_sev: dict[str, int] = {}
     for f in rows:
         by_sev[f["severity"]] = by_sev.get(f["severity"], 0) + 1

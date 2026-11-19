@@ -147,6 +147,78 @@ def _frame(conn, document_ids: list[str], stratify, *, unit: str) -> list[dict]:
     return out
 
 
+def draw_rows(conn, document_ids: list[str], *, table: str, where: dict | None, per_paper: int | None, seed, stratify=()) -> dict:
+    """The units of a review with ``unit: row``: the rows of the paper table ``table`` that meet
+    ``where``, per document — every one (``per_paper`` None), or ``per_paper`` of them drawn at
+    random with a seed of the step's seed and the document's id, so a paper's draw never moves
+    when papers are added. Each item carries the row's ``unit_key`` ("<table>#<_rid>") and the
+    paper's first record as the record the verdict is read from (the paper is verified whole)."""
+    from . import contract, templates
+    if not document_ids:
+        return {"frame_n": 0, "n_target": 0, "exhaustive": True, "strata": {}, "items": []}
+    rows = conn.execute(
+        """SELECT ed.id::text, ed.paper_metadata_raw, ed.paper_id::text,
+                  (SELECT r.id::text FROM record r WHERE r.document_id = ed.id AND NOT COALESCE(r.screened_empty, false) ORDER BY r.entry_index LIMIT 1)
+           FROM extraction_document ed WHERE ed.id = ANY(%s::uuid[])""", (document_ids,)).fetchall()
+    by_doc = {did: (pm if isinstance(pm, dict) else {}, pid, anchor) for did, pm, pid, anchor in rows}
+    items: list[dict] = []
+    frame_n = n_target = 0
+    strata_n: dict[str, dict] = {}
+    for did in document_ids:
+        pm, pid, anchor = by_doc.get(did, ({}, None, None))
+        if anchor is None:
+            continue
+        cand = [(j, row) for j, row in enumerate(pm.get(table) if isinstance(pm.get(table), list) else [])
+                if isinstance(row, dict) and templates.where_match(row, where, paper=pm)]
+        frame_n += len(cand)
+        for j, row in cand:
+            k = "|".join("∅" if row.get(f) is None else str(row.get(f)) for f in (stratify or ())) or "all"
+            strata_n.setdefault(k, {"N": 0, "n": 0})["N"] += 1
+        if per_paper is None:
+            take = cand
+        else:
+            rng = random.Random(int(hashlib.sha256(f"{seed}:{did}".encode()).hexdigest()[:8], 16))
+            take = rng.sample(cand, min(int(per_paper), len(cand))) if cand else []
+        n_target += len(take)
+        for j, row in sorted(take, key=lambda x: x[0]):
+            k = "|".join("∅" if row.get(f) is None else str(row.get(f)) for f in (stratify or ())) or "all"
+            strata_n[k]["n"] += 1
+            rid = row.get(contract.ROW_ID_KEY)
+            items.append({"record_id": anchor, "document_id": did, "paper_id": pid, "unit_key": f"{table}#{rid if rid is not None else f'i{j}'}",
+                          "stratum": {f: row.get(f) for f in (stratify or ())}, "kind": "random"})
+    return {"frame_n": frame_n, "n_target": n_target, "exhaustive": frame_n <= n_target, "strata": strata_n,
+            "items": [{**it, "ord": k} for k, it in enumerate(items)]}
+
+
+def sampled_units(conn, step_run: dict, document_id: str) -> dict | None:
+    """For a gate with ``unit: row``: what the document's drawn rows are — their keys (``_keys``)
+    and, per column of the table, the drawn rows' values (``"<table>.<column>"``), which a
+    template's ``only_sampled`` and ``sampled`` filters read. None for any other gate."""
+    header = step_run.get("review") or {}
+    if header.get("unit") != "row" or not header.get("table"):
+        return None
+    from . import contract, templates
+    table = header["table"]
+    row = conn.execute("SELECT paper_metadata_raw FROM extraction_document WHERE id = %s::uuid", (document_id,)).fetchone()
+    pm = row[0] if row and isinstance(row[0], dict) else {}
+    rows = [r for r in (pm.get(table) if isinstance(pm.get(table), list) else []) if isinstance(r, dict)]
+    if header.get("mode") == "sample":
+        keys = [r[0] for r in conn.execute("SELECT unit_key FROM workflow_sample WHERE step_run_id = %s::uuid AND document_id = %s::uuid AND unit_key IS NOT NULL ORDER BY ord",
+                                           (step_run["id"], document_id)).fetchall()]
+    else:
+        keys = [f"{table}#{r.get(contract.ROW_ID_KEY) if r.get(contract.ROW_ID_KEY) is not None else f'i{j}'}"
+                for j, r in enumerate(rows) if templates.where_match(r, header.get("where"), paper=pm)]
+    out: dict = {"_keys": set(keys)}
+    for j, r in enumerate(rows):
+        key = f"{table}#{r.get(contract.ROW_ID_KEY) if r.get(contract.ROW_ID_KEY) is not None else f'i{j}'}"
+        if key not in out["_keys"]:
+            continue
+        for col, v in r.items():
+            if col != contract.ROW_ID_KEY and not isinstance(v, (dict, list)):
+                out.setdefault(f"{table}.{col}", set()).add(v)
+    return out
+
+
 # ── opening a gate ────────────────────────────────────────────────────────────
 
 def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_ids: list[str] | None = None) -> dict:
@@ -161,6 +233,32 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
               **({"record_ids": list(record_ids)} if record_ids is not None else {})}
     if header["mode"] == "none":
         header["satisfied_at"] = header["opened_at"]
+    elif header["unit"] == "row":                                 # the rows of a paper table: every one that meets where, or per_paper of them
+        seed = rv.get("seed")
+        if seed is None:
+            seed = _seed_for(step_run["run_id"], step_run["step_id"])
+        elif isinstance(seed, str):
+            seed = int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16)
+        per_paper = int(rv["per_paper"]) if header["mode"] == "sample" and rv.get("per_paper") else None
+        d = draw_rows(conn, docs, table=rv.get("table"), where=rv.get("where"), per_paper=per_paper, seed=seed, stratify=rv.get("stratify") or ())
+        header.update({"table": rv.get("table"), "where": rv.get("where"), "per_paper": per_paper, "seed": seed, "stratify": list(rv.get("stratify") or []),
+                       "frame_n": d["frame_n"], "n_target": d["n_target"], "drawn": len(d["items"]), "exhaustive": d["exhaustive"], "strata": d["strata"],
+                       "drawn_at": header["opened_at"]})
+        if header["mode"] == "sample":                            # the draw is stored; mode all reads the rows from the papers
+            with conn.transaction():
+                conn.execute("DELETE FROM workflow_sample WHERE step_run_id = %s::uuid", (step_run["id"],))
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        """INSERT INTO workflow_sample (id, run_id, step_run_id, step_id, record_id, document_id, kind, stratum, ord, unit_key)
+                           VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s::uuid, %s::uuid, 'random', %s, %s, %s)""",
+                        [(str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], it["record_id"], it["document_id"],
+                          Json(it.get("stratum") or {}), it["ord"], it["unit_key"]) for it in d["items"]])
+            if not d["items"]:
+                header["satisfied_at"] = header["opened_at"]
+        else:
+            header["document_ids"] = sorted({it["document_id"] for it in d["items"]}, key=docs.index)
+            if not d["items"]:
+                header["satisfied_at"] = header["opened_at"]
     elif header["mode"] == "sample":
         seed = rv.get("seed")
         if seed is None:
@@ -215,14 +313,38 @@ def _gate_documents(conn, step_run: dict, header: dict) -> list[str]:
     return list(header.get("document_ids") or (step_run.get("outputs") or {}).get("document_ids") or [])
 
 
+def task_config(conn, project_id: str | None, step_id: str) -> dict | None:
+    """The project's hand on a task: ``{"coders": N | [user ids]}`` set by the owner, else None."""
+    if not project_id:
+        return None
+    row = conn.execute("SELECT coders FROM project_task_config WHERE project_id = %s::uuid AND step_id = %s", (project_id, step_id)).fetchone()
+    return {"coders": row[0]} if row and row[0] is not None else None
+
+
 def _assign(conn, step_run: dict, header: dict) -> None:
     """Paper i → coders[(i + j) mod n] for j < N: every paper gets N distinct coders, every coder
-    an even share. Nothing is assigned while the dataset has fewer than N coders."""
+    an even share. The pool is the project's people — or the ones the owner named for this task
+    (``project_task_config``), whose count may also replace the step's N. Nothing is assigned
+    while the pool has fewer than N coders."""
     from . import coders as _coders
     n_want = int(header.get("coders") or 0)
     ds = _run_dataset(conn, step_run["run_id"])
     pool = _coders.coders_of(conn, ds) if ds else []
-    if len(pool) < n_want:
+    cfg = task_config(conn, ds, step_run["step_id"])
+    if cfg is not None:
+        want = cfg["coders"]
+        if isinstance(want, int) and not isinstance(want, bool) and want >= 1:
+            n_want = want; header["coders_from"] = "project"
+        elif isinstance(want, list):
+            by_id = {c["user_id"]: c for c in pool}
+            named = [by_id[u] for u in want if u in by_id]
+            header["missing"] = [u for u in want if u not in by_id]
+            header["named"] = [c["label"] for c in named]
+            pool = named
+            n_want = min(n_want or len(named), len(named)) if named else n_want
+            header["coders_from"] = "project"
+    header["coders"] = n_want
+    if not pool or len(pool) < n_want:
         header["assigned"] = False; header["needs_coders"] = n_want; header["n_coders"] = len(pool)
         return
     docs = _gate_documents(conn, step_run, header)
@@ -305,15 +427,16 @@ def _codings(conn, record_ids: list[str]) -> dict[tuple, dict]:
 
 
 def _coding_events(conn, record_ids: list[str]) -> dict[tuple, list[tuple]]:
-    """{(record id, coder id): [(status, diff, created_at)]} in time order — a sampled gate reads a
-    coder's verdict from the events after the draw, as it does the owner's."""
+    """{(record id, coder id): [(status, diff, created_at, kind)]} in time order — a sampled gate
+    reads a coder's verdict from the events after the draw, as it does the owner's (the shape of
+    ``_events``; a coder's verdict counts as a maintainer's)."""
     if not record_ids:
         return {}
     out: dict[tuple, list[tuple]] = {}
     for rid, uid, status, diff, created in conn.execute(
             """SELECT record_id::text, coder_user_id::text, status, diff, created_at FROM coding_event
                WHERE record_id = ANY(%s::uuid[]) ORDER BY created_at, id""", (record_ids,)).fetchall():
-        out.setdefault((rid, uid), []).append((status, diff, created))
+        out.setdefault((rid, uid), []).append((status, diff, created, "maintainer"))
     return out
 
 
@@ -400,16 +523,17 @@ def items(conn: psycopg.Connection, step_run: dict) -> list[dict]:
         return []
     if mode == "sample":
         rows = conn.execute(
-            """SELECT s.record_id::text, s.document_id::text, r.paper_id::text, r.entry_index, r.verification_status, s.kind, s.stratum, s.ord
+            """SELECT s.record_id::text, s.document_id::text, r.paper_id::text, r.entry_index, r.verification_status, s.kind, s.stratum, s.ord, s.unit_key
                FROM workflow_sample s JOIN record r ON r.id = s.record_id
                WHERE s.step_run_id = %s::uuid ORDER BY s.ord""", (step_run["id"],)).fetchall()
         ev = _events(conn, [r[0] for r in rows])
         when = _drawn_at(header)
         out = []
-        for rid, did, pid, ei, st, kind, stratum, ord_ in rows:
+        for rid, did, pid, ei, st, kind, stratum, ord_, unit_key in rows:
             o = outcome(ev.get(rid), when)
             out.append({"record_id": rid, "document_id": did, "paper_id": pid, "entry_index": ei, "status": st, "kind": kind,
-                        "stratum": stratum or {}, "ord": ord_, "checked": o["checked"], "disagreed": o["disagreed"]})
+                        "stratum": stratum or {}, "ord": ord_, "checked": o["checked"], "disagreed": o["disagreed"],
+                        **({"unit_key": unit_key} if unit_key else {})})
         return _with_coders(conn, step_run, header, out) if header.get("coders") else out
     rec_ids = header.get("record_ids")
     docs = list(header.get("document_ids") or (step_run.get("outputs") or {}).get("document_ids") or [])
@@ -466,8 +590,10 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
            "pending": pending, "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "satisfied": satisfied,
            "satisfied_at": header.get("satisfied_at"), "overridden_by": header.get("overridden_by"),
            "documents": sorted({i["document_id"] for i in its if not i["checked"] and i.get("document_id")})}
-    if mode == "sample":
+    if mode == "sample" or header.get("unit") == "row":
         out.update({k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "exhaustive", "strata", "drawn")})
+    if header.get("unit") == "row":
+        out.update({"table": header.get("table"), "per_paper": header.get("per_paper"), "where": header.get("where")})
     if header.get("template"):
         out.update({"template": header["template"], "template_id": header.get("template_id")})
     if header.get("coders"):
@@ -579,7 +705,7 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | N
     checked = sum(1 for i in its if i["checked"])
     out = {"run_id": run["id"], "dataset_id": run["dataset_id"], "step": step_run["step_id"], "kind": step_run["kind"], "mode": header.get("mode"),
            "unit": header.get("unit", "entry"), "blocks": header.get("blocks", "release"),
-           "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
+           "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at", "table", "per_paper", "where") if k in header},
            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
            "joint": len((step_run.get("outputs") or {}).get("over") or []) > 1,       # two sides of each paper in one worklist
            "task": f"{run['id']}:{step_run['step_id']}", "template": header.get("template"),   # what ?task= on a document's view names
@@ -601,17 +727,22 @@ def dataset_sample(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     superseded), joined to live records: what was drawn, checked, disagreed, and the error rate
     with its Wilson interval. Ad-hoc audits never enter; supplement items never enter."""
     from .records import _wilson
+    from . import workflows
+    where, args = workflows._run_scope(conn, dataset_id)   # noqa: SLF001 - a member's runs are its project's
     rows = conn.execute(
-        """SELECT sr.id::text, sr.run_id::text, sr.step_id, sr.review
+        f"""SELECT sr.id::text, sr.run_id::text, sr.step_id, sr.review
            FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
-           WHERE r.dataset_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned') AND sr.superseded_by IS NULL
-             AND sr.review ->> 'mode' = 'sample' ORDER BY r.created_at""", (dataset_id,)).fetchall()
-    if not rows:
+           WHERE {where.replace('dataset_id', 'r.dataset_id').replace('group_id', 'r.group_id')} AND r.status NOT IN ('cancelled', 'failed', 'planned') AND sr.superseded_by IS NULL
+             AND sr.review ->> 'mode' = 'sample' AND COALESCE(sr.review ->> 'unit', '') <> 'row' ORDER BY r.created_at""", args).fetchall()
+    if not rows:                                            # a draw of rows checks a paper's table, not its records: never in the estimate
         return None
+    own = {r[0] for r in conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid", (dataset_id,)).fetchall()}
     steps, frame, drawn, checked, disagreed = [], 0, 0, 0, 0
     for srid, run_id, step_id, header in rows:
         sr = {"id": srid, "run_id": run_id, "step_id": step_id, "review": header or {}, "outputs": {}}
-        its = [i for i in items(conn, sr) if i["kind"] == "random"]
+        its = [i for i in items(conn, sr) if i["kind"] == "random" and i["record_id"] in own]    # a joint draw: this dataset's records of it
+        if not its:
+            continue
         if (header or {}).get("coders"):                        # one unit per drawn record: checked when any coder checked it
             per: dict[str, dict] = {}
             for i in its:

@@ -1332,7 +1332,7 @@ async function runBatch(indices, reset) {
       // Add-papers: the server attaches each finished paper to the dataset, so jump to the
       // dataset's Data review and watch them fill in (?jobs tracks the queued ones).
       const jq = jobIds.length ? `&jobs=${jobIds.join(",")}` : "";
-      location.href = `/workspace?project=${encodeURIComponent(ADD_DATASET.id)}${jq}`;
+      location.href = `/workspace?dataset=${encodeURIComponent(ADD_DATASET.id)}${jq}`;
     } else {
       location.href = forwardUrl();
     }
@@ -1403,7 +1403,7 @@ async function doSave(out) {
       { defaultName: (out[0].name || "").replace(/\.pdf$/i, ""), recipe });
     if (ds) {
       msg.innerHTML = `✓ saved to "${esc(ds.title)}" (${esc(ds.visibility)}) · `
-        + `<a href="/workspace?project=${esc(ds.id)}">Review data →</a>`;
+        + `<a href="/workspace?dataset=${esc(ds.id)}">Review data →</a>`;
       btn.textContent = "✓ Saved";
     }
   } catch (e) { msg.textContent = "✗ " + e.message; }

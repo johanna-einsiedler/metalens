@@ -220,8 +220,8 @@ export function blockHtml(block, ctx) {
     const addRow = u.added ? { ...Object.fromEntries(addDefs.map((f) => [f.name, null])), ...u.row } : null;
     const shownEditable = ctx.editable && !block.mask_numbers && u.scope !== "none" && !u.added;
     const shown = u.added
-      ? `<div class="tq-shown rv-root" data-scope="answers">${renderFields(addDefs, addRow, "", { editable: ctx.editable })}</div>`
-      : showDefs.length ? `<div class="tq-shown rv-root" data-scope="${u.scope}"${u.rec ? ` data-rid="${esc(u.rec.id)}"` : ""}>${sectioned(block, showDefs, u.row, u.base, { editable: shownEditable })}</div>` : "";
+      ? `<div class="tq-shown${block.stack ? " tq-stack" : ""} rv-root" data-scope="answers">${renderFields(addDefs, addRow, "", { editable: ctx.editable })}</div>`
+      : showDefs.length ? `<div class="tq-shown${block.stack ? " tq-stack" : ""} rv-root" data-scope="${u.scope}"${u.rec ? ` data-rid="${esc(u.rec.id)}"` : ""}>${sectioned(block, showDefs, u.row, u.base, { editable: shownEditable })}</div>` : "";
     const qs = qdefs.length ? `<div class="tq-q rv-root">${sectioned(block, qdefs, a, "", { editable: ctx.editable })}</div>` : "";
     const by = ctx.owner && qdefs.length ? byCoderHtml(qdefs, ctx.byCoder, u.record_id, u.key) : "";
     const title = uk && uk.kind === "paper" && !block.title ? "" : `<div class="tq-title">${citeTag(u, ctx.evidence)} <span class="tq-name">${esc(unitTitle(block, u, vm))}</span>${marksHtml(block, u.row || {})}${u.added && ctx.editable ? `<button type="button" class="tq-del" title="remove this added unit and its answers">✕</button>` : ""}</div>`;

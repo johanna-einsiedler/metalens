@@ -243,6 +243,13 @@ def projects_page() -> FileResponse:
     return _page("projects.html")
 
 
+@app.get("/project")
+def project_page() -> FileResponse:
+    """A project (?id=…): the workflow's instance — its datasets, people, runs, review tasks and
+    releases. The same page as a dataset's, drawn for a project (paperlens/projects.py)."""
+    return _page("dataset.html")
+
+
 def _page_db():
     """get_db for the page routes above its definition: resolved when a request arrives."""
     yield from get_db()
@@ -558,6 +565,13 @@ def _task_of(db, task: str, who: Principal) -> tuple[dict, dict | None, dict]:
     return run, tpl, st
 
 
+def _task_sampled(db, run: dict, step_id: str, document_id: str) -> dict | None:
+    """The document's drawn rows in a task whose review is of rows (``unit: row``), else None."""
+    from . import review_gate, workflows
+    sr = next((s for s in workflows.step_runs(db, run["id"]) if s["step_id"] == step_id), None)
+    return review_gate.sampled_units(db, sr, document_id) if sr else None
+
+
 def _template_pspec(db, tpl: dict) -> dict:
     """The live spec of the preset a template is for."""
     from . import presets
@@ -580,7 +594,7 @@ def _task_missing(db, document_id: str, task: str, who: Principal) -> list[dict]
     v = _coders.apply(db, v, who.user_id)
     pspec = v.get("spec") or _template_pspec(db, tpl)
     answers = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
-    return templates.completeness(tpl, v, pspec, answers)["missing"]
+    return templates.completeness(tpl, v, pspec, answers, sampled=_task_sampled(db, _run, _st["id"], document_id))["missing"]
 
 
 @app.get("/api/documents/{document_id}/view")
@@ -616,11 +630,14 @@ def document_view(document_id: str, coder: str | None = None, task: str | None =
         run, tpl, st = _task_of(db, task, who)
         v["task"] = {"run_id": run["id"], "step_id": st["id"], "template": tpl["id"] if tpl else None,
                      "template_id": templates.template_id(tpl) if tpl else None}
+        sampled = _task_sampled(db, run, st["id"], document_id)
+        if sampled is not None:
+            v["task"]["sampled"] = {k: sorted((x for x in vals if x is not None), key=str) for k, vals in sampled.items()}
         if tpl is not None:
             pspec = v.get("spec") or _template_pspec(db, tpl)
             if pspec.get("id") != tpl.get("for"):
                 raise HTTPException(status_code=422, detail=f"The task's template is for {tpl.get('for')!r}; this document is under {pspec.get('id')!r}.")
-            v = templates.project(v, tpl, pspec, coder=(role == "coder"))
+            v = templates.project(v, tpl, pspec, coder=(role == "coder"), sampled=sampled)
             if role == "coder":
                 v["answers"] = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
             else:
@@ -1992,7 +2009,7 @@ def workflow_dataset_create(body: WorkflowDatasetBody, db=Depends(get_db), who: 
     page); for a workflow over one preset, a new dataset of that preset carrying the workflow."""
     from . import workflows
     if not who.user_id and not who.session_id:
-        raise HTTPException(status_code=401, detail="Sign in to make a workflow dataset.")
+        raise HTTPException(status_code=401, detail="Sign in to make a project.")
     spec = workflows.get_workflow(body.workflow)
     if spec is None:
         raise HTTPException(status_code=404, detail="Workflow not found.")
@@ -2397,29 +2414,12 @@ class ReleaseBody(BaseModel):
 
 
 def _release_members(db, grp: dict, who: Principal, body: ReleaseBody, *, skip: str | None = None) -> tuple[list[dict], list[str]]:
-    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate.
-    Returns ``(released, problems)``; a member's own problem never undoes the others."""
+    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate
+    (``releases.release_members``). Returns ``(released, problems)``."""
     from . import releases
-    done, problems = [], []
-    for role, info in grp["roles"].items():
-        if info["dataset_id"] == skip:
-            continue
-        try:
-            if not records.dataset_records_all_owned(db, info["dataset_id"], who):
-                problems.append(f"{role}: not released — it holds records you don't own")
-                continue
-            other_last = releases.latest(db, info["dataset_id"])
-            if other_last and not releases.changed_since(db, info["dataset_id"], other_last):
-                done.append({"role": role, "dataset_id": info["dataset_id"], "number": other_last["number"], "unchanged": True})
-                continue
-            orel = releases.create(db, info["dataset_id"], reason="group", notes=body.notes, created_by=who.user_id,
-                                   allow_stale=body.allow_stale, override_gates=body.override_gates)
-            done.append({"role": role, "dataset_id": info["dataset_id"], "number": orel["number"]})
-        except releases.GateClosed as exc:
-            problems.append(f"{role}: not released — {exc}")
-        except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
-            problems.append(f"{role}: not released — {exc}")
-    return done, problems
+    done, problems = releases.release_members(db, grp, notes=body.notes, created_by=who.user_id, allow_stale=body.allow_stale,
+                                              override_gates=body.override_gates, who=who, skip=skip)
+    return [{k: m[k] for k in ("role", "dataset_id", "number", "unchanged") if k in m and not (k == "unchanged" and not m[k])} for m in done], problems
 
 
 @app.post("/api/datasets/{dataset_id}/releases")
@@ -4555,3 +4555,215 @@ def get_schema(schema_id: str, db=Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail="Schema not found.")
     s["spec"] = records.schema_spec(db, schema_id)
     return s
+
+
+# ── projects: a workflow's instance, by its own name (paperlens/projects.py) ───────────────────
+
+def _project_or_404(db, project_id: str, who: Principal) -> tuple[dict, str]:
+    """``(project row, role)`` for a project the caller may see: ``owner`` | ``coder`` | ``public``."""
+    from . import projects
+    role = _dataset_access(db, project_id, who)
+    p = projects.get(db, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Not a project.")
+    return p, role
+
+
+@app.post("/api/projects")
+def project_create(body: WorkflowDatasetBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Make a project: the workflow's instance, with my datasets linked into its roles (the rest
+    are linked or created on its page). A workflow over one preset makes a dataset of that
+    preset carrying the workflow (not a project row). Alias of ``POST /api/workflow-datasets``."""
+    return workflow_dataset_create(body, db, who)
+
+
+@app.get("/api/projects")
+def projects_mine(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """My projects (and my datasets running a workflow on themselves), each with its datasets and
+    what its latest run is doing. Alias of ``GET /api/workflow-datasets``."""
+    from . import projects
+    return {"projects": projects.list_mine(db, owner_user_id=who.user_id, session_id=who.session_id)}
+
+
+@app.get("/api/projects/{project_id}")
+def project_get(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A project's page: the workflow, the linked datasets with their papers, the runs, the review
+    tasks of the latest run (with who reviews which paper), the owner's people, the viewer's role."""
+    from . import projects
+    p, role = _project_or_404(db, project_id, who)
+    ov = projects.overview(db, p, owner=role == "owner")
+    ov["viewer"] = {"is_owner": role == "owner", "is_coder": role == "coder", "user_id": who.user_id}
+    return ov
+
+
+@app.patch("/api/projects/{project_id}")
+def project_patch(project_id: str, body: DatasetPatch, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: rename a project, or its description. Alias of ``PATCH /api/datasets/{id}``."""
+    _project_or_404(db, project_id, who)
+    return patch_dataset(project_id, body, db, who)
+
+
+@app.delete("/api/projects/{project_id}")
+def project_delete(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: delete a project; its datasets stay, with their records and releases, and become
+    plain datasets again. Alias of ``DELETE /api/datasets/{id}``."""
+    _project_or_404(db, project_id, who)
+    return delete_dataset(project_id, db, who)
+
+
+@app.get("/api/projects/{project_id}/people")
+def project_people(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the people who code for the project, in join order (``coder_1`` …)."""
+    _project_or_404(db, project_id, who)
+    return {"people": dataset_coders(project_id, db, who)["coders"]}
+
+
+@app.post("/api/projects/{project_id}/people")
+def project_person_add(project_id: str, body: CoderBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: let the account with this email code for the project — every linked dataset's papers."""
+    _project_or_404(db, project_id, who)
+    return {"person": dataset_coder_add(project_id, body, db, who)["coder"]}
+
+
+@app.delete("/api/projects/{project_id}/people/{user_id}")
+def project_person_remove(project_id: str, user_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: withdraw a person's access; their codings stay."""
+    _project_or_404(db, project_id, who)
+    return dataset_coder_remove(project_id, user_id, db, who)
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def project_tasks(project_id: str, run: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The review tasks of a run of the project (the active one, else the latest; ``?run=`` names
+    one): each with its template, datasets, gate and — when coders review — who reviews which paper."""
+    from . import projects, workflows
+    p, role = _project_or_404(db, project_id, who)
+    if role == "public":
+        raise HTTPException(status_code=404, detail="Not a project.")
+    r = None
+    if run:
+        r = workflows.get_run(db, run)
+        if r is None or r.get("dataset_id") != project_id:
+            raise HTTPException(status_code=404, detail="Run not found.")
+    return {"tasks": projects.tasks(db, p, run=r)}
+
+
+@app.post("/api/projects/{project_id}/tasks/{step_run_id}/assign")
+def project_task_assign(project_id: str, step_run_id: str, body: AssignBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: who reviews one paper of a task (``{document_id, coders: [user ids]}``), until a
+    verdict was given. Alias of ``POST /api/workflow-runs/{rid}/assign``."""
+    from . import review_gate, workflows
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner assigns papers.")
+    sr = workflows.get_step_run(db, step_run_id) if records._is_uuid(step_run_id) else None   # noqa: SLF001
+    run = workflows.get_run(db, sr["run_id"]) if sr else None
+    if sr is None or run is None or run.get("dataset_id") != project_id or not (sr.get("review") or {}).get("coders"):
+        raise HTTPException(status_code=404, detail="No coders' task with that id in this project.")
+    try:
+        out = review_gate.reassign(db, sr, body.document_id, body.coders)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return out
+
+
+class TaskConfigBody(BaseModel):
+    coders: int | list[str] | None = None     # how many of the project's people per paper, or which (emails or user ids); null clears
+
+
+@app.patch("/api/projects/{project_id}/tasks/{step_id}")
+def project_task_config(project_id: str, step_id: str, body: TaskConfigBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: how many of the project's people review each paper of a task, or which ones — over
+    the workflow's own `coders`. Read when the task's gate opens; a gate that still waits for
+    coders assigns at once. ``null`` clears it."""
+    from . import projects, workflows
+    from . import workflow_spec as ws
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner configures a task.")
+    spec = workflows.get_workflow(p.get("workflow"))
+    st = ws.steps_by_id(spec).get(step_id) if spec else None
+    if st is None or st.get("kind") != "review":
+        raise HTTPException(status_code=404, detail="No review step with that id in the project's workflow.")
+    try:
+        cfg = projects.set_task_config(db, p, step_id, body.coders)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    db.commit()
+    return {"step_id": step_id, "config": cfg, "tasks": projects.tasks(db, p)}
+
+
+@app.get("/api/projects/{project_id}/releases")
+def project_releases(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The project's releases, newest first — each with its members' numbers, the workflow and run,
+    the review statistics and the badge; the owner also learns whether the project moved since."""
+    from . import releases
+    p, role = _project_or_404(db, project_id, who)
+    rows = releases.list_project(db, project_id)
+    out = {"releases": [releases.public_project_row(r) for r in rows]}
+    if role == "owner":
+        out["head"] = {"changed": releases.changed_since_project(db, p, rows[0] if rows else None)}
+    return out
+
+
+@app.post("/api/projects/{project_id}/releases")
+def project_release_create(project_id: str, body: ReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: cut a project release — every linked dataset under its own number (kept when
+    unchanged), the workflow and its newest run, the review statistics per task and coder, one
+    badge over all. 409 while the project's gate holds (unless overridden, recorded) or when
+    nothing moved since the last one."""
+    from . import releases
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner releases a project.")
+    last = releases.latest_project(db, project_id)
+    if last and not releases.changed_since_project(db, p, last):
+        raise HTTPException(status_code=409, detail=f"Nothing changed since project release v{last['number']}.")
+    try:
+        rel = releases.create_project(db, p, notes=body.notes, created_by=who.user_id, allow_stale=body.allow_stale,
+                                      override_gates=body.override_gates, who=who)
+    except releases.GateClosed as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc), "gate": exc.gate})
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return releases.public_project_row(rel)
+
+
+@app.get("/api/projects/{project_id}/releases/{number}")
+def project_release_get(project_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import releases
+    _project_or_404(db, project_id, who)
+    rel = releases.get_project(db, project_id, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such project release.")
+    return releases.public_project_row(rel)
+
+
+@app.get("/api/projects/{project_id}/releases/{number}/export")
+def project_release_export(project_id: str, number: int, file: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)):
+    """A project release as static files: ``project.json``, ``README.md`` and every member's own
+    release files under ``members/<role>/`` — a zip, or one file with ``?file=``."""
+    from . import release_export, releases
+    p, _role = _project_or_404(db, project_id, who)
+    rel = releases.get_project(db, project_id, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such project release.")
+    files = release_export.build_project(db, p, rel)
+    if file:
+        if file not in files:
+            raise HTTPException(status_code=404, detail="This release has no such file.")
+        kind = "text/markdown; charset=utf-8" if file.endswith(".md") else "application/json"
+        return Response(content=files[file], media_type=kind)
+    name = f"{(p.get('slug') or 'project')}-v{number}"
+    return Response(content=release_export.as_zip(files, name), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.zip"'})
+
+
+@app.get("/api/me/tasks")
+def my_tasks(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """My review tasks: every task of a live run that assigned me a paper, with what is left of
+    my share and where to code it."""
+    from . import projects
+    return {"tasks": projects.tasks_for(db, who.user_id)}

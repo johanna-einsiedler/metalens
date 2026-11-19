@@ -21,6 +21,7 @@ async function init() {
   }
   renderDatasets(dsGrid, me);
   renderWorkflows(document.querySelector("#workflows"));
+  renderTasks(document.querySelector("#tasks"));
   renderCoded(document.querySelector("#coded"));
   renderPresets(preGrid, me);
   const load = document.querySelector("#pj-load");
@@ -106,16 +107,16 @@ async function renderWorkflows(grid) {
     const sides = w.kind === "workflow"
       ? w.datasets.map((d) => `${esc(d.label || d.role)}: ${d.id ? esc(d.title || "dataset") : "<i>not linked</i>"}`).join(" · ")
       : "runs on this dataset";
-    return `<div class="proj-tile-wrap"><a class="proj-tile" href="/dataset?id=${esc(w.id)}${w.kind === "workflow" ? "" : "#workflow"}">`
-      + `<div class="pt-title">⛓ ${esc(w.title || "Untitled workflow")}</div>`
+    return `<div class="proj-tile-wrap"><a class="proj-tile" href="${w.kind === "workflow" ? `/project?id=${esc(w.id)}` : `/dataset?id=${esc(w.id)}#workflow`}">`
+      + `<div class="pt-title">⛓ ${esc(w.title || "Untitled project")}</div>`
       + `<div class="pt-meta">${esc(w.workflow.title || w.workflow.id || "")}${w.workflow.version ? ` v${esc(String(w.workflow.version))}` : ""} · ${sides}</div>`
       + `<div class="pt-meta">${runState(w.run)}</div></a>`
-      + `<button type="button" class="pt-del" data-del="${esc(w.id)}" data-kind="${esc(w.kind)}" title="${w.kind === "workflow" ? "delete this workflow — its linked datasets stay, with their papers" : "take this dataset out of its workflow — the dataset stays"}">✕</button></div>`;
-  }).join("") : '<p class="muted">No workflows yet. <b>＋ New workflow</b> makes the dataset a workflow runs on; a dataset page offers <b>Add to a workflow</b> too.</p>';
+      + `<button type="button" class="pt-del" data-del="${esc(w.id)}" data-kind="${esc(w.kind)}" title="${w.kind === "workflow" ? "delete this project — its datasets stay, with their papers" : "take this dataset out of its workflow — the dataset stays"}">✕</button></div>`;
+  }).join("") : '<p class="muted">No projects yet. <b>＋ New project</b> makes one from a workflow; a dataset page offers <b>Add to a workflow</b> too.</p>';
   grid.querySelectorAll(".pt-del").forEach((b) => (b.onclick = async () => {
     const w = list.find((x) => x.id === b.dataset.del); if (!w) return;
     const ask = w.kind === "workflow"
-      ? `Delete the workflow “${w.title || "Untitled workflow"}”? Its linked datasets stay, with their papers and verdicts; only the workflow, its runs and its releases go.`
+      ? `Delete the project “${w.title || "Untitled project"}”? Its datasets stay, with their papers and verdicts; only the project, its runs and its releases go.`
       : `Take “${w.title || "this dataset"}” out of its workflow? The dataset and its papers stay.`;
     if (!confirm(ask)) return;
     try { if (w.kind === "workflow") await api.deleteDataset(w.id); else await api.updateDatasetMeta(w.id, { workflow: null }); }
@@ -130,7 +131,7 @@ async function renderWorkflows(grid) {
     try { avail = (await api.workflows()).workflows || []; } catch (e) { alert(e.message); return; }
     const linked = (w) => { const rs = [...new Set((w.steps || []).filter((s) => s.kind === "extract" && s.dataset).map((s) => s.dataset))]; return rs; };
     form.hidden = false;
-    form.innerHTML = `<div class="ds-card-h">New workflow</div>
+    form.innerHTML = `<div class="ds-card-h">New project</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px">
         <select id="wf-new-pick">${avail.map((w, i) => `<option value="${i}">${esc(w.title || w.id)}</option>`).join("")}</select>
         <input id="wf-new-title" placeholder="name (optional)" style="min-width:220px"/>
@@ -139,14 +140,14 @@ async function renderWorkflows(grid) {
     const pick = form.querySelector("#wf-new-pick"), help = form.querySelector("#wf-new-help");
     const say = () => {
       const w = avail[+pick.value] || {}, roles = linked(w);
-      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a workflow dataset with one dataset per preset (${roles.join(", ")}), ready for a run; a dataset you already have can be linked into its role on the page.` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
+      help.textContent = `${w.tagline || ""} ${roles.length > 1 ? `Makes a project with one dataset per preset (${roles.join(", ")}), ready for a run; a dataset you already have can be linked into its role on the page.` : "Makes a new dataset of its preset that runs this workflow."}`.trim();
     };
     pick.onchange = say; say();
     form.querySelector("#wf-new-go").onclick = async () => {
       const w = avail[+pick.value]; if (!w) return;
       try {
-        const made = await api.createWorkflowDataset({ workflow: w.id, title: form.querySelector("#wf-new-title").value.trim() || null });
-        location.href = `/dataset?id=${encodeURIComponent(made.id)}${made.kind === "workflow" ? "" : "#workflow"}`;
+        const made = await api.createProject({ workflow: w.id, title: form.querySelector("#wf-new-title").value.trim() || null });
+        location.href = made.kind === "workflow" ? `/project?id=${encodeURIComponent(made.id)}` : `/dataset?id=${encodeURIComponent(made.id)}#workflow`;
       } catch (e) { alert(`Could not create it: ${e.message}`); }
     };
   };
@@ -216,6 +217,20 @@ async function renderDatasets(grid, me) {
   }));
 }
 
+// "My review tasks" — the papers a project's owner assigned this account, task by task (paperlens/projects.py)
+async function renderTasks(grid) {
+  const sec = document.querySelector("#tasks-section");
+  if (!grid || !sec) return;
+  let list = [];
+  try { list = (await api.myTasks()).tasks || []; } catch { return; }
+  if (!list.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  grid.innerHTML = list.map((t) => `<div class="proj-tile-wrap"><a class="proj-tile" href="${esc(t.queue)}" title="code your papers of this task">`
+    + `<div class="pt-title">👁 ${esc(t.label)} <span class="muted" style="font-weight:400">· ${esc(t.project.title || "project")}</span></div>`
+    + `<div class="pt-meta">${t.pending ? `<b>${t.pending}</b> of ${t.total} still to check` : `✓ your ${t.total} checked`} · ${t.papers} paper${t.papers === 1 ? "" : "s"}${t.template ? ` · ${esc(t.template)}` : ""}</div></a>`
+    + `<a class="pt-link" href="${t.project.kind === "workflow" ? `/project?id=${esc(t.project.id)}` : `/dataset?id=${esc(t.project.id)}`}" title="the project">project ↗</a></div>`).join("");
+}
+
 // "Coding for" — the datasets other owners let this account code (paperlens/coders.py): what the
 // coder enters there is their own coding; the owner sees every coder's.
 async function renderCoded(grid) {
@@ -225,9 +240,10 @@ async function renderCoded(grid) {
   try { list = (await api.codedDatasets()).datasets || []; } catch { return; }
   if (!list.length) { sec.hidden = true; return; }
   sec.hidden = false;
-  grid.innerHTML = list.map((d) => `<div class="proj-tile-wrap"><a class="proj-tile" href="/workspace?project=${esc(d.id)}" title="code these papers">`
+  grid.innerHTML = list.map((d) => `<div class="proj-tile-wrap"><a class="proj-tile" href="/workspace?dataset=${esc(d.id)}" title="code these papers">`
     + `<div class="pt-title">${esc(d.workflow_title ? `${d.workflow_title} · ${d.group_role || d.title}` : d.title || "untitled")}</div>`
-    + `<div class="pt-meta">${d.n_records} record${d.n_records === 1 ? "" : "s"} · <span class="pt-vis">coding</span>${d.workflow_dataset_id ? ` · <a href="/dataset?id=${esc(d.workflow_dataset_id)}" title="the workflow dataset">workflow ↗</a>` : ` · <a href="/dataset?id=${esc(d.id)}">dataset ↗</a>`}</div></a></div>`).join("");
+    + `<div class="pt-meta">${d.n_records} record${d.n_records === 1 ? "" : "s"} · <span class="pt-vis">coding</span></div></a>`
+    + (d.workflow_dataset_id ? `<a class="pt-link" href="/project?id=${esc(d.workflow_dataset_id)}" title="the project">project ↗</a>` : `<a class="pt-link" href="/dataset?id=${esc(d.id)}">dataset ↗</a>`) + `</div>`).join("");
 }
 
 // Analyses/dashboards are disabled in the beta — show a "coming soon" note

@@ -701,6 +701,11 @@ CREATE TABLE IF NOT EXISTS workflow_sample (
     UNIQUE (step_run_id, record_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_sample_record_idx ON workflow_sample(record_id);
+-- a draw of ROWS (a review step with unit: row): the drawn row of a paper table ("exhibits#o3"), the record
+-- the paper's first (the verdict on the paper is read from it); several rows of one paper may share it
+ALTER TABLE workflow_sample ADD COLUMN IF NOT EXISTS unit_key text;
+ALTER TABLE workflow_sample DROP CONSTRAINT IF EXISTS workflow_sample_step_run_id_record_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_sample_unit_uq ON workflow_sample(step_run_id, record_id, COALESCE(unit_key, ''));
 
 -- what a check step found: per run, recomputed each time, never data
 CREATE TABLE IF NOT EXISTS workflow_finding (
@@ -869,6 +874,42 @@ CREATE TABLE IF NOT EXISTS workflow_assignment (             -- which coder revi
     UNIQUE (step_run_id, document_id, coder_user_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_assignment_coder_idx ON workflow_assignment(coder_user_id);
+-- a PROJECT RELEASE: every linked dataset released under its own number (members), the workflow and
+-- the run behind them, the review statistics per task and coder, one badge over all — one number per project
+CREATE TABLE IF NOT EXISTS project_release (
+    id                uuid PRIMARY KEY,
+    project_id        uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    number            integer NOT NULL,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    created_by        uuid,
+    notes             text,
+    workflow_contract text NOT NULL,
+    workflow_spec_sha text,
+    workflow_run_id   uuid,
+    gates             jsonb,
+    members           jsonb NOT NULL,       -- [{role, dataset_id, release_id, number, content_sha, unchanged}]
+    content_sha       text NOT NULL,
+    stats             jsonb,
+    credibility       jsonb,
+    review            jsonb,                -- per task: the gate's counts and each coder's
+    engine            jsonb,
+    doi               text,
+    zenodo_record_id  bigint,
+    zenodo_url        text,
+    doi_minted_at     timestamptz,
+    published_at      timestamptz,
+    UNIQUE (project_id, number)
+);
+CREATE INDEX IF NOT EXISTS project_release_project_idx ON project_release(project_id, number DESC);
+-- a project's hand on a task: how many of its people review each paper of the step, or which ones
+-- ({"coders": N | [user ids]}); read when the step's gate opens, over the workflow's own `coders`
+CREATE TABLE IF NOT EXISTS project_task_config (
+    project_id uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    step_id    text NOT NULL,
+    coders     jsonb,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (project_id, step_id)
+);
 -- a coder's ANSWERS to a review template's questions, in their coding: {"<template>": {"<unit key>": {question: value}}}
 -- (the entry's own answers under "", a child's row under "<child>#<_rid>"; on the document the paper's under "",
 -- a paper table's row under "<table>#<_rid>", a distinct value under "<path>.<field>=<value>", an added unit under "<unit>#+<id>")
