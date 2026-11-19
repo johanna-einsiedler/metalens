@@ -1,7 +1,7 @@
 {
   "format": 2,
   "id": "genai-work-extraction",
-  "version": 19,
+  "version": 20,
   "meta": {
     "title": "GenAI at work — data extraction (Work experiments)",
     "tagline": "Study variables, tasks, arms and one result row per arm, measure, subgroup and horizon, every number with its quote and page.",
@@ -881,6 +881,306 @@
         "evidence": "none"
       },
       {
+        "name": "claims",
+        "type": "table",
+        "label": "Claims",
+        "evidence": "row",
+        "help": "the sentences of the paper that state a finding, one row each: the abstract's first, then the results'; each mapped to the estimate(s) and the unit it speaks about",
+        "columns": [
+          {
+            "name": "claim_id",
+            "type": "string",
+            "label": "Id",
+            "required": true
+          },
+          {
+            "name": "sentence",
+            "type": "text",
+            "label": "Sentence",
+            "help": "the sentence verbatim",
+            "verbatim": true
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "label": "Page"
+          },
+          {
+            "name": "kind",
+            "type": "enum",
+            "label": "Kind",
+            "help": "where the sentence stands",
+            "options": [
+              "abstract",
+              "result",
+              "background",
+              "method",
+              "implication"
+            ]
+          },
+          {
+            "name": "estimate_ids",
+            "type": "list",
+            "label": "Estimates",
+            "help": "the estimate ids the sentence reports"
+          },
+          {
+            "name": "estimand_id",
+            "type": "string",
+            "label": "Estimand"
+          },
+          {
+            "name": "task",
+            "type": "string",
+            "label": "Task",
+            "help": "the task the sentence is about, as the extraction names it"
+          },
+          {
+            "name": "arms",
+            "type": "string",
+            "label": "Arms",
+            "help": "the arm against its reference"
+          },
+          {
+            "name": "outcome",
+            "type": "string",
+            "label": "Outcome"
+          },
+          {
+            "name": "subgroup",
+            "type": "string",
+            "label": "Subgroup"
+          },
+          {
+            "name": "horizon",
+            "type": "string",
+            "label": "Horizon"
+          }
+        ]
+      },
+      {
+        "name": "exhibits",
+        "type": "table",
+        "label": "Exhibits",
+        "evidence": "row",
+        "help": "the paper's tables and figures the estimates were read from, one row each — the unit a cell check draws",
+        "columns": [
+          {
+            "name": "exhibit_id",
+            "type": "string",
+            "label": "Id",
+            "required": true
+          },
+          {
+            "name": "kind",
+            "type": "enum",
+            "label": "Kind",
+            "options": [
+              "table",
+              "figure"
+            ]
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "label": "Page"
+          },
+          {
+            "name": "caption",
+            "type": "text",
+            "label": "Caption",
+            "help": "the caption verbatim",
+            "verbatim": true
+          },
+          {
+            "name": "panels",
+            "type": "list",
+            "label": "Panels",
+            "help": "the panel labels, when the exhibit has panels"
+          },
+          {
+            "name": "n_cells",
+            "type": "integer",
+            "label": "Cells",
+            "help": "how many cells the transcription has"
+          },
+          {
+            "name": "n_cited",
+            "type": "integer",
+            "label": "Cited cells",
+            "help": "how many of them an estimate cites"
+          }
+        ]
+      },
+      {
+        "name": "exhibit_cells",
+        "type": "table",
+        "label": "Exhibit cells",
+        "evidence": "none",
+        "help": "the transcribed cells of the exhibits, one row each, with the estimate a cell was read into: what a coder checks against the print",
+        "columns": [
+          {
+            "name": "exhibit_id",
+            "type": "string",
+            "label": "Exhibit",
+            "required": true
+          },
+          {
+            "name": "panel",
+            "type": "string",
+            "label": "Panel"
+          },
+          {
+            "name": "row_label",
+            "type": "string",
+            "label": "Row"
+          },
+          {
+            "name": "column",
+            "type": "string",
+            "label": "Column"
+          },
+          {
+            "name": "value_as_printed",
+            "type": "string",
+            "label": "Value as printed"
+          },
+          {
+            "name": "se_as_printed",
+            "type": "string",
+            "label": "SE as printed",
+            "help": "the standard error (or other spread) printed under or beside the value"
+          },
+          {
+            "name": "is_se",
+            "type": "boolean",
+            "label": "Is a SE",
+            "help": "the cell itself is a standard error"
+          },
+          {
+            "name": "arm_stats",
+            "type": "boolean",
+            "label": "Arm statistic",
+            "help": "the cell is an arm's descriptive statistic (a mean, an N), not an effect"
+          },
+          {
+            "name": "estimate_id",
+            "type": "string",
+            "label": "Estimate",
+            "help": "the estimate the cell was read into; empty for an uncited cell"
+          },
+          {
+            "name": "estimand_id",
+            "type": "string",
+            "label": "Estimand"
+          },
+          {
+            "name": "estimand_text",
+            "type": "string",
+            "label": "Estimand text",
+            "help": "the estimand in words: task, arm vs reference, outcome, subgroup, horizon"
+          },
+          {
+            "name": "role",
+            "type": "enum",
+            "label": "Role",
+            "help": "which row of the estimate the cell fed",
+            "options": [
+              "reference",
+              "contrast",
+              "other"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "flags",
+        "type": "table",
+        "label": "Flags",
+        "evidence": "row",
+        "help": "what the pipeline's checks raised on the record, one row each: a failed or warned check on an estimate, a cell the two runs disagree on, an inclusion criterion the record contradicts, a coder's flag",
+        "columns": [
+          {
+            "name": "flag_id",
+            "type": "string",
+            "label": "Id",
+            "required": true
+          },
+          {
+            "name": "group",
+            "type": "string",
+            "label": "Group",
+            "help": "the check group the flag belongs to"
+          },
+          {
+            "name": "estimate_id",
+            "type": "string",
+            "label": "Estimate"
+          },
+          {
+            "name": "kind",
+            "type": "enum",
+            "label": "Kind",
+            "options": [
+              "check_fail",
+              "check_warn",
+              "unstable",
+              "criterion",
+              "coder_flag"
+            ]
+          },
+          {
+            "name": "code",
+            "type": "string",
+            "label": "Code",
+            "help": "the check's code"
+          },
+          {
+            "name": "message",
+            "type": "text",
+            "label": "Message"
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "label": "Source",
+            "help": "the exhibit or passage the flagged value was read from"
+          },
+          {
+            "name": "extracted",
+            "type": "string",
+            "label": "Extracted",
+            "help": "the value as extracted"
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "label": "Page"
+          }
+        ]
+      },
+      {
+        "name": "routed",
+        "type": "boolean",
+        "label": "Routed",
+        "evidence": "none",
+        "help": "the pipeline routed the paper to a coder: its record contradicts an inclusion criterion, a headline estimate scores high on the checks, or a coder flagged it"
+      },
+      {
+        "name": "route_reasons",
+        "type": "list",
+        "label": "Route reasons",
+        "evidence": "none",
+        "help": "why it was routed, one code each"
+      },
+      {
+        "name": "triage_score",
+        "type": "number",
+        "label": "Triage score",
+        "evidence": "none",
+        "help": "the pipeline's score of how much the headline estimates need a look (higher: more)"
+      },
+      {
         "name": "evidence_items",
         "type": "table",
         "label": "Evidence items",
@@ -950,6 +1250,14 @@
         "type": "string",
         "label": "Task name",
         "help": "a short unique name for the task made from the paper's description: 'classification of chest X-rays', 'mid-level professional writing', 'customer support chats'",
+        "evidence": "row",
+        "confidence": "task"
+      },
+      {
+        "name": "task_description",
+        "type": "text",
+        "label": "Task description",
+        "help": "what the people in the study were asked to do, in two or three sentences from the paper: the material they worked on, the product they delivered, how long they had",
         "evidence": "row",
         "confidence": "task"
       },
@@ -1521,6 +1829,12 @@
             "confidence": "arm"
           },
           {
+            "name": "treatment",
+            "type": "text",
+            "label": "Treatment",
+            "help": "what this arm got that the reference arm did not — the tool, the access, the instruction — in the paper's words; empty for the reference arm"
+          },
+          {
             "name": "arm_notes",
             "type": "text",
             "label": "Arm notes",
@@ -1643,6 +1957,12 @@
             "label": "How measured",
             "help": "who or what produced the measure and against what standard: blinded professional graders on a 1-7 rubric, self-reported minutes, a timer",
             "evidence": "row"
+          },
+          {
+            "name": "composite_of",
+            "type": "list",
+            "label": "Composite of",
+            "help": "when the outcome is an index or a composite, the outcome names (or outcome_ids) it is made of; empty for a single measure"
           },
           {
             "name": "outcome_unit",
@@ -2456,6 +2776,7 @@
         "fields": [
           "task_id",
           "task_name",
+          "task_description",
           "task_label",
           "soc_major_group",
           "task_structure",

@@ -81,7 +81,7 @@ def test_the_presets_and_the_workflow_are_bundled_and_validate() -> None:
     assert by["review_judgment"]["coders"] == 2 and by["review_check"]["coders"] == 1 and by["review_routed"]["coders"] == 1
     assert all(by[f"review_{s}"]["over"] == [s] and {k: by[f"review_{s}"][k] for k in ("mode", "unit", "blocks")} == {"mode": "all", "unit": "paper", "blocks": "release"} for s in ("judgment", "check", "routed"))
     assert by["release"]["gate"] == ["judgment", "review_judgment", "check", "review_check", "routed", "review_routed"]
-    assert ws.workflow_id(wf) == "genai-work@a92931fb"          # the review steps are the former attributes: the contract is the same
+    assert ws.workflow_id(wf) == "genai-work@7962f4c3" and wf["version"] == 3    # v3: the enriched extraction contract; the review steps are the former attributes
     assert ws.has_card(wf) and "## Steps" in wf["card"]["text"]
     for s in ("extraction", "judgment", "check", "routed"):   # the pins are the bundled files' contracts
         base = by[s]["preset"].split("@")[0]
