@@ -35,6 +35,11 @@ docs/WORKFLOWS.md):
      "only": {"extraction": ["0ae57f3a2520", "1b2c3d4e5f60"]},
      "tasks": {"review_judgment": {"coders": 1}}}
 
+``local: true`` in the manifest (or ``--local``) is for an engine in local mode (PAPERLENS_LOCAL_MODE):
+no owner credentials, nothing registered, no people — the local owner runs the project and is the
+one person its tasks assign to. No run is started when every paper is already there; an upload the
+proxy gave up on is given a minute and a half to turn up before it counts as failed.
+
 As the owner (registered or signed in): find the project by title or make it, link a dataset for
 every role it lacks, add each person (an account that exists; given with a password, it is
 registered first), set each task's people where ``tasks`` says so (how many of the project's
@@ -48,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -158,21 +164,38 @@ def _workflow_panel(c: httpx.Client, wd: str) -> dict:
     return r.json()
 
 
-def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_factory=None) -> dict:
+def _arrived(c: httpx.Client, dataset_id: str, filename: str, *, wait: float = 90.0, every: float = 10.0) -> bool:
+    """After an upload the proxy gave up on while the engine was still importing: whether the paper
+    turns up in the dataset within ``wait`` seconds."""
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        time.sleep(every)
+        have = {d.get("filename") for d in c.get("/api/documents", params={"dataset": dataset_id, "limit": 5000}).json().get("documents") or []}
+        if filename in have:
+            return True
+    return False
+
+
+def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_factory=None, local: bool = False) -> dict:
     """The owner path (see the module docstring). ``client_factory`` makes a fresh client for
-    registering a coder given with a password, so the owner's session stays the owner's."""
+    registering a coder given with a password, so the owner's session stays the owner's.
+    ``local``: an engine in local mode — no accounts, the local owner is every request."""
     wf, title = m["workflow"], m.get("title") or m["workflow"]
+    local = local or bool(m.get("local"))
     owner = m.get("owner") or {}
-    for k in ("email", "password"):
-        if not owner.get(k):
-            _die(f"the owner is missing `{k}`")
+    if not local:
+        for k in ("email", "password"):
+            if not owner.get(k):
+                _die(f"the owner is missing `{k}` (or say `local: true` for an engine in local mode)")
+    who = "the local owner" if local else owner["email"]
     only = m.get("only") or {}
     todo = {role: pairs(root / folder, only.get(role), root) for role, folder in (m.get("papers") or {}).items()}
-    coders = [{"email": x} if isinstance(x, str) else dict(x) for x in (m.get("coders") or [])]
+    coders = [] if local else [{"email": x} if isinstance(x, str) else dict(x) for x in (m.get("coders") or [])]
     tasks = m.get("tasks") or {}
     if dry:
-        print(f"\n{owner['email']} → project “{title}” of workflow “{wf}”")
-        print(f"  would add {len(coders)} person(s): {', '.join(x['email'] for x in coders) or '—'}")
+        print(f"\n{who} → project “{title}” of workflow “{wf}”")
+        print("  local mode: no people (the local owner is the one person)" if local else
+              f"  would add {len(coders)} person(s): {', '.join(x['email'] for x in coders) or '—'}")
         for step_id, cfg in tasks.items():
             print(f"  task {step_id}: would set coders = {json.dumps((cfg or {}).get('coders'))}")
         for role, items in todo.items():
@@ -184,8 +207,9 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
             with (client_factory() if client_factory else httpx.Client(base_url=c.base_url, timeout=c.timeout)) as cc:
                 print(f"  {sign_in(cc, x['email'], x['password'])}: {x['email']}")
                 cc.post("/api/auth/logout")
-    print(f"\n{owner['email']}")
-    print(f"  {sign_in(c, owner['email'], owner['password'])}")
+    print(f"\n{who}")
+    if not local:
+        print(f"  {sign_in(c, owner['email'], owner['password'])}")
     # the project, by title
     mine = c.get("/api/projects").json().get("projects") or []
     wf_of = lambda w: (w.get("workflow") or {}).get("id") if isinstance(w.get("workflow"), dict) else str(w.get("workflow") or "").split("@")[0]   # noqa: E731
@@ -210,7 +234,7 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
                 _die(f"could not link a dataset for {item['role']}: {r.status_code} {r.text[:200]}")
             print(f"  linked a new dataset for {item['role']}")
     # the people
-    have = {str(x.get("email") or "").lower() for x in c.get(f"/api/projects/{wid}/people").json().get("people") or []}
+    have = {str(x.get("email") or "").lower() for x in c.get(f"/api/projects/{wid}/people").json().get("people") or []} if coders else set()
     for x in coders:
         if x["email"].lower() in have:
             continue
@@ -221,47 +245,59 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
         want = (cfg or {}).get("coders")
         r = c.patch(f"/api/projects/{wid}/tasks/{step_id}", json={"coders": want})
         print(f"  task {step_id}: {'coders = ' + json.dumps(want) if r.status_code == 200 else 'NOT set — ' + r.text[:120]}")
-    # the run and its sides
+    # what each side still lacks — before any run is started, so a seeding with nothing to upload starts none
     panel = _workflow_panel(c, wid)
-    run = panel.get("current_run")
-    if not run or run.get("status") in ("done", "failed", "cancelled"):
-        r = c.post(f"/api/datasets/{wid}/workflow/runs", json={})
-        if r.status_code != 200:
-            _die(f"could not start a run: {r.status_code} {r.text[:200]}")
-        run = r.json(); print(f"  run started: {run['id']}")
-    else:
-        print(f"  run in progress: {run['id']} ({run.get('status')})")
     sides = {s["role"]: s for s in panel.get("steps") or [] if s.get("kind") == "extract" and s.get("role")}
-    summary = {}
+    pending, summary = {}, {}
     for role, items in todo.items():
         side = sides.get(role)
         if side is None or not side.get("dataset_id"):
             _die(f"the workflow has no linked side {role!r}")
         have = {d.get("filename") for d in c.get("/api/documents", params={"dataset": side["dataset_id"], "limit": 5000}).json()["documents"]}
-        done = skipped = failed = 0
+        pending[role] = [(paper_id, js, pdf) for paper_id, js, pdf in items if pdf.name not in have]
+        summary[role] = {"imported": 0, "skipped": len(items) - len(pending[role]), "failed": 0}
+    run = panel.get("current_run")
+    live = bool(run) and run.get("status") not in ("done", "failed", "cancelled")
+    if not any(pending.values()) and not live:
+        print("  nothing to upload: " + "; ".join(f"{role} {s['skipped']} already there" for role, s in summary.items())
+              + (f"; no run started, the latest ({run['id']}, {run.get('status')}) stands" if run else "; no run started"))
+    elif not live:
+        r = c.post(f"/api/datasets/{wid}/workflow/runs", json={})
+        if r.status_code != 200:
+            _die(f"could not start a run: {r.status_code} {r.text[:200]}")
+        run = r.json(); live = True; print(f"  run started: {run['id']}")
+    else:
+        print(f"  run in progress: {run['id']} ({run.get('status')})")
+    for role, items in pending.items() if live else ():
+        side = sides[role]
         for paper_id, js, pdf in items:
-            if pdf.name in have:
-                skipped += 1; continue
             data = {"result": js.read_text(), "run_id": run["id"], "step_id": side["id"]}
             if m.get("produced_by"):
                 data["produced_by"] = m["produced_by"]
-            r = c.post("/api/ingest-pdf", data=data, files={"pdf": (pdf.name, pdf.read_bytes(), "application/pdf")})
-            if r.status_code != 200:
-                failed += 1; print(f"  ✗ {role} {paper_id}: {r.status_code} {r.text[:160]}"); continue
-            done += 1
+            try:
+                r = c.post("/api/ingest-pdf", data=data, files={"pdf": (pdf.name, pdf.read_bytes(), "application/pdf")})
+                status, text = r.status_code, r.text
+            except httpx.HTTPError as exc:                          # the proxy or the connection gave up; the engine may still be importing
+                r, status, text = None, 0, str(exc)
+            if status != 200:
+                if (status == 0 or status >= 500) and _arrived(c, side["dataset_id"], pdf.name):
+                    summary[role]["imported"] += 1; print(f"  ✓ {role} {paper_id}: arrived after the upload failed with {status or 'no response'}")
+                    continue
+                summary[role]["failed"] += 1; print(f"  ✗ {role} {paper_id}: {status or 'no response'} {text[:160]}"); continue
+            summary[role]["imported"] += 1
             j = r.json()
             print(f"  ✓ {role} {paper_id}: {j.get('n_records')} record(s), {j.get('n_highlights')} quote(s) located, {j.get('n_pages')} pages")
         r = c.post(f"/api/workflow-runs/{run['id']}/complete", json={"step_id": side["id"]})
-        print(f"  {role}: {done} imported · {skipped} already there · {failed} failed · side {'complete' if r.status_code == 200 else 'NOT completed: ' + r.text[:120]}")
-        summary[role] = {"imported": done, "skipped": skipped, "failed": failed}
-    view = c.get(f"/api/workflow-runs/{run['id']}").json()
-    tasks_now = c.get(f"/api/projects/{wid}/tasks", params={"run": run["id"]}).json().get("tasks") or []
+        s_ = summary[role]
+        print(f"  {role}: {s_['imported']} imported · {s_['skipped']} already there · {s_['failed']} failed · side {'complete' if r.status_code == 200 else 'NOT completed: ' + r.text[:120]}")
+    view = c.get(f"/api/workflow-runs/{run['id']}").json() if run else {}
+    tasks_now = (c.get(f"/api/projects/{wid}/tasks", params={"run": run["id"]}).json().get("tasks") or []) if run else []
     gate = lambda t: t.get("gate") or {}   # noqa: E731
     print(f"  run {view.get('status')}; tasks: " + ("; ".join(
         f"{t['step_id']} {gate(t).get('checked', 0)}/{gate(t).get('total', 0)}" + (f" (waits for {gate(t)['needs_coders']} coders)" if gate(t).get("needs_coders") else "")
         for t in tasks_now) or "none yet"))
     c.post("/api/auth/logout")
-    return {"project": wid, "workflow_dataset": wid, "run": run["id"], "sides": summary, "status": view.get("status"),
+    return {"project": wid, "workflow_dataset": wid, "run": run["id"] if run else None, "sides": summary, "status": view.get("status"),
             "tasks": {t["step_id"]: gate(t).get("total") for t in tasks_now}}
 
 
@@ -270,6 +306,7 @@ def main() -> None:
     ap.add_argument("manifest", type=Path)
     ap.add_argument("--base", help="server URL (overrides the manifest's `base`)")
     ap.add_argument("--dry-run", action="store_true", help="list what would happen; touch nothing")
+    ap.add_argument("--local", action="store_true", help="an engine in local mode (PAPERLENS_LOCAL_MODE): no accounts — nothing registered, no people; the local owner runs the project")
     args = ap.parse_args()
     m = json.loads(args.manifest.read_text())
     root = args.manifest.resolve().parent
@@ -278,7 +315,7 @@ def main() -> None:
         _die("no server: set `base` in the manifest or pass --base")
     if m.get("workflow"):
         with httpx.Client(base_url=base, timeout=httpx.Timeout(1800.0, connect=30.0)) as c:
-            seed_workflow(c, m, root, args.dry_run)
+            seed_workflow(c, m, root, args.dry_run, local=args.local)
         return
     spec = json.loads((root / m["preset"]).read_text())
     if spec.get("format") != 2 or not (spec.get("meta") or {}).get("title"):

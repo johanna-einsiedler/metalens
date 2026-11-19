@@ -427,6 +427,7 @@
         {
           "unit": "outcomes",
           "label": "Outcomes",
+          "title": "{outcome_id} · {outcome_name}",
           "show": [
             "outcome_name",
             "outcome_unit",

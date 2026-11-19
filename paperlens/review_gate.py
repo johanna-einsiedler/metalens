@@ -326,10 +326,12 @@ def _assign(conn, step_run: dict, header: dict) -> None:
     an even share. The pool is the project's people — or the ones the owner named for this task
     (``project_task_config``), whose count may also replace the step's N. Nothing is assigned
     while the pool has fewer than N coders."""
-    from . import coders as _coders
+    from . import coders as _coders, localmode
     n_want = int(header.get("coders") or 0)
     ds = _run_dataset(conn, step_run["run_id"])
     pool = _coders.coders_of(conn, ds) if ds else []
+    if not pool and ds and localmode.enabled():                    # one machine, one owner: the local owner is the project's one person
+        pool = _coders.add_local(conn, ds)
     cfg = task_config(conn, ds, step_run["step_id"])
     if cfg is not None:
         want = cfg["coders"]
