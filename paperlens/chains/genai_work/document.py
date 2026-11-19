@@ -412,9 +412,9 @@ def review_fields(obj: dict, es: dict, ex: dict, em: dict, rec: dict, heads: dic
 # ── the compute ─────────────────────────────────────────────────────────────────────────────
 
 def assemble(ctx) -> dict:
-    """One document per paper from the four passes: the record (derived cells, canonical ids,
-    the assembly, the quotes verified, every check), the headlines (the plan when the
-    headline-plan pass ran), the document with its review fields."""
+    """One document per paper from the passes: the record (derived cells, canonical ids, the
+    assembly, the quotes verified, every check), the headlines from the headline plan, the
+    document with its review fields (the abstract's claims from the claims pass)."""
     ex, es, em, de = (ctx.read(n) for n in ("exhibits", "estimands", "estimates", "design"))
     P = X.Pages(ctx.pages)
     fin = R.finish(ex, es, em, de, P)
@@ -430,5 +430,5 @@ def assemble(ctx) -> dict:
 def registrations() -> dict[str, dict]:
     return {
         "assemble": {"kind": "compute", "label": "Assemble the record and its Metalens document", "produces": "document",
-                     "reads": ["exhibits", "estimands", "estimates", "design"], "fn": assemble},
+                     "reads": ["exhibits", "estimands", "estimates", "design", "claims", "headline_plan"], "fn": assemble},
     }

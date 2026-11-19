@@ -431,6 +431,25 @@ claims, exhibits and cited cells). Its `_record_chain` carries, per task, how ma
 it and the fields the readings disagreed on, so the record card paints support and candidates
 as it does for a pipeline.
 
+### Checks over pass steps
+
+A registered check may apply to passes instead of documents: its registry entry says
+`applies_to: {unit: "papers", passes: [<chain>.<name>, …]}` and a step's `over` then names pass
+steps of those passes in that order. The check reads each step's primary outputs by paper (pdf
+sha) with their stability records and the papers' page texts, and its findings name the paper
+(`pdf_sha256`) rather than a record. `genai-work-passes` runs the GenAI-at-work chain's whole
+issue list over its four extraction passes.
+
+```json
+{"id": "passes_check", "kind": "check", "check": "genai-work-passes", "over": ["exhibits", "estimands", "estimates", "design"],
+ "on_fail": "note", "severity": "error"}
+```
+
+The chain's later steps: `genai_work.claims` and `genai_work.headline_plan` are passes over the
+earlier ones (two and four to five calls per paper), `genai_work.assemble` reads all six passes
+into the document, and `genai_work.route` (a fields compute, `threshold` param) writes the
+paper's `flags`, `routed`, `route_reasons` and `triage_score` from the record it recomputes.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:

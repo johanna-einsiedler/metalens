@@ -18,6 +18,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Json
 
+from .chains.genai_work.codes import CODES as GENAI_PASS_CODES
 from .checks_genai import CODES as GENAI_CODES, check_genai_record
 
 ON_FAIL = ("note", "flag", "fail")
@@ -281,12 +282,20 @@ REGISTRY: dict[str, dict] = {
                           "applies_to": {"presets": ["genai-work-extraction", "genai-work-extraction-evidence", "genai-work-extraction-labels",
                                                      "genai-work-extraction-values"], "unit": "entries"},
                           "inputs": 1, "params": {}, "codes": GENAI_CODES, "fn": check_genai_record},
+    "genai-work-passes": {"label": "the GenAI-at-work chain's checks over its passes: the record assembled from the four passes, the exhibits, estimands and estimates, the readings' disagreements",
+                          "applies_to": {"unit": "papers", "passes": ["genai_work.exhibits", "genai_work.estimands", "genai_work.estimates", "genai_work.design"]},
+                          "inputs": 4, "params": {}, "codes": GENAI_PASS_CODES, "fn": lambda inputs, params: _genai_passes(inputs, params)},
     "claims-vs-tables": {"label": "point estimates against the transcribed table cells of the companion dataset",
                          "applies_to": {"presets": ["register-claims"], "unit": "results", "companion": ["register-tables", "econ-regression-tables"]},
                          "inputs": 1, "needs_companion": True, "params": {},
                          "codes": {"estimate_mismatch": "error", "exhibit_unlinked": "warn"},
                          "fn": check_claims_vs_tables},
 }
+
+
+def _genai_passes(inputs: list[dict], params: dict) -> list[dict]:
+    from .chains.genai_work import passes_check
+    return passes_check.check_genai_passes(inputs, params)
 
 
 def validate_step(st: dict, at: str, E, W, *, presets_of: dict[str, dict | None]) -> None:
@@ -382,6 +391,27 @@ def companion_input(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     return {"dataset_id": cid, "regressions": crosscheck.regressions_of(conn, cid)}
 
 
+def load_pass_input(conn: psycopg.Connection, run: dict, step_id: str, st: dict, *, store=None) -> dict:
+    """What a check over a PASS step reads: the step's primary outputs by paper (pdf sha), their
+    stability records and the papers' page texts."""
+    from . import passes, storage
+    store = store or storage.get_store()
+    code = str(st.get("pass") or "").partition("@")[0]
+    outputs, stability, pages = {}, {}, {}
+    for row in passes.outputs_of(conn, run["id"], step_id, with_output=True):
+        if row.get("role") != "primary" or row.get("status") != "done":
+            continue
+        sha = row["pdf_sha256"]
+        outputs[sha] = row["output"]
+        stability[sha] = row.get("stability")
+        try:
+            pages[sha] = passes.page_texts_of(conn, sha, store)
+        except Exception:  # noqa: BLE001 - a swept text: the check runs without the pages
+            pages[sha] = []
+    return {"step_id": step_id, "pass": code, "name": code.partition(".")[2], "outputs": outputs, "stability": stability, "pages": pages,
+            "papers": {p["pdf_sha256"]: p for p in passes.papers_of(conn, run["id"])}}
+
+
 def run_step(conn: psycopg.Connection, run_id: str, step_run_id: str, st: dict, inputs: list[dict]) -> dict:
     """Run one check step: call the rule, replace this step-run's findings, summarise. Returns
     ``{n_checked, findings, by_severity, by_code, status}`` — ``failed`` when ``on_fail: fail``
@@ -394,10 +424,10 @@ def run_step(conn: psycopg.Connection, run_id: str, step_run_id: str, st: dict, 
         with conn.cursor() as cur:                          # one pipelined batch, not a round trip per finding
             cur.executemany(
                 """INSERT INTO workflow_finding (id, run_id, step_run_id, step_id, "check", record_id, document_id,
-                                                 companion_record_id, path, code, severity, message, detail)
-                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
+                                                 companion_record_id, pdf_sha256, path, code, severity, message, detail)
+                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s)""",
                 [(str(uuid.uuid4()), run_id, step_run_id, st["id"], st["check"], f.get("record_id"), f.get("document_id"),
-                  f.get("companion_record_id"), f.get("path"), f.get("code"), f.get("severity") or "warn",
+                  f.get("companion_record_id"), f.get("pdf_sha256"), f.get("path"), f.get("code"), f.get("severity") or "warn",
                   (f.get("message") or f.get("code") or "")[:1000], Json(f["detail"]) if f.get("detail") is not None else None)
                  for f in findings])
     by_sev: dict[str, int] = {}
@@ -406,7 +436,7 @@ def run_step(conn: psycopg.Connection, run_id: str, step_run_id: str, st: dict, 
         by_sev[f.get("severity") or "warn"] = by_sev.get(f.get("severity") or "warn", 0) + 1
         by_code[f.get("code") or "issue"] = by_code.get(f.get("code") or "issue", 0) + 1
     hit = any(SEV_RANK.get(f.get("severity") or "warn", 0) >= rank for f in findings)
-    n_checked = sum(len(i.get("records") or []) for i in inputs)
+    n_checked = sum(len(i.get("records") or []) for i in inputs) or (len(inputs[0].get("outputs") or {}) if inputs else 0)
     return {"n_checked": n_checked, "findings": len(findings), "by_severity": by_sev, "by_code": by_code,
             "flagged_record_ids": sorted({f["record_id"] for f in findings if f.get("record_id") and SEV_RANK.get(f.get("severity") or "warn", 0) >= rank}),
             "status": "failed" if hit and st.get("on_fail") == "fail" else "done"}

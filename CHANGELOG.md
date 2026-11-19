@@ -8,6 +8,33 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step four: claims, the headline plan, routing, the passes check
+
+- `genai_work.claims` (pass, two calls): the abstract's sentences classified and matched to the
+  introduction, the result claims mapped to the record's estimates, every stated number looked
+  up among the printed ones — the project's `claims.py` over the engine's `ctx`, the abstract
+  located from the one the engine knows for the paper (`paper.abstract`) or an "Abstract" line.
+  On two project papers the pass's requests hash to the project's cache keys: the texts are
+  the project's byte for byte, and its cached answers replay to its `claims.json`.
+- `genai_work.headline_plan` (pass, four to five calls): the units of the record, the passages
+  describing each task, the level each unit is analysed at, the abstract's atomic claims (and
+  the discussion's for uncovered units), the number behind each claim traced to a printed cell
+  or a formula over cells, the rule per unit — the project's `trial_plan.py`. The claims and
+  plan passes canonicalise the ids of what they read on copies, as the project's files were.
+- `genai_work.route` (fields compute): the inclusion criteria the record contradicts, the
+  triage of every estimate (2 per failed check, 1 per warning, 1 per field the readings
+  disagree on, 2 when a reading lacks it) with `threshold` on headline estimates, the flags
+  table with each flag's page; writes `paper.flags`, `routed`, `route_reasons`, `triage_score`
+  on the extraction document. Reproduces the project's flags and decision on a v20 import file.
+- **Checks over pass steps.** A check in the registry may apply to passes (`applies_to: {unit:
+  "papers", passes: [...]}`): its `over` names pass steps in the registry's order, its inputs
+  are the steps' primary outputs by paper with their stability records and page texts, and its
+  findings carry the paper's `pdf_sha256`. `genai-work-passes` is the first: the project's
+  whole issue list (record, pass and cell checks, the readings' disagreements) over the four
+  passes, a `fail` stored as `error`. The record check over the dataset keeps its own rules.
+- `genai_work.assemble` now reads the claims and the headline plan too (the claims rows and
+  the headlines of the document come from them).
+
 ### The GenAI-at-work chain, step three: the record, the checks, the headlines, the document
 
 - `paperlens/chains/genai_work/record.py` ports the project's `finish`: the derived cells and the

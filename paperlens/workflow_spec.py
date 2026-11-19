@@ -644,8 +644,18 @@ def _validate_check(st, at, E, W, *, earlier, by_id, presets_of) -> None:
     over = st.get("over")
     if not isinstance(over, list) or not over or any(not isinstance(o, str) for o in over):
         E(f"{at}.over must list the step(s) the check reads"); over = []
-    for o in over:
-        if o not in earlier or by_id.get(o, {}).get("kind") not in DATA_KINDS:
+    reg = checks.REGISTRY.get(st.get("check")) if isinstance(st.get("check"), str) else None
+    papers = ((reg or {}).get("applies_to") or {}).get("unit") == "papers"      # a check over PASS steps (their outputs by paper)
+    want = ((reg or {}).get("applies_to") or {}).get("passes") or []
+    for i, o in enumerate(over):
+        src = by_id.get(o) if o in earlier else None
+        if papers:
+            code = str((src or {}).get("pass") or "").partition("@")[0]
+            if src is None or src.get("kind") != "pass":
+                E(f"{at}.over: {o!r} is not an earlier pass step")
+            elif i < len(want) and code != want[i]:
+                E(f"{at}.over[{i}]: {st.get('check')!r} reads {want[i]} there, not {code or o!r}")
+        elif src is None or src.get("kind") not in DATA_KINDS:
             E(f"{at}.over: {o!r} is not an earlier extract or derive step")
     if st.get("on_fail") not in checks.ON_FAIL:
         E(f"{at}.on_fail must be one of {', '.join(checks.ON_FAIL)}")

@@ -753,6 +753,11 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
         elif kind == "check":
             over = st.get("over") or []
             src = facts_by_step.get(over[0]) if over else None
+            if ((checks.REGISTRY.get(st.get("check")) or {}).get("applies_to") or {}).get("unit") == "papers":   # over pass steps
+                item["check"] = st.get("check")
+                if over and latest_step_run(conn, dataset_id, over[0]) is None:
+                    item["state"] = "blocked"; item["because"] = [f"{over[0]} has not run yet"]
+                out.append(item); continue
             needs_companion = bool((checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"))
             item["check"] = st.get("check")
             c_ds = ds_of.get(sid, dataset_id)
@@ -1711,11 +1716,12 @@ def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str
 
 def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
     over = st.get("over") or []
-    d_id = dataset_for_step(conn, run, over[0]) if over else run["dataset_id"]
+    papers = ((checks.REGISTRY.get(st.get("check")) or {}).get("applies_to") or {}).get("unit") == "papers"
+    d_id = run["dataset_id"] if papers else (dataset_for_step(conn, run, over[0]) if over else run["dataset_id"])
     inputs = []
     for o in over:
         src = by_id.get(o) or {}
-        inputs.append(checks.load_input(conn, dataset_for_step(conn, run, o), src.get("preset")))
+        inputs.append(checks.load_pass_input(conn, run, o, src) if papers else checks.load_input(conn, dataset_for_step(conn, run, o), src.get("preset")))
     if (checks.REGISTRY.get(st.get("check")) or {}).get("needs_companion"):
         comp = checks.companion_input(conn, d_id)
         if comp is None:
