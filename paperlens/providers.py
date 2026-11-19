@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
+import time
 
 import openai
 
@@ -138,6 +139,91 @@ def _responses_call(client, model: str, content, *, max_tokens: int | None = Non
     usage = ({"prompt": getattr(u, "input_tokens", 0) or 0, "completion": getattr(u, "output_tokens", 0) or 0,
               "total": getattr(u, "total_tokens", 0) or 0} if u is not None else _EMPTY_USAGE)
     return text, finish, usage, _resolved_model(r, "openai")
+
+
+def _google_client(api_key: str):
+    from google import genai
+    return genai.Client(api_key=api_key)
+
+
+def _finish_name(response) -> str:
+    """A Gemini response's finish reason as a lower-case name; ``length`` when the output cap cut it."""
+    try:
+        name = response.candidates[0].finish_reason.name.lower()
+    except Exception:  # noqa: BLE001
+        return "stop"
+    return "length" if name == "max_tokens" else name
+
+
+def generate_json(
+    model: str,
+    api_key: str,
+    *,
+    system: str,
+    user: str,
+    schema: dict | None,
+    max_tokens: int = 60_000,
+    base_url: str | None = None,
+    temperature: float = 0,
+    tries: int = 6,
+    sleep=time.sleep,
+) -> tuple[str, str, dict, str | None]:
+    """One JSON answer to a system prompt and a user text, shaped by a JSON schema — a chain's
+    pass. Returns ``(text, finish_reason, usage, resolved_model)`` like the extraction calls;
+    ``finish_reason`` is ``"length"`` when the output cap cut the answer, so the caller can ask
+    again in a shorter form. Gemini takes the schema as ``response_json_schema`` with
+    ``system_instruction``; OpenAI-compatible endpoints as ``response_format`` of type
+    ``json_schema`` (DeepSeek and Mistral: ``json_object``, the schema stated in the prompt);
+    Anthropic through its OpenAI endpoint gets the system message and the output cap only.
+    A transient failure (rate limit, overload, 5xx, timeout) is retried up to ``tries`` times
+    with backoff; anything else is raised at once."""
+    provider = get_provider(model, base_url)
+    last: Exception | None = None
+    for attempt in range(max(1, tries)):
+        try:
+            return _generate_json_once(provider, model, api_key, system=system, user=user, schema=schema,
+                                       max_tokens=max_tokens, base_url=base_url, temperature=temperature)
+        except Exception as exc:  # noqa: BLE001 - classified below
+            last = exc
+            if attempt + 1 < tries and is_transient(exc):
+                sleep(min(60, 5 * 2 ** attempt))
+                continue
+            raise
+    raise last  # pragma: no cover - the loop always returns or raises
+
+
+def _generate_json_once(provider: str, model: str, api_key: str, *, system: str, user: str, schema: dict | None,
+                        max_tokens: int, base_url: str | None, temperature: float) -> tuple[str, str, dict, str | None]:
+    if provider == "google":
+        from google.genai import types
+        client = _google_client(api_key)
+        cfg: dict = {"system_instruction": system, "temperature": temperature, "max_output_tokens": max_tokens,
+                     "response_mime_type": "application/json"}
+        if schema:
+            cfg["response_json_schema"] = schema
+        response = client.models.generate_content(model=model, contents=user, config=types.GenerateContentConfig(**cfg))
+        return (response.text or "").strip(), _finish_name(response), _gemini_usage(response), _resolved_model(response, "google")
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    if provider == "anthropic":
+        client = openai.OpenAI(api_key=api_key, base_url=_ANTHROPIC_BASE_URL)
+        response = client.chat.completions.create(model=model, messages=messages, temperature=temperature,
+                                                  max_tokens=max(max_tokens, _ANTHROPIC_MAX_TOKENS))
+    elif provider in ("deepseek", "mistral"):
+        client = openai.OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL if provider == "deepseek" else _MISTRAL_BASE_URL)
+        response = client.chat.completions.create(model=model, messages=messages, temperature=temperature,
+                                                  max_tokens=max_tokens, response_format={"type": "json_object"})
+    else:                                   # OpenAI or vLLM (OpenAI-compatible)
+        client = _openai_compat_client(api_key, base_url)
+        kwargs: dict = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        if not model.startswith("gpt-5"):
+            kwargs["temperature"] = temperature
+        kwargs["response_format"] = ({"type": "json_schema", "json_schema": {"name": "answer", "schema": schema, "strict": False}}
+                                     if schema else {"type": "json_object"})
+        response = client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    text = (choice.message.content or "").strip()
+    finish = getattr(choice, "finish_reason", None) or "stop"
+    return text, ("length" if finish in ("length", "max_tokens") else finish), _openai_usage(response), _resolved_model(response, provider)
 
 
 def generate_text(

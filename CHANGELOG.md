@@ -8,6 +8,14 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A JSON answer shaped by a schema (`providers.generate_json`)
+
+- One call for a chain's pass: a system prompt, a user text and a JSON schema make one JSON
+  answer. Gemini takes the schema as `response_json_schema` with a system instruction and the
+  output cap; OpenAI-compatible endpoints as a `json_schema` response format (DeepSeek and
+  Mistral `json_object`). The output cap shows as finish reason `length`, so a caller can ask
+  again in a shorter form; a transient failure is retried up to six times with backoff.
+
 ### Unit fields stacked; the grammar tests follow the renderer
 
 - A template block may say `stack: true`: its shown fields are drawn one under the other — a
