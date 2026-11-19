@@ -23,21 +23,25 @@ its PDF so the quotes are located. Re-running is safe: an existing preset (same 
 dataset (same title) are reused and papers already in the dataset are skipped. No model is
 called and no credits are needed. Keep the manifest out of git — it holds passwords.
 
-A manifest with ``workflow`` seeds a WORKFLOW instead — one owner, the coders added by email,
-one workflow dataset for the study (paperlens/coders.py, docs/WORKFLOWS.md):
+A manifest with ``workflow`` seeds a PROJECT instead — the workflow's instance: one owner, the
+people added by email, one dataset per role of the workflow (paperlens/projects.py,
+docs/WORKFLOWS.md):
 
     {"base": "https://metalens.tech", "workflow": "genai-work", "title": "GenAI at work — validation",
      "owner": {"email": "owner@example.org", "password": "…"},
      "coders": ["coder-a@example.org", {"email": "coder-b@example.org", "password": "…"}],
      "produced_by": "pipeline v4",
-     "papers": {"judgment": "../import_judgment", "check": "../import_check", "routed": "../import_routed"},
-     "only": {"judgment": ["0ae57f3a2520", "1b2c3d4e5f60"]}}
+     "papers": {"extraction": "../import_pilot"},
+     "only": {"extraction": ["0ae57f3a2520", "1b2c3d4e5f60"]},
+     "tasks": {"review_judgment": {"coders": 1}}}
 
-As the owner (registered or signed in): find the workflow dataset by title or make it, link a
-dataset for every role it lacks, add each coder (an account that exists; given with a password,
-it is registered first), start a run (or use the active one), upload each side's pairs that its
-dataset lacks into the run with the step, then mark each side listed under ``papers`` complete.
-The coders' passwords never travel: a coder registers on their own and is added by email.
+As the owner (registered or signed in): find the project by title or make it, link a dataset for
+every role it lacks, add each person (an account that exists; given with a password, it is
+registered first), set each task's people where ``tasks`` says so (how many of the project's
+people review each paper, or which — their emails), start a run (or use the active one), upload
+each side's pairs that its dataset lacks into the run with the step, then mark each side listed
+under ``papers`` complete and say what the review tasks wait for. The coders' passwords never
+travel: a coder registers on their own and is added by email.
 """
 from __future__ import annotations
 
@@ -165,9 +169,12 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
     only = m.get("only") or {}
     todo = {role: pairs(root / folder, only.get(role), root) for role, folder in (m.get("papers") or {}).items()}
     coders = [{"email": x} if isinstance(x, str) else dict(x) for x in (m.get("coders") or [])]
+    tasks = m.get("tasks") or {}
     if dry:
-        print(f"\n{owner['email']} → workflow “{wf}”, dataset “{title}”")
-        print(f"  would add {len(coders)} coder(s): {', '.join(x['email'] for x in coders) or '—'}")
+        print(f"\n{owner['email']} → project “{title}” of workflow “{wf}”")
+        print(f"  would add {len(coders)} person(s): {', '.join(x['email'] for x in coders) or '—'}")
+        for step_id, cfg in tasks.items():
+            print(f"  task {step_id}: would set coders = {json.dumps((cfg or {}).get('coders'))}")
         for role, items in todo.items():
             print(f"  {role}: would upload {len(items)} paper(s)")
         return {"dry": True}
@@ -179,34 +186,41 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
                 cc.post("/api/auth/logout")
     print(f"\n{owner['email']}")
     print(f"  {sign_in(c, owner['email'], owner['password'])}")
-    # the workflow dataset, by title
-    mine = c.get("/api/workflow-datasets").json().get("workflows") or []
+    # the project, by title
+    mine = c.get("/api/projects").json().get("projects") or []
     wf_of = lambda w: (w.get("workflow") or {}).get("id") if isinstance(w.get("workflow"), dict) else str(w.get("workflow") or "").split("@")[0]   # noqa: E731
-    wd = next((w for w in mine if w.get("title") == title and (not wf_of(w) or wf_of(w) == wf)), None)
-    if wd is None:
-        r = c.post("/api/workflow-datasets", json={"workflow": wf, "title": title})
+    proj = next((w for w in mine if w.get("title") == title and (not wf_of(w) or wf_of(w) == wf)), None)
+    if proj is None:
+        r = c.post("/api/projects", json={"workflow": wf, "title": title})
         if r.status_code != 200:
-            _die(f"could not make the workflow dataset: {r.status_code} {r.text[:200]}")
-        wd = r.json(); how = "made"
+            _die(f"could not make the project: {r.status_code} {r.text[:200]}")
+        proj = r.json(); how = "made"
     else:
         how = "found"
-    wid = wd["id"]
-    print(f"  {how}: {c.base_url}/dataset?id={wid}")
+    wid = proj["id"]
+    print(f"  {how}: {c.base_url}/project?id={wid}")
     # one dataset per role
-    g = c.get(f"/api/datasets/{wid}/group").json()
-    for item in g.get("roles") or []:
+    page = c.get(f"/api/projects/{wid}").json()
+    if page.get("kind") != "project":
+        _die(f"“{wf}” runs over one preset, so “{title}” is a plain dataset, not a project; seed it in the account mode")
+    for item in page.get("members") or []:
         if not item.get("dataset"):
             r = c.post(f"/api/datasets/{wid}/group/link", json={"role": item["role"], "create": True})
             if r.status_code != 200:
                 _die(f"could not link a dataset for {item['role']}: {r.status_code} {r.text[:200]}")
             print(f"  linked a new dataset for {item['role']}")
-    # the coders
-    have = {x["email"] for x in c.get(f"/api/datasets/{wid}/coders").json().get("coders") or []}
+    # the people
+    have = {str(x.get("email") or "").lower() for x in c.get(f"/api/projects/{wid}/people").json().get("people") or []}
     for x in coders:
         if x["email"].lower() in have:
             continue
-        r = c.post(f"/api/datasets/{wid}/coders", json={"email": x["email"]})
-        print(f"  {'coder added' if r.status_code == 200 else 'coder NOT added'}: {x['email']}{'' if r.status_code == 200 else ' — ' + r.text[:120]}")
+        r = c.post(f"/api/projects/{wid}/people", json={"email": x["email"]})
+        print(f"  {'person added' if r.status_code == 200 else 'person NOT added'}: {x['email']}{'' if r.status_code == 200 else ' — ' + r.text[:120]}")
+    # the tasks' people, where the manifest says
+    for step_id, cfg in tasks.items():
+        want = (cfg or {}).get("coders")
+        r = c.patch(f"/api/projects/{wid}/tasks/{step_id}", json={"coders": want})
+        print(f"  task {step_id}: {'coders = ' + json.dumps(want) if r.status_code == 200 else 'NOT set — ' + r.text[:120]}")
     # the run and its sides
     panel = _workflow_panel(c, wid)
     run = panel.get("current_run")
@@ -241,11 +255,14 @@ def seed_workflow(c: httpx.Client, m: dict, root: Path, dry: bool, *, client_fac
         print(f"  {role}: {done} imported · {skipped} already there · {failed} failed · side {'complete' if r.status_code == 200 else 'NOT completed: ' + r.text[:120]}")
         summary[role] = {"imported": done, "skipped": skipped, "failed": failed}
     view = c.get(f"/api/workflow-runs/{run['id']}").json()
-    print(f"  run {view.get('status')}; gates: " + "; ".join(
-        f"{s['step_id']} {s['review'].get('checked', 0)}/{s['review'].get('total', 0)}" + (f" (waits for {s['review']['needs_coders']} coders)" if s.get("review", {}).get("needs_coders") else "")
-        for s in view.get("steps") or [] if s.get("review")))
+    tasks_now = c.get(f"/api/projects/{wid}/tasks", params={"run": run["id"]}).json().get("tasks") or []
+    gate = lambda t: t.get("gate") or {}   # noqa: E731
+    print(f"  run {view.get('status')}; tasks: " + ("; ".join(
+        f"{t['step_id']} {gate(t).get('checked', 0)}/{gate(t).get('total', 0)}" + (f" (waits for {gate(t)['needs_coders']} coders)" if gate(t).get("needs_coders") else "")
+        for t in tasks_now) or "none yet"))
     c.post("/api/auth/logout")
-    return {"workflow_dataset": wid, "run": run["id"], "sides": summary, "status": view.get("status")}
+    return {"project": wid, "workflow_dataset": wid, "run": run["id"], "sides": summary, "status": view.get("status"),
+            "tasks": {t["step_id"]: gate(t).get("total") for t in tasks_now}}
 
 
 def main() -> None:

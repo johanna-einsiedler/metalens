@@ -23,7 +23,6 @@ from test_workflows import _pdf, _skip
 from paperlens import presets, records, review_gate, templates as tp, workflows
 from paperlens import workflow_spec as ws
 
-PRESETS = ("genai-work-judgment", "genai-work-extraction-check", "genai-work-routed")
 
 
 def _seeder():
@@ -32,20 +31,6 @@ def _seeder():
     return mod
 
 
-def _result_for(spec: dict, tag: str) -> dict:
-    """A minimal import file of one paper under one of the validation presets: every declared
-    paper field present (the first unit table with one row), the one `review` entry, one quote."""
-    pm = {"title": f"Paper {tag}", "doi": f"10.1/{tag}", "year": 2024}
-    first = None
-    for f in spec["paper"]["fields"]:
-        pm[f["name"]] = [] if f["type"] in ("table", "list", "multi") else None
-        if f["type"] == "table" and f["name"] != "evidence_items" and first is None:
-            first = f
-    row = {c["name"]: None for c in first["columns"]}
-    row[first["columns"][0]["name"]] = f"Unit of {tag}"
-    pm[first["name"]] = [row]
-    return {"paper_metadata": pm, spec["entries"]["key"]: [{"review_id": "paper", "full_review": None, "full_review_why": None}],
-            "evidence": [{"snippet": f"Unit of {tag}", "page": 1, "source": "p. 1", "field": f"paper_metadata.{first['name']}[0]"}]}
 
 
 def _extraction_for(spec: dict, tag: str, *, broken: bool = False) -> dict:
@@ -69,8 +54,8 @@ def _extraction_for(spec: dict, tag: str, *, broken: bool = False) -> dict:
 
 def test_the_presets_and_the_workflow_are_bundled_and_validate() -> None:
     allp = presets.load_all()
-    for pid in PRESETS:
-        assert allp[pid]["meta"]["mode"] == "import" and not (allp[pid].get("prompt") or {}).get("text")
+    assert not ({"genai-work-judgment", "genai-work-extraction-check", "genai-work-routed"} & set(allp))   # retired: templates over the record
+    assert allp["genai-work-extraction"]["meta"]["mode"] == "import" and not (allp["genai-work-extraction"].get("prompt") or {}).get("text")
     wf = workflows.load_all()["genai-work"]
     assert ws.validate(wf)[0] == [] and workflows.later_problems(wf) == []
     by = ws.steps_by_id(wf)
@@ -140,7 +125,7 @@ def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_work_the_thre
         (xf / f"{rid}.pdf").write_bytes(_pdf(rid))
     manifest = {"workflow": "genai-work", "title": f"GenAI at work — {tag}", "owner": {"email": o_email, "password": "pw123456"},
                 "coders": [a_email, {"email": b_email, "password": "pw123456"}], "produced_by": "pipeline (test)",
-                "papers": {"extraction": "import_extraction"}}
+                "papers": {"extraction": "import_extraction"}, "tasks": {"review_routed": {"coders": [b_email]}}}
     seed = _seeder()
     assert seed.seed_workflow(TestClient(appmod.app), manifest, tmp_path, True) == {"dry": True}
     conn.rollback()
@@ -166,6 +151,7 @@ def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_work_the_thre
     docs = {d["title"]: d["document_id"] for d in owner.get("/api/documents", params={"dataset": xds}).json()["documents"]}
     routed_doc = docs[f"Paper x2-{tag}"]
     assert [x["document_id"] for x in rt["assignments"]] == [routed_doc]
+    assert rt["config"] == {"coders": [b_id]} and rt["assignments"][0]["coders"][0]["user_id"] == b_id      # the manifest's `tasks` named coder B
     # a second seeding changes nothing
     again = seed.seed_workflow(TestClient(appmod.app), manifest, tmp_path, False, client_factory=lambda: TestClient(appmod.app))
     assert again["workflow_dataset"] == pid and again["sides"]["extraction"] == {"imported": 0, "skipped": 2, "failed": 0}

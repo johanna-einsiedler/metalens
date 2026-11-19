@@ -161,9 +161,10 @@ def test_the_bundled_templates_validate_against_their_preset_and_hash_stably() -
 
 
 def test_a_presets_own_review_is_its_implicit_template() -> None:
-    jud = presets.load_all()["genai-work-judgment"]
-    t = tp.from_preset(jud)
-    assert t["source"] == "preset" and t["for"] == "genai-work-judgment" and t["layout"] == "stages" and t["stages"] == jud["display"]["review"]["stages"]
+    rc = presets.load_all()["register-claims"]
+    t = tp.from_preset(rc)
+    assert t["source"] == "preset" and t["for"] == "register-claims" and t["layout"] == "chain"
+    assert all(t[k] == v for k, v in rc["display"]["review"].items())
     assert tp.from_preset({"id": "x", "display": {}}) is None
 
 
