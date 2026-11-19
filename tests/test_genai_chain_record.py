@@ -178,7 +178,7 @@ def test_the_assembly_normalises_codes_and_carries_the_readings() -> None:
 def test_the_compute_is_registered_and_builds_a_document() -> None:
     chains.load()
     e = chains.get("genai_work.assemble")
-    assert e["kind"] == "compute" and e["produces"] == "document" and e["reads"] == ["exhibits", "estimands", "estimates", "design"]
+    assert e["kind"] == "compute" and e["produces"] == "document" and e["reads"] == ["exhibits", "estimands", "estimates", "design", "claims", "headline_plan"]
     es = {"tasks": [{"task_id": "T1", "name": "Email task", "description": "Improve an email", "sample": "244 students"}],
           "arms": [{"arm_id": "C", "label": "Control", "is_reference": True, "control_type": "no_ai_concurrent", "task_ids": ["T1"], "quote": "Participants in the control group wrote the email alone", "page": 1, "check": "page"},
                    {"arm_id": "T1", "label": "AI", "is_reference": False, "treatment": "access to ChatGPT", "task_ids": ["T1"], "quote": "the treatment group had access to ChatGPT", "page": 1, "check": "page"}],
