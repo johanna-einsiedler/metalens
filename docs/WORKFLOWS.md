@@ -342,7 +342,10 @@ the gate's items become one per (record, coder), each coder's queue (`GET
 gate is satisfied when every assigned coder gave their verdict — never by the owner's. With
 fewer coders than N the gate waits (`needs_coders`) and assigns once the owner has added
 enough; the owner may move a paper between coders (`POST …/assign`) until a verdict was given.
-`coders` is part of the workflow's contract.
+`coders` is part of the workflow's contract. In local mode (one machine, one owner, no accounts)
+the local owner is every project's one person: a task's gate assigns to them and their verdicts
+and answers are a coding; a task of two waits for one more until its config says one. An owner who
+is one of the people gets their own share of a task's queue, as the document view already codes them.
 
 Exports carry every coding (`codings` per record, `paper_codings` per paper, coders by label —
 `coder_1`, `coder_2` … — with emails for the owner alone, each with its `answers`); a release
@@ -506,6 +509,8 @@ names the fields whose model values never reach the coder's payload (nor the quo
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
 only when the block does not show that field — a blind answer to the question the model answered.
+A block's `title` may not name a field in `blind.fields`; a head inherited from the preset's child
+that names one falls back to the shown fields, so a head never prints what the coder is to answer.
 
 **Answers** live in the coder's coding, never on the record: `record_coding.answers` for the
 entry's own unit (`""`) and a child's rows (`"<child>#<_rid>"`), `document_coding.answers` for the

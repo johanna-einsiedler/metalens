@@ -66,6 +66,15 @@ def _errors(mutate) -> list[str]:
     return tp.validate(tp.normalize(doc), EXT)[0]
 
 
+def test_a_head_never_prints_a_blind_field() -> None:
+    errs = _errors(lambda d: d["stages"][0]["blocks"][1].__setitem__("title", "{task_name} · {task_label}"))
+    assert any("{task_label} is blind" in e for e in errs), errs
+    assert _errors(lambda d: d["stages"][0]["blocks"][1].__setitem__("title", "{task_name}")) == []
+    jud = tp.load_all()["genai-work-judgment"]
+    out = next(b for b in jud["stages"][1]["blocks"] if b["unit"] == "outcomes")
+    assert out["title"] == "{outcome_id} · {outcome_name}"        # the preset child's own head names outcome_finding, the category the coder gives
+
+
 def test_a_block_stacks_its_shown_fields_only_when_told() -> None:
     tpl = tp.normalize(copy.deepcopy(GOOD))
     assert all(bl["stack"] is False for st in tpl["stages"] for bl in st["blocks"])          # side by side by default

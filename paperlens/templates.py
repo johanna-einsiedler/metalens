@@ -301,8 +301,9 @@ def validate(tpl: dict, pspec: dict | None = None, *, resolver: Callable[[str], 
         blocks = st.get("blocks")
         if not isinstance(blocks, list) or not blocks:
             E(f"{at}.blocks must list at least one block"); continue
+        bf = frozenset(x for x in (tpl["blind"].get("fields") or []) if isinstance(x, str)) if isinstance(tpl.get("blind"), dict) else frozenset()
         for j, bl in enumerate(blocks):
-            _validate_block(bl, f"{at}.blocks[{j}]", pspec, E, W)
+            _validate_block(bl, f"{at}.blocks[{j}]", pspec, E, W, blind=bf)
     return errs, warns
 
 
@@ -330,7 +331,7 @@ def _validate_where(where: Any, fields: dict[str, dict], pspec: dict | None, at:
                     E(f"{at}.{k}.{op} must be a list")
 
 
-def _validate_block(bl: Any, at: str, pspec: dict | None, E, W) -> None:
+def _validate_block(bl: Any, at: str, pspec: dict | None, E, W, blind: frozenset = frozenset()) -> None:
     if not isinstance(bl, dict):
         E(f"{at} must be an object"); return
     for k in bl:
@@ -357,6 +358,8 @@ def _validate_block(bl: Any, at: str, pspec: dict | None, E, W) -> None:
         for n in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", bl["title"]):
             if n not in fields:
                 E(f"{at}.title: {{{n}}} is not a field of the unit")
+            elif n in blind:
+                E(f"{at}.title: {{{n}}} is blind — a head may not print what the coder is to answer")
     for k in ("group_by_entry", "only_sampled", "mask_numbers", "stack"):
         if not isinstance(bl.get(k, False), bool):
             E(f"{at}.{k} must be a boolean")

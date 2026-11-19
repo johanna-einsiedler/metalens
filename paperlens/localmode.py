@@ -44,4 +44,8 @@ def ensure_local_user(conn: psycopg.Connection) -> str:
             conn.execute(
                 "INSERT INTO users (id, email, password_hash) VALUES (%s::uuid, %s, %s) ON CONFLICT DO NOTHING",
                 (uid, LOCAL_EMAIL, auth.hash_password(uuid.uuid4().hex)))
+        if conn.execute("SELECT 1 FROM users WHERE id = %s::uuid", (uid,)).fetchone() is None:   # the email is another id's: say so, not an FK error later
+            other = conn.execute("SELECT id::text FROM users WHERE email = %s", (LOCAL_EMAIL,)).fetchone()
+            raise RuntimeError(f"the local owner's email {LOCAL_EMAIL!r} belongs to user {other[0] if other else '?'}; "
+                               f"set PAPERLENS_LOCAL_USER_ID to that id (it is {uid})")
     return uid

@@ -105,6 +105,38 @@ def test_a_person_reads_the_papers_of_their_task_and_nothing_before(monkeypatch)
     conn.close()
 
 
+def test_in_local_mode_the_local_owner_is_the_projects_one_person(monkeypatch) -> None:
+    """One machine, one owner, no accounts: a task's gate assigns to the local owner, who is then
+    listed as the project's one person and codes like any coder."""
+    _skip()
+    from fastapi.testclient import TestClient
+    from paperlens import app as appmod, localmode
+    conn = records.connect(); records.init_db(conn)
+    monkeypatch.setenv("PAPERLENS_LOCAL_MODE", "1")
+    row = conn.execute("SELECT id::text FROM users WHERE email = %s", (localmode.LOCAL_EMAIL,)).fetchone()   # an earlier test may have made the local owner under another id
+    monkeypatch.setenv("PAPERLENS_LOCAL_USER_ID", row[0] if row else str(uuid.uuid4()))
+    monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD", raising=False)
+    uid = localmode.ensure_local_user(conn)
+    spec = ws.normalize(copy.deepcopy(SPEC)); spec["steps"][2]["coders"] = 1
+    me = TestClient(appmod.app)
+    pid, members = _project(me, monkeypatch, spec)
+    assert me.get(f"/api/projects/{pid}/people").json()["people"] == []                 # nobody yet
+    run = me.post(f"/api/datasets/{pid}/workflow/runs", json={}).json(); rid = run["id"]
+    _upload(me, rid, uuid.uuid4().hex[:6])
+    for step in ("tables", "claims"):
+        r = me.post(f"/api/workflow-runs/{rid}/complete", json={"step_id": step})
+        assert r.status_code == 200, r.text
+    assert r.json()["status"] == "done", (r.json().get("error"), [(s_["step_id"], s_["status"], s_.get("error")) for s_ in r.json().get("steps") or []])
+    conn.rollback()
+    t = next(t for t in me.get(f"/api/projects/{pid}/tasks").json()["tasks"] if t["step_id"] == "two")
+    assert t["gate"] and t["gate"]["assigned"] is True and t["gate"]["total"] == 2 and not t["gate"].get("needs_coders"), t   # the paper's two records, one coder
+    assert [x["coders"][0]["user_id"] for x in t["assignments"]] == [uid] and t["assignments"][0]["coders"][0]["label"] == "coder_1"
+    assert [p["user_id"] for p in me.get(f"/api/projects/{pid}/people").json()["people"]] == [uid]
+    assert coders.is_coder(conn, pid, Principal(user_id=uid, session_id=None))
+    q = me.get(f"/api/workflow-runs/{rid}/queue/two").json()
+    assert q["viewer_coder"] == uid and len(q["items"]) == 2                                # their own share: the paper's two records
+
+
 def test_the_owner_sets_how_many_of_the_people_a_task_uses_or_which(monkeypatch) -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)

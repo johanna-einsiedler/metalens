@@ -155,6 +155,7 @@ def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_work_the_thre
     # a second seeding changes nothing
     again = seed.seed_workflow(TestClient(appmod.app), manifest, tmp_path, False, client_factory=lambda: TestClient(appmod.app))
     assert again["workflow_dataset"] == pid and again["sides"]["extraction"] == {"imported": 0, "skipped": 2, "failed": 0}
+    assert again["run"] == rid and len(owner.get(f"/api/projects/{pid}").json()["runs"]) == 1      # nothing to upload: no new run
     # access follows the task: both coders read the extraction dataset, the owner sees every task on the project page
     for c in (a, b):
         assert [d["id"] for d in c.get("/api/datasets?coder=1").json()["datasets"]] == [xds]
