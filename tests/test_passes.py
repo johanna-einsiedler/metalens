@@ -217,3 +217,65 @@ def test_the_context_text_marks_pages_and_a_cut_answer_raises(monkeypatch) -> No
     with pytest.raises(KeyError):
         ctx.read("nothing")
     assert passes.parse_json('```json\n{"a": 1}\n```') == {"a": 1} and passes.parse_json('text {"a": [1]} more') == {"a": [1]}
+
+
+def test_references_across_passes_are_checked_from_the_registration() -> None:
+    title_e, words_e = chains.get("_demo.title"), chains.get("_demo.words")
+    title = {"title": "T", "n_pages": 2, "words": [{"id": "w1", "word": "a"}, {"id": "w2", "word": "b"}]}
+    assert passes.check_refs(title_e, title, {}) == []
+    dup = {"title": "T", "words": [{"id": "w1"}, {"id": "w1"}, {"id": None}, {"id": {"x": 1}}]}
+    codes = [(f["code"], f["path"]) for f in passes.check_refs(title_e, dup, {})]
+    assert codes == [("duplicate_id", "words[1].id"), ("missing_id", "words[2].id"), ("bad_ref", "words[3].id")]
+    assert [f["code"] for f in passes.check_refs(title_e, {"title": "T"}, {})] == ["dangling_path"]
+    good = {"words": [{"title_id": "w1", "word": "x"}, {"title_id": "w2", "word": "y"}, {"title_id": None}]}
+    assert passes.check_refs(words_e, good, {"title": title}, pdf_sha256="abc") == []
+    bad = {"words": [{"title_id": "w9", "word": "x"}, {"title_id": 3}]}
+    found = passes.check_refs(words_e, bad, {"title": title}, pdf_sha256="abc")
+    assert [(f["code"], f["path"], f["severity"], f["pdf_sha256"]) for f in found] == [("dangling_ref", "words[0].title_id", "error", "abc"), ("dangling_ref", "words[1].title_id", "error", "abc")]
+    assert found[0]["detail"] == {"value": "w9", "to": "title:words[].id"} and found[0]["pass"] == "_demo.words"
+    assert passes.check_refs(words_e, bad, {}) == []                                      # no upstream given: nothing to check against
+    assert passes.walk({"a": [{"b": [1, 2]}, {"b": []}]}, "a[].b[]") == [("a[0].b[0]", 1), ("a[0].b[1]", 2)]
+    assert passes.walk({"a": {"b": "x"}}, "a.b") == [("a.b", "x")] and passes.walk({"a": "no"}, "a[].b") == []
+    with pytest.raises(ValueError):
+        passes.walk({}, "a[0].b")
+
+
+def test_a_dangling_reference_in_a_pass_output_is_a_finding_of_the_step(tmp_path, monkeypatch) -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    _force_local(monkeypatch)
+    fake = _Fake(); monkeypatch.setattr(providers, "generate_json", fake)
+    conn = records.connect(); records.init_db(conn)
+    _workflow(tmp_path, monkeypatch)
+    sess = f"pass-{uuid.uuid4().hex[:6]}"
+    ds = _dataset(conn, sess)
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-pass"}).status_code == 200
+    pdfs = {"rho": _pdf("rho"), "sigma": _pdf("sigma")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    sha = {n: _sha(b) for n, b in pdfs.items()}
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json(); rid = run["id"]
+    # rho's words point at an id its title never minted; sigma's are fine
+    real = fake.__call__
+    def twisted(model, api_key, *, system, user, schema, max_tokens, base_url=None, **kw):
+        text, finish, usage, served = real(model, api_key, system=system, user=user, schema=schema, max_tokens=max_tokens, base_url=base_url)
+        if system.startswith("Return one word") and "rho" in user:
+            text = json.dumps({"words": [{"title_id": "w9", "word": "p1"}]})
+        return text, finish, usage, served
+    monkeypatch.setattr(providers, "generate_json", twisted)
+    for n, b in pdfs.items():
+        assert c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "done"
+    words = view["steps"][1]
+    assert words["outputs"]["findings"] == 1 and words["outputs"]["findings_by_code"] == {"dangling_ref": 1}
+    rows = c.get(f"/api/workflow-runs/{rid}/passes/words", headers=H).json()["outputs"]
+    assert {r["pdf_sha256"]: r["findings"] for r in rows} == {sha["rho"]: 1, sha["sigma"]: 0}
+    f = conn.execute('SELECT pdf_sha256, "check", code, severity, path, detail FROM workflow_finding WHERE run_id = %s::uuid', (rid,)).fetchall()
+    assert f == [(sha["rho"], "refs", "dangling_ref", "error", "words[0].title_id", {"value": "w9", "to": "title:words[].id"})]
+    # a supplied output is checked the same way
+    run2 = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged[:1]}).json(); rid2 = run2["id"]
+    assert c.post(f"/api/workflow-runs/{rid2}/passes/title/{sha['rho']}", headers=H, json={"output": {"title": "S", "words": [{"id": "a"}, {"id": "a"}]}}).json()["findings"] == 1
+    conn.rollback()
+    assert conn.execute("SELECT code FROM workflow_finding WHERE run_id = %s::uuid", (rid2,)).fetchall() == [("duplicate_id",)]
+    conn.close()

@@ -126,6 +126,140 @@ class PassContext:
         return obj
 
 
+# ── references across passes ─────────────────────────────────────────────────
+
+_PATH_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)*$")
+
+
+def walk(obj: Any, path: str) -> list[tuple[str, Any]]:
+    """Every value at ``path`` in ``obj`` with its concrete address: ``key[].child[].field`` —
+    each ``[]`` expands a list (a trailing ``[]`` expands a list of values). A missing key gives
+    nothing (``dangling_path`` tells); a non-list where a list is expected gives nothing."""
+    if not _PATH_RE.match(path or ""):
+        raise ValueError(f"bad path {path!r}")
+    out: list[tuple[str, Any]] = []
+
+    def go(node: Any, parts: list[str], at: str) -> None:
+        if not parts:
+            out.append((at, node)); return
+        head, rest = parts[0], parts[1:]
+        key, many = (head[:-2], True) if head.endswith("[]") else (head, False)
+        if not isinstance(node, dict) or key not in node:
+            return
+        v = node[key]
+        here = f"{at}.{key}" if at else key
+        if many:
+            if isinstance(v, list):
+                for i, item in enumerate(v):
+                    go(item, rest, f"{here}[{i}]")
+        else:
+            go(v, rest, here)
+    go(obj, path.split("."), "")
+    return out
+
+
+def path_exists(obj: Any, path: str) -> bool:
+    """Whether the path's first key is in the output at all (an empty list still counts)."""
+    head = path.split(".")[0].removesuffix("[]")
+    return isinstance(obj, dict) and head in obj
+
+
+def check_refs(entry: dict, output: dict, upstream: dict[str, dict], *, pdf_sha256: str | None = None) -> list[dict]:
+    """The generic reference check a pass registration declares: ``ids`` (paths that mint ids,
+    unique and non-empty) and ``refs`` (``{path, to: "<read>:<path>" | "<path>", severity?,
+    nullable?}`` — every value at ``path`` must be an id minted at ``to`` in that earlier pass's
+    output, or in this one's). Findings: ``missing_id``, ``duplicate_id``, ``dangling_path``,
+    ``bad_ref``, ``dangling_ref``."""
+    out: list[dict] = []
+    code = entry.get("id")
+
+    def finding(c: str, sev: str, path: str, msg: str, **detail) -> None:
+        out.append({"pdf_sha256": pdf_sha256, "path": path, "code": c, "severity": sev, "message": msg, "detail": detail or None, "pass": code})
+
+    minted_here: dict[str, set] = {}
+    for p in entry.get("ids") or []:
+        seen: set = set()
+        if not path_exists(output, p):
+            finding("dangling_path", "warn", p, f"{p} is not in the output"); continue
+        for at, v in walk(output, p):
+            if v is None or v == "":
+                finding("missing_id", "error", at, f"{at} has no id"); continue
+            if not isinstance(v, (str, int)):
+                finding("bad_ref", "error", at, f"{at} is not an id"); continue
+            if str(v) in seen:
+                finding("duplicate_id", "error", at, f"{p} mints {v!r} twice", value=v)
+            seen.add(str(v))
+        minted_here[p] = seen
+    for ref in entry.get("refs") or []:
+        path, to = ref.get("path"), ref.get("to")
+        sev = ref.get("severity") or "error"
+        if not isinstance(path, str) or not isinstance(to, str):
+            continue
+        read, _, tpath = to.rpartition(":")
+        if read:
+            src = upstream.get(read)
+            if src is None:
+                continue                                    # the engine did not give that pass: nothing to check against
+            minted = {str(v) for _a, v in walk(src, tpath) if v not in (None, "")}
+        else:
+            minted = minted_here.get(tpath) or {str(v) for _a, v in walk(output, tpath) if v not in (None, "")}
+        if not path_exists(output, path):
+            finding("dangling_path", "warn", path, f"{path} is not in the output"); continue
+        for at, v in walk(output, path):
+            if v is None or v == "":
+                if not ref.get("nullable", True):
+                    finding("missing_id", sev, at, f"{at} refers to nothing")
+                continue
+            if not isinstance(v, (str, int)):
+                finding("bad_ref", sev, at, f"{at} is not an id", value=v, to=to); continue
+            if str(v) not in minted:
+                finding("dangling_ref", sev, at, f"{at} = {v!r} is not an id of {to}", value=v, to=to)
+    return out
+
+
+def _step_run_id(conn, run_id: str, step_id: str) -> str | None:
+    r = conn.execute("SELECT id::text FROM workflow_step_run WHERE run_id = %s::uuid AND step_id = %s", (run_id, step_id)).fetchone()
+    return r[0] if r else None
+
+
+def store_findings(conn, run_id: str, step_id: str, pdf_sha256: str, findings: list[dict], *, check: str = "refs") -> int:
+    """Replace a paper's findings of this pass step (``workflow_finding`` with ``pdf_sha256``, no
+    record yet)."""
+    srid = _step_run_id(conn, run_id, step_id)
+    if srid is None:
+        return 0
+    with conn.transaction():
+        conn.execute('DELETE FROM workflow_finding WHERE step_run_id = %s::uuid AND pdf_sha256 = %s AND "check" = %s', (srid, pdf_sha256, check))
+        with conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO workflow_finding (id, run_id, step_run_id, step_id, "check", pdf_sha256, path, code, severity, message, detail)
+                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                [(str(uuid.uuid4()), run_id, srid, step_id, check, pdf_sha256, f.get("path"), f.get("code"), f.get("severity") or "warn",
+                  (f.get("message") or f.get("code") or "")[:1000], Json(f["detail"]) if f.get("detail") is not None else None) for f in findings])
+    return len(findings)
+
+
+def findings_by_code(conn, run_id: str, step_id: str) -> dict[str, int]:
+    rows = conn.execute("""SELECT f.code, count(*) FROM workflow_finding f JOIN workflow_step_run sr ON sr.id = f.step_run_id
+                           WHERE sr.run_id = %s::uuid AND sr.step_id = %s GROUP BY f.code ORDER BY f.code""", (run_id, step_id)).fetchall()
+    return {r[0]: int(r[1]) for r in rows}
+
+
+def refs_after(conn, run: dict, st: dict, pdf_sha256: str, entry: dict, output: dict, reads: dict[str, dict] | None = None) -> int:
+    """Run the reference check on a stored primary output and record its findings; returns the count."""
+    if reads is None:
+        try:
+            reads = _reads_for(conn, run, st, pdf_sha256)
+        except LookupError:
+            reads = {}
+    found = check_refs(entry, output, reads, pdf_sha256=pdf_sha256)
+    n = store_findings(conn, run["id"], st["id"], pdf_sha256, found)
+    with conn.transaction():
+        conn.execute("UPDATE workflow_pass_output SET findings = %s WHERE run_id = %s::uuid AND step_id = %s AND pdf_sha256 = %s AND role = 'primary'",
+                     (n, run["id"], st["id"], pdf_sha256))
+    return n
+
+
 # ── what a paper is to a run ─────────────────────────────────────────────────
 
 def paper_row(conn, run_id: str, pdf_sha256: str) -> dict | None:
@@ -285,16 +419,20 @@ def run_pass(conn, run: dict, st: dict, pdf_sha256: str, *, model: str, api_key:
     isha = inputs_sha(pages, reads, params, k, st.get("match"))
     prior = find_reusable(conn, pdf_sha256=pdf_sha256, code=code, prompt_sha256=psha, inputs_sha256=isha, model=model)
     if prior is not None and generate is None:
-        return store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=prior["output"], prompt_sha256=psha,
-                            inputs_sha256=isha, model=model, usage=None, n_calls=0, reused_from=prior["id"], supplied=prior["supplied"],
-                            stability=prior.get("stability"), log=[f"reused the output of run {prior['run_id'][:8]}"], store=store)
+        row = store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=prior["output"], prompt_sha256=psha,
+                           inputs_sha256=isha, model=model, usage=None, n_calls=0, reused_from=prior["id"], supplied=prior["supplied"],
+                           stability=prior.get("stability"), log=[f"reused the output of run {prior['run_id'][:8]}"], store=store)
+        row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, prior["output"], reads)
+        return row
     ctx = PassContext(entry=entry, run_id=run["id"], step_id=st["id"], pdf_sha256=pdf_sha256, pages=pages, paper=paper, params=params,
                       reads=reads, model=model, api_key=api_key, base_url=base_url, generate=generate, store=store)
     output = entry["fn"](ctx)
     if not isinstance(output, dict):
         raise ValueError(f"{code} returned {type(output).__name__}, not a JSON object")
-    return store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=output, prompt_sha256=psha,
-                        inputs_sha256=isha, model=model, usage=ctx.usage, n_calls=len(ctx.calls), log=ctx.log_lines, raw=ctx.raw, store=store)
+    row = store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=output, prompt_sha256=psha,
+                       inputs_sha256=isha, model=model, usage=ctx.usage, n_calls=len(ctx.calls), log=ctx.log_lines, raw=ctx.raw, store=store)
+    row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, output, reads)
+    return row
 
 
 def run_paper(conn, run_id: str, pdf_sha256: str, *, model: str | None = None, api_key: str = "", base_url: str | None = None,

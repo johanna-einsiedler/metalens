@@ -386,6 +386,18 @@ paper's job is terminal (the owner closes the uploads with `…/complete`), its 
 papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
 `GET …/passes/{step}/{sha}` serves one with its provenance.
 
+### References across passes
+
+A pass registration may declare `ids` (paths that mint ids, `estimands[].estimand_id`) and
+`refs` (`{"path": "estimates[].estimand_id", "to": "estimands:estimands[].estimand_id"}`, the
+earlier pass named by its read name; without one, this pass's own ids). After every pass the
+engine checks them: a value at `path` that no id was minted for is a `dangling_ref` finding on the
+paper (`dangling_path`, `bad_ref`, `duplicate_id`, `missing_id` likewise), counted on the output
+and per code on the step-run (`findings_by_code`). The registered check `refs` follows ids
+across a document's records and paper tables (`params.refs: [["results[].estimand_id",
+"paper.model_estimands[].estimand_id"]]`; `paper.` addresses the paper block, a trailing `[]` a
+list of ids).
+
 ## Review templates and questions
 
 A preset keeps the data contract and the prompt. A **review template**

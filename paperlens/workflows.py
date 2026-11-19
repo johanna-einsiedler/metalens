@@ -1338,7 +1338,8 @@ def _advance_pass(conn, run: dict, sr: dict, st: dict, complete: bool) -> bool:
     outputs = {"n_papers": len(landed), "done": [j["pdf_sha256"] for j in landed], "failed": failed,
                "reused": sum(1 for o in primaries if o.get("reused_from")), "supplied": sum(1 for o in primaries if o.get("supplied")),
                "n_calls": sum(int(o.get("n_calls") or 0) for o in outs), "usage": usage, "by_runs": by_runs,
-               "findings": sum(int(o.get("findings") or 0) for o in primaries), "code": code, "k": int(st.get("k") or 1)}
+               "findings": sum(int(o.get("findings") or 0) for o in primaries), "findings_by_code": passes.findings_by_code(conn, run["id"], sr["step_id"]),
+               "code": code, "k": int(st.get("k") or 1)}
     refunded = _refund_failed(conn, run, js)
     try:
         psha = chains.prompt_sha(code)

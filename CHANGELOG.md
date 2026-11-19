@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### References checked across passes and across a record
+
+- A pass registration declares `ids` (paths that mint ids: unique, non-empty) and `refs`
+  (`{path, to: "<read>:<path>"}`: every value must be an id the earlier pass minted); after
+  every pass — reused or supplied too — the engine checks them and records `dangling_ref`,
+  `bad_ref`, `duplicate_id`, `missing_id` and `dangling_path` as findings of the step on the
+  paper (`workflow_finding.pdf_sha256`), counted on the output and per code on the step-run.
+- A registered check `refs` does the same over a document's records and paper tables:
+  `params.refs` is a table of `[from, to]` paths (`results[].estimand_id`,
+  `paper.model_estimands[].estimand_id`, a trailing `[]` reads a list of ids).
+
 ### Pass steps: registered code runs per paper (`paperlens/passes.py`, `paperlens/chains/`)
 
 - A workflow step of kind `pass` runs registered code of a CHAIN per paper: the code may call the

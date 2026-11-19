@@ -4873,6 +4873,9 @@ def workflow_run_pass_supply(run_id: str, step_id: str, pdf_sha256: str, body: P
                               inputs_sha256=None, model=run.get("model"), usage=None, n_calls=0, role=body.role, pass_index=body.pass_index,
                               stability=body.stability, supplied=True, log=["supplied"])
     if body.role == "primary":
+        entry = chains.get(code)
+        if entry is not None:
+            row["findings"] = passes.refs_after(db, run, st, pdf_sha256, entry, body.output)
         job = next((j for j in workflows.jobs(db, run_id, step_id) if j["pdf_sha256"] == pdf_sha256), None)
         if job is None:
             with db.transaction():

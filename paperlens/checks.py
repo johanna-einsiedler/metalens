@@ -220,7 +220,51 @@ def check_claims_vs_tables(inputs: list[dict], params: dict) -> list[dict]:
     return out
 
 
+def check_refs(inputs: list[dict], params: dict) -> list[dict]:
+    """Ids referred to across a document's records and paper tables exist: ``refs`` is a table
+    of ``[from, to]`` paths — ``<field>``, ``<child>[].<field>`` on every record of the document,
+    ``paper.<table>[].<column>`` on its paper block; a trailing ``[]`` reads a list of ids. A
+    value at ``from`` that is no id minted at ``to`` is a ``dangling_ref`` on that record (or the
+    document, for a paper table)."""
+    from . import passes
+    inp = inputs[0]
+    by_doc: dict[str, list[dict]] = {}
+    for r in inp.get("records") or []:
+        by_doc.setdefault(r["document_id"], []).append(r)
+    out: list[dict] = []
+    for did, recs in by_doc.items():
+        pm = ((inp.get("documents") or {}).get(did) or {}).get("paper_metadata") or {}
+
+        def values(path: str) -> list[tuple[str | None, str, Any]]:
+            if path.startswith("paper."):
+                return [(None, at, v) for at, v in passes.walk(pm, path[len("paper."):])]
+            return [(r["id"], at, v) for r in recs for at, v in passes.walk(r["field_values"], path)]
+        for pair in params.get("refs") or []:
+            if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(x, str) for x in pair)):
+                continue
+            src, to = pair
+            try:
+                minted = {str(v) for _r, _a, v in values(to) if v not in (None, "")}
+                refs = values(src)
+            except ValueError:
+                continue
+            for rid, at, v in refs:
+                if v in (None, ""):
+                    continue
+                if not isinstance(v, (str, int)):
+                    out.append({"record_id": rid, "document_id": did, "path": at, "code": "bad_ref", "severity": "warn",
+                                "message": f"{at} is not an id", "detail": {"to": to}}); continue
+                if str(v) not in minted:
+                    out.append({"record_id": rid, "document_id": did, "path": at, "code": "dangling_ref", "severity": "error",
+                                "message": f"{at} = {v!r} is not an id of {to}", "detail": {"value": v, "to": to}})
+    return out
+
+
 REGISTRY: dict[str, dict] = {
+    "refs": {"label": "ids referred to across the record and its paper tables exist",
+             "applies_to": {"presets": "*", "unit": "entries"}, "inputs": 1,
+             "params": {"refs": {"type": "table", "default": []}},
+             "codes": {"dangling_ref": "error", "bad_ref": "warn"}, "fn": check_refs},
     "schema": {"label": "the declared contract, re-checked on the current values",
                "applies_to": {"presets": "*", "unit": "entries"}, "inputs": 1,
                "params": {"ignore": {"type": "list", "default": ["uncited_value", "uncited_row", "missing_confidence"]}},

@@ -122,3 +122,25 @@ def test_step_validation_knows_the_registry() -> None:
     assert any("reads 1 step" in e for e in errs)
     assert checks.REGISTRY["claims-vs-tables"]["needs_companion"] and set(checks.REGISTRY["regression-cells"]["codes"]) >= {"se_dangling_ref", "numeric_mismatch"}
     assert TABLES["regressions"][0]["cells"][1]["refers_to"] == 0        # the fixtures the DB tests build on are consistent
+
+
+def test_the_refs_check_follows_ids_across_a_documents_records_and_paper_tables() -> None:
+    recs = [{"id": "r1", "document_id": "d1", "paper_id": None, "entry_index": 0, "paper": {},
+             "field_values": {"task_id": "T1", "results": [{"estimate_id": "E1", "estimand_id": "Q1"}, {"estimate_id": "E2", "estimand_id": "Q9"}]}},
+            {"id": "r2", "document_id": "d1", "paper_id": None, "entry_index": 1, "paper": {},
+             "field_values": {"task_id": "T2", "results": [{"estimate_id": "E3", "estimand_id": "Q2"}]}}]
+    docs = {"d1": {"params": {}, "paper_metadata": {"model_estimands": [{"estimand_id": "Q1", "task": "T1"}, {"estimand_id": "Q2", "task": "T7"}],
+                                                   "claims": [{"claim_id": "C1", "estimate_ids": ["E1", "E3", "E8"]}]}}}
+    params = {"refs": [["results[].estimand_id", "paper.model_estimands[].estimand_id"],
+                       ["paper.model_estimands[].task", "task_id"],
+                       ["paper.claims[].estimate_ids[]", "results[].estimate_id"],
+                       ["nope", 3]]}
+    found = checks.check_refs([{"records": recs, "documents": docs}], params)
+    assert [(f["record_id"], f["path"], f["code"], f["detail"]["value"]) for f in found] == [
+        ("r1", "results[1].estimand_id", "dangling_ref", "Q9"),
+        (None, "model_estimands[1].task", "dangling_ref", "T7"),
+        (None, "claims[0].estimate_ids[2]", "dangling_ref", "E8")]
+    assert all(f["document_id"] == "d1" and f["severity"] == "error" for f in found)
+    errs: list[str] = []
+    checks.validate_step({"id": "r", "check": "refs", "over": ["x"], "params": {"refs": [["a", "b"]]}}, "$.steps[1]", errs.append, lambda m: None, presets_of={"x": ECON})
+    assert errs == []
