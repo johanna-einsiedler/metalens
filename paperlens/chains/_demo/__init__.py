@@ -43,8 +43,18 @@ def _mark(ctx) -> dict:
     return out
 
 
+def _majority(ctx, outputs: list[dict]) -> dict:
+    """The output most runs agree on, byte for byte (the first on a tie), and how many agreed."""
+    import json
+    from collections import Counter
+    keys = [json.dumps(o, sort_keys=True) for o in outputs]
+    best, n = Counter(keys).most_common(1)[0]
+    return {"primary": outputs[keys.index(best)], "stability": {"agree": n, "distinct": len(set(keys))}}
+
+
 def register() -> dict[str, dict]:
     return {
+        "majority": {"kind": "match", "label": "The output most runs agree on", "hidden": True, "fn": _majority},
         "assemble": {"kind": "compute", "label": "Assemble a document from the passes", "produces": "document", "reads": ["title", "words"],
                      "params": {"field": {"type": "string", "default": "statement"}}, "hidden": True, "fn": _assemble},
         "mark": {"kind": "compute", "label": "Mark every record", "produces": "fields", "reads": [],

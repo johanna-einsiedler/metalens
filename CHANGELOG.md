@@ -8,6 +8,15 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A pass run k times, folded by the chain's matcher
+
+- A pass step with `k` runs its code k times per paper (each run stored, `role: run`, its
+  index) and the chain's registered matcher (`match`, `fn(ctx, outputs) -> {primary,
+  stability}`; it may call the model) folds them into the primary output the later steps read,
+  stored with its `stability` (the matcher's, plus `n_runs`, `k`, the failed runs). Fewer
+  successful runs than `chain.runs_needed(k)` fail the paper. The step-run counts papers by
+  their number of runs (`by_runs`); a run is served by `?role=run&pass_index=`.
+
 ### Compute steps: registered code writes data
 
 - A workflow step of kind `compute` runs a chain's registered deterministic code per paper,

@@ -426,14 +426,58 @@ def run_pass(conn, run: dict, st: dict, pdf_sha256: str, *, model: str, api_key:
                            stability=prior.get("stability"), log=[f"reused the output of run {prior['run_id'][:8]}"], store=store)
         row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, prior["output"], reads)
         return row
-    ctx = PassContext(entry=entry, run_id=run["id"], step_id=st["id"], pdf_sha256=pdf_sha256, pages=pages, paper=paper, params=params,
-                      reads=reads, model=model, api_key=api_key, base_url=base_url, generate=generate, store=store)
-    output = entry["fn"](ctx)
-    if not isinstance(output, dict):
-        raise ValueError(f"{code} returned {type(output).__name__}, not a JSON object")
-    row = store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=output, prompt_sha256=psha,
-                       inputs_sha256=isha, model=model, usage=ctx.usage, n_calls=len(ctx.calls), log=ctx.log_lines, raw=ctx.raw, store=store)
-    row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, output, reads)
+    def make_ctx(i: int) -> PassContext:
+        return PassContext(entry=entry, run_id=run["id"], step_id=st["id"], pdf_sha256=pdf_sha256, pages=pages, paper=paper, params=params,
+                           reads=reads, model=model, api_key=api_key, base_url=base_url, generate=generate, store=store, pass_index=i)
+    if k <= 1:
+        ctx = make_ctx(0)
+        output = entry["fn"](ctx)
+        if not isinstance(output, dict):
+            raise ValueError(f"{code} returned {type(output).__name__}, not a JSON object")
+        row = store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=output, prompt_sha256=psha,
+                           inputs_sha256=isha, model=model, usage=ctx.usage, n_calls=len(ctx.calls), log=ctx.log_lines, raw=ctx.raw, store=store)
+        row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, output, reads)
+        return row
+    # k runs, each stored, then the chain's matcher folds them into the primary the later steps read
+    from . import chain as _chain
+    matcher = chains.get(str(st.get("match") or ""))
+    if matcher is None or matcher.get("kind") != "match":
+        raise LookupError(f"{st['id']}: k = {k} needs a matcher of the chain (match)")
+    runs: list[dict] = []
+    failed: list[dict] = []
+    usage = {"prompt": 0, "completion": 0, "total": 0}
+    n_calls = 0
+    raw: list[str] = []
+    log: list[str] = []
+    for i in range(k):
+        ctx = make_ctx(i)
+        try:
+            out_i = entry["fn"](ctx)
+            if not isinstance(out_i, dict):
+                raise ValueError(f"{code} returned {type(out_i).__name__}, not a JSON object")
+        except Exception as exc:  # noqa: BLE001 - a run may fail; the paper decides
+            failed.append({"pass_index": i, "error": str(exc)[:300]}); log.append(f"run {i + 1} of {k} failed: {str(exc)[:120]}")
+            n_calls += len(ctx.calls); raw += ctx.raw
+            continue
+        store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=out_i, prompt_sha256=psha, inputs_sha256=isha,
+                     model=model, usage=ctx.usage, n_calls=len(ctx.calls), role="run", pass_index=i, log=ctx.log_lines, raw=ctx.raw, store=store)
+        runs.append(out_i)
+        n_calls += len(ctx.calls); raw += ctx.raw
+        for key in usage:
+            usage[key] += int(ctx.usage.get(key) or 0)
+    if len(runs) < _chain.runs_needed(k):
+        raise RuntimeError(f"{len(failed)} of {k} runs failed" + (f": {failed[0]['error']}" if failed else ""))
+    mctx = make_ctx(k)
+    res = matcher["fn"](mctx, runs)
+    if not isinstance(res, dict) or not isinstance(res.get("primary"), dict):
+        raise ValueError(f"{matcher['id']} returned no primary output")
+    n_calls += len(mctx.calls); raw += mctx.raw; log += mctx.log_lines
+    for key in usage:
+        usage[key] += int(mctx.usage.get(key) or 0)
+    stability = {**(res.get("stability") or {}), "n_runs": len(runs), "k": k, "matcher": matcher["id"], "failed": failed}
+    row = store_output(conn, run_id=run["id"], step_id=st["id"], code=code, pdf_sha256=pdf_sha256, output=res["primary"], prompt_sha256=psha,
+                       inputs_sha256=isha, model=model, usage=usage, n_calls=n_calls, stability=stability, log=log, raw=raw, store=store)
+    row["findings"] = refs_after(conn, run, st, pdf_sha256, entry, res["primary"], reads)
     return row
 
 

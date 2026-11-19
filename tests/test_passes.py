@@ -369,3 +369,70 @@ def test_compute_steps_make_documents_from_the_passes_and_edit_them_through_the_
     docs2 = c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"]
     assert len(docs2) == 2 and {d["document_id"] for d in docs2}.isdisjoint({d["document_id"] for d in docs})
     conn.close()
+
+
+def test_k_runs_of_a_pass_are_folded_by_the_chains_matcher(tmp_path, monkeypatch) -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    _force_local(monkeypatch)
+    conn = records.connect(); records.init_db(conn)
+    wdir = tmp_path / "wf"; wdir.mkdir(exist_ok=True)
+    spec = {"format": 1, "id": "demo-k", "meta": {"title": "Demo k"},
+            "steps": [{"id": "title", "kind": "pass", "pass": chains.pin("_demo.title"), "k": 3, "match": "_demo.majority"},
+                      {"id": "words", "kind": "pass", "pass": chains.pin("_demo.words"), "reads": ["title"]},
+                      {"id": "release", "kind": "release", "gate": []}]}
+    (wdir / "demo-k.json").write_text(json.dumps(spec))
+    monkeypatch.setenv("PAPERLENS_WORKFLOW_DIRS", str(wdir))
+    assert ws.validate(ws.normalize(json.loads(json.dumps(spec))))[0] == []
+    bad = json.loads(json.dumps(spec)); bad["steps"][0]["match"] = "_demo.title"
+    assert any("match must name a matcher" in e for e in ws.validate(ws.normalize(bad))[0])
+    # the model answers a different title on its second call for the first paper, fails once for the second
+    calls = {"n": 0}
+    def fake(model, api_key, *, system, user, schema, max_tokens, base_url=None, **kw):
+        calls["n"] += 1
+        if system.startswith("Read the paper"):
+            if "omicron" in user:
+                if calls["n"] % 3 == 2:
+                    raise ValueError("refused once")
+                return json.dumps({"title": "Omicron", "words": [{"id": "w1", "word": "o"}]}), "stop", {"prompt": 1, "completion": 1, "total": 2}, "fake"
+            t = "Theta" if calls["n"] != 2 else "Theta (variant)"
+            return json.dumps({"title": t, "words": [{"id": "w1", "word": "t"}]}), "stop", {"prompt": 1, "completion": 1, "total": 2}, "fake"
+        return json.dumps({"words": [{"title_id": "w1", "word": "p1"}]}), "stop", {"prompt": 1, "completion": 1, "total": 2}, "fake"
+    monkeypatch.setattr(providers, "generate_json", fake)
+    sess = f"k-{uuid.uuid4().hex[:6]}"
+    ds = _dataset(conn, sess)
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-k"}).status_code == 200
+    pdfs = {"theta": _pdf("theta"), "omicron": _pdf("omicron")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    sha = {n: _sha(b) for n, b in pdfs.items()}
+    plan = c.post(f"/api/datasets/{ds}/workflow/plan", headers=H, json={"new_pdfs": staged}).json()
+    assert plan["steps"][0]["calls_per_paper"] == 3 and plan["n_calls"] == 8                   # 3 runs × 2 papers + the words pass
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json(); rid = run["id"]
+    for n, b in pdfs.items():
+        assert c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "done", (view["status"], view.get("error"))
+    t = view["steps"][0]
+    assert t["outputs"]["n_papers"] == 2 and t["outputs"]["by_runs"] == {"3": 1, "2": 1} and t["outputs"]["n_calls"] == 5 and t["n_calls"] == 5   # the refused call made no answer
+    theta = c.get(f"/api/workflow-runs/{rid}/passes/title/{sha['theta']}", headers=H).json()
+    assert theta["output"]["title"] == "Theta" and theta["stability"]["agree"] == 2 and theta["stability"]["distinct"] == 2 and theta["stability"]["n_runs"] == 3
+    assert theta["stability"]["matcher"] == "_demo.majority" and theta["n_calls"] == 3 and theta["usage"]["total"] == 6
+    r1 = c.get(f"/api/workflow-runs/{rid}/passes/title/{sha['theta']}", headers=H, params={"role": "run", "pass_index": 1}).json()
+    assert r1["output"]["title"] == "Theta (variant)" and r1["role"] == "run" and r1["n_calls"] == 1
+    omi = c.get(f"/api/workflow-runs/{rid}/passes/title/{sha['omicron']}", headers=H).json()
+    assert omi["stability"]["n_runs"] == 2 and omi["stability"]["failed"][0]["error"] == "refused once" and omi["output"]["title"] == "Omicron"
+    rows = c.get(f"/api/workflow-runs/{rid}/passes/title", headers=H).json()["outputs"]
+    assert sorted((r["pdf_sha256"] == sha["theta"], r["role"], r["pass_index"]) for r in rows) == sorted(
+        [(True, "run", 0), (True, "run", 1), (True, "run", 2), (True, "primary", 0), (False, "run", 1), (False, "run", 2), (False, "primary", 0)])   # omicron: its first run was refused
+    # the words pass read the primary
+    w = c.get(f"/api/workflow-runs/{rid}/passes/words/{sha['theta']}", headers=H).json()
+    assert w["output"]["title_len"] == len("Theta")
+    # with k = 2 a single failure sinks the paper (both runs are needed)
+    spec["steps"][0]["k"] = 2; (wdir / "demo-k.json").write_text(json.dumps(spec))
+    calls["n"] = 0
+    eps = _pdf("omicron-two")
+    run2 = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": [{"sha256": _sha(eps), "filename": "omicron-two.pdf"}]}).json(); rid2 = run2["id"]
+    r = c.post(f"/api/workflow-runs/{rid2}/papers", headers=H, files={"pdf": ("omicron.pdf", eps, "application/pdf")}, data={"api_key": "k", "model": "m"})
+    assert r.status_code == 200 and "1 of 2 runs failed" in r.json()["failed"]["title"]
+    conn.close()

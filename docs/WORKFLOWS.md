@@ -386,6 +386,17 @@ paper's job is terminal (the owner closes the uploads with `…/complete`), its 
 papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
 `GET …/passes/{step}/{sha}` serves one with its provenance.
 
+### Repeated runs
+
+`k` on a pass step runs the pass k times per paper — each run stored with its index — and the
+chain's matcher named by `match` (a registered entry of kind `match`: `fn(ctx, outputs) ->
+{primary, stability}`, free to call the model once for what it cannot align) folds them into the
+PRIMARY output the later passes and computes read, stored with its `stability` (the matcher's own
+record, plus `n_runs`, `k` and the runs that failed). A paper lands when at least
+`chain.runs_needed(k)` runs succeed (all of one, else at least half and at least two). The
+step-run's outputs count papers by their number of runs (`by_runs`); `GET …/passes/{step}/{sha}
+?role=run&pass_index=i` serves one run.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:
