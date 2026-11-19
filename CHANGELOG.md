@@ -10,6 +10,14 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 
 ### The GenAI-at-work review as a workflow
 
+- The workflow gained the pipeline's record as a fourth side (`genai-work-extraction`, bundled;
+  supplied, not reviewed) and two kinds of deterministic step: `genai-work-record`, the pipeline's
+  checks ported to the record as stored (structure, plausibility and scale, statistics within the
+  rounding, SD versus SE, duplicates, numbers against their quotes — what needs the exhibit
+  transcriptions, the t-statistic, the text quote or the second run stays in the pipeline), and a
+  schema check after each coded pass. Findings are notes on the records; the routing stays the
+  pipeline's. Check inputs now carry the quotes behind the values.
+
 - The three validation presets of the GenAI-at-work review (`genai-work-judgment`,
   `genai-work-extraction-check`, `genai-work-routed`; import mode, generated in the review
   project and copied here) are bundled, and `genai-work` is a bundled workflow over them: three

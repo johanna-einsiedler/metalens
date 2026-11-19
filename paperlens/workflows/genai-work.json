@@ -1,33 +1,154 @@
 {
   "format": 1,
   "id": "genai-work",
-  "version": 1,
+  "version": 2,
   "meta": {
     "title": "GenAI at work — validation of the extraction",
     "tagline": "The pipeline's record of each paper checked by coders in three passes: a blind judgment of design and units by two coders, one exhibit's cells against the print, every routed flag resolved.",
     "description": "One workflow over the three validation presets of the GenAI-at-work review: the pipeline's record of every paper enters as import files with the PDF (the quoted passages highlighted), and coders check it in three passes, each in a dataset of its own. Judgment: the study's screening and design from the PDF alone, the units as extracted (tasks, arms, outcomes, subgroups, horizons) with the coder's categories, the abstract's sentences against their units — two coders per paper. Extraction check: one exhibit per paper, drawn at random by the pipeline, every cited cell as printed against its unit, misses added, a full-review flag. Routed papers: a paper whose record contradicts an inclusion criterion, whose headline estimate scores high on the checks, or that a coder flagged — every flag resolved by a coder. The coders are added by email to the workflow dataset; each paper of a pass is assigned to its coders, who code it independently; the release waits for every assigned verdict.",
     "authors": [
-      {"family": "Einsiedler", "given": "Johanna", "orcid": "0000-0002-6312-6861", "affiliation": "University of Basel; University of Copenhagen"}
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
     ],
-    "keywords": ["generative AI", "work", "validation", "double coding", "economics", "evidence synthesis"],
+    "keywords": [
+      "generative AI",
+      "work",
+      "validation",
+      "double coding",
+      "economics",
+      "evidence synthesis"
+    ],
     "license": "CC-BY-4.0",
-    "brands": ["metalens"]
+    "brands": [
+      "metalens"
+    ]
   },
-  "card": {"file": "genai-work.card.md"},
-  "dataset": {"unit": "paper", "key": "pdf_sha256"},
+  "card": {
+    "file": "genai-work.card.md"
+  },
+  "dataset": {
+    "unit": "paper",
+    "key": "pdf_sha256"
+  },
   "steps": [
-    {"id": "judgment", "kind": "extract", "label": "Judgment", "dataset": "judgment",
-     "preset": "genai-work-judgment@7c55d22b", "source": "supplied",
-     "help": "the study's screening and design from the PDF alone, the units as extracted with the coder's categories, the abstract's sentences against their units; two coders per paper, each blind to the other",
-     "review": {"mode": "all", "unit": "paper", "coders": 2, "blocks": "release"}},
-    {"id": "check", "kind": "extract", "label": "Extraction check", "dataset": "check",
-     "preset": "genai-work-extraction-check@0f13fe6c", "source": "supplied",
-     "help": "one exhibit per paper, drawn at random by the pipeline: every cited cell as printed against its unit, the cells the extraction missed added, a full-review flag",
-     "review": {"mode": "all", "unit": "paper", "coders": 1, "blocks": "release"}},
-    {"id": "routed", "kind": "extract", "label": "Routed papers", "dataset": "routed",
-     "preset": "genai-work-routed@83b871a1", "source": "supplied",
-     "help": "a paper whose record contradicts an inclusion criterion, whose headline estimate scores high on the checks, or that a coder flagged: every flag resolved",
-     "review": {"mode": "all", "unit": "paper", "coders": 1, "blocks": "release"}},
-    {"id": "release", "kind": "release", "label": "Release", "gate": ["judgment", "check", "routed"]}
+    {
+      "id": "extraction",
+      "kind": "extract",
+      "label": "Extraction record",
+      "dataset": "extraction",
+      "preset": "genai-work-extraction@da3f72fd",
+      "source": "supplied",
+      "help": "the pipeline's record of the paper — the tasks, their arms and outcomes, one reference row and one contrast row per estimate with the numbers as printed — uploaded with the PDF; not reviewed here, checked below",
+      "review": {
+        "mode": "none"
+      }
+    },
+    {
+      "id": "judgment",
+      "kind": "extract",
+      "label": "Judgment",
+      "dataset": "judgment",
+      "preset": "genai-work-judgment@7c55d22b",
+      "source": "supplied",
+      "help": "the study's screening and design from the PDF alone, the units as extracted with the coder's categories, the abstract's sentences against their units; two coders per paper, each blind to the other",
+      "review": {
+        "mode": "all",
+        "unit": "paper",
+        "coders": 2,
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "check",
+      "kind": "extract",
+      "label": "Extraction check",
+      "dataset": "check",
+      "preset": "genai-work-extraction-check@0f13fe6c",
+      "source": "supplied",
+      "help": "one exhibit per paper, drawn at random by the pipeline: every cited cell as printed against its unit, the cells the extraction missed added, a full-review flag",
+      "review": {
+        "mode": "all",
+        "unit": "paper",
+        "coders": 1,
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "routed",
+      "kind": "extract",
+      "label": "Routed papers",
+      "dataset": "routed",
+      "preset": "genai-work-routed@83b871a1",
+      "source": "supplied",
+      "help": "a paper whose record contradicts an inclusion criterion, whose headline estimate scores high on the checks, or that a coder flagged: every flag resolved",
+      "review": {
+        "mode": "all",
+        "unit": "paper",
+        "coders": 1,
+        "blocks": "release"
+      }
+    },
+    {
+      "id": "record",
+      "kind": "check",
+      "label": "Record checks",
+      "check": "genai-work-record",
+      "over": [
+        "extraction"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the pipeline's deterministic checks over the record as stored: structure, plausibility and scale, statistics within the rounding, SD vs SE, duplicates, numbers against their quotes; findings are notes on the records, the routing stays the pipeline's"
+    },
+    {
+      "id": "contract_judgment",
+      "kind": "check",
+      "label": "Contract check (judgment)",
+      "check": "schema",
+      "over": [
+        "judgment"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the declared fields, types and options of the pass re-checked on the values as stored, after the coders' corrections; findings are notes on the records, never a verdict"
+    },
+    {
+      "id": "contract_check",
+      "kind": "check",
+      "label": "Contract check (extraction check)",
+      "check": "schema",
+      "over": [
+        "check"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the declared fields, types and options of the pass re-checked on the values as stored, after the coders' corrections; findings are notes on the records, never a verdict"
+    },
+    {
+      "id": "contract_routed",
+      "kind": "check",
+      "label": "Contract check (routed papers)",
+      "check": "schema",
+      "over": [
+        "routed"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the declared fields, types and options of the pass re-checked on the values as stored, after the coders' corrections; findings are notes on the records, never a verdict"
+    },
+    {
+      "id": "release",
+      "kind": "release",
+      "label": "Release",
+      "gate": [
+        "judgment",
+        "check",
+        "routed"
+      ]
+    }
   ]
 }
