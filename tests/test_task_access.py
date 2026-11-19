@@ -113,7 +113,8 @@ def test_in_local_mode_the_local_owner_is_the_projects_one_person(monkeypatch) -
     from paperlens import app as appmod, localmode
     conn = records.connect(); records.init_db(conn)
     monkeypatch.setenv("PAPERLENS_LOCAL_MODE", "1")
-    monkeypatch.setenv("PAPERLENS_LOCAL_USER_ID", str(uuid.uuid4()))
+    row = conn.execute("SELECT id::text FROM users WHERE email = %s", (localmode.LOCAL_EMAIL,)).fetchone()   # an earlier test may have made the local owner under another id
+    monkeypatch.setenv("PAPERLENS_LOCAL_USER_ID", row[0] if row else str(uuid.uuid4()))
     monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD", raising=False)
     uid = localmode.ensure_local_user(conn)
     spec = ws.normalize(copy.deepcopy(SPEC)); spec["steps"][2]["coders"] = 1
@@ -123,10 +124,12 @@ def test_in_local_mode_the_local_owner_is_the_projects_one_person(monkeypatch) -
     run = me.post(f"/api/datasets/{pid}/workflow/runs", json={}).json(); rid = run["id"]
     _upload(me, rid, uuid.uuid4().hex[:6])
     for step in ("tables", "claims"):
-        me.post(f"/api/workflow-runs/{rid}/complete", json={"step_id": step})
+        r = me.post(f"/api/workflow-runs/{rid}/complete", json={"step_id": step})
+        assert r.status_code == 200, r.text
+    assert r.json()["status"] == "done", (r.json().get("error"), [(s_["step_id"], s_["status"], s_.get("error")) for s_ in r.json().get("steps") or []])
     conn.rollback()
     t = next(t for t in me.get(f"/api/projects/{pid}/tasks").json()["tasks"] if t["step_id"] == "two")
-    assert t["gate"]["assigned"] is True and t["gate"]["total"] == 2 and not t["gate"].get("needs_coders")   # the paper's two records, one coder
+    assert t["gate"] and t["gate"]["assigned"] is True and t["gate"]["total"] == 2 and not t["gate"].get("needs_coders"), t   # the paper's two records, one coder
     assert [x["coders"][0]["user_id"] for x in t["assignments"]] == [uid] and t["assignments"][0]["coders"][0]["label"] == "coder_1"
     assert [p["user_id"] for p in me.get(f"/api/projects/{pid}/people").json()["people"]] == [uid]
     assert coders.is_coder(conn, pid, Principal(user_id=uid, session_id=None))
