@@ -46,7 +46,7 @@ def reconstruct_publishable(res: IngestResult) -> dict[str, Any]:
     out: dict[str, Any] = {}
 
     if res.paper_metadata_raw is not None:
-        out["paper_metadata"] = copy.deepcopy(res.paper_metadata_raw)
+        out["paper_metadata"] = contract.strip_row_ids(res.paper_metadata_raw)     # a deep copy without the internal row ids
         paper_conf = [c for c in res.confidence if c.placement == "paper"]
         if paper_conf:
             out["paper_metadata"][contract.CONFIDENCE_KEY] = _nest(paper_conf)

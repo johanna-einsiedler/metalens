@@ -15,6 +15,7 @@ import math
 import os
 import re
 import sys
+import copy
 import uuid
 from typing import Any
 
@@ -776,9 +777,10 @@ def document_view(conn: psycopg.Connection, document_id: str, *, store=None) -> 
     # rows are addressed by id: the path handed to the client names where the row sits NOW
     fv_by_rec = {r["id"]: r["field_values"] for r in records_out}
     fv_by_entry = {r["entry_index"]: r["field_values"] for r in records_out}
+    pm_rows = paper_metadata_raw if isinstance(paper_metadata_raw, dict) else {}       # a paper-level quote's rows live in the paper block
     evidence_out = [
         {"record_id": str(rid) if rid else None, "entry_index": ei, "page": pg,
-         "field_path": contract.live_path(fp, crid, rrid, fv_by_rec.get(str(rid)) if rid else fv_by_entry.get(ei)),
+         "field_path": contract.live_path(fp, crid, rrid, fv_by_rec.get(str(rid)) if rid else fv_by_entry.get(ei) if ei is not None else pm_rows),
          "snippet": sn, "source": src, "rect": rect}
         for (rid, ei, pg, fp, sn, src, rect, crid, rrid) in ev_rows
     ]
@@ -1004,6 +1006,7 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
             conn.execute("UPDATE record SET verification_status = %s WHERE id = %s::uuid",
                          (status, record_id))
         if field_values is not None:
+            contract.ensure_row_ids(field_values)              # a row added by hand gets its permanent id here
             conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid",
                          (Json(field_values), record_id))
         elif patch:
@@ -1020,6 +1023,7 @@ def verify_record(conn: psycopg.Connection, record_id: str, *, status: str,
                 if not isinstance(p, dict) or not p.get("field_path"):
                     raise ValueError("a patch names a field_path and a value")
                 contract.set_path(fv, p["field_path"], p.get("value"))
+            contract.ensure_row_ids(fv)
             conn.execute("UPDATE record SET field_values = %s WHERE id = %s::uuid", (Json(fv), record_id))
     return {"id": eid, "record_id": record_id, "status": status,
             "verifier_kind": verifier_kind}
@@ -2557,11 +2561,13 @@ def set_paper_metadata_fields(conn: psycopg.Connection, document_id: str, fields
         raise KeyError(document_id)
     raw = dict(row[0]) if isinstance(row[0], dict) else {}
     diff = []
-    for name, value in (fields or {}).items():
+    fields = copy.deepcopy(fields or {})
+    contract.ensure_row_ids(fields)                           # a table row added by hand gets its permanent id
+    for name, value in fields.items():
         if raw.get(name) == value:
             continue
-        diff.append({"field_path": f"paper_metadata.{name}", "original_value": raw.get(name),
-                     "final_value": value})
+        diff.append({"field_path": f"paper_metadata.{name}", "original_value": contract.strip_row_ids(raw.get(name)),
+                     "final_value": contract.strip_row_ids(value)})
         raw[name] = value
     if diff:
         with conn.transaction():

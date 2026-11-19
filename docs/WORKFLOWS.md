@@ -36,7 +36,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   `agent` steps are grammar-valid and refused at plan time until their release. Several extract
   steps are fine when each names its dataset role (linked datasets, below); `k` runs with a
   `vote`, `input.previous` and loops run.
-- **A review is a step.** `{"kind": "review", "over": [steps], "mode": "all" | "sample", "unit":
+- **A review is a step.** `{"kind": "review", "over": [steps], "template": "<id>", "mode": "all" | "sample", "unit":
   "entry" | "paper", "blocks": "next" | "release", "coders": N, "new_only": true}`: `over` names
   the earlier extract steps it reads (several: a joint review, each paper's documents of those
   steps in one worklist), or one derive step (the review is the draft's commit). `blocks`
@@ -50,7 +50,9 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   reports the draws: "Sampled 30/412 · 93% agree", with the estimated error rate and its 95%
   interval in the long label, next to the audited share; a record verified outside a draw never
   enters the estimate. `new_only: false` reviews every paper of the sides on every run, not only
-  the run's new ones. A data step no review step covers is never reviewed: an extract step's
+  the run's new ones. `template` names a review template (below): how the coder checks the
+  records and what they answer; it must be `for` the preset of every step the review reads, and
+  is part of the contract. A data step no review step covers is never reviewed: an extract step's
   records count as AI-only, a draft is committed at once. The form before — `"review": {…}` on
   the extract or derive step — is still read: it becomes the review step `<step>_review` right
   after it, with the same contract (below).
@@ -297,9 +299,79 @@ enough; the owner may move a paper between coders (`POST …/assign`) until a ve
 `coders` is part of the workflow's contract.
 
 Exports carry every coding (`codings` per record, `paper_codings` per paper, coders by label —
-`coder_1`, `coder_2` … — with emails for the owner alone); a release freezes them (`codings` in
-the snapshot, `codings.json` in the zip) next to the paper-level values, and a new coding counts
-as a change since the last release.
+`coder_1`, `coder_2` … — with emails for the owner alone, each with its `answers`); a release
+freezes them (`codings` in the snapshot, `codings.json` in the zip) next to the paper-level
+values, and a new coding counts as a change since the last release.
+
+## Review templates and questions
+
+A preset keeps the data contract and the prompt. A **review template**
+(`paperlens/templates/<id>.json`, `PAPERLENS_TEMPLATE_DIRS` too) says how a person checks records
+of one contract and what they answer — the review declaration a preset's `display.review` used to
+carry, with QUESTIONS:
+
+```jsonc
+{"format": 1, "id": "genai-work-judgment", "meta": {"title": "…"}, "for": "genai-work-extraction",
+ "layout": "stages", "items": "evidence_items", "verify": "paper",
+ "blind": {"fields": ["task_label", "ai_role", "…"], "paper_fields": "unshown"},
+ "stages": [
+  {"id": "design", "label": "Study design", "help": "…", "evidence": "none",
+   "blocks": [{"unit": "paper", "show": [], "sections": [{"label": "Screening", "fields": ["screen_ai_treatment", "…"]}],
+               "questions": [{"name": "scale", "type": "enum", "options_from": "scale", "required": true}, "…"]}]},
+  {"id": "units", "label": "Units", "help": "…",
+   "blocks": [{"unit": "entries", "show": ["task_name", "task_description"], "mask_numbers": true,
+               "questions": [{"name": "category", "type": "enum", "options_from": "task_label", "allow_other": true, "required": true},
+                             {"name": "verdict", "type": "enum", "options": ["ok", "not_a_task", "unsure"], "required": true}],
+               "add": {"label": "a task the list lacks", "fields": [{"name": "task_name", "type": "string"}]}},
+              {"unit": "arms", "show": ["arm_label", "treatment"], "group_by_entry": true, "marks": [{"when": "is_baseline", "text": "(reference arm)"}],
+               "questions": [{"name": "category", "type": "enum", "options_from": [{"field": "control_type", "prefix": "ref:", "label_prefix": "reference arm · "},
+                                                                                   {"field": "ai_role", "prefix": "ai:", "label_prefix": "treatment arm · "}], "required": true}]},
+              {"unit": {"distinct": "model_estimands.subgroup"}, "where": {"subgroup": {"not_in": [null, "", "full_sample"]}},
+               "questions": [{"name": "verdict", "type": "enum", "options": ["ok", "not_in_paper", "unsure"]}]}]},
+  {"id": "headline", "label": "Headline",
+   "blocks": [{"unit": "paper_metadata.claims", "where": {"kind": {"in": ["abstract"]}}, "show": ["sentence", "task", "arms", "outcome"], "title": "{sentence}", "mask_numbers": true,
+               "questions": [{"name": "verdict", "type": "enum", "options": ["unit_right", "unit_wrong", "unsure"], "required": true}]}]}]}
+```
+
+A stage holds **blocks**, each over a **unit**: `paper`, `entries` (one card per entry), a child's
+key (its rows, `group_by_entry` under their entry), `paper_metadata.<table>` (a paper table's rows)
+or `{"distinct": "<child or table>.<field>"}` (the distinct values of a column, with how many rows
+carry each). `show` lists the unit's fields drawn on the card — editable into the coder's coding as
+any cell, read-only when the block says `mask_numbers` (digits become `#`, in the shown text, the
+stage's items and the quotes). `where` keeps the rows that meet it: `{"<column>": value | {"in" |
+"not_in" | "not_null" | "null" | "gt" | "gte" | "lt" | "lte" | "eq" | "sampled": …}}` (a key
+`paper_metadata.<field>` reads the paper block). `marks` annotate a row (`when` a boolean field,
+`when_nonempty` any field; `text` may name fields in braces), `title` names the card. `questions`
+are field declarations the coder answers — `name`, `type` (string, text, integer, number, boolean,
+enum, multi, list), `label`, `help`, `options` or `options_from` (an enum or multi field of the
+preset, or several with a value `prefix` and a `label_prefix`), `allow_other`, `required`,
+`required_when` (the same small grammar, over the unit's values and its answers). `add` lets the
+coder add a unit the paper has and the list lacks: its `fields` are answered like questions, under
+a key of the coder's own. `sections` and `inline` lay the block out as a stage does. `blind.fields`
+names the fields whose model values never reach the coder's payload (nor the quotes on them, the
+model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
+no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
+only when the block does not show that field — a blind answer to the question the model answered.
+
+**Answers** live in the coder's coding, never on the record: `record_coding.answers` for the
+entry's own unit (`""`) and a child's rows (`"<child>#<_rid>"`), `document_coding.answers` for the
+paper (`""`), a paper table's rows (`"<table>#<_rid>"`), distinct values
+(`"<path>.<field>=<value>"`) and added units (`"<unit>#+<id>"`) — keyed template → unit → question;
+every write is a `coding_event` (status `noted`), never a disagreement. A review step with
+`template` opens its gate with the template (`review.template`, `review.template_id`); the queue
+names the **task** (`<run>:<step>`), and `GET /api/documents/{id}/view?task=` serves the document
+through it: a coder gets the projection — blind values gone, numbers masked, the template under
+`template`, their `answers` — and `POST /api/documents/{id}/answers {task, record_id?, unit,
+answers}` writes theirs (422 for a value outside the options or an unknown unit). The workspace
+draws a template stage as its blocks, a card per unit with the questions under the shown fields,
+and says how many required answers are owed; `done` (and a verdict sent with `task`) is refused
+while any is missing. The owner reads every coder's answers under each unit (`answers_by_coder`)
+with the coders' disagreements marked, unblinded, and writes none. Exports and releases carry the
+answers with each coding. `template_id` = `<id>@<sha8>` over what the template asks (units,
+filters, the questions' names, types, options and requiredness); it is recorded on the gate and
+enters the workflow's contract when a step names it. `GET /api/templates`, `GET
+/api/templates/{id}` (resolved against its preset) and `POST /api/templates/validate` describe them;
+a preset's own `display.review` keeps working as its implicit template, without questions.
 
 ## Versions and citation
 
@@ -329,4 +401,6 @@ release, run_id}`. See `REPRODUCIBILITY.md`.
 | `POST …/workflow/plan`, `POST …/workflow/runs`, `GET …/workflow/runs` | plan, start, list |
 | `GET /api/workflow-runs/{rid}`, `POST …/advance`, `/resume`, `/complete`, `/cancel`, `/retry`, `GET …/issues` | one run |
 | `GET /api/workflow-runs/{rid}/queue/{step}[?coder=]`, `POST …/assign` | a gate's worklist (a coder's own); who reviews a paper |
+| `GET /api/templates`, `GET /api/templates/{id}`, `POST /api/templates/validate` | the review templates |
+| `GET /api/documents/{id}/view?task=<run>:<step>`, `POST /api/documents/{id}/answers` | a document through a task's template; a coder's answers on a unit |
 | `GET/POST /api/datasets/{id}/coders`, `DELETE …/coders/{user}`, `GET /api/datasets?coder=1` | the dataset's coders; the datasets I code |

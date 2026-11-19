@@ -1,7 +1,7 @@
 {
   "format": 1,
   "id": "genai-work",
-  "version": 2,
+  "version": 3,
   "meta": {
     "title": "GenAI at work — validation of the extraction",
     "tagline": "The pipeline's record of each paper checked by coders in three passes: a blind judgment of design and units by two coders, one exhibit's cells against the print, every routed flag resolved.",
@@ -40,9 +40,9 @@
       "kind": "extract",
       "label": "Extraction record",
       "dataset": "extraction",
-      "preset": "genai-work-extraction@da3f72fd",
+      "preset": "genai-work-extraction@cea73929",
       "source": "supplied",
-      "help": "the pipeline's record of the paper — the tasks, their arms and outcomes, one reference row and one contrast row per estimate with the numbers as printed — uploaded with the PDF; not reviewed, checked below"
+      "help": "the pipeline's record of the paper — the tasks with their arms and outcomes, one reference row and one contrast row per estimate with the numbers as printed, the claims of its text, its exhibits with their transcribed cells, the flags its checks raised and its routing — uploaded with the PDF; not reviewed, checked below"
     },
     {
       "id": "judgment",

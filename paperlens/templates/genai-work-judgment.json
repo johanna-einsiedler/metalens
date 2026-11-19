@@ -1,0 +1,698 @@
+{
+  "format": 1,
+  "id": "genai-work-judgment",
+  "version": 1,
+  "meta": {
+    "title": "GenAI at work — judgment",
+    "tagline": "A blind judgment of the study's design and of the extraction's units, then the abstract's sentences against their units.",
+    "description": "The judgment pass of the GenAI-at-work validation as a review template over the pipeline's record: the coder decides the screening criteria and the design from the PDF alone, confirms every task, arm and outcome the extraction listed (without the model's categories or numbers) and gives each its category, confirms the subgroups and horizons, and says for each sentence of the abstract whether it is about the unit the extraction matched it to.",
+    "brands": [
+      "metalens"
+    ]
+  },
+  "for": "genai-work-extraction",
+  "layout": "stages",
+  "items": "evidence_items",
+  "verify": "paper",
+  "blind": {
+    "fields": [
+      "task_label",
+      "soc_major_group",
+      "task_structure",
+      "task_embodiment",
+      "k_score",
+      "g_score",
+      "i_score",
+      "r_score",
+      "control_type",
+      "ai_role",
+      "ai_model",
+      "is_agentic",
+      "ai_measure",
+      "sample_population_type",
+      "sample_expertise",
+      "sample_representativeness",
+      "outcome_direction",
+      "outcome_type",
+      "outcome_finding",
+      "outcome_measure_kind",
+      "outcome_measured_on",
+      "outcome_class",
+      "finding_type",
+      "measure_kind",
+      "direction",
+      "contrast_type",
+      "estimand_type",
+      "measured_on",
+      "statistic",
+      "summary",
+      "study_notes",
+      "task_notes",
+      "arm_notes",
+      "result_notes",
+      "triage_score",
+      "route_reasons",
+      "routed"
+    ],
+    "paper_fields": "unshown"
+  },
+  "stages": [
+    {
+      "id": "design",
+      "label": "Study design",
+      "help": "From the PDF alone — nothing is prefilled and nothing is highlighted on this panel. Decide the three screening criteria first, then the design fields; a field the paper does not state stays empty. Use the marks tool (✎) to keep the passages you relied on; write doubts in Notes.",
+      "evidence": "none",
+      "blocks": [
+        {
+          "unit": "paper",
+          "show": [],
+          "sections": [
+            {
+              "label": "Screening",
+              "fields": [
+                "screen_ai_treatment",
+                "screen_work_outcome",
+                "screen_design"
+              ]
+            },
+            {
+              "label": "Design",
+              "fields": [
+                "scale",
+                "research_design",
+                "identification_strategy",
+                "experimental_design",
+                "unit_of_analysis",
+                "data_source"
+              ]
+            },
+            {
+              "label": "Period and sample",
+              "fields": [
+                "period_start_year",
+                "period_start_month",
+                "period_end_year",
+                "period_end_month",
+                "sample_size"
+              ]
+            },
+            {
+              "label": "Setting",
+              "fields": [
+                "preregistered",
+                "incentivized",
+                "vendor_affiliated"
+              ]
+            },
+            {
+              "label": "Topic",
+              "fields": [
+                "focus_topic",
+                "focus_topic_secondary",
+                "focus_dimension"
+              ]
+            },
+            {
+              "label": "Notes",
+              "fields": [
+                "notes"
+              ]
+            }
+          ],
+          "inline": [
+            [
+              "period_start_year",
+              "period_start_month"
+            ],
+            [
+              "period_end_year",
+              "period_end_month"
+            ]
+          ],
+          "questions": [
+            {
+              "name": "screen_ai_treatment",
+              "type": "enum",
+              "label": "Screening 1: AI as the treatment",
+              "help": "whether a generative AI tool is used while the measured work is produced, compared with the same work done without it (not met when the AI is used only before the measurement as a tutor, feedback tool or practice aid, when both arms use AI, when AI is only the researchers' method, or when it is evaluated on its own with no humans using it)",
+              "options_from": "screen_ai_treatment",
+              "required": true
+            },
+            {
+              "name": "screen_work_outcome",
+              "type": "enum",
+              "label": "Screening 2: a work outcome",
+              "help": "whether an outcome is the output of a work task, or of a task built to emulate one, judged on time, quantity, quality or accuracy (not met: grades and test scores, puzzles that stand for no job, how people worked rather than what they produced, a recipient's health or experience, well-being, attitudes, trust or perceptions alone)",
+              "options_from": "screen_work_outcome",
+              "required": true
+            },
+            {
+              "name": "screen_design",
+              "type": "enum",
+              "label": "Screening 4: an experimental or quasi-experimental design",
+              "help": "whether the paper compares work done with the AI against work done without it by design: an RCT, a lab or field experiment, a natural or quasi-experiment, a single group before and after (not met: surveys, qualitative or case studies, reviews, theory, descriptive studies, a protocol without results)",
+              "options_from": "screen_design",
+              "required": true
+            },
+            {
+              "name": "scale",
+              "type": "enum",
+              "label": "Scale",
+              "help": "the level at which the study examines AI's effects, by the primary unit of analysis and the level at which outcomes and conclusions are analysed, not by sample size or setting: a large sample of individual workers is micro; meso only when organisational outcomes are directly examined; macro only when aggregate labour-market or economic outcomes are studied; with several levels, the primary level of the empirical analysis",
+              "options_from": "scale",
+              "required": true
+            },
+            {
+              "name": "research_design",
+              "type": "enum",
+              "label": "Research design",
+              "help": "the study's overall empirical design, by how AI exposure is assigned and how the study is organised, for the paper's main with-versus-without-AI comparison; a paper whose tasks differ in design takes the main comparison's, the others noted in task_notes; the estimator goes in identification_strategy",
+              "options_from": "research_design"
+            },
+            {
+              "name": "identification_strategy",
+              "type": "enum",
+              "label": "Identification strategy",
+              "help": "the primary method used to identify or estimate the causal effect of AI exposure in the main comparison: the actual estimation method, not a broad label such as natural experiment; a specific strategy over generic regression adjustment",
+              "options_from": "identification_strategy"
+            },
+            {
+              "name": "experimental_design",
+              "type": "enum",
+              "label": "Experimental design",
+              "help": "whether the same people did the work with and without AI or different people did",
+              "options_from": "experimental_design"
+            },
+            {
+              "name": "unit_of_analysis",
+              "type": "enum",
+              "label": "Unit of analysis",
+              "help": "the unit the main estimates are computed on",
+              "options_from": "unit_of_analysis"
+            },
+            {
+              "name": "data_source",
+              "type": "multi",
+              "label": "Data source",
+              "help": "the data actually analysed, all that apply; not how participants were recruited or how data were collected: MTurk, Prolific and similar platforms used only for recruitment are neither online_freelancing_data nor online_platform_data",
+              "options_from": "data_source"
+            },
+            {
+              "name": "period_start_year",
+              "type": "integer",
+              "label": "Data period start, year",
+              "help": "the year the data begin, as the paper states it"
+            },
+            {
+              "name": "period_start_month",
+              "type": "integer",
+              "label": "Data period start, month",
+              "help": "the month (1-12) the data begin, when the paper gives it; null otherwise"
+            },
+            {
+              "name": "period_end_year",
+              "type": "integer",
+              "label": "Data period end, year",
+              "help": "the year the data end, as the paper states it"
+            },
+            {
+              "name": "period_end_month",
+              "type": "integer",
+              "label": "Data period end, month",
+              "help": "the month (1-12) the data end, when the paper gives it; null otherwise"
+            },
+            {
+              "name": "sample_size",
+              "type": "integer",
+              "label": "Sample size",
+              "help": "the analysed number of human participants in the comparison that establishes the AI effect (the with-versus-without-AI design research_design describes), across its tasks; not a survey, descriptive dataset or pilot in the same paper; with several qualifying studies, the largest; people, never observations, tasks or firms (give those in study_notes); -1 if not stated"
+            },
+            {
+              "name": "preregistered",
+              "type": "enum",
+              "label": "Preregistered",
+              "help": "whether the study was preregistered (a registry, an analysis plan) as the paper states it",
+              "options_from": "preregistered"
+            },
+            {
+              "name": "incentivized",
+              "type": "enum",
+              "label": "Performance incentives",
+              "help": "whether participants' pay, grade or advancement depended on their performance in the task (performance pay, a bonus, a graded assignment), not merely on taking part; if unclear, default to not_stated",
+              "options_from": "incentivized"
+            },
+            {
+              "name": "vendor_affiliated",
+              "type": "enum",
+              "label": "Vendor affiliated",
+              "help": "whether an author is affiliated with, or the study was funded or run by, the provider of the AI tool studied (the firm that makes or sells it); read from the title page and the funding note by the coder, which the model does not see",
+              "options_from": "vendor_affiliated"
+            },
+            {
+              "name": "focus_topic",
+              "type": "enum",
+              "label": "Focus topic",
+              "help": "the one topic the paper's stated research question speaks to first; the quote is where the paper states its question",
+              "options_from": "focus_topic"
+            },
+            {
+              "name": "focus_topic_secondary",
+              "type": "multi",
+              "label": "Focus topic (secondary)",
+              "help": "other topics the findings also speak to, each with its own quote; empty when there is none; never other beside a category that fits",
+              "options_from": "focus_topic_secondary"
+            },
+            {
+              "name": "focus_dimension",
+              "type": "multi",
+              "label": "Focus dimension",
+              "help": "whether the study focuses on workers (supply) or on employers' demand for labour (demand); both only when both are explicitly studied. Default to supply for worker-focused studies, including most AI productivity and collaboration experiments; never infer demand from productivity gains, economic outcomes or possible employment implications; demand only when employer labour demand is directly examined. Quote the paper's own statement of its question or findings, never a cited work",
+              "options_from": "focus_dimension"
+            },
+            {
+              "name": "notes",
+              "type": "text",
+              "label": "Notes",
+              "help": "doubts, what the paper leaves unclear, what you relied on"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "units",
+      "label": "Units",
+      "help": "The units as the extraction listed them, without categories and without numbers. Each row's page tag opens the passage it rests on. Confirm or reject each row (blank = as in the paper) and **give every task, arm and outcome its category** — a task's kind of work; the comparison a reference arm stands for or the part the AI played in a treatment arm; the kind of finding an outcome speaks to. ◆ marks an index that groups other listed outcomes. Add a row (＋) for a task, arm, outcome, subgroup or horizon the paper has and the list lacks.",
+      "blocks": [
+        {
+          "unit": "entries",
+          "label": "Tasks",
+          "show": [
+            "task_name",
+            "task_description"
+          ],
+          "mask_numbers": true,
+          "questions": [
+            {
+              "name": "category",
+              "type": "enum",
+              "label": "Category",
+              "help": "the category the core activity falls in; type the paper's own term when none fits",
+              "options_from": "task_label",
+              "allow_other": true,
+              "required": true
+            },
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "blank or ok = a task as the paper has it; not_a_task = not a piece of work done by participants; split_or_merge = the paper has one where this lists two, or the reverse",
+              "options": [
+                {
+                  "value": "ok"
+                },
+                {
+                  "value": "not_a_task"
+                },
+                {
+                  "value": "split_or_merge"
+                },
+                {
+                  "value": "unsure"
+                },
+                {
+                  "value": "unsure",
+                  "label": "Unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ],
+          "add": {
+            "label": "a task the list lacks",
+            "fields": [
+              {
+                "name": "task_name",
+                "type": "string",
+                "label": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "unit": "arms",
+          "label": "Arms",
+          "show": [
+            "arm_label",
+            "treatment"
+          ],
+          "group_by_entry": true,
+          "mask_numbers": true,
+          "marks": [
+            {
+              "when": "is_baseline",
+              "text": "(reference arm)"
+            }
+          ],
+          "questions": [
+            {
+              "name": "category",
+              "type": "enum",
+              "label": "Category",
+              "help": "reference arm: what the comparison is against; treatment arm: how the AI took part in the work; type the paper's own term when none fits",
+              "required": true,
+              "allow_other": true,
+              "options_from": [
+                {
+                  "field": "control_type",
+                  "prefix": "ref:",
+                  "label_prefix": "reference arm · "
+                },
+                {
+                  "field": "ai_role",
+                  "prefix": "ai:",
+                  "label_prefix": "treatment arm · "
+                }
+              ]
+            },
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "blank or ok = a condition as the paper has it; not_an_arm = a subgroup, a period or a benchmark, not a condition; wrong = the description does not fit",
+              "options": [
+                {
+                  "value": "ok"
+                },
+                {
+                  "value": "not_an_arm"
+                },
+                {
+                  "value": "wrong"
+                },
+                {
+                  "value": "unsure"
+                },
+                {
+                  "value": "unsure",
+                  "label": "Unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ],
+          "add": {
+            "label": "an arm the list lacks",
+            "fields": [
+              {
+                "name": "arm_label",
+                "type": "string",
+                "label": "Arm"
+              }
+            ]
+          }
+        },
+        {
+          "unit": "outcomes",
+          "label": "Outcomes",
+          "show": [
+            "outcome_name",
+            "outcome_unit",
+            "how_measured"
+          ],
+          "group_by_entry": true,
+          "mask_numbers": true,
+          "marks": [
+            {
+              "when_nonempty": "composite_of",
+              "text": "◆ index of {composite_of}"
+            }
+          ],
+          "questions": [
+            {
+              "name": "category",
+              "type": "enum",
+              "label": "Category",
+              "help": "the kind of finding the measure speaks to, with the class it implies [performance, behaviour, subjective, labour market]; type the paper's own term when none fits",
+              "options_from": "outcome_finding",
+              "required": true
+            },
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "blank or ok = a measure the paper reports for a task; duplicate = the same measure listed twice (an index and its components are not duplicates)",
+              "options": [
+                {
+                  "value": "ok"
+                },
+                {
+                  "value": "not_an_outcome"
+                },
+                {
+                  "value": "wrong"
+                },
+                {
+                  "value": "duplicate"
+                },
+                {
+                  "value": "unsure"
+                },
+                {
+                  "value": "duplicate",
+                  "label": "Duplicate"
+                },
+                {
+                  "value": "unsure",
+                  "label": "Unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ],
+          "add": {
+            "label": "an outcome the list lacks",
+            "fields": [
+              {
+                "name": "outcome_name",
+                "type": "string",
+                "label": "Outcome"
+              }
+            ]
+          }
+        },
+        {
+          "unit": {
+            "distinct": "model_estimands.subgroup"
+          },
+          "label": "Subgroups",
+          "where": {
+            "subgroup": {
+              "not_in": [
+                null,
+                "",
+                "full_sample"
+              ]
+            }
+          },
+          "questions": [
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "blank = as in the paper; set only what is wrong",
+              "options": [
+                {
+                  "value": "ok"
+                },
+                {
+                  "value": "not_in_paper"
+                },
+                {
+                  "value": "unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ],
+          "add": {
+            "label": "a subgroup the list lacks",
+            "fields": [
+              {
+                "name": "subgroup",
+                "type": "string",
+                "label": "Subgroup"
+              }
+            ]
+          }
+        },
+        {
+          "unit": {
+            "distinct": "model_estimands.horizon"
+          },
+          "label": "Horizons",
+          "where": {
+            "horizon": {
+              "not_in": [
+                null,
+                "",
+                "post"
+              ]
+            }
+          },
+          "questions": [
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "blank = as in the paper; set only what is wrong",
+              "options": [
+                {
+                  "value": "ok"
+                },
+                {
+                  "value": "not_in_paper"
+                },
+                {
+                  "value": "unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ],
+          "add": {
+            "label": "a horizon the list lacks",
+            "fields": [
+              {
+                "name": "horizon",
+                "type": "string",
+                "label": "Horizon"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "headline",
+      "label": "Headline",
+      "help": "Each sentence of the abstract (numbers masked) with the unit the extraction matched it to, one line each: the task, the arm and its reference, the outcome, the sample, the horizon. Say whether the sentence is about that unit. Then press done; set *Full review needed* when the paper's extraction as a whole looks doubtful, and say why.",
+      "blocks": [
+        {
+          "unit": "paper_metadata.claims",
+          "label": "The abstract's sentences",
+          "where": {
+            "kind": {
+              "in": [
+                "abstract"
+              ]
+            }
+          },
+          "show": [
+            "sentence",
+            "task",
+            "arms",
+            "outcome",
+            "subgroup",
+            "horizon"
+          ],
+          "title": "{sentence}",
+          "mask_numbers": true,
+          "questions": [
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "unit_right = the sentence is about this task, these arms, this outcome, sample and horizon; unit_wrong = about another; claim_without_unit = a result the paper reports that no listed unit covers; not_a_claim = background, method, implication",
+              "options": [
+                {
+                  "value": "unit_right"
+                },
+                {
+                  "value": "unit_wrong"
+                },
+                {
+                  "value": "claim_without_unit"
+                },
+                {
+                  "value": "not_a_claim"
+                },
+                {
+                  "value": "unsure"
+                },
+                {
+                  "value": "not_a_claim",
+                  "label": "Not a claim"
+                },
+                {
+                  "value": "unsure",
+                  "label": "Unsure"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ]
+        },
+        {
+          "unit": "paper",
+          "label": "This paper",
+          "show": [],
+          "questions": [
+            {
+              "name": "full_review",
+              "type": "enum",
+              "label": "Full review needed",
+              "help": "yes when what you saw makes the whole extraction of this paper doubtful; say why",
+              "options": [
+                {
+                  "value": "no",
+                  "label": "no"
+                },
+                {
+                  "value": "yes",
+                  "label": "yes"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "full_review_why",
+              "type": "string",
+              "label": "Why"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

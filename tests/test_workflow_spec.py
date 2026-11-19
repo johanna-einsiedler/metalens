@@ -42,7 +42,7 @@ LEGACY = {
     ],
 }
 BUNDLED_IDS = {"econ": "econ@6e4eb2b5", "econ-claims": "econ-claims@45c8b5b5", "econ-regressions": "econ-regressions@4d38b5f4",
-               "genai-work": "genai-work@a92931fb", "masem": "masem@d13605f1"}
+               "genai-work": "genai-work@7962f4c3", "masem": "masem@d13605f1"}
 
 
 def _errors(mutate) -> list[str]:
@@ -106,7 +106,7 @@ def test_defaults_are_filled_and_the_good_workflow_validates() -> None:
     ("review mode none", lambda d: d["steps"][1].__setitem__("mode", "none"), "a review step reviews"),
     ("review unit", lambda d: d["steps"][1].__setitem__("unit", "column"), "unit must be"),
     ("review unit row (later)", lambda d: d["steps"][1].__setitem__("unit", "row"), "later release"),
-    ("review template (later)", lambda d: d["steps"][1].__setitem__("template", "x"), "later release"),
+    ("review template unknown", lambda d: d["steps"][1].__setitem__("template", "x"), "unknown template"),
     ("review new_only", lambda d: d["steps"][1].__setitem__("new_only", "yes"), "new_only must be"),
     ("review blocks", lambda d: d["steps"][1].__setitem__("blocks", "everything"), "blocks must be"),
     ("review over nothing", lambda d: d["steps"][1].__setitem__("over", []), "over must list"),

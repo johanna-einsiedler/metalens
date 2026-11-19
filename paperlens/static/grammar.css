@@ -704,3 +704,23 @@ body.coder .study-ident[contenteditable="false"] ~ * { display: none !important;
 .issue-note { cursor: pointer; }
 .issue-list { margin: 4px 0 0 16px; padding: 0; font-size: 11.5px; color: var(--text-muted); }
 .issue-list li { margin: 1px 0; }
+
+/* ── a review template's blocks (static/template.js): a card per unit, its questions under the shown fields ── */
+.tq-block { margin: 0 0 14px; }
+.tq-block-h { font-size: 15px; font-weight: 700; color: var(--text); margin: 12px 0 4px; }
+.tq-block-help { font-size: 12.5px; line-height: 1.45; margin: 0 0 6px; color: var(--text-muted); }
+.tq-unit { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0 0 8px; background: var(--surface); }
+.tq-unit.tq-added { border-style: dashed; }
+.tq-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-weight: 600; margin: 0 0 4px; }
+.tq-title .tq-mark { font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.tq-title .tq-del { margin-left: auto; border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 13px; padding: 0 4px; }
+.tq-title .tq-del:hover { color: #b3261e; }
+.tq-shown .rv-obj { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.tq-q { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.tq-q .rv-key { color: var(--accent); }
+.tq-group-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 10px 0 2px; }
+.tq-empty { font-size: 12.5px; color: var(--text-muted); margin: 2px 0 8px; }
+.ans-by { font-size: 12px; margin: 4px 0 0; color: var(--text-muted); }
+.ans-by b { color: var(--text); }
+.ans-diff { background: var(--accent-wash); border-radius: 3px; padding: 0 3px; }
+.stg-owe { font-size: 12px; color: #a8562a; margin-left: 6px; }

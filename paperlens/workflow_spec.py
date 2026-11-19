@@ -644,7 +644,13 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
         E(f"{at}.oversample_flagged must be a boolean")
     if not isinstance(st.get("new_only", True), bool):
         E(f"{at}.new_only must be a boolean (the run's new papers only, or every paper of the sides)")
-    for k in ("template", "where", "table", "per_paper"):
+    if st.get("template") is not None:                       # a review template: how the coder checks, what they answer
+        if draft:
+            E(f"{at}.template: a draft is reviewed as a change, not by a template")
+        else:
+            from . import templates
+            templates.validate_for_step(st, by_id, at, E)
+    for k in ("where", "table", "per_paper"):
         if st.get(k) is not None:
             E(f"{at}.{k} arrives in a later release")
     coders = st.get("coders")                               # each paper reviewed by N of the coders, independently

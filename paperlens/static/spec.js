@@ -43,6 +43,9 @@ export function viewModel(DATA) {
     for (const f of ch.fields || []) vm.fieldIndex.set(f.name, { scope: "child", field: f, child: ch.key });
   }
   vm.hidden = new Set((spec.display && spec.display.hidden) || []);   // fields the card leaves out (identifiers, what a sheet shows)
+  // the review the workspace draws: a task's review template (paperlens/templates.py) when the
+  // document was opened through one, else the preset's own display.review
+  vm.review = DATA.template && Array.isArray(DATA.template.stages) ? DATA.template : ((spec.display && spec.display.review) || null);
   vm.tabs = completeTabs(vm, (spec.display && spec.display.tabs) || []);
   return vm;
 }

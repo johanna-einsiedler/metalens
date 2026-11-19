@@ -170,6 +170,7 @@ def ingest(result: str | dict, *, entries_key: str | None = None) -> IngestResul
         paper_metadata_raw.pop(contract.LEGACY_CONFIDENCE_KEY, None)
         _take_confidence(paper_metadata_raw, contract.CONFIDENCE_KEY, placement="paper",
                          entry_index=None, field_path="paper_metadata")
+        contract.assign_row_ids(paper_metadata_raw)          # a paper table's rows are addressed by id like a child's
     else:
         paper_metadata_raw = None
 
@@ -266,6 +267,8 @@ def ingest(result: str | dict, *, entries_key: str | None = None) -> IngestResul
     for s in evidence:
         if s.entry_index is not None and s.entry_index in fv_by_entry:
             s.child_rid, s.row_rid = contract.row_refs(s.field_path, fv_by_entry[s.entry_index])
+        elif s.entry_index is None and paper_metadata_raw is not None and (s.field_path or "").startswith("paper_metadata."):
+            s.child_rid, s.row_rid = contract.row_refs(s.field_path, paper_metadata_raw)
 
     paper_typed = _typed_paper(paper_metadata_raw)
 

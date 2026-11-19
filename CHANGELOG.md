@@ -8,6 +8,45 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Review templates: what a review asks, answered into the coding
+
+- A **review template** (`paperlens/templates/<id>.json`, `paperlens/templates.py`) says how a
+  person checks records of one preset and what they answer: stages of blocks over units — the
+  paper, the entries, a child's rows, a paper table's rows, the distinct values of a column — each
+  with the fields shown (editable into the coding; read-only and digit-masked where the block says),
+  marks, a `where` filter, and QUESTIONS (typed, with options of their own or `options_from` a
+  field of the preset, required or `required_when`); `add` lets the coder add a unit the list
+  lacks; `blind` keeps the model's values for the named fields (and every unshown paper field)
+  out of the coder's payload. Three templates are bundled for the GenAI-at-work validation
+  (`genai-work-judgment`, `genai-work-check`, `genai-work-routed`), all `for` the extraction
+  record. A review step names one with `template` (part of the contract).
+- **Answers** live in the coder's coding (`record_coding.answers`, `document_coding.answers`,
+  keyed template → unit → question; each write a `coding_event` of status `noted`), never on the
+  record and never a disagreement. The queue names the task; `GET /api/documents/{id}/view?task=`
+  serves the document through the template (the coder's projection with their `answers`; the owner
+  whole with `answers_by_coder`); `POST /api/documents/{id}/answers` writes a coder's; a verdict
+  sent with `task` is refused while required answers are missing. The workspace draws a template
+  stage as its blocks (`static/template.js`): a card per unit, the questions under the shown
+  fields, the owed count in the bar, "done" held until the answers are in; the owner sees each
+  coder's answers under every unit with disagreements marked. Exports and releases carry the
+  answers with each coding. `GET /api/templates[/{id}]`, `POST /api/templates/validate`.
+
+### Row ids on the paper block; the extraction record says more
+
+- A paper-level table's rows carry the same permanent id as a sub-entry's (`_rid`, assigned at
+  ingest, random for a row added by hand — the client gives one, the server adds one to a row
+  that arrives without), and a paper-level quote refers to its row by it: deleting or inserting a
+  row never moves a quote onto its neighbour (`paper_metadata.claims[3]` is brought up to date
+  from the id). The publishable round-trip form carries no id, on the paper block either; the
+  audit diff of a table edit carries none.
+- The `genai-work-extraction` contract (v20, `@cea73929`) gains the task's description, an arm's
+  `treatment`, an outcome's `composite_of`, and four paper tables the pipeline fills — `claims`
+  (the sentences of the text mapped to their estimates and units), `exhibits` (the tables and
+  figures the estimates were read from), `exhibit_cells` (their transcribed cells, each with the
+  estimate it fed) and `flags` (what the checks raised) — with `routed`, `route_reasons` and
+  `triage_score`. The `genai-work` workflow pins it (v3, `@7962f4c3`); the three validation
+  passes still read their own import files until the review templates land.
+
 ### A review is a step
 
 - A workflow's human review is a step of its own (`kind: review`): `over` names the extract steps
