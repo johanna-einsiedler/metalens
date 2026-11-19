@@ -74,10 +74,17 @@ def main() -> int:
         check("Code the tables" in task and "1 coder per paper" in task and "0 of 2 checked" in task, f"the review task with its progress: {task[:120]!r}")
         p.locator("#wd-tasklist details summary").first.click(); p.wait_for_timeout(300)
         check(p.locator("#wd-tasklist .wd-matrix tbody tr").count() == 1 and p.locator("#wd-tasklist .wd-move").count() == 1, "the assignment matrix: one paper, a move-to select")
+        cfg = p.locator("#wd-tasklist .wd-cfg").first
+        check(cfg.count() == 1 and "the workflow's" in cfg.locator("option").first.inner_text(), "the owner's people-per-paper select, the workflow's number first")
+        cfg.select_option("2"); p.wait_for_timeout(900)
+        check(p.locator("#wd-tasklist .wd-cfg").first.input_value() == "2", "…a choice is kept on the task")
+        p.locator("#wd-tasklist .wd-cfg").first.select_option(""); p.wait_for_timeout(600)
         shot(p, "project-owner.png")
         # ── the coder ──
         ctx_c, pc = signed_in(a.coder)
         pc.goto(f"{a.url}/projects"); pc.wait_for_selector("#tasks-section:not([hidden])", timeout=25000)
+        coded = pc.locator("#coded .proj-tile").all_inner_texts()
+        check(len(coded) == 1 and "tables" in coded[0], f"Coding for lists the task's dataset alone (access follows the task): {coded}")
         tile = pc.locator("#tasks .proj-tile").first
         check(tile.count() == 1 and "Code the tables" in tile.inner_text() and "2" in tile.inner_text() and "still to check" in tile.inner_text(), f"My review tasks lists the task with the share: {tile.inner_text()[:100]!r}")
         check(pc.locator("#wf-section h3").inner_text().strip() == "Projects", "the workflows section is named Projects")

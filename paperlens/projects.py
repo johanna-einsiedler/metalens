@@ -11,6 +11,7 @@ from __future__ import annotations
 import psycopg
 
 from . import coders, records, review_gate, workflows
+from . import coders as coders_module
 from . import workflow_spec as ws
 
 
@@ -46,7 +47,9 @@ def _task(conn: psycopg.Connection, run: dict, sr: dict, st: dict, labels: dict)
     rv = ws.review_of(st)
     header = sr.get("review") or {}
     state = review_gate.state(conn, sr) if header else None
+    cfg = review_gate.task_config(conn, run.get("dataset_id"), sr["step_id"])
     out = {"step_run_id": sr["id"], "run_id": run["id"], "step_id": sr["step_id"], "label": st.get("label") or sr["step_id"], "help": st.get("help"),
+           "config": cfg, "coders_from": header.get("coders_from"), "named": header.get("named"), "missing": header.get("missing"),
            "status": sr["status"], "over": list(st.get("over") or []), "datasets": list((sr.get("outputs") or {}).get("datasets") or []),
            "template": rv.get("template"), "template_id": header.get("template_id"), "unit": rv.get("unit"), "mode": rv.get("mode"),
            "table": rv.get("table"), "per_paper": rv.get("per_paper"), "where": rv.get("where"), "coders": rv.get("coders"),
@@ -82,6 +85,47 @@ def tasks(conn: psycopg.Connection, project: dict, *, run: dict | None = None) -
             if sr["kind"] == "review" and sr["step_id"] in by_id]
 
 
+def set_task_config(conn: psycopg.Connection, project: dict, step_id: str, coders) -> dict | None:
+    """The owner's hand on a task: ``coders`` an integer (how many of the project's people review
+    each paper, over the step's N) or a list of emails or user ids (which ones; each must be in
+    the pool), or None to clear. A gate of the active run that still waits for coders assigns
+    at once. Returns the stored config, or None when cleared."""
+    pool = coders_module.coders_of(conn, project["id"])
+    by_email = {c["email"].lower(): c["user_id"] for c in pool}
+    ids = {c["user_id"] for c in pool}
+    if coders is None:
+        with conn.transaction():
+            conn.execute("DELETE FROM project_task_config WHERE project_id = %s::uuid AND step_id = %s", (project["id"], step_id))
+        stored = None
+    else:
+        if isinstance(coders, int) and not isinstance(coders, bool):
+            if coders < 1:
+                raise ValueError("coders must be at least 1")
+            stored = coders
+        elif isinstance(coders, list):
+            stored = []
+            for x in coders:
+                uid = by_email.get(str(x).lower()) or (x if x in ids else None)
+                if uid is None:
+                    raise ValueError(f"{x} is not one of the project's people")
+                if uid not in stored:
+                    stored.append(uid)
+            if not stored:
+                raise ValueError("name at least one of the project's people")
+        else:
+            raise ValueError("coders must be a count or a list of the project's people")
+        with conn.transaction():
+            conn.execute("""INSERT INTO project_task_config (project_id, step_id, coders) VALUES (%s::uuid, %s, %s)
+                            ON CONFLICT (project_id, step_id) DO UPDATE SET coders = EXCLUDED.coders, updated_at = now()""",
+                         (project["id"], step_id, __import__("psycopg").types.json.Json(stored)))
+    run = workflows.active_run(conn, project["id"]) or next(iter(workflows.list_runs(conn, project["id"], limit=1)), None)
+    if run:
+        for sr in workflows.step_runs(conn, run["id"]):
+            if sr["step_id"] == step_id and (sr.get("review") or {}).get("coders") and not (sr.get("review") or {}).get("assigned"):
+                review_gate.ensure_assigned(conn, sr)
+    return {"coders": stored} if stored is not None else None
+
+
 def tasks_for(conn: psycopg.Connection, user_id: str | None) -> list[dict]:
     """My review tasks: every task of a live run that assigned this account a paper, with what is
     left of their share, newest run first."""
@@ -91,6 +135,7 @@ def tasks_for(conn: psycopg.Connection, user_id: str | None) -> list[dict]:
         """SELECT DISTINCT a.run_id::text, a.step_id, a.step_run_id::text, r.dataset_id::text, d.title,
                   CASE WHEN d.group_id = d.id THEN 'workflow' ELSE 'dataset' END, r.created_at
            FROM workflow_assignment a JOIN workflow_run r ON r.id = a.run_id JOIN dataset d ON d.id = r.dataset_id
+           JOIN dataset_coder c ON c.dataset_id = r.dataset_id AND c.user_id = a.coder_user_id          -- still in the project's pool
            WHERE a.coder_user_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned')
            ORDER BY r.created_at DESC, a.step_id""", (user_id,)).fetchall()
     out = []

@@ -877,12 +877,19 @@ async function loadTasks() {
     const mine = myId && (g.by_coder || []).find((b) => b.user_id === myId);
     const people = (g.by_coder || []).length ? ` · by coder: ${g.by_coder.map((b) => `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}` : "";
     const waits = g.needs_coders ? ` · <span class="badge tier-sample_verified">waits for ${g.needs_coders} coders per paper</span>` : "";
+    // the owner's hand on the task: how many of the project's people review each paper, over the workflow's number
+    const cfgN = t.config && typeof t.config.coders === "number" ? t.config.coders : null;
+    const cfg = OWNER && t.coders ? ` <select class="wd-cfg" data-step="${esc(t.step_id)}" title="how many of the project's people review each paper of this task (the workflow says ${t.coders})">`
+      + `<option value=""${cfgN == null ? " selected" : ""}>${t.coders} per paper (the workflow's)</option>${[1, 2, 3].filter((n) => n !== t.coders).map((n) => `<option value="${n}"${cfgN === n ? " selected" : ""}>${n} per paper</option>`).join("")}</select>` : "";
     const matrix = OWNER && (t.assignments || []).length ? `<details class="wd-matrix"><summary class="muted">who reviews which paper (${t.assignments.length})</summary><table class="ds-cc"><thead><tr><th>Paper</th><th>Coders</th></tr></thead><tbody>${t.assignments.map((a) => `<tr><td>${esc(a.title || a.document_id)}</td><td>${a.coders.map((c) => `<span class="badge${c.done ? " tier-human_verified" : ""}" title="${c.done ? "every verdict given" : "still coding"}">${esc(c.label)}${c.done ? " ✓" : ""}</span>`).join(" ")}
         ${a.coders.some((c) => !c.done) && (OV.coders || []).length > a.coders.length ? ` <select class="wd-move" data-srid="${esc(t.step_run_id)}" data-doc="${esc(a.document_id)}" title="move this paper to another coder (the slot of the first coder who has not given a verdict)"><option value="">move to…</option>${(OV.coders || []).filter((c) => !a.coders.some((x) => x.user_id === c.user_id)).map((c) => `<option value="${esc(c.user_id)}">${esc(c.label)}</option>`).join("")}</select>` : ""}</td></tr>`).join("")}</tbody></table></details>` : "";
     return `<div class="ds-dashrow wd-task"><span class="wf-kind" title="review">👁</span> <b>${esc(t.label)}</b> ${wfChip(g.pending ? "awaiting_review" : g.satisfied ? "fresh" : t.status, g.pending ? `${g.pending} still to check` : "")}
       <span class="muted wf-what">${what}${t.template ? ` · template <code>${esc(t.template)}</code>` : ""}${t.coders ? ` · ${t.coders} coder${t.coders === 1 ? "" : "s"} per paper` : ""} · ${prog}${people}${waits}</span>
-      ${mine && mine.pending ? ` <a href="${esc(t.queue)}"><b>code your ${mine.pending} →</b></a>` : OWNER && g.pending && !t.coders ? ` <a href="${esc(t.queue)}">review ${g.pending} →</a>` : ""}${matrix}</div>`;
+      ${mine && mine.pending ? ` <a href="${esc(t.queue)}"><b>code your ${mine.pending} →</b></a>` : OWNER && g.pending && !t.coders ? ` <a href="${esc(t.queue)}">review ${g.pending} →</a>` : ""}${cfg}${matrix}</div>`;
   }).join("");
+  host.querySelectorAll(".wd-cfg").forEach((sel) => (sel.onchange = async () => {
+    try { await api.setTaskConfig(id, sel.dataset.step, { coders: sel.value ? Number(sel.value) : null }); loadTasks(); } catch (e) { alert(e.message); }
+  }));
   host.querySelectorAll(".wd-move").forEach((sel) => (sel.onchange = async () => {
     const t = tasks.find((x) => x.step_run_id === sel.dataset.srid), a = t && (t.assignments || []).find((x) => x.document_id === sel.dataset.doc);
     if (!a || !sel.value) return;

@@ -313,14 +313,38 @@ def _gate_documents(conn, step_run: dict, header: dict) -> list[str]:
     return list(header.get("document_ids") or (step_run.get("outputs") or {}).get("document_ids") or [])
 
 
+def task_config(conn, project_id: str | None, step_id: str) -> dict | None:
+    """The project's hand on a task: ``{"coders": N | [user ids]}`` set by the owner, else None."""
+    if not project_id:
+        return None
+    row = conn.execute("SELECT coders FROM project_task_config WHERE project_id = %s::uuid AND step_id = %s", (project_id, step_id)).fetchone()
+    return {"coders": row[0]} if row and row[0] is not None else None
+
+
 def _assign(conn, step_run: dict, header: dict) -> None:
     """Paper i → coders[(i + j) mod n] for j < N: every paper gets N distinct coders, every coder
-    an even share. Nothing is assigned while the dataset has fewer than N coders."""
+    an even share. The pool is the project's people — or the ones the owner named for this task
+    (``project_task_config``), whose count may also replace the step's N. Nothing is assigned
+    while the pool has fewer than N coders."""
     from . import coders as _coders
     n_want = int(header.get("coders") or 0)
     ds = _run_dataset(conn, step_run["run_id"])
     pool = _coders.coders_of(conn, ds) if ds else []
-    if len(pool) < n_want:
+    cfg = task_config(conn, ds, step_run["step_id"])
+    if cfg is not None:
+        want = cfg["coders"]
+        if isinstance(want, int) and not isinstance(want, bool) and want >= 1:
+            n_want = want; header["coders_from"] = "project"
+        elif isinstance(want, list):
+            by_id = {c["user_id"]: c for c in pool}
+            named = [by_id[u] for u in want if u in by_id]
+            header["missing"] = [u for u in want if u not in by_id]
+            header["named"] = [c["label"] for c in named]
+            pool = named
+            n_want = min(n_want or len(named), len(named)) if named else n_want
+            header["coders_from"] = "project"
+    header["coders"] = n_want
+    if not pool or len(pool) < n_want:
         header["assigned"] = False; header["needs_coders"] = n_want; header["n_coders"] = len(pool)
         return
     docs = _gate_documents(conn, step_run, header)

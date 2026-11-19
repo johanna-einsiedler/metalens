@@ -129,6 +129,17 @@ given). `GET /api/me/tasks` lists the tasks a live run assigned the caller a pap
 is left of their share and the queue to code it in; the workspace shows them under "My review
 tasks". A workflow over one preset runs on a dataset of that preset and is not a project row.
 
+**Access follows the task.** A person added to a project is in its pool: they see the project's
+page and have a label (`coder_1` …), nothing of its papers yet. A task that assigns them a paper
+opens every paper of the datasets that task reads (`outputs.datasets` of the review step-run),
+for as long as the run is live and they are in the pool; a run that is done keeps their own
+coding readable; taken out of the pool, they read nothing. A grant on a plain dataset (one not
+in a project) opens every paper of it at once, as before. **The owner's hand on a task**: `PATCH
+/api/projects/{id}/tasks/{step_id} {coders: N | [emails] | null}` says how many of the project's
+people review each paper of that task, or which ones, over the workflow's own `coders`
+(`project_task_config`); it is read when the task's gate opens, and a gate still waiting for
+coders assigns at once — a solo pilot runs a two-coder judgment with one.
+
 ## Linked datasets and a joint review
 
 A workflow may extract two sides of the same papers into two datasets — the regression tables
