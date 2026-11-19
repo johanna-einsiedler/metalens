@@ -123,6 +123,18 @@ def add(conn: psycopg.Connection, dataset_id: str, email: str, *, by: str | None
     return next(c for c in coders_of(conn, dataset_id) if c["user_id"] == row[0])
 
 
+def add_local(conn: psycopg.Connection, dataset_id: str) -> list[dict]:
+    """Local mode (one machine, one owner): the local owner joins the dataset's people, idempotently
+    — a project's task then assigns to them, and their verdicts and answers are a coding. Returns
+    the pool."""
+    from . import localmode
+    uid = localmode.ensure_local_user(conn)
+    with conn.transaction():
+        conn.execute("INSERT INTO dataset_coder (dataset_id, user_id, added_by) VALUES (%s::uuid, %s::uuid, %s::uuid) ON CONFLICT DO NOTHING",
+                     (dataset_id, uid, uid))
+    return coders_of(conn, dataset_id)
+
+
 def remove(conn: psycopg.Connection, dataset_id: str, user_id: str) -> dict:
     """Withdraw the grant; the coder's codings stay (they are the record of what was done)."""
     with conn.transaction():

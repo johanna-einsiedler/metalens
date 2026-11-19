@@ -130,13 +130,17 @@ export function answersAt(answers, recordId, key) {
 }
 
 const fill = (t, row) => String(t).replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, n) => (row[n] == null ? "" : String(row[n]))).trim();
+// a title placeholder whose field the projection dropped (a blind field is popped from the row; a
+// null value stays): the head would print nothing — fall through to the shown fields instead
+const dropped = (t, row) => [...String(t || "").matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].some((m) => m[1] !== "#" && !(m[1] in (row || {})));
+
 export function unitTitle(block, u, vm) {
   const row = u.row || {};
   if (u.added) { const f = ((block.add || {}).fields || [])[0]; return (f && row[f.name]) ? String(row[f.name]) : `new ${unitLabel(block.unit).replace(/s$/, "")}`; }
   if (block.title) return fill(block.title, row) || u.key;
   const uk = unitKind(block.unit, vm);
   if (uk && uk.kind === "entries" && u.rec) return entryTitle(vm, u.rec, u.rec.entry_index);
-  if (uk && uk.kind === "child") { const ch = vm.entries.children.find((c) => c.key === uk.key); if (ch && ch.title) return childTitle(ch, row, u.index); }
+  if (uk && uk.kind === "child") { const ch = vm.entries.children.find((c) => c.key === uk.key); if (ch && ch.title && !dropped(ch.title, row)) return childTitle(ch, row, u.index); }
   if (uk && uk.kind === "paper") return block.label || "This paper";
   for (const n of block.show || []) if (!empty(row[n])) return String(row[n]);
   if (uk && uk.kind === "distinct") return String(row[uk.field] ?? "");

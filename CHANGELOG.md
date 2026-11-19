@@ -123,6 +123,20 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   output cap; OpenAI-compatible endpoints as a `json_schema` response format (DeepSeek and
   Mistral `json_object`). The output cap shows as finish reason `length`, so a caller can ask
   again in a shorter form; a transient failure is retried up to six times with backoff.
+### The pilot's local loop; a head never prints a blind field
+
+- In local mode the local owner is every project's one person: a review task's gate assigns to
+  them (`coders.add_local`, when the gate first looks for its pool), their verdicts and answers
+  are a coding, and a task of two coders waits for one more until its config says one. An owner
+  who is one of the project's people gets their own share of a task's queue (`viewer_coder`), as
+  the document view already codes them; `?coder=` still shows the owner another coder's queue.
+- The seeder takes `--local` (or `local: true` in the manifest): no owner credentials, nothing
+  registered, no people. It no longer starts a run when every paper is already there — an empty
+  run used to become "the latest" and hide the earlier run's assignments — and an upload the
+  proxy gave up on is given a minute and a half to turn up before it counts as failed.
+- The judgment template's outcomes are headed by their name (`{outcome_id} · {outcome_name}`),
+  not by the model's category the coder is to give; a template's `title` may no longer name a
+  blind field, and a head inherited from the preset that names one falls back to the shown fields.
 
 ### Unit fields stacked; the grammar tests follow the renderer
 

@@ -1958,7 +1958,7 @@ def dataset_workflow(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     from . import coders, workflows
     role = _dataset_access(db, dataset_id, who)
     out = workflows.panel(db, dataset_id, who=who, owner=role == "owner")
-    if role == "coder":
+    if role == "coder" or coders.is_coder(db, dataset_id, who):   # the owner too, once they are one of the people
         out["viewer_coder"] = next(({"user_id": c["user_id"], "label": c["label"]} for c in coders.coders_of(db, dataset_id) if c["user_id"] == who.user_id), None)
     return out
 
@@ -2172,14 +2172,13 @@ def workflow_run_queue(run_id: str, step_id: str, coder: str | None = None, db=D
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found.")
     as_coder = None
-    if not workflows.is_run_owner(run, who):
-        if coders.coder_of_run(db, run, who):
-            as_coder = who.user_id                                  # a coder's queue: their assignment alone
-        else:
-            d = records.get_dataset(db, run["dataset_id"]) or {}
-            if d.get("visibility") != "public":
-                raise HTTPException(status_code=404, detail="Run not found.")
-    elif coder:                                                    # the owner looking at one coder's queue
+    if coders.coder_of_run(db, run, who):
+        as_coder = who.user_id                                  # a coder's queue: their assignment alone — the owner's too, once they are one of the people
+    elif not workflows.is_run_owner(run, who):
+        d = records.get_dataset(db, run["dataset_id"]) or {}
+        if d.get("visibility") != "public":
+            raise HTTPException(status_code=404, detail="Run not found.")
+    if coder and workflows.is_run_owner(run, who):                 # the owner looking at one coder's queue
         as_coder = coder
     sr = next((s for s in workflows.step_runs(db, run_id) if s["step_id"] == step_id), None)
     if sr is None:
