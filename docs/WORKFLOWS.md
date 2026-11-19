@@ -386,6 +386,13 @@ paper's job is terminal (the owner closes the uploads with `…/complete`), its 
 papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
 `GET …/passes/{step}/{sha}` serves one with its provenance.
 
+A chain run starts from the Add papers page (`/extract?dataset=<id>&workflow=1`): the staged PDFs
+are planned, the run started, and each PDF posted into the run, where its passes run as it
+arrives; a run that still waits for papers offers "Upload the papers" on the dataset page's
+Workflow panel, which opens the same page with `&run=<id>`. The panel names pass and compute steps
+with the registered code, the runs per paper, the last run's papers, reuse, failures, calls and
+findings by code.
+
 ### Repeated runs
 
 `k` on a pass step runs the pass k times per paper — each run stored with its index — and the

@@ -272,7 +272,9 @@ async function maybeAddPapersMode() {
                   prompt: ds.prompt || "", model: ds.model || "",
                   // ?workflow=1: the papers go through the dataset's workflow — one run, planned
                   // first (calls, credits), each paper posted with the run and step
-                  workflow: new URLSearchParams(location.search).get("workflow") === "1" };
+                  workflow: new URLSearchParams(location.search).get("workflow") === "1",
+                  // ?run=<id>: the papers planned for a run that already waits for them (a chain of passes)
+                  existing_run: new URLSearchParams(location.search).get("run") || null };
   // derive task/presetId from the schema so the rest of the UI stays consistent
   const base = (schemaId || "extract@v1").replace(/@.*$/, "");
   if (base === "summarize") { task = "summarise"; }
@@ -1249,7 +1251,15 @@ async function runBatch(indices, reset) {
     } catch (e) { $("#run").disabled = false; return setStatus(`could not read a PDF: ${e.message}`); }
     const body = { new_pdfs: indices.map((i) => ({ sha256: FILES[i]._sha, filename: FILES[i].name })),
                    use_credits: !!USE_CREDITS, model: USE_CREDITS ? (ADD_DATASET.model || null) : currentModel() };
+    if (ADD_DATASET.existing_run) {
+      // a run already planned over these papers waits for them: no new plan, each PDF goes in through the run
+      try { RUN = await api.workflowRun(ADD_DATASET.existing_run); } catch (e) { $("#run").disabled = false; return setStatus(`could not open the run: ${e.message}`); }
+      RUN.pass_intake = (RUN.steps || []).some((s) => s.kind === "pass");
+      RUN.step_id = ((RUN.steps || []).find((s) => s.kind === "extract" || s.kind === "agent") || {}).step_id || "extract";
+      setStatus(`uploading into the run started ${(RUN.created_at || "").slice(0, 16).replace("T", " ")}`);
+    }
     let plan;
+    if (!RUN) {
     try { plan = await api.workflowPlan(ADD_DATASET.id, body); } catch (e) { $("#run").disabled = false; return setStatus(`could not plan the run: ${e.message}`); }
     if ((plan.workflow.problems || []).length) { $("#run").disabled = false; return setStatus(`this workflow cannot run yet: ${plan.workflow.problems[0]}`); }
     const ex = (plan.steps || []).find((s) => s.kind === "extract" || s.kind === "agent");
@@ -1257,6 +1267,8 @@ async function runBatch(indices, reset) {
     setStatus(`run planned: ${plan.n_calls} model call${plan.n_calls === 1 ? "" : "s"}${cr.use_credits ? ` · ${cr.needed} credit${cr.needed === 1 ? "" : "s"}, you have ${cr.balance == null ? "?" : cr.balance}` : ""} — starting…`);
     try { RUN = await api.workflowStart(ADD_DATASET.id, body); } catch (e) { $("#run").disabled = false; return setStatus(`could not start the run: ${e.message}`); }
     RUN.step_id = ex ? ex.id : "extract";
+    RUN.pass_intake = !ex && (plan.steps || []).some((s) => s.kind === "pass");   // a chain: the papers go in through the run, each running its passes
+    }
     const attached = new Set((RUN.papers || []).filter((p) => p.status === "attached").map((p) => p.pdf_sha256));
     indices.forEach((i) => { if (attached.has(FILES[i]._sha)) STATUS[i] = { state: "done", res: { attached: true } }; });
     indices = indices.filter((i) => !attached.has(FILES[i]._sha));
@@ -1282,6 +1294,22 @@ async function runBatch(indices, reset) {
     STATUS[i] = { state: "extracting" }; renderResults();
     const fd = new FormData();
     fd.append("pdf", FILES[i]);
+    if (RUN && RUN.pass_intake) {
+      // a chain of passes: the PDF goes in through the run with the key (an own-key run) — the
+      // server keeps the page text, runs the paper's passes and goes on when every paper is in
+      if (!USE_CREDITS && !USE_TRIAL) {
+        fd.append("model", currentModel());
+        fd.append("api_key", $("#apikey").value);
+        if (isLocalProvider()) fd.append("base_url", currentBaseUrl());
+      } else if (USE_CREDITS && ADD_DATASET && ADD_DATASET.model) fd.append("model", ADD_DATASET.model);
+      try {
+        const data = await api.workflowPaper(RUN.id, fd);
+        if (data.queued) { anyQueued = true; if (data.job_id) jobIds.push(data.job_id); }
+        else STATUS[i] = { state: "done", res: data };
+      } catch (e) { STATUS[i] = { state: "failed", error: e.message }; }
+      renderResults();
+      return;
+    }
     // The server renders the prompt from the preset (+ params) and mints the schema id; an
     // edited prompt is sent as-is (and recorded as edited). Add-papers keeps the dataset's
     // own schema row; an own-written prompt has no preset at all.

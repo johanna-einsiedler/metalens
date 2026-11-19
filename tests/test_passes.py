@@ -120,6 +120,8 @@ def test_a_papers_passes_run_in_order_in_one_job_and_the_step_is_the_barrier(tmp
     view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
     assert view["status"] == "running" and view["steps"][0]["status"] == "running"             # the barrier: beta has not arrived
     assert view["jobs"]["done"] == 2 and view["jobs"]["pending"] == 2
+    now = view["now"]
+    assert now["phase"] == "waiting for uploads" and now["waiting_for_you"] is True and now["uploads"] == [{"step": "title", "label": "Title", "kind": "pass", "done": 1, "total": 2, "pending": 1}]
     r = c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": ("beta.pdf", pdfs[1], "application/pdf")}, data={"api_key": "k", "model": "fake-model"})
     assert r.status_code == 200, r.text
     view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()

@@ -8,6 +8,15 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The panel follows a chain
+
+- The dataset page's Workflow panel names pass and compute steps (the registered code, the runs
+  per paper, the last run's papers, reuse, failures, calls and findings by code; what a compute
+  makes or edits) and, while a chain run waits for its papers, says so with an "Upload the
+  papers" link into the Add papers page (`/extract?dataset=&workflow=1&run=`), which posts
+  each planned PDF into the run (`POST /api/workflow-runs/{rid}/papers`, the key with it on an
+  own-key run). A run's "now" line knows the pass and compute phases.
+
 ### A pass run k times, folded by the chain's matcher
 
 - A pass step with `k` runs its code k times per paper (each run stored, `role: run`, its

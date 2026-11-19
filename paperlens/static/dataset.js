@@ -497,7 +497,7 @@ let WF = null, WF_TIMER = null;
 const WF_STATE = { fresh: ["tier-human_verified", "fresh"], stale: ["tier-sample_verified", "stale"], missing: ["", "not yet"],
                    draft: ["tier-sample_verified", "draft"], awaiting_review: ["tier-sample_verified", "awaiting review"],
                    blocked: ["", "blocked"], unsupported: ["", "not in this release"] };
-const WF_KIND = { extract: "⬚", agent: "⬚", check: "✓", derive: "Σ", vocabulary: "🏷", pages: "📖", crosscheck: "↔", loop: "↻", review: "👁", release: "⛁" };
+const WF_KIND = { extract: "⬚", agent: "⬚", check: "✓", derive: "Σ", vocabulary: "🏷", pages: "📖", crosscheck: "↔", loop: "↻", review: "👁", release: "⛁", pass: "⟶", compute: "ƒ" };
 
 let WF_SCROLLED = false;
 async function loadWorkflowCard() {
@@ -543,7 +543,8 @@ function nowLine(run) {
     } else if (n.phase === "waiting for review") what = `waiting for your review · ${esc(n.label || n.step)}${n.total != null ? ` · ${n.done || 0} of ${n.total} checked` : ""}`;
     else what = `waiting for your API key · ${esc(n.label || n.step)}`;
     const todo = n.phase === "waiting for uploads"
-      ? "Upload each side's files from the Import page; the run goes on by itself once every side is in."
+      ? ((n.uploads || []).some((u) => u.kind === "pass") ? "Upload the planned PDFs from the Add papers page; each paper runs its passes as it arrives, and the run goes on once every paper is in (or you close the uploads)."
+         : "Upload each side's files from the Import page; the run goes on by itself once every side is in.")
       : n.phase === "waiting for review" ? "Give the verdicts, then resume the run." : "Give a key; it is used once and never stored.";
     return `<span class="wf-now"><b>Now:</b> ${what}${since}</span><div class="muted wf-nowtodo">Nothing is computed while the run waits. ${todo}</div>`;
   }
@@ -675,6 +676,16 @@ function renderWorkflowCard(host, w) {
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?dataset=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "review") what = (st.over || []).length > 1 ? `both sides of each paper: ${st.over.join(" → ")}` : st.draft_of ? `the draft of <code>${esc(st.draft_of)}</code>, committed by the owner` : `over <code>${esc((st.over || [])[0] || "")}</code>`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
+    else if (st.kind === "pass") {
+      const l = st.last, fails = (l && l.failed || []).length, codes = l && l.findings_by_code ? Object.entries(l.findings_by_code) : [];
+      what = `registered code <code>${esc(String(st.pass || "").split("@")[0])}</code>${(st.k || 1) > 1 ? ` · ${st.k} runs per paper` : ""}`
+        + (l ? ` · last run: ${l.n_papers || 0} paper${l.n_papers === 1 ? "" : "s"}${l.reused ? `, ${l.reused} reused` : ""}${fails ? `, ${fails} failed` : ""}, ${l.n_calls || 0} call${l.n_calls === 1 ? "" : "s"}${codes.length ? ` · findings: ${codes.map(([c, n]) => `${esc(c)} ${n}`).join(", ")}` : ""}` : "")
+        + (st.work && st.work.extract ? ` · ${st.work.extract} new` : "")
+        + (st.last_run && mine ? ` · <a class="muted" href="/api/workflow-runs/${esc(st.last_run)}/passes/${esc(st.id)}" title="the outputs per paper (JSON)">outputs</a>` : "");
+    } else if (st.kind === "compute") {
+      what = `registered code <code>${esc(st.fn || "")}</code> · ${st.preset ? `one document per paper${st.role ? ` into <span class="badge" title="the group's dataset of this role">${esc(st.role)}</span>` : ""}` : `edits <code>${esc(st.edits || "")}</code> (${(st.writes || []).join(", ")})`}`
+        + (st.work && st.work.extract ? ` · ${st.work.extract} new` : "");
+    }
     const rv = st.review && st.review.mode !== "none" ? st.review : null;
     const rvWhat = !rv ? "" : rv.unit === "row" ? (rv.mode === "sample" ? `${rv.per_paper || 1} row${(rv.per_paper || 1) === 1 ? "" : "s"} of <code>${esc(rv.table || "")}</code> per paper` : `every row of <code>${esc(rv.table || "")}</code>${rv.where ? " that meets the filter" : ""}`)
       : rv.mode === "sample" ? `a sample of ${rv.n != null ? `${rv.n} ${rv.unit === "paper" ? "papers" : "records"}` : `${Math.round((rv.share || 0) * 100)}%`}${(rv.stratify || []).length ? ` by ${rv.stratify.join(", ")}` : ""}` : st.draft_of ? "the whole draft" : `every ${rv.unit === "paper" ? "paper" : "record"}${rv.where ? " that meets the filter" : ""}`;
@@ -692,8 +703,11 @@ function renderWorkflowCard(host, w) {
     return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${coders}${codeNow}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
-    const pr = run.progress || {}, pp = pr.papers || {}, waiting = run.status === "running" && supplied;
-    const uploads = waiting ? suppliedSteps.map((s) => `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(s.dataset_id || id)}&run=${esc(run.id)}&step=${esc(s.id)}&back=${esc(id)}">Upload the ${esc(s.role ? s.role + " " : "")}files</a>`).join(" ") : "";
+    const pr = run.progress || {}, pp = pr.papers || {};
+    const passWait = run.status === "running" && run.now && run.now.phase === "waiting for uploads" && (run.now.uploads || []).some((u) => u.kind === "pass");
+    const waiting = run.status === "running" && (supplied || passWait);
+    const uploads = passWait ? `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1&run=${esc(run.id)}" title="the papers planned for this run: each runs its passes as it arrives">Upload the papers</a>`
+      : waiting ? suppliedSteps.map((s) => `<a class="btn btn-ghost btn-sm" href="/import?dataset=${esc(s.dataset_id || id)}&run=${esc(run.id)}&step=${esc(s.id)}&back=${esc(id)}">Upload the ${esc(s.role ? s.role + " " : "")}files</a>`).join(" ") : "";
     const st = run.status.startsWith("awaiting_review:") ? `awaiting review of ${run.status.split(":")[1]}` : run.status.startsWith("needs_key:") ? `${run.status.split(":")[1]} needs an API key`
       : live && run.now && run.now.waiting_for_you ? "waiting for you" : run.status;
     const draftStep = run.status.startsWith("awaiting_review:") ? (run.steps || []).find((x) => x.step_id === run.status.split(":")[1] && x.review && x.review.draft) : null;

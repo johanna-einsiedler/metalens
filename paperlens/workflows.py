@@ -1970,6 +1970,23 @@ def now_running(conn, run: dict, steps: list[dict], js: list[dict]) -> dict | No
                 out["eta_s"] = max(0, int(len(mine) * pace - (out["elapsed_s"] or 0)))
                 out["basis"] = "earlier runs"
         return out
+    if kind == "pass":
+        mine = [j for j in js if j["step_id"] == sid]
+        done = [j for j in mine if j["status"] in JOB_DONE]
+        staged = {r[0] for r in conn.execute("SELECT pdf_sha256 FROM workflow_paper WHERE run_id = %s::uuid", (run["id"],)).fetchall()}
+        pending = [j for j in mine if j["status"] == "pending" and j["pdf_sha256"] not in staged]
+        out.update(done=len(done), total=len(mine))
+        if pending and not any(j["status"] in ("queued", "running") for j in mine):
+            # the passes run as each PDF arrives: the run waits for the papers never uploaded
+            out.update(phase="waiting for uploads", waiting_for_you=True,
+                       uploads=[{"step": sid, "label": st.get("label") or sid, "kind": "pass", "done": len(done), "total": len(mine), "pending": len(pending)}])
+            return out
+        out["phase"] = "running the passes"
+        return out
+    if kind == "compute":
+        mine = [j for j in js if j["step_id"] == sid]
+        out.update(phase="computing", done=sum(1 for j in mine if j["status"] in JOB_DONE), total=len(mine))
+        return out
     if kind == "derive":
         planned = next((x.get("n_calls") for x in ((run.get("plan") or {}).get("steps") or []) if x.get("id") == sid), None) or 0
         out.update(phase="model calls" if planned else "building", total=planned or None)
