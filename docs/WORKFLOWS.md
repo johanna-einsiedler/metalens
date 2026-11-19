@@ -420,6 +420,14 @@ record card reads — and, for the design, the cells a majority of three reading
 (`runs_disagree`, `not_in_all_runs`, `task_count_differs`, `runs_settled`, `runs_unsettled`,
 `runs_wording`) and the metrics for the assembly and the checks to lift.
 
+The chain's `genai_work.assemble` compute turns the four passes into the record (derived cells,
+canonical ids, the assembly, every quote verified, every check) and the Metalens document under
+`genai-work-extraction`: one entry per task with its arms, outcomes and result rows, an evidence
+row behind every cell, the review fields (task descriptions, treatments, composite outcomes,
+claims, exhibits and cited cells). Its `_record_chain` carries, per task, how many readings found
+it and the fields the readings disagreed on, so the record card paints support and candidates
+as it does for a pipeline.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:
