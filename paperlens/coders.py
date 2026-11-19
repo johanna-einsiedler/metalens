@@ -31,8 +31,18 @@ VERDICTS = ("verified", "flagged")
 _VALID_STATUS = ("verified", "flagged", "unverified", "corrected", "noted")
 
 # the datasets the user codes: granted on the dataset itself, or on its workflow dataset
-_CODED_DATASETS_SQL = """(SELECT c.dataset_id FROM dataset_coder c WHERE c.user_id = %s::uuid
-                          UNION SELECT d2.id FROM dataset d2 JOIN dataset_coder c2 ON c2.dataset_id = d2.group_id WHERE c2.user_id = %s::uuid)"""
+# The datasets an account may read as a coder (four %s, all the user id): a grant on a plain or
+# member dataset (today's direct grant); a grant on a project row (the project's page — nothing of
+# its papers by itself); and, through the project, the datasets a review TASK reads whose gate
+# assigned the account a paper (``outputs.datasets`` of the review step-run), in a run that is
+# live, while the account is still in the project's pool. Access follows the task.
+_CODED_DATASETS_SQL = """(SELECT c.dataset_id FROM dataset_coder c JOIN dataset d ON d.id = c.dataset_id
+                           WHERE c.user_id = %s::uuid
+                          UNION SELECT (jsonb_array_elements_text(COALESCE(sr.outputs -> 'datasets', '[]'::jsonb)))::uuid
+                           FROM workflow_assignment a JOIN workflow_step_run sr ON sr.id = a.step_run_id
+                           JOIN workflow_run r ON r.id = a.run_id JOIN dataset_coder c ON c.dataset_id = r.dataset_id AND c.user_id = a.coder_user_id
+                           WHERE a.coder_user_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned'))"""
+ASSIGNED_DATASETS_SQL = _CODED_DATASETS_SQL
 
 
 def _new_id() -> str:
@@ -82,9 +92,7 @@ def is_coder(conn: psycopg.Connection, dataset_id: str, who) -> bool:
     uid = getattr(who, "user_id", None)
     if not uid or not records._is_uuid(dataset_id):
         return False
-    return conn.execute(
-        f"SELECT 1 FROM dataset d WHERE d.id = %s::uuid AND (d.id IN {_CODED_DATASETS_SQL} OR d.group_id IN {_CODED_DATASETS_SQL})",
-        (dataset_id, uid, uid, uid, uid)).fetchone() is not None
+    return conn.execute(f"SELECT 1 FROM dataset d WHERE d.id = %s::uuid AND d.id IN {_CODED_DATASETS_SQL}", (dataset_id, uid, uid)).fetchone() is not None
 
 
 def coder_of_document(conn: psycopg.Connection, document_id: str, who) -> str | None:
@@ -123,17 +131,18 @@ def remove(conn: psycopg.Connection, dataset_id: str, user_id: str) -> dict:
 
 
 def datasets_for(conn: psycopg.Connection, user_id: str) -> list[dict]:
-    """The datasets this account codes — a member of a workflow dataset under its parent's title."""
+    """The datasets this account codes — those its tasks read, under the project's title, and
+    the plain datasets it was granted."""
     if not user_id:
         return []
     rows = conn.execute(
-        f"""SELECT d.id::text, d.title, d.schema_id, d.group_id::text, d.group_role, p.title,
-                   (SELECT count(*) FROM record r WHERE r.dataset_id = d.id AND NOT COALESCE(r.screened_empty, false))
+        f"""SELECT DISTINCT d.id::text, d.title, d.schema_id, d.group_id::text, d.group_role, p.title,
+                   (SELECT count(*) FROM record r WHERE r.dataset_id = d.id AND NOT COALESCE(r.screened_empty, false)), p.title IS NULL, d.created_at
             FROM dataset d LEFT JOIN dataset p ON p.id = d.group_id
             WHERE d.id IN {_CODED_DATASETS_SQL} AND (d.group_id IS NULL OR d.group_id <> d.id)
-            ORDER BY p.title NULLS LAST, d.created_at""", (user_id, user_id)).fetchall()
+            ORDER BY p.title IS NULL, p.title, d.created_at""", (user_id, user_id)).fetchall()
     return [{"id": did, "title": title, "schema_id": sid, "workflow_dataset_id": gid, "group_role": role,
-             "workflow_title": ptitle, "n_records": int(n)} for did, title, sid, gid, role, ptitle, n in rows]
+             "workflow_title": ptitle, "n_records": int(n)} for did, title, sid, gid, role, ptitle, n, _np, _c in rows]
 
 
 # ── the coding as the coder sees it ───────────────────────────────────────────

@@ -127,6 +127,7 @@ export const api = {
   project: (id) => req(`/api/projects/${id}`),
   projectTasks: (id, run) => req(`/api/projects/${id}/tasks${run ? `?run=${encodeURIComponent(run)}` : ""}`),
   assignTaskPaper: (id, srid, body) => req(`/api/projects/${id}/tasks/${srid}/assign`, json(body)),   // {document_id, coders: [user ids]}
+  setTaskConfig: (id, step, body) => req(`/api/projects/${id}/tasks/${encodeURIComponent(step)}`, { ...json(body), method: "PATCH" }),   // {coders: N | [emails] | null}
   myTasks: () => req(`/api/me/tasks`),
   datasetGroup: (id) => req(`/api/datasets/${id}/group`),
   linkGroupRole: (id, body) => req(`/api/datasets/${id}/group/link`, json(body)),

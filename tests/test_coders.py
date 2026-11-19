@@ -173,7 +173,9 @@ def test_coders_code_independently_and_the_owner_sees_every_coding() -> None:
     conn.close()
 
 
-def test_a_grant_on_a_workflow_dataset_covers_its_linked_datasets() -> None:
+def test_a_grant_on_a_project_is_the_pool_the_tasks_draw_from() -> None:
+    """A person added to a project is in its pool (a label, the project's page) — the papers of a
+    linked dataset follow the tasks that assign them (tests/test_task_access.py)."""
     _skip()
     conn = records.connect(); records.init_db(conn)
     owner, owner_id, _ = _account("wd-owner")
@@ -187,10 +189,10 @@ def test_a_grant_on_a_workflow_dataset_covers_its_linked_datasets() -> None:
     conn.rollback()
     from paperlens.principal import Principal
     who = Principal(user_id=a_id, session_id=None)
-    assert coders.is_coder(conn, members["tables"], who) and coders.is_coder(conn, members["claims"], who) and coders.is_coder(conn, wd["id"], who)
-    mine = a.get("/api/datasets?coder=1").json()["datasets"]
-    assert {d["id"] for d in mine} == set(members.values()) and all(d["workflow_title"] == "Grouped" and d["workflow_dataset_id"] == wd["id"] for d in mine)
+    assert coders.is_coder(conn, wd["id"], who) and not coders.is_coder(conn, members["tables"], who) and not coders.is_coder(conn, members["claims"], who)
+    assert a.get("/api/datasets?coder=1").json()["datasets"] == []
     assert a.get(f"/api/datasets/{wd['id']}/overview").json()["viewer_is_coder"] is True
-    assert a.get(f"/api/datasets/{members['tables']}/workflow").json()["viewer_coder"]["label"] == "coder_1"
-    assert [c["scope"] for c in coders.coders_of(conn, members["tables"])] == ["group"]
+    assert a.get(f"/api/datasets/{members['tables']}/workflow").status_code == 404
+    assert [c["scope"] for c in coders.coders_of(conn, members["tables"])] == ["group"]        # the pool, seen from a member
+    assert coders.labels_for(conn, members["claims"])[a_id]["label"] == "coder_1"
     conn.close()

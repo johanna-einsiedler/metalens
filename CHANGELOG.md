@@ -8,6 +8,21 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Access follows the task; the GenAI-at-work workflow reads one record
+
+- A person added to a project is in its pool — a label and the project's page — and reads the
+  papers of the datasets a review task assigned them in, for as long as the run is live and they
+  are in the pool (`coders.ASSIGNED_DATASETS_SQL`; the "Coding for" list and the documents listing
+  follow it). A grant on a plain dataset is as it was. The owner says, per task, how many of the
+  project's people review each paper or which ones (`PATCH /api/projects/{id}/tasks/{step_id}`,
+  `project_task_config`), over the workflow's own number; a gate waiting for coders assigns at once.
+- `genai-work` v4 (`@e62c0d84`): one dataset — the pipeline's extraction record — and three review
+  tasks over it with the bundled templates: the judgment by two coders, the extraction check of one
+  exhibit per paper (a draw of rows), the routed papers only (a filter); the record checks on
+  arrival, the contract check after the coding, the release gated on all three. The three
+  validation presets stay bundled for the datasets imported under them; the seeder uploads the
+  extraction side alone (`papers: {extraction: …}`).
+
 ### Projects, by their own name
 
 - A workflow's instance is a **project** (`paperlens/projects.py`): the workflow dataset row read as

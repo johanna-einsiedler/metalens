@@ -4685,6 +4685,32 @@ def project_task_assign(project_id: str, step_run_id: str, body: AssignBody, db=
     return out
 
 
+class TaskConfigBody(BaseModel):
+    coders: int | list[str] | None = None     # how many of the project's people per paper, or which (emails or user ids); null clears
+
+
+@app.patch("/api/projects/{project_id}/tasks/{step_id}")
+def project_task_config(project_id: str, step_id: str, body: TaskConfigBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: how many of the project's people review each paper of a task, or which ones — over
+    the workflow's own `coders`. Read when the task's gate opens; a gate that still waits for
+    coders assigns at once. ``null`` clears it."""
+    from . import projects, workflows
+    from . import workflow_spec as ws
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner configures a task.")
+    spec = workflows.get_workflow(p.get("workflow"))
+    st = ws.steps_by_id(spec).get(step_id) if spec else None
+    if st is None or st.get("kind") != "review":
+        raise HTTPException(status_code=404, detail="No review step with that id in the project's workflow.")
+    try:
+        cfg = projects.set_task_config(db, p, step_id, body.coders)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    db.commit()
+    return {"step_id": step_id, "config": cfg, "tasks": projects.tasks(db, p)}
+
+
 @app.get("/api/me/tasks")
 def my_tasks(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """My review tasks: every task of a live run that assigned me a paper, with what is left of
