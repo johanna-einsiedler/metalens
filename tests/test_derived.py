@@ -209,13 +209,16 @@ def test_a_run_makes_the_draft_and_the_update_names_the_new_records(tmp_path, mo
     run = workflows.complete_uploads(conn, run["id"], who=who, step_id="tables")
     assert run["status"] == "done", run
     sr = next(s for s in run["steps"] if s["step_id"] == "per_table")
-    assert sr["status"] == "done" and sr["outputs"]["n_rows"] == 1 and sr["review"]["draft"]["status"] == "draft" and not sr["review"]["satisfied"]
+    rs = next(s for s in run["steps"] if s["step_id"] == "per_table_review")      # the step's `review` attribute, read as the review step it is
+    assert sr["status"] == "done" and sr["outputs"]["n_rows"] == 1 and "draft" not in (sr.get("review") or {})
+    assert rs["review"]["draft"]["status"] == "draft" and rs["review"]["draft"]["step"] == "per_table" and not rs["review"]["satisfied"]
+    assert rs["outputs"]["draft_of"] == "per_table" and rs["outputs"]["datasets"] == [ds]
     draft = derived.latest_draft(conn, ds, "per_table")
     assert draft["rows"][0]["table_number"] == "Table 3" and draft["rows"][0]["n_columns"] == 2 and draft["run_id"] == run["id"]
     states = {s["id"]: s for s in workflows.step_states(conn, ds, workflows.load_all()["derive-test"])}
     assert states["per_table"]["state"] == "draft" and states["release"]["state"] == "blocked"
     gate = releases.pending(conn, ds)["gate"]
-    assert not gate["open"] and any(b["step"] == "per_table" for b in gate["blocking"]) and "per_table" in gate["gates_blocking"]
+    assert not gate["open"] and any(b["step"] == "per_table" for b in gate["blocking"]) and "per_table_review" in gate["gates_blocking"]
     with pytest.raises(releases.GateClosed):
         releases.create(conn, ds, created_by=None)
     # the review API: one new row with its sources; a decision; the commit opens the gate
@@ -309,9 +312,9 @@ def test_a_model_step_runs_by_hand_and_a_run_waits_for_the_key(tmp_path, monkeyp
     r = c.post(f"/api/workflow-runs/{run['id']}/resume", headers=H, json={"api_key": "k-resume", "model": "test-model"})
     assert r.status_code == 200, r.text
     view = r.json()
-    assert view["status"] == "awaiting_review:themes" and seen[-1]["key"] == "k-resume"
+    assert view["status"] == "awaiting_review:themes_review" and seen[-1]["key"] == "k-resume"
     sr = next(s for s in view["steps"] if s["step_id"] == "themes")
-    assert sr["review"]["draft"]["status"] == "draft" and sr["n_calls"] == 1
+    assert next(s for s in view["steps"] if s["step_id"] == "themes_review")["review"]["draft"]["status"] == "draft" and sr["n_calls"] == 1
     assert "(no committed rows yet)" not in seen and len(seen) == 2
     # the commit lets the run go on
     d2 = derived.latest_draft(conn, ds, "themes")

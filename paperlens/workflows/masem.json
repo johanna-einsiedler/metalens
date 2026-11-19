@@ -51,12 +51,7 @@
       "kind": "extract",
       "label": "Direct information",
       "preset": "masem-direct@eb5f0287",
-      "source": "live",
-      "review": {
-        "mode": "all",
-        "unit": "entry",
-        "blocks": "release"
-      }
+      "source": "live"
     },
     {
       "id": "contract",
@@ -69,11 +64,24 @@
       "on_fail": "note"
     },
     {
+      "id": "review",
+      "kind": "review",
+      "label": "Review",
+      "over": [
+        "extract"
+      ],
+      "help": "every new entry verified or flagged by a person before the release",
+      "mode": "all",
+      "unit": "entry",
+      "blocks": "release"
+    },
+    {
       "id": "release",
       "kind": "release",
       "label": "Release",
       "gate": [
-        "extract"
+        "extract",
+        "review"
       ]
     }
   ]

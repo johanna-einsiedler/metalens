@@ -494,7 +494,7 @@ let WF = null, WF_TIMER = null;
 const WF_STATE = { fresh: ["tier-human_verified", "fresh"], stale: ["tier-sample_verified", "stale"], missing: ["", "not yet"],
                    draft: ["tier-sample_verified", "draft"], awaiting_review: ["tier-sample_verified", "awaiting review"],
                    blocked: ["", "blocked"], unsupported: ["", "not in this release"] };
-const WF_KIND = { extract: "⬚", agent: "⬚", check: "✓", derive: "Σ", vocabulary: "🏷", pages: "📖", crosscheck: "↔", loop: "↻", release: "⛁" };
+const WF_KIND = { extract: "⬚", agent: "⬚", check: "✓", derive: "Σ", vocabulary: "🏷", pages: "📖", crosscheck: "↔", loop: "↻", review: "👁", release: "⛁" };
 
 let WF_SCROLLED = false;
 async function loadWorkflowCard() {
@@ -670,10 +670,11 @@ function renderWorkflowCard(host, w) {
     else if (st.kind === "pages") what = `${esc(st.label || st.group + " pages")} · ${(st.pages || []).map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a> <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified">stale</span>` : ""}`).join(" · ") || `<span class="muted">none yet</span>`}${mine ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "derive") what = `over <code>${esc(st.over || "")}</code>${st.version ? ` · v${st.version} (${st.committed_rows || 0} row${st.committed_rows === 1 ? "" : "s"})` : ""}${st.n_calls ? ` · ${st.n_calls} model call${st.n_calls === 1 ? "" : "s"}` : ""}${mine ? ` · <a class="muted" href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.id)}${st.draft_id ? `&id=${esc(st.draft_id)}` : st.derived_id ? `&id=${esc(st.derived_id)}` : ""}">${st.draft_id ? "review the draft" : "open"}</a>` : ""}`;
     else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
-    else if (st.kind === "review") what = `both sides of each paper: ${(st.over || []).join(" → ")}`;
+    else if (st.kind === "review") what = (st.over || []).length > 1 ? `both sides of each paper: ${st.over.join(" → ")}` : st.draft_of ? `the draft of <code>${esc(st.draft_of)}</code>, committed by the owner` : `over <code>${esc((st.over || [])[0] || "")}</code>`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
-    const review = st.review && st.review.mode !== "none" ? ` <span class="muted">· review ${esc(st.review.mode)}${st.review.coders ? `, ${st.review.coders} coder${st.review.coders === 1 ? "" : "s"} per paper` : ""}${st.review.blocks === "next" ? ", holds the run" : ""}</span>` : "";
-    const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
+    const rv = st.review && st.review.mode !== "none" ? st.review : null;
+    const review = rv ? ` <span class="muted">· ${rv.mode === "sample" ? `a sample of ${rv.n != null ? `${rv.n} ${rv.unit === "paper" ? "papers" : "records"}` : `${Math.round((rv.share || 0) * 100)}%`}${(rv.stratify || []).length ? ` by ${rv.stratify.join(", ")}` : ""}` : st.draft_of ? "the whole draft" : `every ${rv.unit === "paper" ? "paper" : "record"}`}${rv.coders ? `, ${rv.coders} coder${rv.coders === 1 ? "" : "s"} per paper` : ""}${rv.blocks === "next" ? ", holds the run" : ""}</span>` : "";
+    const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.gate.draft.step || st.draft_of || st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
       : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending && !st.gate.coders ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
     // a gate reviewed by coders: who has how much left (the owner may open one coder's queue); a coder sees their own share
     const coders = st.gate && st.gate.coders
@@ -702,7 +703,7 @@ function renderWorkflowCard(host, w) {
       ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
         ${waiting ? `${uploads} ${goOn}` : ""}
-        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(stepDs(draftStep.step_id))}&step=${esc(draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
+        ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(stepDs(draftStep.review.draft.step || draftStep.step_id))}&step=${esc(draftStep.review.draft.step || draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
         ${run.status.startsWith("needs_key:") ? `<a class="btn btn-ghost btn-sm" href="/derived?dataset=${esc(stepDs(run.status.split(":")[1]))}&step=${esc(run.status.split(":")[1])}&run=${esc(run.id)}" title="the step makes model calls on your own key, which is used once and never stored">Give a key and go on</a>` : ""}
         ${!/^(done|failed|cancelled)$/.test(run.status) ? `<button class="btn btn-ghost btn-sm" id="wf-cancel">Cancel run</button>` : ""}
       </div>` : ""}</div>`;

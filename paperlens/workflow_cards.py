@@ -80,7 +80,7 @@ def _steps(conn: psycopg.Connection, spec: dict) -> list[dict]:
     for st in spec.get("steps") or []:
         item = {k: st.get(k) for k in ("id", "kind", "label", "help", "preset", "source", "k", "check", "over", "on_fail", "severity", "params", "gate", "column", "unit", "group", "keyed_by", "dataset")}
         item = {k: v for k, v in item.items() if v is not None}
-        if st.get("kind") in ws.REVIEWED_KINDS:
+        if st.get("kind") == "review" or (st.get("kind") in ws.REVIEWED_KINDS and ws.review_of(st).get("mode", "none") != "none"):
             item["review"] = ws.review_of(st)
         if st.get("preset"):
             base = ws.preset_base(st["preset"])
@@ -111,7 +111,7 @@ def inventory(conn: psycopg.Connection, brand: brands.Brand | None = None) -> li
                     "license": meta.get("license"), "contract": ws.workflow_id(spec), "version": spec.get("version", 1),
                     "steps": [{"id": st["id"], "kind": st["kind"], "label": st.get("label")} for st in spec["steps"]],
                     "presets": [{"step": s, "schema_id": p} for s, p in ws.pins(spec)],
-                    "review": [{"step": st["id"], **ws.review_of(st)} for st in spec["steps"] if st.get("kind") in ws.REVIEWED_KINDS and ws.review_of(st).get("mode") != "none"],
+                    "review": [{"step": st["id"], "over": list(st.get("over") or []), **ws.review_of(st)} for st in spec["steps"] if st.get("kind") in ws.REVIEWED_KINDS and ws.review_of(st).get("mode") != "none"],
                     **_release_summary(conn, wid, spec),
                     "counts": {"datasets": len(ds), "papers": sum(d["n_papers"] for d in ds), "records": sum(d["n_records"] for d in ds), "runs": int(n_runs)}})
     out.sort(key=lambda x: (0 if x["latest"] else 1, (x["title"] or "").lower()))

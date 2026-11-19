@@ -8,6 +8,23 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A review is a step
+
+- A workflow's human review is a step of its own (`kind: review`): `over` names the extract steps
+  it reads — several for a joint review, one derive step for a draft's commit — and its
+  declaration sits flat on the step (`mode`, `unit`, `n` / `share`, `seed`, `stratify`,
+  `coders`, `blocks`, `new_only`). The `review` attribute on an extract or derive step, the form
+  before, is still read: it becomes the step `<step>_review` right after, with the same contract
+  — a review over one data step is hashed as that step's attribute, so every bundled workflow
+  keeps its id. A data step no review step covers is never reviewed: an extract step's records
+  count as AI-only, a draft is committed at once. The bundled workflows are written in the new
+  form (`masem` and `econ-regressions` gain a `review` step after the checks, `econ-claims`
+  `review_claims` and `review_edges`, `genai-work` `review_judgment`, `review_check` and
+  `review_routed`; `econ`'s `joint` says its declaration flat). The gate's step-run records the
+  datasets it read (`outputs.datasets`); a run that brought papers reviews what it brought, even
+  on a side that got none, and only a run without papers reviews whole sides. The dataset page,
+  the workflow card and the bundle name a review step's coders and unit.
+
 ### The GenAI-at-work review as a workflow
 
 - The workflow gained the pipeline's record as a fourth side (`genai-work-extraction`, bundled;

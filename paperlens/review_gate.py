@@ -574,7 +574,7 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | N
            "unit": header.get("unit", "entry"), "blocks": header.get("blocks", "release"),
            "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
-           "joint": step_run["kind"] == "review",
+           "joint": len((step_run.get("outputs") or {}).get("over") or []) > 1,       # two sides of each paper in one worklist
            "progress": {"drawn": len(its), "checked": checked, "pending": len(its) - checked,
                         "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "papers": len(papers), "papers_done": n_papers_done},
            "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}

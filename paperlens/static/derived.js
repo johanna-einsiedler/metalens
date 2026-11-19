@@ -45,7 +45,7 @@ async function renderStart() {
     ${s.help ? `<p class="muted" style="margin:4px 0">${esc(s.help)}</p>` : ""}
     <p class="muted" style="font-size:12.5px;margin:2px 0 6px">over <code>${esc(s.over)}</code> (${esc((s.input || {}).unit || "entries")}) · identity ${(s.identity || []).map((x) => `<code>${esc(x)}</code>`).join(", ")} ·
       ${(s.calls || []).map((c) => c.kind === "llm" ? `model call <code>${esc(c.id || "")}</code>` : `${esc(c.op || "transform")} by ${(c.by || []).join(", ")}`).join(" → ")}
-      · review ${esc((s.review || {}).mode || "all")}${(s.review || {}).blocks === "next" ? ", holds the run" : ""}${s.because && s.because.length ? ` — ${esc(s.because.join("; "))}` : ""}</p>
+      · ${(s.review || {}).mode === "none" || !s.review ? "committed at once (no review step over it)" : `reviewed in <code>${esc(s.review.step || "")}</code>${s.review.blocks === "next" ? ", holds the run" : ""}`}${s.because && s.because.length ? ` — ${esc(s.because.join("; "))}` : ""}</p>
     ${versions(s).length ? versions(s).map((v) => `<div class="ds-dashrow"><a href="/derived?dataset=${encodeURIComponent(DATASET_ID)}&step=${encodeURIComponent(s.id)}&id=${esc(v.id)}"><b>v${v.version}</b></a>
         <span class="badge ${v.status === "committed" ? "tier-human_verified" : "tier-sample_verified"}">${esc(v.status)}</span>
         <span class="muted">· ${v.n_rows} row${v.n_rows === 1 ? "" : "s"}${v.model ? ` · ${esc(v.model)}` : " · deterministic"} · ${esc((v.committed_at || v.created_at || "").slice(0, 10))}${v.run_id ? " · from a run" : ""}</span></div>`).join("")

@@ -2,8 +2,9 @@
 
 A preset says what one model call per paper extracts. A **workflow** says which presets run, in
 what order, what deterministic checks and dataset-level steps follow, and where a person looks
-before a release: every record, a random sample, or none. The dataset keeps the state (records,
-drafts, runs); the workflow declares the process, and is versioned and citable like a preset.
+before a release — a **review step**: every record, a random sample, N coders per paper. The
+dataset keeps the state (records, drafts, runs); the workflow declares the process, and is
+versioned and citable like a preset.
 
 ## The file
 
@@ -16,10 +17,10 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
  "card": {"file": "econ-regressions.card.md"},
  "dataset": {"unit": "paper", "key": "pdf_sha256"},
  "steps": [
-  {"id": "tables",   "kind": "extract", "preset": "econ-regression-tables@67780825", "source": "supplied",
-                     "review": {"mode": "all", "unit": "entry", "blocks": "release"}},
+  {"id": "tables",   "kind": "extract", "preset": "econ-regression-tables@67780825", "source": "supplied"},
   {"id": "contract", "kind": "check", "check": "schema", "over": ["tables"], "on_fail": "note"},
-  {"id": "release",  "kind": "release", "gate": ["tables"]}]}
+  {"id": "review",   "kind": "review", "over": ["tables"], "mode": "all", "unit": "entry", "blocks": "release"},
+  {"id": "release",  "kind": "release", "gate": ["tables", "review"]}]}
 ```
 
 - **Steps are the graph.** A step may only read earlier ones; the last step is the release.
@@ -30,21 +31,29 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   supplied` waits for the pipeline's uploads — the only choice for an import-mode preset),
   `check` (a rule from the registry in `paperlens/checks.py` — `schema`, `regression-cells`,
   `claims-vs-tables`, `genai-work-record`; writes findings, never data),
-  `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `release`
-  (`gate` lists the steps that must be fresh and reviewed). `agent` steps are grammar-valid and
-  refused at plan time until their release. Several extract steps are fine when each names its
-  dataset role (linked datasets, below); `k` runs with a `vote`, `input.previous` and loops run.
-- **Review** is an attribute of a step: `mode: none | all | sample`, `unit: entry | paper`,
-  `blocks: next | release` (default `release`: later steps run, only the release waits). A
-  draft-producing step defaults to `all`, an extract step to `none`. `sample` draws `n` records
-  (or a `share`) from the step's new output at random, with a `seed` (default: from the run and
-  step) and `stratify` fields (proportional quotas, at least one per stratum when the size allows,
-  `unit: paper` draws whole papers); when the output is smaller than the size, every record is
-  drawn. The draw is stored (`workflow_sample`); a drawn record is checked when its last verdict
-  after the draw is verified or flagged, and disagreed when a flag or a value-changing correction
-  followed the draw. The dataset's badge reports the draws: "Sampled 30/412 · 93% agree", with the
-  estimated error rate and its 95% interval in the long label, next to the audited share; a
-  record verified outside a draw never enters the estimate.
+  `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `review` (a
+  person looks, below), `release` (`gate` lists the steps that must be fresh and reviewed).
+  `agent` steps are grammar-valid and refused at plan time until their release. Several extract
+  steps are fine when each names its dataset role (linked datasets, below); `k` runs with a
+  `vote`, `input.previous` and loops run.
+- **A review is a step.** `{"kind": "review", "over": [steps], "mode": "all" | "sample", "unit":
+  "entry" | "paper", "blocks": "next" | "release", "coders": N, "new_only": true}`: `over` names
+  the earlier extract steps it reads (several: a joint review, each paper's documents of those
+  steps in one worklist), or one derive step (the review is the draft's commit). `blocks`
+  (default `release`) says whether an unsatisfied gate holds the next step or only the release.
+  `sample` draws `n` records (or a `share`) from the run's new output at random, with a `seed`
+  (default: from the run and step) and `stratify` fields of the read presets (proportional quotas,
+  at least one per stratum when the size allows, `unit: paper` draws whole papers); when the
+  output is smaller than the size, every record is drawn. The draw is stored (`workflow_sample`);
+  a drawn record is checked when its last verdict after the draw is verified or flagged, and
+  disagreed when a flag or a value-changing correction followed the draw. The dataset's badge
+  reports the draws: "Sampled 30/412 · 93% agree", with the estimated error rate and its 95%
+  interval in the long label, next to the audited share; a record verified outside a draw never
+  enters the estimate. `new_only: false` reviews every paper of the sides on every run, not only
+  the run's new ones. A data step no review step covers is never reviewed: an extract step's
+  records count as AI-only, a draft is committed at once. The form before — `"review": {…}` on
+  the extract or derive step — is still read: it becomes the review step `<step>_review` right
+  after it, with the same contract (below).
 - **A check's `on_fail`**: `note` records findings; `flag` puts every record with a finding at or
   above `severity` in front of a reviewer (a release-blocking gate); `fail` fails the run.
 
@@ -63,10 +72,14 @@ there. Parameters are declared per check (`t_tolerance`, `star_legend`, `ignore`
 ## The contract
 
 `workflow_id` = `<id>@<sha8>` over the dataset unit and the steps with their pins, checks and
-**review declarations** — labels, help texts and a derive prompt's wording are left out. A
-dataset names its workflow by contract (`dataset.workflow`); without one it runs its preset's
-implicit one-step workflow (the preset, its `meta.update` steps, a release gated on the
-extraction), so every dataset has the same Update panel.
+**review declarations** — labels, help texts, a review step's id and a derive prompt's wording
+are left out. A review step over one data step is hashed as that step's `review` attribute (the
+form before review steps stood on their own), so a workflow keeps its id across the two
+spellings; a review over several steps, or one saying what only a step can say (`new_only:
+false`), is hashed as the step it is. A dataset names its workflow by contract
+(`dataset.workflow`); without one it runs its preset's implicit one-step workflow (the preset,
+its `meta.update` steps, a release gated on the extraction), so every dataset has the same
+Update panel.
 
 ## A run
 
@@ -84,8 +97,8 @@ order with their verdicts; `/workspace?queue=<run>:<step>` works through them �
 only the drawn papers, the panel only the drawn entries, a verdict advances to the next pending
 one across papers, and the done state resumes the run or opens the release.
 
-A review gate with `blocks: next` pauses the run (`awaiting_review:<step>`) until every record of
-the step has a verdict or the owner resumes with `override`, which the gate records. A gate with
+A review step with `blocks: next` pauses the run (`awaiting_review:<step>`) until every record of
+the gate has a verdict or the owner resumes with `override`, which the gate records. A gate with
 `blocks: release` lets the run finish and holds the release: `POST /api/datasets/{id}/releases`
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
@@ -99,7 +112,7 @@ and the claims of economics articles — when each extract step names its datase
 {"id": "tables", "kind": "extract", "dataset": "tables", "preset": "econ-regression-tables@…", "source": "supplied"},
 {"id": "claims", "kind": "extract", "dataset": "claims", "preset": "register-claims@…", "source": "supplied"},
 {"id": "links",  "kind": "check", "check": "claims-vs-tables", "over": ["claims"]},
-{"id": "joint",  "kind": "review", "over": ["tables", "claims"], "review": {"mode": "all", "unit": "paper", "blocks": "release"}}
+{"id": "joint",  "kind": "review", "over": ["tables", "claims"], "mode": "all", "unit": "paper", "blocks": "release"}
 ```
 
 Such a workflow lives on a **workflow dataset** of its own, one level above the presets' datasets:
@@ -131,11 +144,12 @@ member's page points to its workflow dataset. Deleting the workflow dataset free
 they keep their records and become plain datasets of their preset again. A workflow over one preset
 needs no workflow dataset; it runs on the dataset of that preset.
 
-A `review` step is a joint review stage: one gate over the documents the run made in the steps it
-names, whose worklist walks each paper's documents together in the workspace queue, across both
-datasets — or, when the run made none (Run the checks over what the datasets hold), over every
-paper of those sides. `unit: paper` with `mode: all` reviews every new paper; `mode: sample` draws
-papers. While a gate waits, the panel's primary action is "Review now · n".
+A review step over two sides is a joint review: one gate over the documents the run made in the
+steps it names, whose worklist walks each paper's documents together in the workspace queue,
+across both datasets — or, when the run brought no papers (Run the checks over what the datasets
+hold), over every paper of those sides. `unit: paper` with `mode: all` reviews every new paper;
+`mode: sample` draws papers. The step-run records the datasets it read (`outputs.datasets`).
+While a gate waits, the panel's primary action is "Review now · n".
 
 The workspace reviews a paper of a workflow dataset (or of a joint queue) on one page: the sidebar
 lists each paper once, its sides counted together; each regression table is one card — its panels
@@ -144,7 +158,7 @@ results cite it underneath, each with its own verdict and its estimate against t
 citing no table of the paper (a figure, the text) have a pill of their own. A claim's "edit ↗"
 opens it in the claims document, where every field is editable.
 
-A review step may say what it asks of each side: `"asks": {"tables": ["target_regressors",
+A joint review step may say what it asks of each side: `"asks": {"tables": ["target_regressors",
 "se_type"]}` (keys are extract steps of `over`, values entry fields of their preset). A side with
 `asks` shows, under each table, only those fields — one line per column, the target regressor picked
 from the column's coefficient rows and marked in the table — instead of the column's whole
@@ -228,8 +242,8 @@ claims, the edges of a corpus graph, the columns per table — by a chain of cal
  "calls": [{"id": "harmonise", "kind": "llm", "prompt": {"file": "edges.harmonise.md"}},
            {"id": "merge", "kind": "transform", "op": "group", "by": ["cause_concept", "effect_concept"],
             "fields": {"n_claims": "count", "n_papers": "n_papers", "sign": "majority", "studies": {"op": "union", "column": "_study"}}}],
- "output": {"label": "Corpus edge", "fields": [{"name": "cause_concept", "type": "string", "required": true}, "…"]},
- "review": {"mode": "all", "blocks": "release"}}
+ "output": {"label": "Corpus edge", "fields": [{"name": "cause_concept", "type": "string", "required": true}, "…"]}},
+{"id": "review_edges", "kind": "review", "over": ["edges"], "mode": "all", "unit": "entry", "blocks": "release"}
 ```
 
 `input` names the unit of the extract step's preset (`entries`, a table field, a child), the
@@ -247,9 +261,11 @@ without one is dropped, as a page section without a source is).
 
 A draft is reviewed as a change against the committed version on `/derived?dataset=…`: per row a
 computed verdict (kept · revised · new · removed), the cells that changed, the sources split into the
-records new since the commit and carried ones, accept / reject per row, then the commit. `review.mode:
-none` commits the draft at once; `all` holds the release (or the run, `blocks: next`) until the
-commit. A transform-only step runs inside the run, free; model calls run on the worker with the
+records new since the commit and carried ones, accept / reject per row, then the commit. Without a
+review step over the derive step the draft is committed at once; with one, the gate holds the
+release (or the run, `blocks: next`) until the commit — the gate sits on the review step's run,
+which names the draft (`review.draft {id, step, version}`). A transform-only step runs inside the
+run, free; model calls run on the worker with the
 server key when the run spends credits (planned per chunk, refunded on failure), inline when there is
 no queue, and otherwise the run pauses as `needs_key:<step>` until the owner gives a key on the
 derived page (used once, never stored). The committed unit is listed with the dataset's analysis
@@ -271,7 +287,7 @@ Coders may not add or delete entries, change the paper's identity, set a field a
 or delete a document: the shape of the data stays the owner's. A listed coder's verdicts and
 edits always land in their coding — the owner's too, once they list themselves.
 
-A step's review may say `coders: N`: when its gate opens, every paper of it is assigned to N of
+A review step may say `coders: N`: when its gate opens, every paper of it is assigned to N of
 the dataset's coders (round-robin in join order, so the load is even; `workflow_assignment`),
 the gate's items become one per (record, coder), each coder's queue (`GET
 /api/workflow-runs/{rid}/queue/{step}`, `/workspace?queue=`) lists their own papers, and the

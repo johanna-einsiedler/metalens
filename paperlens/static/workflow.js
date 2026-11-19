@@ -42,9 +42,10 @@ function sectionsOf(mdText) {
 function reviewText(rv) {
   if (!rv || rv.mode === "none") return "no review";
   const holds = rv.blocks === "next" ? "holds the run" : "holds the release";
-  if (rv.mode === "all") return `every record · ${holds}`;
-  const size = rv.n != null ? `${rv.n} records` : `a ${Math.round((rv.share || 0) * 100)}% share`;
-  return `random sample of ${size}${rv.unit === "paper" ? " (whole papers)" : ""}${(rv.stratify || []).length ? `, stratified by ${rv.stratify.join(", ")}` : ""} · ${holds}`;
+  const coders = rv.coders ? ` · ${rv.coders} coder${rv.coders === 1 ? "" : "s"} per paper` : "";
+  if (rv.mode === "all") return `every ${rv.unit === "paper" ? "paper" : "record"}${coders} · ${holds}`;
+  const size = rv.n != null ? `${rv.n} ${rv.unit === "paper" ? "papers" : "records"}` : `a ${Math.round((rv.share || 0) * 100)}% share`;
+  return `random sample of ${size}${rv.unit === "paper" ? " (whole papers)" : ""}${(rv.stratify || []).length ? `, stratified by ${rv.stratify.join(", ")}` : ""}${coders} · ${holds}`;
 }
 
 function stepsHtml(c) {
@@ -56,7 +57,7 @@ function stepsHtml(c) {
       : s.kind === "vocabulary" ? `vocabulary of <code>${esc(s.column || "")}</code>`
       : s.kind === "pages" ? `pages of <code>${esc(s.group || "")}</code> keyed by <code>${esc(s.keyed_by || "")}</code>`
       : s.kind === "crosscheck" ? "the claims-vs-tables check against the companion dataset"
-      : s.kind === "review" ? `a joint review over ${(s.over || []).join(", ")}: each paper's documents of those steps in one worklist`
+      : s.kind === "review" ? ((s.over || []).length > 1 ? `a joint review over ${s.over.join(", ")}: each paper's documents of those steps in one worklist` : `a review over ${(s.over || []).join(", ")}: a person looks before the data counts as checked`)
       : s.kind === "release" ? `gate on ${(s.gate || []).join(", ") || "nothing"}: the release holds while a gate step is stale or awaits review`
       : esc(s.kind);
     return `<li class="ds-dashrow wc-step"><span class="wc-kind">${KIND[s.kind] || esc(s.kind)}</span> <b>${esc(s.label || s.id)}</b> <code class="muted">${esc(s.id)}</code>
@@ -136,7 +137,7 @@ function render() {
   const relatedMd = (sections["related-work"] || {}).body || "";
   const toc = [["introduction", "Introduction"], ["steps", "Steps"], ["review", "Review policy"], ["checks", "Checks"], ["verification", "Verification"], ["versions", "Versions and citation"], ["used-by", "Used by"], ...(relatedMd ? [["related", "Related work"]] : [])]
     .map(([a, t]) => `<a href="#${a}">${t}</a>`).join("");
-  const reviewRows = (c.steps || []).filter((s) => s.review).map((s) => `<tr><td>${esc(s.label || s.id)}</td><td>${esc(s.review.mode)}</td><td>${s.review.mode === "sample" ? (s.review.n != null ? s.review.n : `${Math.round((s.review.share || 0) * 100)}%`) : "—"}</td><td>${esc(s.review.unit || "entry")}</td><td>${(s.review.stratify || []).join(", ") || "—"}</td><td>${s.review.blocks === "next" ? "the next step" : "the release"}</td></tr>`).join("");
+  const reviewRows = (c.steps || []).filter((s) => s.review && s.review.mode !== "none").map((s) => `<tr><td>${esc(s.label || s.id)}</td><td>${esc(s.review.mode)}</td><td>${s.review.mode === "sample" ? (s.review.n != null ? s.review.n : `${Math.round((s.review.share || 0) * 100)}%`) : "—"}</td><td>${esc(s.review.unit || "entry")}</td><td>${(s.review.stratify || []).join(", ") || "—"}</td><td>${s.review.coders ? `${s.review.coders} per paper` : "—"}</td><td>${s.review.blocks === "next" ? "the next step" : "the release"}</td></tr>`).join("");
   body.innerHTML = `
     <div class="ds-head"><div><h1>${esc(c.title)}</h1>${c.tagline ? `<p class="lede">${esc(c.tagline)}</p>` : ""}
       ${authors ? `<p class="pc-authors">${authors}</p>` : ""}${kws}<div class="pc-badges">${badges}</div></div>
@@ -145,7 +146,7 @@ function render() {
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="steps"><h2>Steps</h2>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
-    <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
+    <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Coders</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
     <section id="checks"><h2>Checks</h2>${checksHtml(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>

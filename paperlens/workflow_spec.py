@@ -9,13 +9,16 @@ what order, what deterministic checks and dataset-level steps follow, and where 
   * ``dataset``   — the unit a run counts in (papers) and what identifies one (the PDF hash)
   * ``steps``     — an ordered list; the order IS the dependency graph (a step may only read
                     earlier ones), the last step is the release
-  * ``review``    — per step: ``none`` | ``all`` | ``sample`` (unit, size, seed, strata), and
-                    whether an unsatisfied gate holds the next step or only the release
+  * ``review``    — a step of its own: what it reads (``over``), ``mode`` ``all`` | ``sample``
+                    (unit, size, seed, strata), how many coders per paper, and whether an
+                    unsatisfied gate holds the next step or only the release
 
 Presets are pinned BY DATA CONTRACT (``<preset>@<sha8>``, the schema id): the same contract
 means the same dataset shape; wording changes do not re-version a workflow. The workflow's own
 contract (``workflow_id``) hashes the steps, their pins and their review declarations — not
-labels, help texts or a derive prompt's wording.
+labels, help texts or a derive prompt's wording. A review step over one data step is hashed as
+that step's ``review`` attribute (the form before review steps stood on their own), so a
+workflow keeps its id across the two spellings; ``normalize`` reads both and writes the step.
 """
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ GATE_KINDS = ("extract", "derive", "agent", "review") # …plus a joint review s
 REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent", "review")
 DRAFT_KINDS = ("derive", "vocabulary", "pages")        # steps whose output is a draft a person commits
 REVIEW_MODES = ("none", "all", "sample")
-REVIEW_UNITS = ("entry", "paper")
+REVIEW_UNITS = ("entry", "paper", "row")      # row: a paper table's rows (a later release)
 BLOCKS = ("next", "release")
 SOURCES = ("live", "supplied")
 MAX_K = 5
@@ -45,6 +48,8 @@ MAX_LOOP = 3
 PIN_RE = re.compile(r"^([a-z][a-z0-9-]{1,63})@([0-9a-f]{8})$")
 UPDATE_KINDS = ("vocabulary", "pages", "crosscheck")   # the preset-level update steps, as workflow kinds
 LATER = {"agent": "agent steps arrive in a later release"}
+REVIEW_KEYS = ("mode", "unit", "n", "share", "seed", "stratify", "blocks", "oversample_flagged", "coders")   # the attribute form's keys
+REVIEW_STEP_KEYS = REVIEW_KEYS + ("template", "where", "new_only", "table", "per_paper")                     # …and what only a step may say
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "card", "dataset", "steps", "implicit"},
@@ -54,7 +59,7 @@ _ALLOWED_KEYS = {
     "step": {"id", "kind", "label", "help", "review"},
     "extract": {"preset", "source", "k", "vote", "input", "params", "dataset"},
     "agent": {"preset", "source", "dataset"},
-    "review_step": {"over", "asks"},
+    "review_step": {"over", "asks", *REVIEW_STEP_KEYS},
     "vote": {"identity", "fields"},
     "input": {"previous"},
     "check": {"check", "over", "on_fail", "severity", "params"},
@@ -127,8 +132,9 @@ def load_dir(directory: Path = WORKFLOWS_DIR) -> dict[str, dict]:
 # ── normalisation: defaults and sibling files ─────────────────────────────────
 
 def normalize(doc: dict, base_dir: Path | None = None) -> dict:
-    """Fill the defaults and inline sibling files (the card, derive prompts). Shape errors are
-    left to ``validate``; only what cannot be defaulted raises here."""
+    """Fill the defaults, inline sibling files (the card, derive prompts) and read a ``review``
+    attribute on a data step as the review step it is (``_shim_review_steps``). Shape errors
+    are left to ``validate``; only what cannot be defaulted raises here."""
     if not isinstance(doc, dict):
         raise WorkflowError(["workflow must be a JSON object"])
     spec = json.loads(json.dumps(doc))                        # a deep copy, plain JSON
@@ -180,18 +186,70 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
                         call["prompt"]["text"] = ps._read_sibling(call["prompt"].pop("file"), base_dir, what="prompt.file")
                     except ps.SpecError as e:
                         raise WorkflowError(e.errors, spec.get("id"))
-        if kind in REVIEWED_KINDS:
+        if kind == "review":
+            # a review step says its declaration on the step itself; a nested `review` is hoisted
+            rv = st.pop("review", None)
+            if isinstance(rv, dict):
+                for k, v in rv.items():
+                    st.setdefault(k, v)
+        elif (kind in UPDATE_KINDS and kind in REVIEWED_KINDS) or (kind in REVIEWED_KINDS and isinstance(st.get("review"), dict)):
+            # the update steps' drafts keep the attribute; on an extract, agent or derive step it is
+            # the form before review steps stood on their own, read as one below
             rv = st.get("review")
             rv = dict(rv) if isinstance(rv, dict) else {}
-            rv.setdefault("mode", "all" if kind in DRAFT_KINDS or kind == "review" else "none")
-            rv.setdefault("unit", "paper" if kind == "review" else "entry")
+            rv.setdefault("mode", "all" if kind in DRAFT_KINDS else "none")
+            rv.setdefault("unit", "entry")
             rv.setdefault("blocks", "release")
             rv.setdefault("oversample_flagged", False)
             st["review"] = rv
+    _shim_review_steps(steps)
+    by_id = {st.get("id"): st for st in steps if isinstance(st, dict)}
+    for st in steps:
+        if isinstance(st, dict) and st.get("kind") == "review":
+            over = st.get("over") if isinstance(st.get("over"), list) else []
+            st.setdefault("mode", "all")
+            st.setdefault("unit", "entry" if any((by_id.get(o) or {}).get("kind") in DRAFT_KINDS for o in over if isinstance(o, str)) else "paper")
+            st.setdefault("blocks", "release")
+            st.setdefault("oversample_flagged", False)
     if not any(isinstance(st, dict) and st.get("kind") == "release" for st in steps):
         steps.append({"id": "release", "kind": "release", "label": "Release",
                       "gate": [st["id"] for st in steps if isinstance(st, dict) and st.get("kind") in GATE_KINDS and isinstance(st.get("id"), str)]})
     return spec
+
+
+def _shim_review_steps(steps: list) -> None:
+    """Review steps stand on their own. The form before — a ``review`` attribute on an extract,
+    agent or derive step — is read as a review step right after that step (``<id>_review``,
+    ``over`` naming it, the attribute's keys flat on it), the attribute goes (a draft step
+    without a review step over it is committed at once; an extract step is never reviewed in
+    place), and the release gate names the new step beside the data step. Idempotent."""
+    by_id = {st.get("id"): st for st in steps if isinstance(st, dict)}
+    out: list = []
+    inserted: dict[str, str] = {}                      # data step → the review step made for it
+    for st in steps:
+        out.append(st)
+        if not isinstance(st, dict) or st.get("kind") not in ("extract", "agent", "derive"):
+            continue
+        rv = st.pop("review", None)
+        sid = st.get("id")
+        if not isinstance(rv, dict) or rv.get("mode", "none") == "none" or not isinstance(sid, str):
+            continue
+        rid, k = f"{sid}_review", 2
+        while rid in by_id:
+            rid, k = f"{sid}_review{k}", k + 1
+        step = {"id": rid, "kind": "review", "label": f"Review of {st.get('label') or ps.format_key(sid)}", "over": [sid],
+                **{kk: v for kk, v in rv.items() if kk != "over"}}
+        out.append(step); by_id[rid] = step; inserted[sid] = rid
+    if inserted:
+        for st in out:
+            if isinstance(st, dict) and st.get("kind") == "release" and isinstance(st.get("gate"), list):
+                gate: list = []
+                for g in st["gate"]:
+                    gate.append(g)
+                    if isinstance(g, str) and g in inserted and inserted[g] not in st["gate"]:
+                        gate.append(inserted[g])
+                st["gate"] = gate
+    steps[:] = out
 
 
 # ── validation ────────────────────────────────────────────────────────────────
@@ -296,33 +354,7 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
         elif kind == "loop":
             _validate_loop(st, at, E, W, earlier=earlier, by_id=by_id)
         elif kind == "review":
-            over = st.get("over")
-            if not isinstance(over, list) or not over or any(not isinstance(o, str) for o in over):
-                E(f"{at}.over must list the extract steps the stage reviews together"); over = []
-            for o in over:
-                if o not in earlier or by_id.get(o, {}).get("kind") not in ("extract", "agent"):
-                    E(f"{at}.over: {o!r} is not an earlier extract step")
-            # asks: per side, the entry fields the joint review asks the reviewer to verify beside a
-            # sheet's cells (what a validation protocol checks); a side without it shows every field
-            asks = st.get("asks")
-            if asks is not None:
-                if not isinstance(asks, dict):
-                    E(f"{at}.asks must map extract steps of `over` to lists of entry fields")
-                else:
-                    for o, fields in asks.items():
-                        if o not in over:
-                            E(f"{at}.asks: {o!r} is not one of the steps the stage reviews")
-                        elif not isinstance(fields, list) or any(not isinstance(f, str) for f in fields):
-                            E(f"{at}.asks.{o} must list entry fields")
-                        elif presets_of.get(o):
-                            ent = presets_of[o].get("entries") or {}
-                            names = {f.get("name") for f in ent.get("fields") or [] if isinstance(f, dict)} | {c.get("key") for c in ent.get("children") or [] if isinstance(c, dict)}
-                            for f in fields:
-                                if f not in names:
-                                    E(f"{at}.asks.{o}: {f!r} is not an entry field of {by_id[o].get('preset')}")
-            for kk in st:
-                if kk not in _ALLOWED_KEYS["step"] | _ALLOWED_KEYS["review_step"]:
-                    E(f"{at}: unknown key {kk!r}")
+            _validate_review_step(st, at, E, W, earlier=earlier, by_id=by_id, presets_of=presets_of)
         elif kind == "release":
             gate = st.get("gate")
             if not isinstance(gate, list) or not all(isinstance(g, str) for g in gate):
@@ -331,7 +363,7 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
                 for g in gate:
                     if g not in by_id or by_id[g].get("kind") not in GATE_KINDS:
                         E(f"{at}.gate: {g!r} is not an earlier extract, derive or review step")
-        if kind in REVIEWED_KINDS:
+        if kind in REVIEWED_KINDS and kind != "review" and st.get("review") is not None:      # the drafts of the update steps
             _validate_review(st.get("review"), st, presets_of.get(sid) if sid else None, f"{at}.review", E, W)
     rel = [st for st in steps if isinstance(st, dict) and st.get("kind") == "release"]
     if len(rel) != 1:
@@ -562,21 +594,166 @@ def _validate_review(rv, st, pspec, at, E, W) -> None:
                         E(f"{at}.stratify: {x!r} is not a {'paper-level' if rv.get('unit') == 'paper' else 'scalar entry'} field of the step's preset")
 
 
+def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
+    """A review step: what it reads (``over``: earlier extract steps, or one draft step), what
+    it asks of each side (``asks``), and its declaration flat on the step — mode, unit, size,
+    seed, strata, coders, what holds."""
+    over = st.get("over")
+    if not isinstance(over, list) or not over or any(not isinstance(o, str) for o in over):
+        E(f"{at}.over must list the steps the review reads (extract steps, or one derive step)"); over = []
+    kinds = {o: (by_id.get(o) or {}).get("kind") for o in over}
+    for o in over:
+        if o not in earlier or kinds[o] not in ("extract", "agent", "derive"):
+            E(f"{at}.over: {o!r} is not an earlier extract step")
+    draft = any(kinds[o] in DRAFT_KINDS for o in over)
+    if draft and len(over) > 1:
+        E(f"{at}.over: a draft is reviewed on its own (one derive step)")
+    # asks: per side, the entry fields the review asks the reviewer to verify beside a sheet's
+    # cells (what a validation protocol checks); a side without it shows every field
+    asks = st.get("asks")
+    if asks is not None:
+        if not isinstance(asks, dict):
+            E(f"{at}.asks must map extract steps of `over` to lists of entry fields")
+        else:
+            for o, fields in asks.items():
+                if o not in over:
+                    E(f"{at}.asks: {o!r} is not one of the steps the review reads")
+                elif not isinstance(fields, list) or any(not isinstance(f, str) for f in fields):
+                    E(f"{at}.asks.{o} must list entry fields")
+                elif presets_of.get(o):
+                    ent = presets_of[o].get("entries") or {}
+                    names = {f.get("name") for f in ent.get("fields") or [] if isinstance(f, dict)} | {c.get("key") for c in ent.get("children") or [] if isinstance(c, dict)}
+                    for f in fields:
+                        if f not in names:
+                            E(f"{at}.asks.{o}: {f!r} is not an entry field of {by_id[o].get('preset')}")
+    mode = st.get("mode")
+    if mode not in REVIEW_MODES:
+        E(f"{at}.mode must be one of {', '.join(REVIEW_MODES)}"); return
+    if mode == "none":
+        E(f"{at}.mode: a review step reviews — 'all' or 'sample' (leave the step out for no review)"); return
+    unit = st.get("unit")
+    if unit not in REVIEW_UNITS:
+        E(f"{at}.unit must be 'entry' or 'paper'")
+    elif unit == "row":
+        E(f"{at}.unit 'row' (a paper table's rows) arrives in a later release")
+    elif draft and unit != "entry":
+        E(f"{at}.unit: a draft is reviewed as entries")
+    if st.get("blocks") not in BLOCKS:
+        E(f"{at}.blocks must be 'next' or 'release'")
+    if not isinstance(st.get("oversample_flagged", False), bool):
+        E(f"{at}.oversample_flagged must be a boolean")
+    if not isinstance(st.get("new_only", True), bool):
+        E(f"{at}.new_only must be a boolean (the run's new papers only, or every paper of the sides)")
+    for k in ("template", "where", "table", "per_paper"):
+        if st.get(k) is not None:
+            E(f"{at}.{k} arrives in a later release")
+    coders = st.get("coders")                               # each paper reviewed by N of the coders, independently
+    if coders is not None:
+        if not (isinstance(coders, int) and not isinstance(coders, bool) and coders >= 1):
+            E(f"{at}.coders must be an integer ≥ 1 (how many coders each paper gets)")
+        elif draft:
+            E(f"{at}.coders: a draft is committed by the owner, not coded")
+    if mode != "sample":
+        for k in ("n", "share", "seed", "stratify"):
+            if st.get(k) is not None:
+                W(f"{at}.{k} only applies to mode 'sample'")
+        return
+    if draft:
+        E(f"{at}: a draft is reviewed whole — mode 'all'")
+    has_n, has_share = st.get("n") is not None, st.get("share") is not None
+    if has_n == has_share:
+        E(f"{at}: a sample names exactly one of n (a count) or share (a fraction)")
+    if has_n and not (isinstance(st["n"], int) and st["n"] >= 1):
+        E(f"{at}.n must be an integer ≥ 1")
+    if has_share and not (isinstance(st["share"], (int, float)) and 0 < st["share"] <= 1):
+        E(f"{at}.share must be a fraction in (0, 1]")
+    seed = st.get("seed")
+    if seed is not None and not isinstance(seed, (int, str)):
+        E(f"{at}.seed must be an integer or a string")
+    strat = st.get("stratify")
+    if strat is not None:
+        if not isinstance(strat, list) or any(not isinstance(x, str) for x in strat):
+            E(f"{at}.stratify must list field names")
+        else:
+            if len(strat) > 2:
+                W(f"{at}.stratify: more than two strata fields make small strata")
+            for o in over:
+                pspec = presets_of.get(o)
+                if pspec is None:
+                    continue
+                allowed = _paper_fields(pspec) if unit == "paper" else _scalar_entry_fields(pspec)
+                for x in strat:
+                    if x not in allowed:
+                        E(f"{at}.stratify: {x!r} is not a {'paper-level' if unit == 'paper' else 'scalar entry'} field of the preset of {o!r}")
+
+
 # ── identity ──────────────────────────────────────────────────────────────────
 
 _WORDING = ("label", "help", "asks")                         # asks: what the review shows, not what it promises
 
 
+_NONE_REVIEW = {"mode": "none", "unit": "entry", "blocks": "release", "oversample_flagged": False}
+
+
+def _review_declared(key: str, value) -> bool:
+    """Whether a review step's key enters the contract: the defaults never do."""
+    if key == "new_only":
+        return value is False
+    return value is not None
+
+
+def unshim(spec: dict) -> dict:
+    """The document in the form before review steps stood on their own, for the contract hash:
+    a review step over one extract, agent or derive step — saying nothing only a step can say —
+    is folded back into that step's ``review`` attribute and the release gate repointed; every
+    other review step keeps its place with its declaration nested; a data step no review step
+    covers carries the ``none`` attribute. So a workflow keeps its id across the two spellings."""
+    doc = json.loads(json.dumps(spec))
+    steps = doc.get("steps") if isinstance(doc.get("steps"), list) else []
+    by_id = {st["id"]: st for st in steps if isinstance(st, dict) and isinstance(st.get("id"), str)}
+    folded: dict[str, str] = {}
+    out: list = []
+    for st in steps:
+        if not isinstance(st, dict) or st.get("kind") != "review":
+            out.append(st); continue
+        nested = {k: st[k] for k in REVIEW_KEYS if k in st}
+        extra = {k: st[k] for k in REVIEW_STEP_KEYS if k not in REVIEW_KEYS and k in st and _review_declared(k, st[k])}
+        over = st.get("over") if isinstance(st.get("over"), list) else []
+        target = by_id.get(over[0]) if len(over) == 1 and isinstance(over[0], str) else None
+        if target is not None and target.get("kind") in ("extract", "agent", "derive") and "review" not in target and not extra:
+            target["review"] = nested
+            folded[st["id"]] = over[0]
+            continue
+        rest = {k: v for k, v in st.items() if k not in REVIEW_STEP_KEYS}
+        rest["review"] = nested
+        rest.update(extra)
+        out.append(rest)
+    for st in out:
+        if isinstance(st, dict) and st.get("kind") in ("extract", "agent", "derive") and "review" not in st:
+            st["review"] = dict(_NONE_REVIEW)
+        if isinstance(st, dict) and st.get("kind") == "release" and isinstance(st.get("gate"), list):
+            gate: list = []
+            for g in st["gate"]:
+                g2 = folded.get(g, g) if isinstance(g, str) else g
+                if g2 not in gate:
+                    gate.append(g2)
+            st["gate"] = gate
+    doc["steps"] = out
+    return doc
+
+
 def workflow_contract(spec: dict) -> dict:
     """What a workflow version promises: the dataset unit, the steps with their pins, checks,
-    calls and REVIEW declarations — not labels, help texts, nor a derive prompt's wording."""
+    calls and REVIEW declarations — not labels, help texts, nor a derive prompt's wording. A
+    review step over one data step is hashed as that step's attribute (``unshim``)."""
     def strip_step(st: dict) -> dict:
         out = {k: v for k, v in st.items() if k not in _WORDING}
         if st.get("kind") == "derive":
             out["calls"] = [{k: v for k, v in c.items() if k != "prompt"} for c in st.get("calls") or [] if isinstance(c, dict)]
         return out
-    return {"dataset": spec.get("dataset") or {},
-            "steps": [strip_step(st) for st in spec.get("steps") or [] if isinstance(st, dict)]}
+    doc = unshim(spec)
+    return {"dataset": doc.get("dataset") or {},
+            "steps": [strip_step(st) for st in doc.get("steps") or [] if isinstance(st, dict)]}
 
 
 def content_hash(spec: dict) -> str:
@@ -664,5 +841,27 @@ def implicit(pspec: dict, schema_id: str) -> dict:
 
 
 def review_of(step: dict) -> dict:
+    """A step's review declaration: a review step's own (flat on the step), else the nested
+    ``review`` of a draft step — or of a data step in a run frozen before review steps stood on
+    their own — else none."""
+    if isinstance(step, dict) and step.get("kind") == "review":
+        out = {k: step[k] for k in REVIEW_STEP_KEYS if k in step}
+        out.setdefault("mode", "all"); out.setdefault("unit", "paper"); out.setdefault("blocks", "release")
+        return out
     rv = step.get("review") if isinstance(step, dict) else None
     return dict(rv) if isinstance(rv, dict) else {"mode": "none", "unit": "entry", "blocks": "release"}
+
+
+def review_steps_over(spec: dict, step_id: str) -> list[dict]:
+    """The review steps that read ``step_id``, in order."""
+    return [st for st in spec.get("steps") or [] if isinstance(st, dict) and st.get("kind") == "review" and step_id in (st.get("over") or [])]
+
+
+def review_for(spec: dict, step_id: str) -> dict:
+    """The review that covers a data step: its first review step's declaration (with the step's
+    id as ``step``), else the step's own attribute (a draft of an update step, a frozen run), else
+    none."""
+    over = review_steps_over(spec, step_id)
+    if over:
+        return {**review_of(over[0]), "step": over[0]["id"]}
+    return review_of(steps_by_id(spec).get(step_id) or {})
