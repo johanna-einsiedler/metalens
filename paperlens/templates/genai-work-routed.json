@@ -1,0 +1,127 @@
+{
+  "format": 1,
+  "id": "genai-work-routed",
+  "version": 1,
+  "meta": {
+    "title": "GenAI at work — routed papers",
+    "tagline": "Every flag the pipeline raised on a routed paper, resolved by a coder.",
+    "description": "The routed pass of the GenAI-at-work validation as a review template over the pipeline's record: a paper routed because its record contradicts an inclusion criterion, a headline estimate scores high on the checks or a coder flagged it; the reasons and the score as the head, one row per flag with its source and the extracted value, a verdict and a corrected value per flag, a full-review flag for the paper.",
+    "brands": [
+      "metalens"
+    ]
+  },
+  "for": "genai-work-extraction",
+  "layout": "stages",
+  "items": "evidence_items",
+  "verify": "paper",
+  "stages": [
+    {
+      "id": "resolve",
+      "label": "Resolve",
+      "help": "This paper was routed for the reasons above. Each row is one flag: a check an estimate failed (its source and the extracted value given), a cell the runs disagree on, a criterion the record contradicts, or a coder's flag. Open the source in the PDF and give a verdict; for a corrected value, write it as printed. A criterion row takes keep_paper or exclude_paper. Press done when every row has a verdict.",
+      "blocks": [
+        {
+          "unit": "paper",
+          "label": "Why it was routed",
+          "show": [
+            "route_reasons",
+            "triage_score"
+          ]
+        },
+        {
+          "unit": "paper_metadata.flags",
+          "label": "The flags",
+          "show": [
+            "group",
+            "estimate_id",
+            "kind",
+            "code",
+            "message",
+            "source",
+            "extracted",
+            "page"
+          ],
+          "title": "{kind} · {code}",
+          "questions": [
+            {
+              "name": "verdict",
+              "type": "enum",
+              "label": "Verdict",
+              "help": "model_right = the extracted value stands; corrected = give the right value; cannot_tell = the paper does not settle it; keep_paper / exclude_paper = for a criterion row, the decision on the paper; not_applicable = the flag does not apply",
+              "options": [
+                {
+                  "value": "model_right"
+                },
+                {
+                  "value": "corrected"
+                },
+                {
+                  "value": "cannot_tell"
+                },
+                {
+                  "value": "keep_paper"
+                },
+                {
+                  "value": "exclude_paper"
+                },
+                {
+                  "value": "not_applicable"
+                },
+                {
+                  "value": "exclude_paper",
+                  "label": "Exclude the paper",
+                  "help": "the flag shows the paper does not meet an inclusion criterion"
+                },
+                {
+                  "value": "not_applicable",
+                  "label": "Not applicable",
+                  "help": "the flag does not apply to this paper"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "corrected_value",
+              "type": "string",
+              "label": "Corrected value"
+            },
+            {
+              "name": "note",
+              "type": "string",
+              "label": "Note"
+            }
+          ]
+        },
+        {
+          "unit": "paper",
+          "label": "This paper",
+          "show": [],
+          "questions": [
+            {
+              "name": "full_review",
+              "type": "enum",
+              "label": "Full review needed",
+              "help": "yes when what you saw makes the whole extraction of this paper doubtful; say why",
+              "options": [
+                {
+                  "value": "no",
+                  "label": "no"
+                },
+                {
+                  "value": "yes",
+                  "label": "yes"
+                }
+              ],
+              "required": true
+            },
+            {
+              "name": "full_review_why",
+              "type": "string",
+              "label": "Why"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

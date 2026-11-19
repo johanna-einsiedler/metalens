@@ -106,7 +106,7 @@ def test_defaults_are_filled_and_the_good_workflow_validates() -> None:
     ("review mode none", lambda d: d["steps"][1].__setitem__("mode", "none"), "a review step reviews"),
     ("review unit", lambda d: d["steps"][1].__setitem__("unit", "column"), "unit must be"),
     ("review unit row (later)", lambda d: d["steps"][1].__setitem__("unit", "row"), "later release"),
-    ("review template (later)", lambda d: d["steps"][1].__setitem__("template", "x"), "later release"),
+    ("review template unknown", lambda d: d["steps"][1].__setitem__("template", "x"), "unknown template"),
     ("review new_only", lambda d: d["steps"][1].__setitem__("new_only", "yes"), "new_only must be"),
     ("review blocks", lambda d: d["steps"][1].__setitem__("blocks", "everything"), "blocks must be"),
     ("review over nothing", lambda d: d["steps"][1].__setitem__("over", []), "over must list"),

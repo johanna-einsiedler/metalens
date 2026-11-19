@@ -15,6 +15,7 @@ import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
+import { blockHtml, unitKind, unitFields, completeness as taskCompleteness } from "/static/template.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
@@ -872,7 +873,8 @@ async function load(docId) {
   await pendingSaves();             // an edit made a moment ago is on the server before we re-read
   if (DOCID !== docId) return;      // the coder moved on again meanwhile
   const partner = ((DOCS.find((d) => d.document_id === docId) || {}).partners || [])[0] || null;   // only a joint review groups partners
-  const [view, pview] = await Promise.all([api.documentView(docId, VIEW_AS), partner ? api.documentView(partner.document_id, VIEW_AS).catch(() => null) : null]);
+  const task = QUEUE && QUEUE.task ? QUEUE.task : null;      // a task's queue: the document through its template
+  const [view, pview] = await Promise.all([api.documentView(docId, VIEW_AS, task), partner ? api.documentView(partner.document_id, VIEW_AS, task).catch(() => null) : null]);
   if (DOCID !== docId) return;
   DATA = view;
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
@@ -1244,7 +1246,7 @@ function renderPanel() {
     // a staged preset keeps its head short: no view toggles, no grid, no ＋ entry (the stage adds), no CSV
     + (reviewSpec() && !GRID && !RAW && !stagesSpec() ? `<button class="btn btn-ghost" id="chaintoggle" title="${CHAIN_OFF ? reviewToggleTitle() : "every field, editable"}">${CHAIN_OFF ? reviewToggleLabel() : "▤ Fields"}</button>` : "")
     + (stagesSpec() ? "" : `<button class="btn btn-ghost" id="gridtoggle" title="spreadsheet view of all records">${GRID ? "▤ Cards" : "▦ Grid"}</button>`)
-    + `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`
+    + (taskMode() ? "" : `<button class="btn btn-ghost" id="rawtoggle">${RAW ? "◫ Rendered" : "{ } Raw"}</button>`)
     + `<span class="jobwait" id="jobwait" hidden><span class="spin"></span> <span id="jobwait-txt">Extracting…</span></span>`
     + (PROJECT   // already a dataset: nothing to save, so this simply opens its overview (audit report, dashboards, export, publishing)
         ? `<a class="btn btn-ghost" id="dlsave" href="/dataset?id=${encodeURIComponent(PROJECT)}" title="the dataset overview: audit report, dashboards, export, publishing — and finalising">Open dataset ↗</a>`
@@ -2449,7 +2451,7 @@ function wirePanelHead() {
   const va = $("#viewas"); if (va) va.onchange = () => {            // the owner: one coder's coding, or the record as stored
     const u = new URL(location.href); if (va.value) u.searchParams.set("coder", va.value); else u.searchParams.delete("coder"); location.href = u.toString();
   };
-  $("#rawtoggle").onclick = () => { RAW = !RAW; renderPanel(); };
+  const rt = $("#rawtoggle"); if (rt) rt.onclick = () => { RAW = !RAW; renderPanel(); };   // absent in a task
   const g = $("#gridtoggle"); if (g) g.onclick = () => { GRID = !GRID; renderPanel(); };
   const tr = $("#triage"); if (tr) tr.onchange = () => {
     TRIAGE = tr.value; try { localStorage.setItem("metalens_triage", TRIAGE); } catch { /* */ }
@@ -3302,9 +3304,14 @@ function evidenceSpec() {
   return rv && rv.layout === "evidence" ? rv : null;
 }
 function stagesSpec() {
-  const rv = VM && !VM.legacy && VM.spec && VM.spec.display ? VM.spec.display.review : null;
+  const rv = VM && !VM.legacy ? VM.review : null;             // a task's review template, else the preset's own review
   return rv && rv.layout === "stages" ? rv : null;
 }
+// the document was opened through a review task (?task=<run>:<step> on the view): its template
+// draws the stages, the coder's answers are theirs, the paper is done when the required ones are in
+function taskMode() { return !!(DATA && DATA.task && DATA.template && Array.isArray(DATA.template.stages)); }
+function taskKey() { return taskMode() ? `${DATA.task.run_id}:${DATA.task.step_id}` : null; }
+function taskOwed() { return taskMode() && CODER ? taskCompleteness(DATA.template, DATA, DATA.answers || {}, VM) : { required: 0, missing: [], complete: true }; }   // the owner answers nothing
 function reviewSpec() { return chainSpec() || evidenceSpec() || stagesSpec(); }
 function reviewToggleLabel() { return chainSpec() ? "⛓ Chain" : stagesSpec() ? "☰ Stages" : "❝ Evidence"; }
 function reviewToggleTitle() {
@@ -3716,9 +3723,80 @@ function updateStageFoot() {
   const b = document.querySelector(".stg-foot .stg-next"), p = document.querySelector(".stg-foot .stg-foot-prev");
   if (!b) return;
   const st = stageFootState(), finish = st === "done" && paperVerify() && docProgress().total && !docProgress().done;
+  const owed = finish ? taskOwed() : null;
   b.textContent = st === "stage" ? "next ▸" : finish ? "✓ done with this paper" : "done";
-  b.title = st === "stage" ? "the next stage (])" : finish ? "mark this paper done" : "the last stage";
+  b.title = st === "stage" ? "the next stage (])" : finish ? (owed && owed.missing.length ? `${owed.missing.length} required answer${owed.missing.length === 1 ? "" : "s"} missing` : "mark this paper done") : "the last stage";
+  b.disabled = !!(finish && owed && owed.missing.length);
   if (p) p.disabled = STAGE <= 0;
+}
+// what the coder still owes the task: the done buttons wait, the bar says how many
+function updateTaskOwed() {
+  const owe = $("#stg-owe"), va = $("#stg-verifyall");
+  if (!taskMode() || !CODER) { if (owe) owe.textContent = ""; return; }
+  const c = taskOwed();
+  if (owe) owe.textContent = c.missing.length ? `${c.missing.length} of ${c.required} required answer${c.required === 1 ? "" : "s"} missing` : (c.required ? "every required answer in" : "");
+  if (va) { va.disabled = !!c.missing.length; va.title = c.missing.length ? `${c.missing.length} required answer${c.missing.length === 1 ? "" : "s"} missing — see the stages` : va.title; }
+  updateStageFoot();
+}
+
+// ── a template stage: its blocks over the document's units, the coder's answers under each ──────
+function taskCellsBlock(st, recs) {
+  const box = document.createElement("div"); box.className = "stg-cells tq-cells";
+  box.innerHTML = `<div class="evi-sub stg-head">Fields</div>` + (st.blocks || []).map((bl) => blockHtml(bl, {
+    data: DATA, vm: VM, answers: DATA.answers || {}, byCoder: DATA.answers_by_coder || null, editable: CODER && !RO, owner: !CODER,
+    evidence: DATA.evidence || [] })).join("");
+  return box;
+}
+async function saveAnswer(unitKey, recId, values) {
+  const r = await api.answers(DATA.document_id, { task: taskKey(), record_id: recId || null, unit: unitKey, answers: values });
+  if (!DATA.answers) DATA.answers = { paper: {}, records: {} };
+  const home = recId ? ((DATA.answers.records = DATA.answers.records || {}), (DATA.answers.records[recId] = DATA.answers.records[recId] || {})) : (DATA.answers.paper = DATA.answers.paper || {});
+  if (r.answers && Object.keys(r.answers).length) home[unitKey] = r.answers; else delete home[unitKey];
+  updateTaskOwed();
+  return r;
+}
+function wireTaskPanel(panel, recs) {
+  const byId = new Map(recs.map((r) => [r.id, r]));
+  // the shown fields: the paper's, saved as paper fields; a record's, saved into the coding as any cell edit
+  panel.querySelectorAll(".tq-shown[data-scope='paper']").forEach((box) => wireControls(box, (p, v) => savePaperPath(p, v), true));
+  panel.querySelectorAll(".tq-shown[data-scope='record'][data-rid]").forEach((box) => {
+    const rec = byId.get(box.dataset.rid); if (!rec) return;
+    wireControls(box, (p, v) => { const was = curVal(rec, p); return saveFieldEdit(rec, null, p, v, was); }, true);
+  });
+  // the questions, and an added unit's own fields: answers, under the unit's key
+  panel.querySelectorAll(".tq-unit").forEach((u) => {
+    const key = u.dataset.unit, rid = u.dataset.rid || null;
+    u.querySelectorAll(".tq-q, .tq-shown[data-scope='answers']").forEach((q) => wireControls(q, (p, v) => saveAnswer(key, rid, { [p]: v }).catch((e) => alert("could not save the answer: " + e.message)), true));
+    const del = u.querySelector(".tq-del");
+    if (del) del.onclick = async () => {
+      if (!confirm("Remove this added unit and its answers?")) return;
+      const vals = Object.fromEntries(Object.keys((rid ? (((DATA.answers || {}).records || {})[rid] || {}) : ((DATA.answers || {}).paper || {}))[key] || {}).map((k) => [k, null]));
+      try { if (Object.keys(vals).length) await saveAnswer(key, rid, vals); rerenderKeep(); } catch (e) { alert("could not remove: " + e.message); }
+    };
+  });
+  // "＋": a unit the paper has and the list lacks — its first field blank, answered from then on
+  panel.querySelectorAll(".tq-add").forEach((b) => (b.onclick = async () => {
+    const name = b.dataset.unit, st = (stagesSpec().stages || [])[STAGE], bl = (st.blocks || []).find((x) => (typeof x.unit === "object" ? String(x.unit.distinct || "").split(".").pop() : String(x.unit).replace("paper_metadata.", "")) === name);
+    if (!bl) return;
+    const uk = unitKind(bl.unit, VM), first = ((bl.add || {}).fields || [])[0];
+    const perRecord = uk && (uk.kind === "child" || uk.kind === "entries");
+    let rid = null;
+    if (perRecord) {
+      const recs2 = DATA.records || [];
+      if (!recs2.length) { alert("Add an entry first."); return; }
+      rid = recs2.length === 1 ? recs2[0].id : (prompt(`Under which ${VM.entries.label.toLowerCase()}? (1–${recs2.length})`, "1") || "");
+      if (recs2.length > 1) { const k = Number(rid) - 1; if (!(k >= 0 && k < recs2.length)) return; rid = recs2[k].id; }
+    }
+    const key = `${name}#+c${Math.random().toString(36).slice(2, 10)}`;
+    try { await saveAnswer(key, rid, { [first ? first.name : "note"]: "" }); rerenderKeep(); } catch (e) { alert("could not add: " + e.message); }
+    const cell = document.querySelector(`.tq-unit[data-unit="${key}"] .rv-editable, .tq-unit[data-unit="${key}"] select`); if (cell && cell.focus) cell.focus();
+  }));
+  // a unit's page tag opens its passage
+  panel.querySelectorAll(".tq-title .ev-cite[data-eids]").forEach((b) => {
+    const ids = b.dataset.eids.split(",").map(Number);
+    b.onclick = (e) => { e.stopPropagation(); if (!stagePdfOpen()) togglePdf(true, false); jumpToEvidence(+b.dataset.page, ids); };
+    b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
+  });
 }
 function stageShowItem() {
   const where = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
@@ -3766,6 +3844,16 @@ function stageShowItem() {
 // when it has entry fields, else a child, else the paper. `accept` and `match` are the stage's
 // rules; `kidOf(key)` finds a child block by its key.
 function stageLevel(st) {
+  if (Array.isArray(st.blocks)) {                            // a template stage: no level of its own, the blocks' shown fields
+    const names = new Set();
+    for (const bl of st.blocks) {
+      const uk = unitKind(bl.unit, VM);
+      for (const n of bl.show || []) names.add(n);
+      if (uk && uk.key) names.add(uk.key);
+      if (uk && uk.field) names.add(uk.field);
+    }
+    return { scope: "task", names, kids: [], child: null, paper: null, entry: null, accept: null, match: null, kidOf: () => null };
+  }
   const specs = st.children || (st.child ? [{ key: st.child, fields: st.child_fields || [] }] : []);
   const kids = specs.map((k) => ({ child: VM.entries.children.find((c) => c.key === k.key) || null, names: new Set(k.fields || []) })).filter((k) => k.child);
   const paper = st.paper_fields || null, entry = st.fields || null;
@@ -4090,7 +4178,7 @@ function renderStagesPanel(panel, rv) {
     + stages.map((s, i) => `<button type="button" class="stg-tab${i === STAGE ? " active" : ""}" data-i="${i}" title="${esc(s.help || "")}"><span class="stg-k">${stageLetter(i)}</span> ${esc(s.label || s.id)}</button>`).join("")
     + `<button type="button" class="chain-nav stg-next" title="next stage (])"${STAGE < stages.length - 1 ? "" : " disabled"}>›</button>`
     + `<span class="stg-prog muted">${pr.total ? (pr.done ? (paperVerify() ? "✓ paper done" : `✓ every ${esc(unit)} verified`) : paperVerify() ? "" : `${pr.reviewed} / ${pr.total} ${esc(units)} verified`) : `no ${esc(units)} yet`}</span>`
-    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="${paperVerify() ? "mark this paper done (every task recorded as reviewed)" : `mark every unreviewed ${esc(unit)} verified — the paper is done when all are`}">${paperVerify() ? "✓ done with this paper" : `✓ verify all ${esc(units)}`}</button>` : "")
+    + (pr.total && !pr.done ? `<button type="button" class="btn btn-ghost" id="stg-verifyall" title="${paperVerify() ? "mark this paper done (every task recorded as reviewed)" : `mark every unreviewed ${esc(unit)} verified — the paper is done when all are`}">${paperVerify() ? "✓ done with this paper" : `✓ verify all ${esc(units)}`}</button><span class="stg-owe" id="stg-owe"></span>` : "")
     + (!pr.total && DATA._sentinel ? (confirmed ? `<span class="status verified" id="noconfirm">✓ Confirmed — no ${esc(units)}</span>` : `<button type="button" class="btn btn-ghost" id="noconfirm" title="this paper genuinely reports no ${esc(unit)}">✓ Confirm — no ${esc(units)} here</button>`) : "");
   panel.appendChild(bar);
   if (st.help) { const help = document.createElement("div"); help.className = "stg-help"; help.innerHTML = renderMarkdown(st.help); panel.appendChild(help); }
@@ -4128,13 +4216,15 @@ function renderStagesPanel(panel, rv) {
   const evhost = $("#evpane") || panel;                     // the panel itself on a page without the pane
   if (evhost !== panel) evhost.innerHTML = "";
   evhost.appendChild(evbox);
-  panel.appendChild(stageCellsBlock(st, L, recs));
+  panel.appendChild(Array.isArray(st.blocks) ? taskCellsBlock(st, recs) : stageCellsBlock(st, L, recs));
   const foot = document.createElement("div"); foot.className = "stg-foot";
   foot.innerHTML = `<button type="button" class="chain-nav stg-foot-prev" title="previous stage ([)">◂</button><button type="button" class="btn btn-ghost stg-next"></button>`;
   panel.appendChild(foot);
   wireEvidencePanel(panel, recs);
   if (evhost !== panel) wireEvidencePanel(evbox, recs);
   wireStagePanel(panel, recs, st, L, evbox);
+  if (Array.isArray(st.blocks)) wireTaskPanel(panel, recs);
+  updateTaskOwed();
   evbox.querySelectorAll(":scope > .evi-item[data-i]").forEach((el) => {
     const g = inStage[Number(el.dataset.i)];
     el.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, [contenteditable]")) return; stageCursor(Number(el.dataset.i)); });
@@ -4160,13 +4250,17 @@ function stageStep(dir) {
 
 async function verifyAll(btn) {
   btn.disabled = true;
+  const task = taskKey();
+  if (task) { const c = taskOwed(); if (c.missing.length) { alert(`${c.missing.length} required answer${c.missing.length === 1 ? "" : "s"} still missing: ${c.missing.slice(0, 5).map((m) => m.label).join(", ")}${c.missing.length > 5 ? "…" : ""}`); updateTaskOwed(); return; } }
   try {
     for (const rec of DATA.records || []) {
       if (rec.verification_status === "verified" || rec.verification_status === "flagged") continue;
-      await api.verify(rec.id, { status: "verified" });
+      await api.verify(rec.id, task ? { status: "verified", task } : { status: "verified" });
       rec.verification_status = "verified";
+      if (QUEUE) queueMark(rec, "verified");                  // the queue bar and the sidebar count the paper
     }
     maybeOfferRepublish(); refreshNavState(); rerenderKeep();
+    if (QUEUE) { renderQueueBar(); renderDocTabs(); }
   } catch (e) { btn.disabled = false; alert("verify failed: " + e.message); }
 }
 

@@ -186,7 +186,10 @@ export const api = {
   setDocumentField: (docId, key, value) => req(`/api/documents/${docId}/set-field`, json({ key, value })),
   updatePaper: (docId, fields) => req(`/api/documents/${docId}/paper`, { method: "PATCH",
     headers: { "content-type": "application/json" }, body: JSON.stringify(fields) }),
-  documentView: (id, coder) => req(`/api/documents/${id}/view${coder ? `?coder=${encodeURIComponent(coder)}` : ""}`),   // coder: the owner's look at one coding
+  documentView: (id, coder, task) => req(`/api/documents/${id}/view${qs({ coder, task })}`),   // coder: the owner's look at one coding; task: "<run>:<step>", the document through the task's template
+  answers: (docId, body) => req(`/api/documents/${docId}/answers`, json(body)),                  // {task, record_id?, unit, answers}: a coder's answers on one unit
+  templates: () => req(`/api/templates`),
+  template: (id) => req(`/api/templates/${encodeURIComponent(id)}`),
   // coders: the accounts the owner lets code a dataset, each in a coding of their own
   coders: (id) => req(`/api/datasets/${id}/coders`),
   addCoder: (id, email) => req(`/api/datasets/${id}/coders`, json({ email })),

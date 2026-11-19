@@ -544,16 +544,58 @@ def list_documents(limit: int = 50, dataset: str | None = None, db=Depends(get_d
         dataset_id=dataset, as_coder=as_coder)}
 
 
+def _task_of(db, task: str, who: Principal) -> tuple[dict, dict | None, dict]:
+    """``(run, template, step)`` of a ``<run id>:<step id>`` task the caller may read (the owner,
+    or a coder of the run's dataset); 404 otherwise, 422 for a malformed task."""
+    from . import templates
+    if not isinstance(task, str) or ":" not in task:
+        raise HTTPException(status_code=422, detail="task must be '<run id>:<step id>'.")
+    run_id, step_id = task.split(":", 1)
+    run = _run_or_404(db, run_id, who, coder_too=True)
+    tpl, st = templates.for_step(run, step_id)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Step not found.")
+    return run, tpl, st
+
+
+def _template_pspec(db, tpl: dict) -> dict:
+    """The live spec of the preset a template is for."""
+    from . import presets
+    meta = presets.get(tpl.get("for"), db) or {}
+    spec = meta.get("spec") if isinstance(meta, dict) else None
+    if not spec:
+        raise HTTPException(status_code=422, detail=f"The template's preset {tpl.get('for')!r} is unknown here.")
+    return spec
+
+
+def _task_missing(db, document_id: str, task: str, who: Principal) -> list[dict]:
+    """What a coder still owes a task on a document: the required answers without one."""
+    from . import coders as _coders, templates
+    _run, tpl, _st = _task_of(db, task, who)
+    if tpl is None:
+        return []
+    v = records.document_view(db, document_id)
+    if v is None:
+        return []
+    v = _coders.apply(db, v, who.user_id)
+    pspec = v.get("spec") or _template_pspec(db, tpl)
+    answers = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
+    return templates.completeness(tpl, v, pspec, answers)["missing"]
+
+
 @app.get("/api/documents/{document_id}/view")
-def document_view(document_id: str, coder: str | None = None, db=Depends(get_db),
+def document_view(document_id: str, coder: str | None = None, task: str | None = None, db=Depends(get_db),
                   who: Principal = Depends(principal)) -> dict:
     """Full viewer payload: paper + schema grammar + pages + records + evidence rects.
     The owner's, or a coder's of the dataset — documents and their page images are NEVER public
     (the bright wall); this is also the mint-time gate for the page-image URLs in the payload.
     A coder gets the document with THEIR coding laid over it (paperlens/coders.py); the owner
     gets the record as stored plus a summary of every coding, or one coder's coding read-only
-    with ``?coder=<user id>``."""
-    from . import coders as _coders
+    with ``?coder=<user id>``. ``?task=<run>:<step>`` reads the document through the task's
+    review template (paperlens/templates.py): the coder gets it projected — blind fields gone,
+    numbers masked where the template says — with their ``answers``; the owner gets the template
+    whole with every coder's ``answers_by_coder``."""
+    from . import coders as _coders, templates
     role, ds = _doc_reader(db, document_id, who)
     if role is None:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -570,6 +612,21 @@ def document_view(document_id: str, coder: str | None = None, db=Depends(get_db)
             v = _coders.apply(db, v, coder, read_only=True, label=labels[coder]["label"])
         if ds:
             v["codings"] = _coders.summary(db, document_id, ds)
+    if task:
+        run, tpl, st = _task_of(db, task, who)
+        v["task"] = {"run_id": run["id"], "step_id": st["id"], "template": tpl["id"] if tpl else None,
+                     "template_id": templates.template_id(tpl) if tpl else None}
+        if tpl is not None:
+            pspec = v.get("spec") or _template_pspec(db, tpl)
+            if pspec.get("id") != tpl.get("for"):
+                raise HTTPException(status_code=422, detail=f"The task's template is for {tpl.get('for')!r}; this document is under {pspec.get('id')!r}.")
+            v = templates.project(v, tpl, pspec, coder=(role == "coder"))
+            if role == "coder":
+                v["answers"] = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
+            else:
+                v["answers_by_coder"] = _coders.answers_all(db, document_id, ds, tpl["id"])
+                if coder:
+                    v["answers"] = _coders.answers_get(db, document_id, coder, tpl["id"])
     # Local backend: sign page urls so the owner's <img> tags fetch through the gate (a run of a
     # pipeline shows its final's pages, so the token is the final's).
     if isinstance(storage.get_store(), storage.LocalObjectStore):
@@ -1704,6 +1761,49 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict
                                "check": st.get("check"), "dataset": st.get("dataset")} for st in spec["steps"]],
                     "presets": [p for _s, p in ws.pins(spec)]})
     return {"workflows": out}
+
+
+@app.get("/api/templates")
+def templates_list(db=Depends(get_db)) -> dict:
+    """The bundled review templates: what each asks, for which preset."""
+    from . import templates
+    out = []
+    for tpl in templates.load_all().values():
+        meta = tpl.get("meta") or {}
+        if meta.get("hidden"):
+            continue
+        out.append({"id": tpl["id"], "template_id": templates.template_id(tpl), "version": tpl.get("version", 1), "for": tpl.get("for"),
+                    "title": meta.get("title"), "tagline": meta.get("tagline"), "verify": tpl.get("verify"),
+                    "stages": [{"id": s["id"], "label": s.get("label"), "blocks": len(s.get("blocks") or [])} for s in tpl.get("stages") or []]})
+    return {"templates": out}
+
+
+@app.get("/api/templates/{template_id}")
+def template_get(template_id: str, db=Depends(get_db)) -> dict:
+    """One template, resolved against its preset (the questions' options expanded)."""
+    from . import templates
+    tpl = templates.get(template_id)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="Template not found.")
+    return templates.resolved(tpl, _template_pspec(db, tpl))
+
+
+class TemplateValidateBody(BaseModel):
+    template: dict
+
+
+@app.post("/api/templates/validate")
+def template_validate(body: TemplateValidateBody, db=Depends(get_db)) -> dict:
+    """Validate a template document against the preset it is for."""
+    from . import presets, templates
+    try:
+        tpl = templates.normalize(body.template)
+    except templates.TemplateError as exc:
+        return {"ok": False, "errors": exc.errors, "warnings": [], "template_id": None}
+    meta = presets.get(tpl.get("for"), db) if isinstance(tpl.get("for"), str) else None
+    pspec = meta.get("spec") if isinstance(meta, dict) else None
+    errs, warns = templates.validate(tpl, pspec) if pspec else templates.validate(tpl)
+    return {"ok": not errs, "errors": errs, "warnings": warns, "template_id": templates.template_id(tpl) if not errs and isinstance(tpl.get("id"), str) else None}
 
 
 @app.get("/api/workflows/cards")
@@ -3341,6 +3441,41 @@ class VerifyBody(BaseModel):
     verifier_kind: str | None = None       # maintainer | community | paperlens
     field_values: dict | None = None       # optional correction (full entry replacement: a row added / removed)
     patch: list[dict] | None = None        # [{field_path, value}]: set these cells, the rest stays as stored (a cell edit)
+    task: str | None = None                # "<run>:<step>": a coder's verdict in a task — refused while required answers are missing
+
+
+class AnswersBody(BaseModel):
+    task: str                              # "<run>:<step>" — the task whose template asks
+    record_id: str | None = None           # the entry's own unit or a child's row; None: the paper's units
+    unit: str = ""                         # the unit key ("" the paper or the entry; "<child>#<_rid>"; "<table>#<_rid>"; "<x>.<field>=<v>"; "<unit>#+<id>")
+    answers: dict                          # {question: value}; None clears a question
+
+
+@app.post("/api/documents/{document_id}/answers")
+def document_answers(document_id: str, body: AnswersBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A coder's answers to a task's questions on one unit of the document, into their coding.
+    The owner reads answers (the view's ``answers_by_coder``); only a coder writes them."""
+    from . import coders, templates
+    role, _ds = _doc_reader(db, document_id, who)
+    if role is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if role != "coder":
+        raise HTTPException(status_code=403, detail="Answers belong to a coder's coding; the owner reads them.")
+    _refuse_run(db, document_id)
+    _run, tpl, _st = _task_of(db, body.task, who)
+    if tpl is None:
+        raise HTTPException(status_code=404, detail="This task has no review template: nothing to answer.")
+    if body.record_id is not None:
+        rec = records.get_record(db, body.record_id)
+        if rec is None or rec.get("document_id") != document_id:
+            raise HTTPException(status_code=404, detail="Record not found in this document.")
+    try:
+        templates.validate_answers(tpl, _template_pspec(db, tpl), body.unit, body.answers, has_record=body.record_id is not None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    out = coders.answers_set(db, document_id, who.user_id, tpl["id"], body.unit, body.answers, record_id=body.record_id)
+    db.commit()
+    return {**out, "template": tpl["id"]}
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -3355,6 +3490,10 @@ def verify_record(record_id: str, body: VerifyBody, db=Depends(get_db),
     rec0 = records.get_record(db, record_id)
     if rec0 and rec0.get("document_id") and coders.coder_of_document(db, rec0["document_id"], who):
         _refuse_run(db, rec0["document_id"])                       # a coder's verdict, edit or note: their coding, never the record
+        if body.task and body.status in ("verified", "flagged"):   # a task's verdict: the template's required answers first
+            missing = _task_missing(db, rec0["document_id"], body.task, who)
+            if missing:
+                raise HTTPException(status_code=422, detail={"message": f"{len(missing)} required answer{'s' if len(missing) != 1 else ''} missing", "missing": missing})
         try:
             return coders.verify(db, record_id, who.user_id, status=body.status, diff=body.diff, notes=body.notes,
                                  field_values=body.field_values, patch=body.patch)

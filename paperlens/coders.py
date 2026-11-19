@@ -196,7 +196,7 @@ def summary(conn: psycopg.Connection, document_id: str, dataset_id: str | None) 
         by_rec.setdefault(rid, []).append({"coder": name(uid), "user_id": uid, "status": status, "changed": bool(changed),
                                            "note": notes, "at": updated.isoformat() if updated else None})
     paper = [{"coder": name(uid), "user_id": uid, "at": updated.isoformat() if updated else None}
-             for uid, updated in conn.execute("SELECT coder_user_id::text, updated_at FROM document_coding WHERE document_id = %s::uuid AND paper_metadata IS NOT NULL",
+             for uid, updated in conn.execute("SELECT coder_user_id::text, updated_at FROM document_coding WHERE document_id = %s::uuid AND (paper_metadata IS NOT NULL OR answers IS NOT NULL)",
                                               (document_id,)).fetchall()]
     for lst in by_rec.values():
         lst.sort(key=lambda c: c["coder"])
@@ -303,23 +303,88 @@ def export_block(conn: psycopg.Connection, dataset_id: str, *, with_emails: bool
         former.setdefault(uid, f"former_{len(former) + 1}")
         return former[uid]
     by_record: dict[str, list[dict]] = {}
-    for rid, uid, fv, status, notes, updated in conn.execute(
-            """SELECT rc.record_id::text, rc.coder_user_id::text, COALESCE(rc.field_values, r.field_values), rc.verification_status, rc.notes, rc.updated_at
+    for rid, uid, fv, status, notes, answers, updated in conn.execute(
+            """SELECT rc.record_id::text, rc.coder_user_id::text, COALESCE(rc.field_values, r.field_values), rc.verification_status, rc.notes, rc.answers, rc.updated_at
                FROM record_coding rc JOIN record r ON r.id = rc.record_id WHERE r.dataset_id = %s::uuid
                ORDER BY r.document_id, r.entry_index, rc.updated_at""", (dataset_id,)).fetchall():
         by_record.setdefault(rid, []).append({"coder": name(uid), "status": status, "values": fv, "notes": notes,
+                                              **({"answers": answers} if isinstance(answers, dict) and answers else {}),
                                               "updated_at": updated.isoformat() if updated else None})
     by_document: dict[str, list[dict]] = {}
-    for did, uid, pm, updated in conn.execute(
-            """SELECT DISTINCT ON (dc.document_id, dc.coder_user_id) dc.document_id::text, dc.coder_user_id::text, dc.paper_metadata, dc.updated_at
+    for did, uid, pm, answers, updated in conn.execute(
+            """SELECT DISTINCT ON (dc.document_id, dc.coder_user_id) dc.document_id::text, dc.coder_user_id::text, dc.paper_metadata, dc.answers, dc.updated_at
                FROM document_coding dc JOIN record r ON r.document_id = dc.document_id
-               WHERE r.dataset_id = %s::uuid AND dc.paper_metadata IS NOT NULL ORDER BY dc.document_id, dc.coder_user_id""", (dataset_id,)).fetchall():
-        by_document.setdefault(did, []).append({"coder": name(uid), "paper_metadata": pm, "updated_at": updated.isoformat() if updated else None})
+               WHERE r.dataset_id = %s::uuid AND (dc.paper_metadata IS NOT NULL OR dc.answers IS NOT NULL) ORDER BY dc.document_id, dc.coder_user_id""", (dataset_id,)).fetchall():
+        by_document.setdefault(did, []).append({"coder": name(uid), "paper_metadata": pm, **({"answers": answers} if isinstance(answers, dict) and answers else {}),
+                                                "updated_at": updated.isoformat() if updated else None})
     for lst in list(by_record.values()) + list(by_document.values()):
         lst.sort(key=lambda c: c["coder"])
     coders = [{"label": info["label"], "user_id": uid, **({"email": info["email"]} if with_emails else {})} for uid, info in labels.items()]
     coders += [{"label": lab, "user_id": uid} for uid, lab in former.items()]
     return {"coders": coders, "by_record": by_record, "by_document": by_document}
+
+
+# ── answers: what a coder says about a unit of a review template ─────────────
+
+def answers_set(conn: psycopg.Connection, document_id: str, coder_user_id: str, template: str, unit_key: str, values: dict,
+                *, record_id: str | None = None) -> dict:
+    """A coder's answers on one unit of a task, merged into their coding — the record's when
+    ``record_id`` is given (the entry's own unit or a child's row), else the document's (the
+    paper, a paper table's row, a distinct value, an added unit). ``None`` clears a question. One
+    coding event (status ``noted``, no diff): an answer is no verdict and no disagreement."""
+    table, idcol, idval = ("record_coding", "record_id", record_id) if record_id else ("document_coding", "document_id", document_id)
+    with conn.transaction():
+        conn.execute(f"INSERT INTO {table} ({idcol}, coder_user_id) VALUES (%s::uuid, %s::uuid) ON CONFLICT DO NOTHING", (idval, coder_user_id))   # noqa: S608
+        row = conn.execute(f"SELECT answers FROM {table} WHERE {idcol} = %s::uuid AND coder_user_id = %s::uuid FOR NO KEY UPDATE",   # noqa: S608
+                           (idval, coder_user_id)).fetchone()
+        every = copy.deepcopy(row[0]) if row and isinstance(row[0], dict) else {}
+        unit = every.setdefault(template, {}).setdefault(unit_key, {})
+        previous = {k: unit.get(k) for k in values}
+        for k, v in values.items():
+            if v is None:
+                unit.pop(k, None)
+            else:
+                unit[k] = v
+        out = dict(unit)
+        if not unit:
+            every[template].pop(unit_key, None)
+        if not every[template]:
+            every.pop(template, None)
+        conn.execute(f"UPDATE {table} SET answers = %s, updated_at = %s WHERE {idcol} = %s::uuid AND coder_user_id = %s::uuid",   # noqa: S608
+                     (Json(every) if every else None, _now(), idval, coder_user_id))
+        conn.execute("""INSERT INTO coding_event (id, coder_user_id, record_id, document_id, status, diff, answers)
+                        VALUES (%s::uuid, %s::uuid, %s::uuid, %s::uuid, 'noted', NULL, %s)""",
+                     (_new_id(), coder_user_id, record_id, document_id, Json({"template": template, "unit": unit_key, "set": values, "previous": previous})))
+    return {"unit": unit_key, "record_id": record_id, "answers": out}
+
+
+def answers_get(conn: psycopg.Connection, document_id: str, coder_user_id: str, template: str) -> dict:
+    """One coder's answers on a document under one template: ``{"paper": {unit: {…}}, "records":
+    {record id: {unit: {…}}}}``."""
+    paper = conn.execute("SELECT answers FROM document_coding WHERE document_id = %s::uuid AND coder_user_id = %s::uuid",
+                         (document_id, coder_user_id)).fetchone()
+    recs = conn.execute("""SELECT rc.record_id::text, rc.answers FROM record_coding rc JOIN record r ON r.id = rc.record_id
+                           WHERE r.document_id = %s::uuid AND rc.coder_user_id = %s::uuid AND rc.answers IS NOT NULL""",
+                        (document_id, coder_user_id)).fetchall()
+    return {"paper": dict((paper[0] or {}).get(template) or {}) if paper and isinstance(paper[0], dict) else {},
+            "records": {rid: dict(a.get(template) or {}) for rid, a in recs if isinstance(a, dict) and a.get(template)}}
+
+
+def answers_all(conn: psycopg.Connection, document_id: str, dataset_id: str | None, template: str) -> dict[str, dict]:
+    """Every coder's answers on a document under one template, by label (what the owner sees)."""
+    labels = labels_for(conn, dataset_id) if dataset_id else {}
+    uids = {r[0] for r in conn.execute(
+        """SELECT dc.coder_user_id::text FROM document_coding dc WHERE dc.document_id = %s::uuid AND dc.answers IS NOT NULL
+           UNION SELECT rc.coder_user_id::text FROM record_coding rc JOIN record r ON r.id = rc.record_id
+           WHERE r.document_id = %s::uuid AND rc.answers IS NOT NULL""", (document_id, document_id)).fetchall()}
+    out: dict[str, dict] = {}
+    former = 0
+    for uid in sorted(uids, key=lambda u: (labels.get(u) or {}).get("label", "zz")):
+        label = (labels.get(uid) or {}).get("label")
+        if not label:
+            former += 1; label = f"former_{former}"
+        out[label] = {"user_id": uid, **answers_get(conn, document_id, uid, template)}
+    return out
 
 
 def badge_counts(conn: psycopg.Connection, dataset_id: str) -> dict[str, dict]:
