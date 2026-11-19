@@ -386,6 +386,30 @@ paper's job is terminal (the owner closes the uploads with `…/complete`), its 
 papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
 `GET …/passes/{step}/{sha}` serves one with its provenance.
 
+### Compute steps
+
+A step of kind `compute` runs a chain's registered deterministic code per paper, free:
+
+```jsonc
+{"id": "extraction", "kind": "compute", "fn": "genai_work.assemble", "reads": ["exhibits", "estimands", "estimates", "design"],
+ "preset": "genai-work-extraction@cea73929", "dataset": "extraction"}
+{"id": "route", "kind": "compute", "fn": "genai_work.route", "edits": "extraction", "writes": ["paper.routed", "paper.route_reasons"],
+ "findings": ["record"], "params": {"threshold": 6}}
+```
+
+A compute that PRODUCES documents (`preset`, an optional `dataset` role) builds one document per
+paper from the outputs of the passes it `reads` (`ctx.read`, `ctx.pages`, `ctx.paper`,
+`ctx.preset`); the engine persists it through the ordinary path — quotes located, the contract
+checked — with the passes as provenance (`chain.kind: compute`, `stages` naming each pass, its
+pin and output), then judges the step like an extract step: its dataset, its gate, its release.
+`reextract` re-makes a staged paper already under the pin, replacing its document. A compute
+that EDITS (`edits` the documents of an earlier data step, `writes` the fields it may touch:
+an entry field, `<child>[].<field>`, `paper.<field>`) returns `{records: {id: {path: value}},
+paper: {field: value}, findings: [...]}`; every edit lands through the audited path as a
+`corrected` event by the engine, so later steps are staled by it. Both read the findings of the
+check steps they name (`findings`, as `ctx.findings[step]`). A paper whose inputs failed fails
+its job; the step's outputs count the papers made or edited.
+
 ### References across passes
 
 A pass registration may declare `ids` (paths that mint ids, `estimands[].estimand_id`) and

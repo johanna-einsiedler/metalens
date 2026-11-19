@@ -39,6 +39,11 @@ def register(chain_id: str, items: dict[str, dict], base_dir: Path) -> None:
         e.update(entry)
         if e["kind"] not in KINDS:
             raise ValueError(f"{code}: kind must be one of {', '.join(KINDS)}")
+        if e["kind"] == "compute":
+            e.setdefault("produces", "document")       # document: one per paper under a pinned preset | fields: edits on an earlier step's documents
+            e.setdefault("unit", "paper")
+            if e["produces"] not in ("document", "fields"):
+                raise ValueError(f"{code}: produces must be 'document' or 'fields'")
         if not callable(e.get("fn")):
             raise ValueError(f"{code}: fn must be callable")
         REGISTRY[code] = e

@@ -279,3 +279,93 @@ def test_a_dangling_reference_in_a_pass_output_is_a_finding_of_the_step(tmp_path
     conn.rollback()
     assert conn.execute("SELECT code FROM workflow_finding WHERE run_id = %s::uuid", (rid2,)).fetchall() == [("duplicate_id",)]
     conn.close()
+
+
+def _chain_workflow(tmp_path, monkeypatch, pin: str) -> dict:
+    wdir = tmp_path / "wf"; wdir.mkdir(exist_ok=True)
+    spec = {"format": 1, "id": "demo-chain", "meta": {"title": "Demo chain"},
+            "steps": [{"id": "title", "kind": "pass", "pass": chains.pin("_demo.title")},
+                      {"id": "words", "kind": "pass", "pass": chains.pin("_demo.words"), "reads": ["title"]},
+                      {"id": "assemble", "kind": "compute", "fn": "_demo.assemble", "reads": ["title", "words"], "preset": pin, "params": {"field": "statement"}},
+                      {"id": "mark", "kind": "compute", "fn": "_demo.mark", "edits": "assemble", "writes": ["sign"], "params": {"value": "+"}},
+                      {"id": "review", "kind": "review", "over": ["assemble"], "mode": "all", "unit": "paper"},
+                      {"id": "release", "kind": "release", "gate": ["assemble", "review"]}]}
+    (wdir / "demo-chain.json").write_text(json.dumps(spec))
+    monkeypatch.setenv("PAPERLENS_WORKFLOW_DIRS", str(wdir))
+    return workflows.load_all()["demo-chain"]
+
+
+def test_compute_steps_make_documents_from_the_passes_and_edit_them_through_the_audited_path(tmp_path, monkeypatch) -> None:
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from test_pipeline import _presets
+    _force_local(monkeypatch)
+    fake = _Fake(); monkeypatch.setattr(providers, "generate_json", fake)
+    conn = records.connect(); records.init_db(conn)
+    pin, _graph = _presets(tmp_path, monkeypatch)
+    spec = ws.normalize(json.loads(json.dumps(_chain_workflow(tmp_path, monkeypatch, pin))))
+    assert ws.validate(spec)[0] == [], ws.validate(spec)[0]
+    assert ws.pins(spec) == [("assemble", pin)] and ws.gate_steps(spec) == ["assemble", "review"]
+    bad = json.loads(json.dumps(spec)); bad["steps"][3]["writes"] = ["nope"]
+    assert any("not a field of" in e for e in ws.validate(bad)[0])
+    bad = json.loads(json.dumps(spec)); bad["steps"][3]["edits"] = "words"
+    assert any("edits must name an earlier step whose documents" in e for e in ws.validate(bad)[0])
+    bad = json.loads(json.dumps(spec)); bad["steps"][2]["fn"] = "_demo.nothing"
+    assert any("fn must name a registered compute" in e for e in ws.validate(bad)[0])
+    bad = json.loads(json.dumps(spec)); bad["steps"][2]["edits"] = "words"
+    assert any("makes documents, it edits none" in e for e in ws.validate(bad)[0])
+    # the run: passes, then the document per paper, then the engine's edits, then the review
+    sess = f"chain-{uuid.uuid4().hex[:6]}"
+    run_spec = presets.resolve_run(conn, schema_id=pin, params={})
+    with conn.transaction():
+        records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
+    ds = records.create_dataset(conn, title="Demo chain", schema_id=pin, session_id=sess)["id"]; conn.commit()
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-chain"}).status_code == 200
+    pdfs = {"kappa": _pdf("kappa"), "lambda": _pdf("lambda")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    plan = c.post(f"/api/datasets/{ds}/workflow/plan", headers=H, json={"new_pdfs": staged}).json()
+    by = {s["id"]: s for s in plan["steps"]}
+    assert by["assemble"]["kind"] == "compute" and by["assemble"]["work"]["extract"] == 2 and by["assemble"]["state"] == "stale" and by["assemble"]["preset"] == pin
+    assert by["mark"]["work"]["extract"] == 2 and by["mark"]["writes"] == ["sign"] and plan["n_calls"] == 4
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json(); rid = run["id"]
+    assert run["jobs"]["total"] == 8                                                       # 2 papers × (2 passes + 2 computes)
+    for n, b in pdfs.items():
+        r = c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"})
+        assert r.status_code == 200, r.text
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "done", (view["status"], view.get("error"), [(s["step_id"], s["status"], s.get("error")) for s in view["steps"]], [(p["step_id"], p["status"], p["error"]) for p in view["papers"] if p["error"]])
+    s_by = {s["step_id"]: s for s in view["steps"]}
+    assert s_by["assemble"]["status"] == "done" and s_by["assemble"]["outputs"]["n_papers"] == 2 and len(s_by["assemble"]["outputs"]["document_ids"]) == 2
+    assert s_by["mark"]["status"] == "done" and s_by["mark"]["outputs"]["edited_records"] >= 2 and s_by["mark"]["outputs"]["findings"] == 0
+    assert s_by["review"]["review"]["total"] == 2 and s_by["review"]["review"]["satisfied"] is False      # the gate holds the dataset's release
+    # the documents sit in the dataset under the pin, with the passes as provenance and the edits audited
+    docs = c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"]
+    assert len(docs) == 2
+    v = c.get(f"/api/documents/{docs[0]['document_id']}/view", headers=H).json()
+    assert v["schema_id"] == pin and [r["field_values"]["sign"] for r in v["records"]] == ["+"] * len(v["records"])
+    assert all(r["field_values"]["statement"].startswith("p") for r in v["records"]) and v["chain"]["kind"] == "compute"
+    assert [st_["step"] for st_ in v["chain"]["stages"]] == ["title", "words"] and all(st_["prompt_sha256"] for st_ in v["chain"]["stages"])
+    assert v["records"][0]["chain"]["kind"] == "compute" and v["records"][0]["chain"]["support"] == {"n": 1, "k": 1}
+    ev = conn.execute("""SELECT ve.verifier_kind, ve.status, ve.notes FROM verification_event ve JOIN record r ON r.id = ve.record_id
+                         WHERE r.document_id = %s::uuid ORDER BY ve.created_at""", (docs[0]["document_id"],)).fetchall()
+    assert ev and all(e == ("engine", "corrected", "compute:_demo.mark") for e in ev)
+    assert workflows.basis(conn, ds)["events_max"]                                        # the edits count as corrections: later steps are staled by them
+    # the owner's verdicts satisfy the gate
+    for d in docs:
+        for r_ in c.get(f"/api/documents/{d['document_id']}/view", headers=H).json()["records"]:
+            assert c.post(f"/api/records/{r_['id']}/verify", headers=H, json={"status": "verified"}).status_code == 200
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert next(s_ for s_ in view["steps"] if s_["step_id"] == "review")["review"]["satisfied"] is True
+    # a second run over the same papers re-makes nothing: the dataset already holds them; with reextract it replaces them
+    plan2 = c.post(f"/api/datasets/{ds}/workflow/plan", headers=H, json={"new_pdfs": staged, "reextract": True}).json()
+    assert {s["id"]: s["work"]["extract"] for s in plan2["steps"] if s["id"] in ("assemble",)} == {"assemble": 2}
+    run2 = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged, "reextract": True}).json(); rid2 = run2["id"]
+    for n, b in pdfs.items():
+        assert c.post(f"/api/workflow-runs/{rid2}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    view2 = c.get(f"/api/workflow-runs/{rid2}", headers=H).json()
+    s2 = {s["step_id"]: s for s in view2["steps"]}
+    assert s2["assemble"]["outputs"]["replaced"] == 2 and s2["title"]["outputs"]["reused"] == 2
+    docs2 = c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"]
+    assert len(docs2) == 2 and {d["document_id"] for d in docs2}.isdisjoint({d["document_id"] for d in docs})
+    conn.close()

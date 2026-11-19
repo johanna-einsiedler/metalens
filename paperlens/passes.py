@@ -222,9 +222,10 @@ def _step_run_id(conn, run_id: str, step_id: str) -> str | None:
     return r[0] if r else None
 
 
-def store_findings(conn, run_id: str, step_id: str, pdf_sha256: str, findings: list[dict], *, check: str = "refs") -> int:
-    """Replace a paper's findings of this pass step (``workflow_finding`` with ``pdf_sha256``, no
-    record yet)."""
+def store_findings(conn, run_id: str, step_id: str, pdf_sha256: str, findings: list[dict], *, check: str = "refs",
+                   document_id: str | None = None) -> int:
+    """Replace a paper's findings of this step (``workflow_finding`` with ``pdf_sha256``; a
+    compute's findings may name the document and a record too)."""
     srid = _step_run_id(conn, run_id, step_id)
     if srid is None:
         return 0
@@ -232,10 +233,11 @@ def store_findings(conn, run_id: str, step_id: str, pdf_sha256: str, findings: l
         conn.execute('DELETE FROM workflow_finding WHERE step_run_id = %s::uuid AND pdf_sha256 = %s AND "check" = %s', (srid, pdf_sha256, check))
         with conn.cursor() as cur:
             cur.executemany(
-                """INSERT INTO workflow_finding (id, run_id, step_run_id, step_id, "check", pdf_sha256, path, code, severity, message, detail)
-                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                [(str(uuid.uuid4()), run_id, srid, step_id, check, pdf_sha256, f.get("path"), f.get("code"), f.get("severity") or "warn",
-                  (f.get("message") or f.get("code") or "")[:1000], Json(f["detail"]) if f.get("detail") is not None else None) for f in findings])
+                """INSERT INTO workflow_finding (id, run_id, step_run_id, step_id, "check", pdf_sha256, record_id, document_id, path, code, severity, message, detail)
+                   VALUES (%s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s::uuid, %s::uuid, %s, %s, %s, %s, %s)""",
+                [(str(uuid.uuid4()), run_id, srid, step_id, check, pdf_sha256, f.get("record_id"), f.get("document_id") or document_id, f.get("path"),
+                  f.get("code"), f.get("severity") or "warn", (f.get("message") or f.get("code") or "")[:1000],
+                  Json(f["detail"]) if f.get("detail") is not None else None) for f in findings])
     return len(findings)
 
 
@@ -490,3 +492,172 @@ def run_paper(conn, run_id: str, pdf_sha256: str, *, model: str | None = None, a
     if advance_run:
         workflows.advance(conn, run_id)
     return out
+
+
+# ── compute steps: registered deterministic code that writes data ─────────────────────────
+
+@dataclass
+class ComputeContext:
+    """What a compute sees: the paper's pages and identity, the pass outputs it declared
+    (``read``), the pinned preset (a document step) or the document it edits (a fields step:
+    ``record = {document_id, records: [{id, entry_index, field_values}], paper_metadata}``),
+    the findings of the check steps it named (``findings[step_id]``), its params."""
+    entry: dict
+    run_id: str
+    step_id: str
+    pdf_sha256: str
+    pages: list[str]
+    paper: dict
+    params: dict
+    reads: dict[str, dict]
+    preset: dict | None = None
+    record: dict | None = None
+    findings: dict[str, list[dict]] = field(default_factory=dict)
+    log_lines: list[str] = field(default_factory=list)
+
+    @property
+    def title(self) -> str | None:
+        return self.paper.get("title")
+
+    def text(self, marker: str = DEFAULT_MARKER) -> str:
+        return "\n".join(f"{marker.format(i=i + 1)}\n{p}" for i, p in enumerate(self.pages))
+
+    def read(self, pass_name: str) -> dict:
+        if pass_name not in self.reads:
+            raise KeyError(f"{self.entry['id']} did not declare reads {pass_name!r} (or the workflow gave no step for it)")
+        return self.reads[pass_name]
+
+    def log(self, line: str) -> None:
+        self.log_lines.append(str(line)[:500])
+
+
+def document_of(conn, run_id: str, step_id: str, pdf_sha256: str) -> str | None:
+    """The document a run's step made for this paper (the job row's document)."""
+    r = conn.execute("""SELECT document_id::text FROM workflow_job WHERE run_id = %s::uuid AND step_id = %s AND pdf_sha256 = %s
+                        AND document_id IS NOT NULL""", (run_id, step_id, pdf_sha256)).fetchone()
+    return r[0] if r else None
+
+
+def record_of(conn, document_id: str) -> dict:
+    rows = conn.execute("""SELECT id::text, entry_index, field_values FROM record WHERE document_id = %s::uuid
+                           AND NOT COALESCE(screened_empty, false) ORDER BY entry_index""", (document_id,)).fetchall()
+    pm = conn.execute("SELECT paper_metadata_raw FROM extraction_document WHERE id = %s::uuid", (document_id,)).fetchone()
+    return {"document_id": document_id, "records": [{"id": r[0], "entry_index": r[1], "field_values": r[2] if isinstance(r[2], dict) else {}} for r in rows],
+            "paper_metadata": pm[0] if pm and isinstance(pm[0], dict) else {}}
+
+
+def findings_of(conn, run_id: str, step_ids: list[str], document_id: str | None, pdf_sha256: str) -> dict[str, list[dict]]:
+    """The run's findings of the named check and pass steps that concern this paper."""
+    out: dict[str, list[dict]] = {}
+    for sid in step_ids:
+        rows = conn.execute(
+            """SELECT record_id::text, document_id::text, path, code, severity, message, detail FROM workflow_finding
+               WHERE run_id = %s::uuid AND step_id = %s AND (document_id = %s::uuid OR pdf_sha256 = %s) ORDER BY severity, code, path""",
+            (run_id, sid, document_id, pdf_sha256)).fetchall()
+        out[sid] = [{"record_id": r[0], "document_id": r[1], "path": r[2], "code": r[3], "severity": r[4], "message": r[5], "detail": r[6]} for r in rows]
+    return out
+
+
+def _compute_ctx(conn, run: dict, st: dict, pdf_sha256: str, entry: dict, *, document_id: str | None = None, store=None) -> ComputeContext:
+    from . import workflow_spec as ws
+    store = store or storage.get_store()
+    pages = page_texts_of(conn, pdf_sha256, store) if store.exists(storage.paper_text_key(pdf_sha256)) else []
+    paper = paper_row(conn, run["id"], pdf_sha256) or {"pdf_sha256": pdf_sha256}
+    reads = _reads_for(conn, run, st, pdf_sha256)
+    params = {**{n: d.get("default") for n, d in (entry.get("params") or {}).items()}, **(st.get("params") or {})}
+    preset = None
+    if st.get("preset"):
+        from . import presets
+        preset = presets.resolve_run(conn, schema_id=st["preset"]).spec
+    rec = record_of(conn, document_id) if document_id else None
+    fnd = findings_of(conn, run["id"], list(st.get("findings") or []), document_id, pdf_sha256)
+    by_id = ws.steps_by_id(run["workflow"])
+    return ComputeContext(entry=entry, run_id=run["id"], step_id=st["id"], pdf_sha256=pdf_sha256, pages=pages, paper=paper, params=params,
+                          reads=reads, preset=preset, record=rec, findings=fnd), by_id
+
+
+def compute_document(conn, run: dict, st: dict, pdf_sha256: str, *, store=None) -> dict:
+    """A document-producing compute for one paper: the registered code builds the document
+    object under the step's pinned preset from the passes' outputs, and it is persisted through
+    the ordinary path (quotes located, the contract checked) with the passes as its provenance.
+    Returns ``run_extraction``'s result."""
+    from . import extract, presets
+    from .extract import LLMResult
+    code = str(st.get("fn") or "")
+    entry = chains.get(code)
+    if entry is None or entry.get("produces") != "document":
+        raise LookupError(f"{st['id']}: {code!r} is not a document compute")
+    store = store or storage.get_store()
+    ctx, by_id = _compute_ctx(conn, run, st, pdf_sha256, entry, store=store)
+    obj = entry["fn"](ctx)
+    if not isinstance(obj, dict):
+        raise ValueError(f"{code} returned {type(obj).__name__}, not a document object")
+    rc = obj.pop("_record_chain", None)
+    record_chain = {int(k): v for k, v in rc.items()} if isinstance(rc, dict) else None
+    stages = []
+    for sid in st.get("reads") or []:
+        row = get_output(conn, run["id"], sid, pdf_sha256)
+        stages.append({"step": sid, "code": (by_id.get(sid) or {}).get("pass"), "prompt_sha256": (row or {}).get("prompt_sha256"),
+                       "output_id": (row or {}).get("id"), "n_calls": (row or {}).get("n_calls"), "supplied": (row or {}).get("supplied")})
+    provenance = {"kind": "compute", "code": code, "k": 1, "n_runs": 1, "identity": [], "aggregate": {"kind": "compute", "code": code},
+                  "stages": stages, "calls": [], "n_calls": 0, "failed_runs": [], "fallback": None,
+                  "chain_sha256": _sha(_canon([code, [s_.get("prompt_sha256") for s_ in stages]]))}
+    key = storage.run_pdf_key(run["id"], pdf_sha256)
+    if not store.exists(key):
+        raise LookupError("no stored PDF for this paper (upload it again)")
+    pdf_bytes = store.get(key)
+    run_spec = presets.resolve_run(conn, schema_id=st["preset"])
+    text = json.dumps(obj, ensure_ascii=False)
+
+    def supplied(pdf_b, prompt_, **kw):
+        return LLMResult(text=text, finish_reason="stop", usage={"prompt": 0, "completion": 0, "total": 0}, resolved_model=f"compute:{code}")
+
+    paper = ctx.paper or {}
+    return extract.run_extraction(conn, pdf_bytes, f"compute:{code}", complete=supplied, schema_id=run_spec.schema_id, spec=run_spec.spec,
+                                  params=run_spec.params, step_id=st["id"], role="final", chain=provenance, record_chain=record_chain,
+                                  session_id=run.get("session_id"), owner_user_id=run.get("started_by"), filename=paper.get("filename"),
+                                  run_id=run["id"], store=store)
+
+
+def _write_allowed(path: str, writes: list[str]) -> bool:
+    norm = re.sub(r"\[\d+\]", "[]", path)
+    return norm in writes
+
+
+def compute_fields(conn, run: dict, st: dict, pdf_sha256: str, *, document_id: str, store=None) -> dict:
+    """An editing compute for one paper: the registered code reads the document the step names
+    and returns ``{records: {record id: {path: value}}, paper: {field: value}, findings: [...]}``;
+    every edit lands through the audited path (a ``corrected`` event by the engine, so later
+    steps know the value moved) and may only touch the fields the step ``writes``."""
+    from . import records as _records
+    code = str(st.get("fn") or "")
+    entry = chains.get(code)
+    if entry is None or entry.get("produces") != "fields":
+        raise LookupError(f"{st['id']}: {code!r} is not a fields compute")
+    ctx, _by_id = _compute_ctx(conn, run, st, pdf_sha256, entry, document_id=document_id, store=store)
+    out = entry["fn"](ctx)
+    if not isinstance(out, dict):
+        raise ValueError(f"{code} returned {type(out).__name__}, not {{records, paper, findings}}")
+    writes = list(st.get("writes") or [])
+    n_records = n_fields = 0
+    known = {r["id"] for r in (ctx.record or {}).get("records") or []}
+    for rid, patch in (out.get("records") or {}).items():
+        if rid not in known or not isinstance(patch, dict) or not patch:
+            continue
+        for path in patch:
+            if not _write_allowed(path, writes):
+                raise ValueError(f"{code} writes {path!r}, which the step does not declare in writes")
+        _records.verify_record(conn, rid, status="corrected", patch=[{"field_path": p_, "value": v} for p_, v in patch.items()],
+                               verifier_kind="engine", notes=f"compute:{code}",
+                               diff=[{"field_path": p_, "original_value": (ctx.record or {}).get("records", []) and next((r["field_values"].get(p_) for r in ctx.record["records"] if r["id"] == rid), None), "final_value": v} for p_, v in patch.items()])
+        n_records += 1; n_fields += len(patch)
+    paper_fields = {k: v for k, v in (out.get("paper") or {}).items() if isinstance(k, str)}
+    if paper_fields:
+        for name in paper_fields:
+            if f"paper.{name}" not in writes:
+                raise ValueError(f"{code} writes paper.{name!r}, which the step does not declare in writes")
+        _records.set_paper_metadata_fields(conn, document_id, paper_fields, verifier_kind="engine")
+        n_fields += len(paper_fields)
+    found = [{**f, "document_id": f.get("document_id") or document_id} for f in (out.get("findings") or []) if isinstance(f, dict)]
+    n_found = store_findings(conn, run["id"], st["id"], pdf_sha256, found, check=code, document_id=document_id)
+    return {"edited_records": n_records, "edited_fields": n_fields, "findings": n_found, "log": ctx.log_lines}

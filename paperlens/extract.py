@@ -15,6 +15,8 @@ extraction supplies a browser-side key per request (never persisted server-side)
 """
 from __future__ import annotations
 
+import psycopg
+
 import base64
 import hashlib
 from dataclasses import dataclass
@@ -168,7 +170,10 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     # End the implicit read transaction opened by the SELECT above, so attach_rects'
     # transaction is the OUTERMOST one and actually commits (otherwise it nests as a
     # savepoint and the rect UPDATEs are rolled back when the worker closes the conn).
-    conn.commit()
+    try:
+        conn.commit()
+    except psycopg.ProgrammingError:          # inside a caller's transaction (a compute step): that block commits
+        pass
 
     # durable artifacts: source PDF (enables re-highlight without re-calling the LLM)
     # + rendered page images (survive restarts; power click-to-source highlights)

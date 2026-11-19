@@ -126,7 +126,7 @@ def step_datasets(conn, dataset: dict, spec: dict) -> dict[str, str]:
     by_id = ws.steps_by_id(spec)
     for st in spec.get("steps") or []:
         kind = st.get("kind")
-        if kind in ("extract", "agent"):
+        if kind in ("extract", "agent") or (kind == "compute" and st.get("preset")):     # a compute making documents writes like an extract step
             role = st.get("dataset")
             if role and grp and role in grp["roles"]:
                 out[st["id"]] = grp["roles"][role]["dataset_id"]
@@ -143,7 +143,9 @@ def step_datasets(conn, dataset: dict, spec: dict) -> dict[str, str]:
             if src and src.get("kind") == "check":
                 first = (src.get("over") or [None])[0]
             out[st["id"]] = out.get(first, own) if first else own
-        elif kind in ("review", "loop", "release"):
+        elif kind == "compute" and st.get("edits"):
+            out[st["id"]] = out.get(st["edits"], own)
+        elif kind in ("review", "loop", "release", "pass", "compute"):
             out[st["id"]] = own
     return out
 
@@ -370,6 +372,8 @@ def calls_per_paper(spec: dict, step_id: str) -> int:
         from . import chains
         e = chains.get(str(st.get("pass") or ""))
         return int((e or {}).get("calls_per_paper") or 1) * int(st.get("k") or 1)
+    if st.get("kind") == "compute":                    # deterministic: free
+        return 0
     stages = pipeline_for(spec, step_id)
     return sum(int(s["k"]) for s in stages) if stages else 1
 
@@ -703,6 +707,49 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                 item["last"] = {k: (sr.get("outputs") or {}).get(k) for k in ("n_papers", "failed", "reused", "n_calls")}
                 item["last_run"] = sr["run_id"]
             facts_by_step[sid] = {"pin": None, "have": [], "old": [], "items": items, "work": item["work"]}
+        elif kind == "compute":
+            staged = [p for p in (new_pdfs or []) if isinstance(p, dict) and p.get("sha256")]
+            items = [{"pdf_sha256": p["sha256"], "filename": p.get("filename"), "action": "compute"} for p in staged]
+            item.update({"fn": st.get("fn"), "reads": list(st.get("reads") or []), "calls_per_paper": 0})
+            if st.get("preset"):                                     # makes documents: judged like an extract step
+                if st.get("dataset"):
+                    item["role"] = st["dataset"]; item["dataset_id"] = ds_of.get(sid)
+                if sid not in ds_of:
+                    item["state"] = "blocked"; item["because"] = [f"the group has no dataset for the role {st.get('dataset')!r} yet"]
+                    item.update({"preset": st.get("preset"), "work": {"extract": 0, "attach": 0, "wait_for": 0, "present": 0, "old_contract": 0, "foreign": 0}, "items": []})
+                    facts_by_step[sid] = {"pin": st.get("preset"), "have": [], "old": [], "items": [], "work": item["work"]}
+                    out.append(item); continue
+                f = _extract_facts(conn, ds_of[sid], {**st, "source": "supplied"}, who=who, new_pdfs=new_pdfs, reextract=reextract)
+                items = [{**it, "action": "compute"} for it in f["items"]]
+                if reextract:                                        # a staged paper already made under this pin is made again, replacing its document
+                    ppr = papers(conn, ds_of[sid])
+                    listed = {it["pdf_sha256"] for it in items}
+                    for p_ in staged:
+                        docs = (ppr.get(p_["sha256"]) or {}).get("documents", {}).get(st["preset"]) or []
+                        if docs and p_["sha256"] not in listed:
+                            items.append({"pdf_sha256": p_["sha256"], "filename": p_.get("filename"), "action": "compute", "replaces": docs[-1]})
+                f["items"] = items
+                facts_by_step[sid] = f
+                item.update({"preset": f["pin"], "work": {**f["work"], "extract": len(items), "wait_for": 0}, "items": items})
+                if not f["have"] and not f["old"]:
+                    item["state"] = "missing"; item["because"] = ["no paper made under this contract yet"]
+                if items:
+                    item["state"] = "stale"; item["because"].append(f"{len(items)} new paper{'s' if len(items) != 1 else ''} to make")
+                if sid in open_by_step:
+                    item["state"] = "awaiting_review"; item["gate"] = open_by_step[sid]
+                elif gates:
+                    g = next((g for g in gates if g["step_id"] == sid), None)
+                    if g:
+                        item["gate"] = g
+            else:                                                    # edits the documents of the step it names
+                item.update({"edits": st.get("edits"), "writes": list(st.get("writes") or []),
+                             "work": {"extract": len(items), "attach": 0, "wait_for": 0, "present": 0, "old_contract": 0, "foreign": 0}, "items": items})
+                sr = latest_step_run(conn, dataset_id, sid)
+                if sr is None:
+                    item["state"] = "missing"; item["because"] = ["never run"]
+                elif items:
+                    item["state"] = "stale"; item["because"] = [f"{len(items)} new paper{'s' if len(items) != 1 else ''} to edit"]
+                facts_by_step[sid] = {"pin": None, "have": [], "old": [], "items": items, "work": item["work"]}
         elif kind == "check":
             over = st.get("over") or []
             src = facts_by_step.get(over[0]) if over else None
@@ -897,7 +944,8 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
     d = records.get_dataset(conn, dataset_id) or {}
     spec, _implicit = resolve(conn, d)
     ds_of = step_datasets(conn, d, spec)
-    missing = [st["id"] for st in spec["steps"] if st.get("kind") in ("extract", "agent") and st["id"] not in ds_of and st["id"] not in consumed_steps(spec)]
+    missing = [st["id"] for st in spec["steps"] if (st.get("kind") in ("extract", "agent") or (st.get("kind") == "compute" and st.get("preset")))
+               and st["id"] not in ds_of and st["id"] not in consumed_steps(spec)]
     if missing:
         raise RunRefused(f"The group has no dataset yet for {', '.join(missing)}: link or create it on the dataset page.", 422, {"missing": missing})
     rid = str(uuid.uuid4())
@@ -923,7 +971,7 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
                            VALUES (%s::uuid, %s::uuid, %s, %s, %s, 'pending', %s::uuid, %s::uuid, %s)""",
                         (str(uuid.uuid4()), rid, s["id"], it["pdf_sha256"], it.get("filename"),
                          it.get("document_id") if it["action"] == "attach" else None, it.get("replaces"),
-                         calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract", "pass")) else 0))
+                         calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract", "pass", "compute")) else 0))
     except psycopg.errors.UniqueViolation:
         if use_credits and n_calls:
             credits.refund(conn, uid, model=cmodel, n=n_calls, reason="workflow refund")
@@ -1105,6 +1153,9 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                     _advance_review(conn, run, sr, st)
                 elif kind == "pass":
                     if not _advance_pass(conn, run, sr, st, complete_step == sr["step_id"]):
+                        return get_run(conn, run_id)
+                elif kind == "compute":
+                    if not _advance_compute(conn, run, sr, st, by_id, complete_step == sr["step_id"]):
                         return get_run(conn, run_id)
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
@@ -1349,6 +1400,85 @@ def _advance_pass(conn, run: dict, sr: dict, st: dict, complete: bool) -> bool:
             credits=sum(j["credits"] for j in landed), prompt_sha256=psha, model=run.get("model"), usage=usage)
     if refunded:
         _touch(conn, run["id"], credits_refunded=run["credits"]["refunded"] + refunded)
+    return True
+
+
+def _attach_document(conn, run: dict, step_id: str, job: dict, document_id: str) -> None:
+    """``on_document`` for a document made inside ``advance`` (a compute step): tag it with the
+    run, put it in the step's dataset (replacing the older one the job names), mark the job —
+    without committing, the caller's transaction does."""
+    conn.execute("UPDATE extraction_document SET run_id = %s::uuid, step_id = %s WHERE id = %s::uuid AND run_id IS NULL",
+                 (run["id"], step_id, document_id))
+    target = dataset_for_step(conn, run, step_id)
+    if job.get("replaces"):
+        records.replace_document_in_dataset(conn, target, job["replaces"], document_id)
+    else:
+        records.assign_document_to_dataset(conn, target, document_id)
+    _set_job(conn, job["id"], status="done", document_id=document_id, error=None)
+
+
+def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete: bool) -> bool:
+    """A compute step: for every paper whose inputs are there (its page text, the outputs of the
+    passes it reads, the document it edits) the registered code runs here, free — a document
+    step persisting one document per paper through the ordinary path and then judged like an
+    extract step (``_advance_extract``: the barrier, the outputs, its gate), a fields step
+    writing through the audited edit path. A paper whose inputs failed fails its job."""
+    from . import passes
+    js = jobs(conn, run["id"], sr["step_id"])
+    staged = {p["pdf_sha256"]: p for p in passes.papers_of(conn, run["id"])}
+    doc_step = bool(st.get("preset"))
+    for j in js:
+        if j["status"] != "pending" or j["pdf_sha256"] not in staged:
+            continue
+        upstream_failed = next((o for o in (st.get("reads") or [])
+                                if any(x["pdf_sha256"] == j["pdf_sha256"] and x["status"] in ("failed", "cancelled") for x in jobs(conn, run["id"], o))), None)
+        if upstream_failed is None and not doc_step:
+            ed = st.get("edits")
+            if ed and any(x["pdf_sha256"] == j["pdf_sha256"] and x["status"] in ("failed", "cancelled") for x in jobs(conn, run["id"], ed)):
+                upstream_failed = ed
+        if upstream_failed:
+            _set_job(conn, j["id"], status="failed", error=f"{upstream_failed} failed for this paper")
+            continue
+        ready = all(passes.get_output(conn, run["id"], o, j["pdf_sha256"]) is not None for o in (st.get("reads") or []))
+        did = passes.document_of(conn, run["id"], st["edits"], j["pdf_sha256"]) if not doc_step and st.get("edits") else None
+        if not ready or (not doc_step and st.get("edits") and did is None):
+            continue                                              # its inputs are not there yet: the barrier waits
+        _set_job(conn, j["id"], status="running", tries=int(j.get("tries") or 0) + 1, error=None)
+        try:
+            if doc_step:
+                res = passes.compute_document(conn, run, st, j["pdf_sha256"])
+                _attach_document(conn, run, sr["step_id"], j, res["document_id"])
+            else:
+                res = passes.compute_fields(conn, run, st, j["pdf_sha256"], document_id=did)
+                _set_job(conn, j["id"], status="done", document_id=did, error=None)
+                sr_out = {**(get_step_run(conn, sr["id"]) or {}).get("outputs", {})}
+                per = sr_out.setdefault("per_paper", {})
+                per[j["pdf_sha256"]] = {k: res[k] for k in ("edited_records", "edited_fields", "findings")}
+                _set_sr(conn, sr["id"], outputs=sr_out)
+        except Exception as exc:  # noqa: BLE001 - the job records it
+            _set_job(conn, j["id"], status="failed", error=str(exc)[:500])
+    if doc_step:
+        return _advance_extract(conn, run, sr, st, complete)
+    js = jobs(conn, run["id"], sr["step_id"])
+    if complete:
+        for j in js:
+            if j["status"] == "pending":
+                _set_job(conn, j["id"], status="cancelled", error="not uploaded")
+        js = jobs(conn, run["id"], sr["step_id"])
+    if not js or any(j["status"] not in JOB_TERMINAL for j in js):
+        return False
+    landed = [j for j in js if j["status"] in JOB_DONE]
+    failed = [{"pdf_sha256": j["pdf_sha256"], "filename": j["filename"], "error": j["error"]} for j in js if j["status"] == "failed"]
+    per = ((get_step_run(conn, sr["id"]) or {}).get("outputs") or {}).get("per_paper") or {}
+    outputs = {"n_papers": len(landed), "done": [j["pdf_sha256"] for j in landed], "failed": failed, "fn": st.get("fn"),
+               "edited_records": sum(v.get("edited_records", 0) for v in per.values()), "edited_fields": sum(v.get("edited_fields", 0) for v in per.values()),
+               "findings": sum(v.get("findings", 0) for v in per.values()), "document_ids": [j["document_id"] for j in landed if j.get("document_id")]}
+    if js and not landed:
+        _set_sr(conn, sr["id"], status="failed", error=f"no paper edited: {failed[0]['error'] if failed else 'every paper was cancelled'}",
+                finished_at=_now(), outputs=outputs)
+        return True
+    d_id = dataset_for_step(conn, run, sr["step_id"])
+    _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, d_id), finished_at=_now())
     return True
 
 

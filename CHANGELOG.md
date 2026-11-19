@@ -8,6 +8,20 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Compute steps: registered code writes data
+
+- A workflow step of kind `compute` runs a chain's registered deterministic code per paper,
+  free. One that PRODUCES documents (`fn`, `preset: <pin>`, an optional `dataset` role) builds
+  one document per paper from the passes' outputs it `reads`; the document is persisted through
+  the ordinary path (quotes located, the contract checked) with the passes as its provenance
+  (`chain.kind: compute`, `stages`), and the step is then judged like an extract step: its
+  dataset, its gate, its release. `reextract` re-makes a staged paper already under the pin,
+  replacing its document. One that EDITS (`edits: <document step>`, `writes: [fields]`) returns
+  values per record and per paper field; every edit lands through the audited path as a
+  `corrected` event by the engine (`verifier_kind: engine`, `notes: compute:<fn>`), so later
+  steps see the value moved; writing a field the step does not declare is an error. Both read
+  the findings of the check steps they name (`findings`). A paper whose inputs failed fails its job.
+
 ### References checked across passes and across a record
 
 - A pass registration declares `ids` (paths that mint ids: unique, non-empty) and `refs`
