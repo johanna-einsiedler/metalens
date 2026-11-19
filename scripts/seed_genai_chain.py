@@ -13,6 +13,17 @@ inside Metalens exactly as they would after live passes.
 Order matters: the PDF is staged first (``dispatch=false``, no model call), because the chain
 advances as soon as the last pass output of a staged paper is supplied and the assemble step
 needs the PDF. The project is read only.
+
+With ``--manifest`` the seeder works as the v4 seeder's project mode does (``seed_accounts.py``:
+the same manifest file, kept out of git): the owner signs in, the PROJECT of the workflow is found
+by title or made, a dataset linked for the role it lacks, the people added by email, each task's
+coders set, and the papers of ``only`` (or ``--rid``) staged and supplied into a run; the review
+tasks then assign the project's people. ``--workflow`` and ``--title`` override the manifest's
+(so the v4 pilot's manifest seeds the chain's project), ``local: true`` / ``--local`` serves an
+engine in local mode (no accounts).
+
+    .venv/bin/python scripts/seed_genai_chain.py --manifest /path/to/49_AI_review/labeling/metalens/seed/seed_workflow.json \
+        --workflow genai-work-chain --title "GenAI at work — the chain" [--rid …] [--base URL] [--stale-plans] [--dry]
 """
 from __future__ import annotations
 
@@ -260,9 +271,155 @@ def seed(url: str, project: Path, rids: list[str], *, title: str, pdf_dir: Path,
     return {"dataset": ds, "run": rid_run, "done": done, "failed": failed, "status": view.get("status")}
 
 
+def _stage_and_supply(c, run_id: str, p: dict) -> bool:
+    """One paper into a run: the PDF staged without dispatch (its text and identity along), then
+    its outputs supplied in order. True when every call landed."""
+    m = p["meta"]
+    r = c.post(f"/api/workflow-runs/{run_id}/papers", files={"pdf": (p["pdf"].name, p["bytes"], "application/pdf")},
+               data={k: v for k, v in {"dispatch": "false", "pages": json.dumps(p["pages"], ensure_ascii=False), "title": m["title"], "doi": m["doi"],
+                                       "abstract": m["abstract"], "journal": m["journal"], "year": m["year"], "authors": json.dumps(m["authors"], ensure_ascii=False),
+                                       "peer_reviewed": m["peer_reviewed"]}.items() if v not in (None, "")})
+    if r.status_code != 200:
+        print(f"  ✗ {p['rid']}: staging failed {r.status_code} {r.text[:200]}"); return False
+    for s in p["supplies"]:
+        body = {"output": s["output"], "role": s["role"], "pass_index": s["pass_index"], "prompt_sha256": s["prompt_sha256"], "stability": s["stability"]}
+        r = c.post(f"/api/workflow-runs/{run_id}/passes/{s['step']}/{p['sha']}", json=body)
+        if r.status_code != 200:
+            print(f"  ✗ {p['rid']}: {s['step']} ({s['role']} {s['pass_index']}) refused {r.status_code} {r.text[:200]}"); return False
+    print(f"  ✓ {p['rid']}")
+    return True
+
+
+def _load_papers(project: Path, rids: list[str], pdf_dir: Path, *, with_runs: bool, stale_plan: bool) -> list[dict]:
+    papers = []
+    for rid in rids:
+        pdf = pdf_dir / f"{rid}.pdf"
+        if not pdf.exists():
+            print(f"  ! {rid}: no PDF under {pdf_dir}; skipped"); continue
+        try:
+            sup = supplies(project, rid, with_runs=with_runs, stale_plan=stale_plan)
+        except FileNotFoundError as e:
+            print(f"  ! {e}; skipped"); continue
+        b = pdf.read_bytes()
+        papers.append({"rid": rid, "pdf": pdf, "bytes": b, "sha": sha256(b), "supplies": sup, "pages": pages_for(project, rid), "meta": paper_meta(project, rid)})
+        plan = papers[-1]["supplies"][-1]["output"]
+        print(f"  {rid}: {len(papers[-1]['pages'])} pages, {len(sup)} outputs ({sum(1 for s in sup if s['role'] == 'run')} runs), "
+              f"plan {'stale' if plan.get('stale') else 'ok' if plan.get('units') else 'none'}")
+    return papers
+
+
+def _print_run(c, wid: str, run_id: str) -> dict:
+    view = c.get(f"/api/workflow-runs/{run_id}").json()
+    print(f"run {view.get('status')}: " + "; ".join(f"{s['step_id']} {s['status']}" for s in view.get("steps") or []))
+    for s in view.get("steps") or []:
+        if s.get("error"):
+            print(f"  step {s['step_id']}: {s['error']}")
+    for pp in view.get("papers") or []:
+        if pp.get("error"):
+            print(f"  paper {str(pp.get('pdf_sha256') or '')[:12]} {pp.get('step_id')}: {pp['error']}")
+    tasks_now = c.get(f"/api/projects/{wid}/tasks", params={"run": run_id}).json().get("tasks") or [] if wid else []
+    gate = lambda t: t.get("gate") or {}  # noqa: E731
+    if tasks_now:
+        print("tasks: " + "; ".join(f"{t['step_id']} {gate(t).get('checked', 0)}/{gate(t).get('total', 0)}" + (f" (waits for {gate(t)['needs_coders']} coders)" if gate(t).get("needs_coders") else "") for t in tasks_now))
+    return view
+
+
+def seed_project(base: str, m: dict, root: Path, project: Path, *, workflow: str, title: str, rids: list[str] | None, pdf_dir: Path | None,
+                 with_runs: bool = True, stale_plan: bool = False, local: bool = False, dry: bool = False) -> dict:
+    """The project mode (the v4 seeder's, for the chain): owner, project, dataset, people, tasks,
+    then the papers staged and supplied into a run of the chain."""
+    import httpx
+    sys.path.insert(0, str(HERE))
+    from seed_accounts import sign_in  # noqa: PLC0415
+    local = local or bool(m.get("local"))
+    owner = m.get("owner") or {}
+    if not local and not (owner.get("email") and owner.get("password")):
+        raise SystemExit("the owner is missing `email` or `password` (or say `local: true` for an engine in local mode)")
+    coders = [] if local else [{"email": x} if isinstance(x, str) else dict(x) for x in (m.get("coders") or [])]
+    tasks = m.get("tasks") or {}
+    only = (m.get("only") or {}).get("extraction") or []
+    rids = list(rids) if rids else list(only)
+    folder = (m.get("papers") or {}).get("extraction")
+    pdf_dir = pdf_dir or (root / folder if folder else project / "labeling" / "metalens" / "import_pilot")
+    print(f"{'the local owner' if local else owner['email']} → project “{title}” of workflow “{workflow}” on {base}")
+    papers = _load_papers(project, rids, pdf_dir, with_runs=with_runs, stale_plan=stale_plan)
+    if dry:
+        print(f"  would add {len(coders)} person(s); tasks: " + ", ".join(f"{k} coders={json.dumps((v or {}).get('coders'))}" for k, v in tasks.items()))
+        return {"dry": True, "papers": [p["rid"] for p in papers]}
+    with httpx.Client(base_url=base, timeout=httpx.Timeout(1800.0, connect=30.0), headers=({"X-Session-Id": "chain-seed"} if local else {})) as c:
+        if not local:
+            print(f"  {sign_in(c, owner['email'], owner['password'])}")
+        mine = c.get("/api/projects").json().get("projects") or []
+        wf_of = lambda w: (w.get("workflow") or {}).get("id") if isinstance(w.get("workflow"), dict) else str(w.get("workflow") or "").split("@")[0]  # noqa: E731
+        proj = next((w for w in mine if w.get("title") == title and (not wf_of(w) or wf_of(w) == workflow)), None)
+        if proj is None:
+            r = c.post("/api/projects", json={"workflow": workflow, "title": title})
+            if r.status_code != 200:
+                raise SystemExit(f"could not make the project: {r.status_code} {r.text[:200]}")
+            proj, how = r.json(), "made"
+        else:
+            how = "found"
+        wid = proj["id"]
+        print(f"  {how}: {base}/project?id={wid}")
+        page = c.get(f"/api/projects/{wid}").json()
+        if page.get("kind") != "project":
+            raise SystemExit(f"“{workflow}” runs over one preset, so “{title}” is a plain dataset, not a project")
+        for item in page.get("members") or []:
+            if not item.get("dataset"):
+                r = c.post(f"/api/datasets/{wid}/group/link", json={"role": item["role"], "create": True})
+                if r.status_code != 200:
+                    raise SystemExit(f"could not link a dataset for {item['role']}: {r.status_code} {r.text[:200]}")
+                print(f"  linked a new dataset for {item['role']}")
+        have = {str(x.get("email") or "").lower() for x in c.get(f"/api/projects/{wid}/people").json().get("people") or []} if coders else set()
+        for x in coders:
+            if x["email"].lower() in have:
+                continue
+            r = c.post(f"/api/projects/{wid}/people", json={"email": x["email"]})
+            print(f"  {'person added' if r.status_code == 200 else 'person NOT added'}: {x['email']}{'' if r.status_code == 200 else ' — ' + r.text[:120]}")
+        for step_id, cfg in tasks.items():
+            want = (cfg or {}).get("coders")
+            r = c.patch(f"/api/projects/{wid}/tasks/{step_id}", json={"coders": want})
+            print(f"  task {step_id}: {'coders = ' + json.dumps(want) if r.status_code == 200 else 'NOT set — ' + r.text[:120]}")
+        panel = c.get(f"/api/datasets/{wid}/workflow").json()
+        side = next((s for s in panel.get("steps") or [] if s.get("kind") == "compute" and s.get("role") == "extraction"), None)
+        have_docs = {d.get("filename") for d in c.get("/api/documents", params={"dataset": side["dataset_id"], "limit": 5000}).json().get("documents") or []} if side and side.get("dataset_id") else set()
+        pending = [p for p in papers if p["pdf"].name not in have_docs]
+        run = panel.get("current_run")
+        live = bool(run) and run.get("status") not in ("done", "failed", "cancelled")
+        if not pending:
+            print(f"  nothing to upload: {len(papers)} paper(s) already there" + (f"; the latest run ({run['id']}, {run.get('status')}) stands" if run else ""))
+            if run:
+                _print_run(c, wid, run["id"])
+            if not local:
+                c.post("/api/auth/logout")
+            return {"project": wid, "run": run["id"] if run else None, "done": [], "skipped": [p["rid"] for p in papers]}
+        if live:
+            print(f"  a run is in progress ({run['id']}); its plan is fixed — cancel it or wait before seeding more papers")
+            if not local:
+                c.post("/api/auth/logout")
+            return {"project": wid, "run": run["id"], "done": [], "skipped": [p["rid"] for p in papers]}
+        staged = [{"sha256": p["sha"], "filename": p["pdf"].name} for p in pending]
+        r = c.post(f"/api/datasets/{wid}/workflow/runs", json={"new_pdfs": staged, "use_credits": False})
+        if r.status_code != 200:
+            raise SystemExit(f"could not start the run: {r.status_code} {r.text[:300]}")
+        run = r.json()
+        print(f"  run started: {run['id']} ({run.get('jobs', {}).get('total')} jobs)")
+        done, failed = [], []
+        for p in pending:
+            (done if _stage_and_supply(c, run["id"], p) else failed).append(p["rid"])
+        view = _print_run(c, wid, run["id"])
+        if not local:
+            c.post("/api/auth/logout")
+        return {"project": wid, "run": run["id"], "done": done, "failed": failed, "skipped": [p["rid"] for p in papers if p not in pending], "status": view.get("status")}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--project", required=True)
+    ap.add_argument("--project", help="the review project's root (required without --manifest; else the manifest's repository)")
+    ap.add_argument("--manifest", type=Path, help="a project manifest (seed_accounts.py's): owner, coders, papers, only, tasks")
+    ap.add_argument("--workflow", default=WORKFLOW, help="with --manifest: the workflow of the project (default genai-work-chain)")
+    ap.add_argument("--base", help="with --manifest: the server (overrides the manifest's `base`)")
+    ap.add_argument("--local", action="store_true", help="with --manifest: an engine in local mode, no accounts")
     ap.add_argument("--rid", action="append", default=[])
     ap.add_argument("--ids", help="a file of record ids, one per line")
     ap.add_argument("--url", default="http://127.0.0.1:8775")
@@ -272,8 +429,23 @@ def main() -> int:
     ap.add_argument("--stale-plans", action="store_true", help="supply a headline plan file even when it predates the paper's current extraction")
     ap.add_argument("--dry", action="store_true", help="read the files and report, send nothing")
     a = ap.parse_args()
-    project = Path(a.project).resolve()
     rids = list(a.rid) + ([x for x in Path(a.ids).read_text().split() if x] if a.ids else [])
+    if a.manifest:
+        m = json.loads(a.manifest.read_text(encoding="utf-8"))
+        root = a.manifest.resolve().parent
+        project = Path(a.project).resolve() if a.project else next((d for d in root.parents if (d / "labeling" / "split").is_dir()), None)
+        if project is None:
+            ap.error("--project: the review project's root could not be found above the manifest")
+        base = (a.base or m.get("base") or "").rstrip("/")
+        if not base:
+            ap.error("no server: set `base` in the manifest or pass --base")
+        title = a.title if a.title != "GenAI chain pilot" else (m.get("title") or a.workflow)
+        out = seed_project(base, m, root, project, workflow=a.workflow, title=title, rids=rids or None, pdf_dir=Path(a.pdfs) if a.pdfs else None,
+                           with_runs=not a.no_runs, stale_plan=a.stale_plans, local=a.local, dry=a.dry)
+        return 0 if not out.get("failed") else 1
+    if not a.project:
+        ap.error("--project is required without --manifest")
+    project = Path(a.project).resolve()
     if not rids:
         ap.error("name papers with --rid or --ids")
     pdf_dir = Path(a.pdfs) if a.pdfs else project / "labeling" / "metalens" / "import_pilot"

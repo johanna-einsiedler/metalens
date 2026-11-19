@@ -42,7 +42,9 @@ def test_local_mode_requests_act_as_the_local_owner(monkeypatch) -> None:
     from fastapi.testclient import TestClient
     conn = records.connect(); records.init_db(conn)
     monkeypatch.setenv("PAPERLENS_LOCAL_MODE", "1")
-    monkeypatch.setenv("PAPERLENS_LOCAL_USER_ID", str(uuid.uuid4()))
+    # an earlier test may have made the local owner's row (a review task's gate does): its id is the one to act as
+    existing = conn.execute("SELECT id::text FROM users WHERE email = %s", (localmode.LOCAL_EMAIL,)).fetchone()
+    monkeypatch.setenv("PAPERLENS_LOCAL_USER_ID", existing[0] if existing else str(uuid.uuid4()))
     monkeypatch.delenv("PAPERLENS_BASIC_PASSWORD", raising=False)
     uid = localmode.ensure_local_user(conn)
     assert localmode.ensure_local_user(conn) == uid               # idempotent

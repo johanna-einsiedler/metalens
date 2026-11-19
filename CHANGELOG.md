@@ -25,6 +25,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   them, the claims, the headline plan (where the plan file is of the current extraction).
   `scripts/compare_chain.py` compares the dataset's documents with the project's import files,
   field for field, and writes a parity report.
+- The seeder's project mode (`--manifest`, the v4 seeder's manifest with `--workflow` and
+  `--title` overriding): the owner signs in, the project is found by title or made, a dataset
+  linked for the role it lacks, the people added by email, each task's coders set, and the
+  papers staged and supplied into one run; re-running uploads nothing that is already there.
+  `local: true` / `--local` for an engine in local mode.
 - An end-to-end test runs the whole chain on a project paper's supplied outputs through the API —
   assemble, the two checks, the routing, the review tasks opening — and asserts the document
   equals the project's v20 import file (paper fields and tasks).
