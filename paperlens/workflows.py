@@ -365,6 +365,11 @@ def pipeline_for(spec: dict, step_id: str) -> list[dict] | None:
 
 
 def calls_per_paper(spec: dict, step_id: str) -> int:
+    st = ws.steps_by_id(spec).get(step_id) or {}
+    if st.get("kind") == "pass":                       # the pass's own calls, k times
+        from . import chains
+        e = chains.get(str(st.get("pass") or ""))
+        return int((e or {}).get("calls_per_paper") or 1) * int(st.get("k") or 1)
     stages = pipeline_for(spec, step_id)
     return sum(int(s["k"]) for s in stages) if stages else 1
 
@@ -682,6 +687,22 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                 g = next((g for g in gates if g["step_id"] == sid), None)
                 if g:
                     item["gate"] = g
+        elif kind == "pass":
+            staged = [p for p in (new_pdfs or []) if isinstance(p, dict) and p.get("sha256")]
+            items = [{"pdf_sha256": p["sha256"], "filename": p.get("filename"), "action": "pass"} for p in staged]
+            item.update({"pass": st.get("pass"), "k": st.get("k") or 1, "reads": list(st.get("reads") or []),
+                         "work": {"extract": len(items), "attach": 0, "wait_for": 0, "present": 0, "old_contract": 0, "foreign": 0},
+                         "items": items, "calls_per_paper": calls_per_paper(spec, sid)})
+            item["n_calls"] = len(items) * item["calls_per_paper"]
+            sr = latest_step_run(conn, dataset_id, sid)
+            if sr is None:
+                item["state"] = "missing"; item["because"] = ["never run"]
+            elif items:
+                item["state"] = "stale"; item["because"] = [f"{len(items)} new paper{'s' if len(items) != 1 else ''} to run"]
+            else:
+                item["last"] = {k: (sr.get("outputs") or {}).get(k) for k in ("n_papers", "failed", "reused", "n_calls")}
+                item["last_run"] = sr["run_id"]
+            facts_by_step[sid] = {"pin": None, "have": [], "old": [], "items": items, "work": item["work"]}
         elif kind == "check":
             over = st.get("over") or []
             src = facts_by_step.get(over[0]) if over else None
@@ -902,7 +923,7 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
                            VALUES (%s::uuid, %s::uuid, %s, %s, %s, 'pending', %s::uuid, %s::uuid, %s)""",
                         (str(uuid.uuid4()), rid, s["id"], it["pdf_sha256"], it.get("filename"),
                          it.get("document_id") if it["action"] == "attach" else None, it.get("replaces"),
-                         calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract")) else 0))
+                         calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract", "pass")) else 0))
     except psycopg.errors.UniqueViolation:
         if use_credits and n_calls:
             credits.refund(conn, uid, model=cmodel, n=n_calls, reason="workflow refund")
@@ -1082,6 +1103,9 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                         return get_run(conn, run_id)
                 elif kind == "review":
                     _advance_review(conn, run, sr, st)
+                elif kind == "pass":
+                    if not _advance_pass(conn, run, sr, st, complete_step == sr["step_id"]):
+                        return get_run(conn, run_id)
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
                     first = next((x["id"] for x in spec["steps"] if x.get("kind") in ("extract", "agent")), None)
@@ -1275,6 +1299,53 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
     header = review_gate.open_gate(conn, sr, st)
     if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
         _set_sr(conn, sr["id"], status="awaiting_review")
+    if refunded:
+        _touch(conn, run["id"], credits_refunded=run["credits"]["refunded"] + refunded)
+    return True
+
+
+def _advance_pass(conn, run: dict, sr: dict, st: dict, complete: bool) -> bool:
+    """A pass step: its papers run in their own jobs (``passes.run_paper``, one per paper over
+    every pass step, dispatched when the PDF arrives); this is the barrier — True once every
+    planned paper's job is terminal (the owner may close the uploads: ``complete``), the
+    step-run then carrying what landed, what failed, what was reused and the calls made."""
+    from . import chains, passes
+    js = jobs(conn, run["id"], sr["step_id"])
+    if complete:
+        for j in js:
+            if j["status"] == "pending":
+                _set_job(conn, j["id"], status="cancelled", error="not uploaded")
+        js = jobs(conn, run["id"], sr["step_id"])
+    if not js or any(j["status"] not in JOB_TERMINAL for j in js):
+        return False
+    landed = [j for j in js if j["status"] in JOB_DONE]
+    failed = [{"pdf_sha256": j["pdf_sha256"], "filename": j["filename"], "error": j["error"]} for j in js if j["status"] == "failed"]
+    if not landed:
+        _set_sr(conn, sr["id"], status="failed", error=f"no paper landed: {failed[0]['error'] if failed else 'every paper was cancelled'}",
+                finished_at=_now(), outputs={"n_papers": 0, "done": [], "failed": failed})
+        return True
+    outs = passes.outputs_of(conn, run["id"], sr["step_id"])
+    primaries = [o for o in outs if o["role"] == "primary"]
+    usage = {"prompt": 0, "completion": 0, "total": 0}
+    for o in outs:
+        for k in usage:
+            usage[k] += int(((o.get("usage") or {}).get(k)) or 0)
+    by_runs: dict[str, int] = {}
+    for o in primaries:
+        n = str(((o.get("stability") or {}).get("n_runs")) or 1)
+        by_runs[n] = by_runs.get(n, 0) + 1
+    code = str(st.get("pass") or "").partition("@")[0]
+    outputs = {"n_papers": len(landed), "done": [j["pdf_sha256"] for j in landed], "failed": failed,
+               "reused": sum(1 for o in primaries if o.get("reused_from")), "supplied": sum(1 for o in primaries if o.get("supplied")),
+               "n_calls": sum(int(o.get("n_calls") or 0) for o in outs), "usage": usage, "by_runs": by_runs,
+               "findings": sum(int(o.get("findings") or 0) for o in primaries), "code": code, "k": int(st.get("k") or 1)}
+    refunded = _refund_failed(conn, run, js)
+    try:
+        psha = chains.prompt_sha(code)
+    except KeyError:
+        psha = None
+    _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, run["dataset_id"]), finished_at=_now(), n_calls=outputs["n_calls"],
+            credits=sum(j["credits"] for j in landed), prompt_sha256=psha, model=run.get("model"), usage=usage)
     if refunded:
         _touch(conn, run["id"], credits_refunded=run["credits"]["refunded"] + refunded)
     return True
@@ -1583,8 +1654,14 @@ def complete_uploads(conn, run_id: str, *, who, step_id: str) -> dict:
     if run is None or not is_run_owner(run, who):
         raise RunRefused("Run not found.", 404)
     st = ws.steps_by_id(run["workflow"]).get(step_id)
-    if st is None or st.get("source") != "supplied":
-        raise RunRefused("Not a supplied step of this run.", 422)
+    if st is None or not (st.get("source") == "supplied" or st.get("kind") == "pass"):
+        raise RunRefused("Not a supplied or pass step of this run.", 422)
+    if st.get("kind") == "pass":                       # a paper never uploaded is dropped from every pass step
+        staged = {r[0] for r in conn.execute("SELECT pdf_sha256 FROM workflow_paper WHERE run_id = %s::uuid", (run_id,)).fetchall()}
+        for j in jobs(conn, run_id):
+            if j["status"] == "pending" and j["pdf_sha256"] not in staged and (ws.steps_by_id(run["workflow"]).get(j["step_id"]) or {}).get("kind") == "pass":
+                _set_job(conn, j["id"], status="cancelled", error="not uploaded")
+        conn.commit()
     return run_view(conn, advance(conn, run_id, complete_step=step_id))
 
 

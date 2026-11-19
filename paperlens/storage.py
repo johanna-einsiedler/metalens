@@ -175,6 +175,17 @@ def run_prefix(run_id: str) -> str:
     return f"runs/{run_id}/"
 
 
+def paper_text_key(pdf_sha256: str) -> str:
+    """A PDF's page texts (a JSON list, one string per page), content-addressed: every run of a
+    chain over the same PDF reads the same text."""
+    return f"papers/{pdf_sha256}.pages.json"
+
+
+def pass_raw_key(output_id: str, index: int) -> str:
+    """The model's verbatim answers behind one pass output, one per call."""
+    return f"passes/{output_id}/{index}.txt"
+
+
 def raw_key(doc_id: str) -> str:
     """The model's verbatim response (or the JSON that was imported), as text."""
     return f"raw/{doc_id}.txt"

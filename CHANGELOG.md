@@ -8,6 +8,28 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Pass steps: registered code runs per paper (`paperlens/passes.py`, `paperlens/chains/`)
+
+- A workflow step of kind `pass` runs registered code of a CHAIN per paper: the code may call the
+  model (`ctx.call(system, user, schema)`, a JSON answer; a cut answer raises `Truncated`), reads
+  the page-marked PDF text (`ctx.text()`) and the outputs of the earlier passes it declares
+  (`ctx.read`), and returns one JSON output in its own shape. The step names the pass at its pin
+  (`pass: "<chain>.<name>@<sha8>"`, the sha over its prompt files and schema — a prompt edit
+  re-versions the workflow like a preset pin), the steps it `reads`, typed `params`, `k` with a
+  `match`er (the engine for k > 1 follows). The run's model is the run's choice, not the contract's.
+- Outputs live in `workflow_pass_output` per (run, step, paper, pass index) with the pass's prompt
+  sha and an inputs sha (text, the outputs read, params): an output made under the same shas by
+  any earlier run is reused without a call; an output made outside Metalens is supplied
+  (`POST /api/workflow-runs/{rid}/passes/{step}/{sha}`) and stands in for the call.
+- A paper enters a run that starts on passes through `POST /api/workflow-runs/{rid}/papers`
+  (its PDF kept under the run, its page text stored once per PDF; `workflow_paper`); its passes
+  run in order in one job (`pass_job`, the key sent with the paper on an own-key run, the
+  server's on a credit run), a pass with its output stored is skipped, a failure stops the paper's
+  chain with the reason on the later jobs. A pass step is the barrier across papers: done when
+  every planned paper's job is terminal (the owner may close the uploads), its outputs counting
+  papers, failures, reuse, calls and usage. `GET …/passes/{step}` lists a step's outputs per paper,
+  `GET …/passes/{step}/{sha}` serves one. The `_demo` chain exists for the tests.
+
 ### A JSON answer shaped by a schema (`providers.generate_json`)
 
 - One call for a chain's pass: a system prompt, a user text and a JSON schema make one JSON

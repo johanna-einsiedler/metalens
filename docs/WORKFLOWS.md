@@ -349,6 +349,43 @@ Exports carry every coding (`codings` per record, `paper_codings` per paper, cod
 freezes them (`codings` in the snapshot, `codings.json` in the zip) next to the paper-level
 values, and a new coding counts as a change since the last release.
 
+## Chains: pass steps
+
+A **chain** (`paperlens/chains/<chain>/`) is registered code a workflow runs per paper — the
+project-specific knowledge (prompts, taxonomy, rules) is the chain's content, the engine knows the
+registry (`paperlens/chains/__init__.py`, the pattern of `checks.REGISTRY`). A step of kind `pass`
+names a pass at its PIN:
+
+```jsonc
+{"id": "estimands", "kind": "pass", "pass": "genai_work.estimands@3f1a9c2e", "reads": ["exhibits"],
+ "k": 2, "match": "genai_work.match_estimands", "params": {"threshold": 6}}
+```
+
+`pass` is `<chain>.<name>@<sha8>`, the sha over the pass's prompt files, its JSON schema and what
+the code puts around them (`inputs_version`), so a prompt edit re-versions every workflow naming
+the pass, as a preset pin does (`chains.pin`; a stale pin is an error). `reads` names the earlier
+pass steps whose outputs the pass declared it reads, one per declared read. `k` runs the pass k
+times per paper and `match` names the chain's matcher that folds the runs into one (a later
+release). `params` are typed by the registration. `model` is the run's choice, not the contract's.
+
+A pass's code gets a context: `ctx.pages` and `ctx.text()` (the page text with `=== PAGE i ===`
+markers), `ctx.paper`, `ctx.read("<pass>")` (the primary output of the step that runs it),
+`ctx.params`, `ctx.prompt(name)`/`ctx.schema()`, and `ctx.call(system, user, schema, max_tokens=…)`
+— one JSON answer through `providers.generate_json`; a cut answer raises `passes.Truncated` so the
+pass can ask again in a shorter form. It returns one JSON object in its own shape.
+
+Outputs sit in `workflow_pass_output` per (run, step, paper, pass index) with the prompt sha, an
+inputs sha (the text, the outputs read, the params), the model, usage and calls. An output made
+under the same shas by any earlier run is REUSED without a call; one made outside Metalens is
+SUPPLIED (`POST /api/workflow-runs/{rid}/passes/{step}/{sha}` with `{output, prompt_sha256?}`) and
+stands in for the call. A paper enters a run that starts on passes through
+`POST /api/workflow-runs/{rid}/papers` (a PDF of the run's plan; its page text is stored once per
+PDF): its passes run in order in one job — a pass with its output stored is skipped, a failure
+stops the paper's chain. A pass step is the barrier across papers: done when every planned
+paper's job is terminal (the owner closes the uploads with `…/complete`), its outputs counting
+papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
+`GET …/passes/{step}/{sha}` serves one with its provenance.
+
 ## Review templates and questions
 
 A preset keeps the data contract and the prompt. A **review template**

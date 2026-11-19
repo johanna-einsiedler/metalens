@@ -916,3 +916,47 @@ CREATE TABLE IF NOT EXISTS project_task_config (
 ALTER TABLE record_coding   ADD COLUMN IF NOT EXISTS answers jsonb;
 ALTER TABLE document_coding ADD COLUMN IF NOT EXISTS answers jsonb;
 ALTER TABLE coding_event    ADD COLUMN IF NOT EXISTS answers jsonb;   -- {template, unit, set, previous}: an answer is no verdict and no disagreement
+
+-- ── chains: passes per paper (paperlens/passes.py, paperlens/chains/) ──────────────────────────
+CREATE TABLE IF NOT EXISTS workflow_paper (
+    run_id       uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    pdf_sha256   text NOT NULL,
+    filename     text,
+    paper_id     uuid,
+    n_pages      integer,
+    text_sha256  text,
+    status       text NOT NULL DEFAULT 'ready',           -- staged | ready | failed
+    title        text,
+    doi          text,
+    abstract     text,
+    journal      text,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (run_id, pdf_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_pass_output (
+    id             uuid PRIMARY KEY,
+    run_id         uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_id        text NOT NULL,
+    code           text NOT NULL,                          -- the registered pass, "<chain>.<name>"
+    pdf_sha256     text NOT NULL,
+    pass_index     integer NOT NULL DEFAULT 0,             -- 0..k-1 for the runs of a pass; 0 for the primary
+    role           text NOT NULL DEFAULT 'primary',        -- run | primary
+    output         jsonb NOT NULL,
+    stability      jsonb,                                  -- what the matcher found over the runs (k > 1)
+    prompt_sha256  text,
+    inputs_sha256  text,
+    model          text,
+    usage          jsonb,
+    n_calls        integer NOT NULL DEFAULT 0,
+    findings       integer NOT NULL DEFAULT 0,
+    status         text NOT NULL DEFAULT 'done',           -- done | failed
+    error          text,
+    reused_from    uuid,
+    supplied       boolean NOT NULL DEFAULT false,
+    log            jsonb,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (run_id, step_id, pdf_sha256, role, pass_index)
+);
+CREATE INDEX IF NOT EXISTS workflow_pass_output_reuse ON workflow_pass_output (pdf_sha256, code, prompt_sha256, inputs_sha256, model);
+ALTER TABLE workflow_finding ADD COLUMN IF NOT EXISTS pdf_sha256 text;
