@@ -8,6 +8,37 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step three: the record, the checks, the headlines, the document
+
+- `paperlens/chains/genai_work/record.py` ports the project's `finish`: the derived cells and the
+  canonical ids on copies of the four pass outputs, the assembly (the study from pass d, each
+  task of pass a with its design fields and arms, a treatment row per estimate of pass c and a
+  reference row per estimand's main estimate), every quote verified against the page text and
+  snapped to the paper's wording when edited, the row quotes made of parts, the `_check` marks,
+  and the sign-unverified note where the stating sentence contradicts the sign. The matchers'
+  `_runs` annotations ride along into the record's study, tasks, arms and rows.
+- `checks.py` holds the project's record checks (quotes, numbers in quotes, structure,
+  plausibility, categories, measure kinds, confidence) and pass checks (sources resolved into the
+  transcribed exhibits, coverage, grid gaps, duplicates, the statistics against each other, the
+  table and the sentence) as pure functions — `record_issues`, `pass_issues`, `cell_checks` — with
+  Student's t tail as a regularised incomplete beta in place of scipy (tested against scipy's values).
+- `headlines.py` ports the headline rule (composite > full sample > ITT; the plan's claim when it
+  names one; else role, main text, primary horizon, first outcome, first estimate) and the
+  composite groups of outcomes.
+- `document.py` builds the Metalens document under `genai-work-extraction` v20 the way the
+  project's assisted import does — every cell with its evidence row, the outcomes with their
+  quotes, each result row's quote parts an evidence row with the exhibit as its source — and sets
+  the review fields (task descriptions, treatments, composite outcomes, the abstract's claims
+  matched to their units when the claims pass ran, every exhibit with its cited cells and its
+  transcription as an evidence item). The flags, the routing and the triage score are left to
+  the route compute. The `genai_work.assemble` compute (reads the four passes, produces a
+  document) is registered; it hands the engine a `_record_chain` per task from the `_runs`
+  annotations (support, contested fields with every value read).
+- Tests: the project's own selftests over the port; two project papers' stored pass files
+  reproduce their `record.json` (record, quotes, issues) and `headlines.json`, and one paper's
+  v20 import file field for field and evidence row for evidence row (when the project is on the
+  machine).
+
 ### The GenAI-at-work chain, step two: the four passes and their matchers
 
 - `paperlens/chains/genai_work/passes.py` registers the chain's extraction passes as pass code —

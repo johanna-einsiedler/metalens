@@ -8,5 +8,5 @@ CHAIN_ID = "genai_work"
 
 
 def register() -> dict[str, dict]:
-    from . import match, passes
-    return {**passes.registrations(), **match.registrations()}
+    from . import document, match, passes
+    return {**passes.registrations(), **match.registrations(), **document.registrations()}
