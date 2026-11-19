@@ -93,6 +93,18 @@ def main() -> int:
         check(f"queue={a.run}:{a.step}" in pc.url and "your share" in pc.locator("#queuebar").inner_text(), "the tile opens the coder's queue")
         pc.goto(f"{a.url}/project?id={a.project}"); pc.wait_for_selector("#wd-tasklist .wd-task", timeout=25000)
         check(pc.locator("#ds-coders").count() == 0 and "code your 2" in pc.locator("#wd-tasklist").inner_text(), "the coder's project page: no People card, a link to code their 2")
+        # the coder's verdicts close the task; the owner releases the project as one
+        q = ctx_c.request.get(f"{a.url}/api/workflow-runs/{a.run}/queue/{a.step}").json()
+        for it in q["items"]:
+            assert ctx_c.request.post(f"{a.url}/api/records/{it['record_id']}/verify", data={"status": "verified"}).ok
+        p.goto(f"{a.url}/project?id={a.project}"); p.wait_for_selector("#wd-prels", timeout=25000)
+        check("No project release yet" in p.locator("#wd-prels").inner_text(), "no project release before the first")
+        p.fill("#wd-notes", "first cut (UI check)"); p.locator("#wd-release").click()
+        p.wait_for_selector("#wd-prels .ds-dashrow", timeout=30000)
+        rel = p.locator("#wd-prels .ds-dashrow").first.inner_text()
+        check("v1" in rel and "tables v1" in rel and "claims v1" in rel and "Code the tables 2/2" in rel, f"the project release lists its datasets' numbers and the task's statistics: {rel[:140]!r}")
+        check(p.locator("#wd-prels a", has_text="files").count() == 1, "…with its files to download")
+        shot(p, "project-released.png")
         check(not errors, f"no script errors ({errors[:2]})")
         browser.close()
     print("ALL OK" if not fails else f"{len(fails)} FAILED")

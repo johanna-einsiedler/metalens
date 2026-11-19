@@ -56,7 +56,7 @@ def fingerprint(conn: psycopg.Connection, dataset_id: str) -> str:
              SELECT 'd:' || step || ':' || version::text FROM dataset_derived
                WHERE dataset_id = %s::uuid AND status = 'committed'
              UNION ALL
-             SELECT 'r:' || id::text FROM workflow_run WHERE dataset_id = %s::uuid AND status = 'done'
+             SELECT 'r:' || id::text FROM workflow_run WHERE (dataset_id = %s::uuid OR group_id = (SELECT group_id FROM dataset WHERE id = %s::uuid)) AND status = 'done'
              UNION ALL
              SELECT 'c:' || rc.record_id::text || ':' || rc.coder_user_id::text || ':' || rc.updated_at::text      -- the coders' codings
                FROM record_coding rc JOIN record r ON r.id = rc.record_id WHERE r.dataset_id = %s::uuid
@@ -66,7 +66,7 @@ def fingerprint(conn: psycopg.Connection, dataset_id: str) -> str:
              UNION ALL
              SELECT DISTINCT 'pm:' || ed.id::text || ':' || md5(coalesce(ed.paper_metadata_raw::text, ''))                -- the paper-level values
                FROM extraction_document ed JOIN record r ON r.document_id = ed.id WHERE r.dataset_id = %s::uuid AND ed.paper_metadata_raw IS NOT NULL) s""",
-        (dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id)).fetchone()[0]
+        (dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id, dataset_id)).fetchone()[0]
     return data if extra == "d41d8cd98f00b204e9800998ecf8427e" else f"{data}:{extra[:16]}"
 
 
@@ -320,10 +320,12 @@ def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual",
     the release (``gates``), so an override is never silent."""
     from . import __version__, exporter, workflows
     gate = workflows.gate_report(conn, dataset_id)
-    stale_over = bool(gate.get("blocking")) and allow_stale
+    # a review step awaiting its verdicts is the review gate itself: overriding the gate covers it
+    blocking = [b for b in gate.get("blocking") or [] if not (b.get("state") == "awaiting_review" and override_gates)]
+    stale_over = bool(blocking) and allow_stale
     gates_over = bool(gate.get("gates_blocking")) and override_gates
-    if (gate.get("blocking") and not allow_stale) or (gate.get("gates_blocking") and not override_gates):
-        raise GateClosed(gate)
+    if (blocking and not allow_stale) or (gate.get("gates_blocking") and not override_gates):
+        raise GateClosed({**gate, "blocking": blocking})
     run = workflows.last_done_run(conn, dataset_id)
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"release:{dataset_id}",))
@@ -368,3 +370,168 @@ def mark_published(conn: psycopg.Connection, release_id: str) -> None:
     """This release was sent to the datasets repository."""
     with conn.transaction():
         conn.execute("UPDATE dataset_release SET published_at = COALESCE(published_at, now()) WHERE id = %s::uuid", (release_id,))
+
+
+# ── project releases: every member under its own number, the workflow, the review statistics ──
+
+_PCOLS = ("id::text, project_id::text, number, created_at, created_by::text, notes, workflow_contract, workflow_spec_sha, "
+          "workflow_run_id::text, gates, members, content_sha, stats, credibility, review, engine, doi, zenodo_record_id, zenodo_url, "
+          "doi_minted_at, published_at")
+
+
+def _prow(r) -> dict:
+    return {"id": r[0], "project_id": r[1], "number": r[2], "created_at": r[3].isoformat(timespec="seconds") if r[3] else None,
+            "created_by": r[4], "notes": r[5], "workflow_contract": r[6], "workflow_spec_sha": r[7], "workflow_run_id": r[8], "gates": r[9],
+            "members": r[10], "content_sha": r[11], "stats": r[12], "credibility": r[13], "review": r[14], "engine": r[15],
+            "doi": r[16], "zenodo_record_id": r[17], "zenodo_url": r[18],
+            "doi_minted_at": r[19].isoformat(timespec="seconds") if r[19] else None,
+            "published_at": r[20].isoformat(timespec="seconds") if r[20] else None}
+
+
+def public_project_row(rel: dict) -> dict:
+    return {k: rel.get(k) for k in ("number", "created_at", "notes", "workflow_contract", "workflow_run_id", "gates", "members", "content_sha",
+                                    "stats", "credibility", "review", "doi", "zenodo_url", "published_at")}
+
+
+def list_project(conn: psycopg.Connection, project_id: str) -> list[dict]:
+    return [_prow(r) for r in conn.execute(f"SELECT {_PCOLS} FROM project_release WHERE project_id = %s::uuid ORDER BY number DESC", (project_id,)).fetchall()]
+
+
+def get_project(conn: psycopg.Connection, project_id: str, number: int) -> dict | None:
+    r = conn.execute(f"SELECT {_PCOLS} FROM project_release WHERE project_id = %s::uuid AND number = %s", (project_id, number)).fetchone()
+    return _prow(r) if r else None
+
+
+def latest_project(conn: psycopg.Connection, project_id: str) -> dict | None:
+    r = conn.execute(f"SELECT {_PCOLS} FROM project_release WHERE project_id = %s::uuid ORDER BY number DESC LIMIT 1", (project_id,)).fetchone()
+    return _prow(r) if r else None
+
+
+def changed_since_project(conn: psycopg.Connection, project: dict, rel: dict | None) -> bool:
+    """Whether the project moved since a project release: a member whose live data moved since
+    its own latest release, a member released since, a member linked since, or a newer finished run."""
+    from . import workflows
+    if rel is None:
+        return True
+    grp = workflows.group_of(conn, project) or {"roles": {}}
+    frozen = {m["role"]: m for m in rel.get("members") or []}
+    for role, info in grp["roles"].items():
+        last = latest(conn, info["dataset_id"])
+        m = frozen.get(role)
+        if m is None or last is None or last["number"] != m.get("number") or changed_since(conn, info["dataset_id"], last):
+            return True
+    run = workflows.last_done_run(conn, project["id"])
+    return (run["id"] if run else None) != rel.get("workflow_run_id")
+
+
+def release_members(conn: psycopg.Connection, grp: dict, *, notes: str | None, created_by: str | None, allow_stale: bool,
+                    override_gates: bool, who=None, skip: str | None = None) -> tuple[list[dict], list[str]]:
+    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate.
+    Returns ``(members, problems)``; a member's own problem never undoes the others."""
+    done, problems = [], []
+    for role, info in grp["roles"].items():
+        if info["dataset_id"] == skip:
+            continue
+        try:
+            if who is not None and not records.dataset_records_all_owned(conn, info["dataset_id"], who):
+                problems.append(f"{role}: not released — it holds records you don't own")
+                continue
+            last = latest(conn, info["dataset_id"])
+            if last and not changed_since(conn, info["dataset_id"], last):
+                done.append({"role": role, "dataset_id": info["dataset_id"], "release_id": last["id"], "number": last["number"],
+                             "content_sha": last["content_sha"], "unchanged": True})
+                continue
+            rel = create(conn, info["dataset_id"], reason="group", notes=notes, created_by=created_by,
+                         allow_stale=allow_stale, override_gates=override_gates)
+            done.append({"role": role, "dataset_id": info["dataset_id"], "release_id": rel["id"], "number": rel["number"],
+                         "content_sha": rel["content_sha"], "unchanged": False})
+        except GateClosed as exc:
+            problems.append(f"{role}: not released — {exc}")
+        except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
+            problems.append(f"{role}: not released — {exc}")
+    return done, problems
+
+
+def project_review_stats(conn: psycopg.Connection, project: dict, run: dict | None) -> dict:
+    """The review statistics of a run of the project, per task and coder: what each gate asked,
+    what was checked, what disagreed, who did how much."""
+    from . import projects
+    if run is None:
+        return {"run_id": None, "tasks": []}
+    out = []
+    for t in projects.tasks(conn, project, run=run):
+        g = t.get("gate") or {}
+        out.append({"step_id": t["step_id"], "label": t["label"], "template": t.get("template"), "template_id": t.get("template_id"),
+                    "unit": t.get("unit"), "mode": t.get("mode"), "coders": t.get("coders"), "datasets": t.get("datasets"),
+                    "total": g.get("total", 0), "checked": g.get("checked", 0), "pending": g.get("pending", 0), "disagreed": g.get("disagreed", 0),
+                    "satisfied": g.get("satisfied"), "overridden_by": g.get("overridden_by"),
+                    **({k: g.get(k) for k in ("frame_n", "n_target", "drawn", "exhaustive", "table", "per_paper") if g.get(k) is not None}),
+                    "by_coder": [{k: b.get(k) for k in ("label", "total", "checked", "pending", "disagreed", "papers")} for b in g.get("by_coder") or []]})
+    return {"run_id": run["id"], "tasks": out}
+
+
+def project_credibility(conn: psycopg.Connection, members: list[dict]) -> dict:
+    """One badge over the project's datasets: the badge rule over the summed counts of their
+    frozen releases, with how many datasets it spans."""
+    total = audited = agreed = 0
+    for m in members:
+        rel = get(conn, m["release_id"]) if m.get("release_id") else None
+        c = (rel or {}).get("credibility") or {}
+        total += int(c.get("n_records") or 0); audited += int(c.get("audited") or 0); agreed += int(c.get("agreed") or 0)
+    out = records._badge_from_counts(total, audited, agreed)   # noqa: SLF001 - the one badge rule
+    out["n_datasets"] = len(members)
+    out["label_long"] = f"{out['label_long']} Across {len(members)} dataset{'s' if len(members) != 1 else ''}."
+    return out
+
+
+def create_project(conn: psycopg.Connection, project: dict, *, notes: str | None = None, created_by: str | None = None,
+                   allow_stale: bool = False, override_gates: bool = False, who=None) -> dict:
+    """Cut a project release: the project's gate (a step not fresh, a review wanting verdicts)
+    holds unless overridden — recorded; every linked dataset is released under its own number
+    (or kept at its latest when unchanged); the workflow and its newest finished run, the review
+    statistics per task and coder, and one badge over all are frozen with them. Raises
+    ``GateClosed``; ``RuntimeError`` when no dataset could be released."""
+    from . import __version__, exporter, workflows
+    pid = project["id"]
+    gate = workflows.gate_report(conn, pid)
+    # a review step awaiting its verdicts is the review gate itself: overriding the gate covers it
+    blocking = [b for b in gate.get("blocking") or [] if not (b.get("state") == "awaiting_review" and override_gates)]
+    stale_over = bool(blocking) and allow_stale
+    gates_over = bool(gate.get("gates_blocking")) and override_gates
+    if (blocking and not allow_stale) or (gate.get("gates_blocking") and not override_gates):
+        raise GateClosed({**gate, "blocking": blocking})
+    grp = workflows.group_of(conn, project) or {"roles": {}}
+    if not grp["roles"]:
+        raise RuntimeError("No dataset is linked to this project yet.")
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"project-release:{pid}",))
+        members, problems = release_members(conn, grp, notes=notes, created_by=created_by, allow_stale=allow_stale,
+                                            override_gates=override_gates, who=who)
+        if not members:
+            raise RuntimeError("Nothing was released: " + "; ".join(problems))
+        spec, _implicit = workflows.resolve(conn, project)
+        run = workflows.last_done_run(conn, pid)
+        wf = workflow_block(conn, pid)
+        review = project_review_stats(conn, project, run)
+        cred = project_credibility(conn, members)
+        last = latest_project(conn, pid)
+        number = (last["number"] + 1) if last else 1
+        stats = {"n_datasets": len(members), "n_papers": sum(int(((get(conn, m["release_id"]) or {}).get("stats") or {}).get("n_papers") or 0) for m in members),
+                 "n_records": sum(int(((get(conn, m["release_id"]) or {}).get("stats") or {}).get("n_records") or 0) for m in members),
+                 "problems": problems}
+        from . import workflow_spec as ws
+        sha = hashlib.sha256(_canonical({"workflow": {"contract": ws.workflow_id(spec), "run_id": run["id"] if run else None},
+                                         "members": [{"role": m["role"], "number": m["number"], "content_sha": m["content_sha"]} for m in members],
+                                         "review": review})).hexdigest()
+        rid = str(uuid.uuid4())
+        conn.execute(
+            """INSERT INTO project_release (id, project_id, number, created_by, notes, workflow_contract, workflow_spec_sha, workflow_run_id, gates,
+                                            members, content_sha, stats, credibility, review, engine)
+               VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s::uuid, %s, %s, %s, %s, %s, %s, %s)""",
+            (rid, pid, number, created_by if records._is_uuid(created_by or "") else None, (notes or "").strip()[:4000] or None,   # noqa: SLF001
+             ws.workflow_id(spec), ws.spec_sha(spec), run["id"] if run else None,
+             Json({"blocking": gate.get("blocking") or [], "gates_blocking": gate.get("gates_blocking") or [],
+                   "stale_overridden": stale_over, "gates_overridden": gates_over}),
+             Json(members), sha, Json(stats), Json(cred), Json(review),
+             Json({"name": "metalens", "version": __version__, "git_sha": exporter._git_sha(), **((wf or {}).get("engine") or {})})))   # noqa: SLF001
+    return get_project(conn, pid, number)

@@ -727,17 +727,22 @@ def dataset_sample(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     superseded), joined to live records: what was drawn, checked, disagreed, and the error rate
     with its Wilson interval. Ad-hoc audits never enter; supplement items never enter."""
     from .records import _wilson
+    from . import workflows
+    where, args = workflows._run_scope(conn, dataset_id)   # noqa: SLF001 - a member's runs are its project's
     rows = conn.execute(
-        """SELECT sr.id::text, sr.run_id::text, sr.step_id, sr.review
+        f"""SELECT sr.id::text, sr.run_id::text, sr.step_id, sr.review
            FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
-           WHERE r.dataset_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned') AND sr.superseded_by IS NULL
-             AND sr.review ->> 'mode' = 'sample' AND COALESCE(sr.review ->> 'unit', '') <> 'row' ORDER BY r.created_at""", (dataset_id,)).fetchall()
+           WHERE {where.replace('dataset_id', 'r.dataset_id').replace('group_id', 'r.group_id')} AND r.status NOT IN ('cancelled', 'failed', 'planned') AND sr.superseded_by IS NULL
+             AND sr.review ->> 'mode' = 'sample' AND COALESCE(sr.review ->> 'unit', '') <> 'row' ORDER BY r.created_at""", args).fetchall()
     if not rows:                                            # a draw of rows checks a paper's table, not its records: never in the estimate
         return None
+    own = {r[0] for r in conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid", (dataset_id,)).fetchall()}
     steps, frame, drawn, checked, disagreed = [], 0, 0, 0, 0
     for srid, run_id, step_id, header in rows:
         sr = {"id": srid, "run_id": run_id, "step_id": step_id, "review": header or {}, "outputs": {}}
-        its = [i for i in items(conn, sr) if i["kind"] == "random"]
+        its = [i for i in items(conn, sr) if i["kind"] == "random" and i["record_id"] in own]    # a joint draw: this dataset's records of it
+        if not its:
+            continue
         if (header or {}).get("coders"):                        # one unit per drawn record: checked when any coder checked it
             per: dict[str, dict] = {}
             for i in its:

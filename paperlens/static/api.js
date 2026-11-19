@@ -129,6 +129,8 @@ export const api = {
   assignTaskPaper: (id, srid, body) => req(`/api/projects/${id}/tasks/${srid}/assign`, json(body)),   // {document_id, coders: [user ids]}
   setTaskConfig: (id, step, body) => req(`/api/projects/${id}/tasks/${encodeURIComponent(step)}`, { ...json(body), method: "PATCH" }),   // {coders: N | [emails] | null}
   myTasks: () => req(`/api/me/tasks`),
+  projectReleases: (id) => req(`/api/projects/${id}/releases`),
+  createProjectRelease: (id, body) => req(`/api/projects/${id}/releases`, json({ notes: "", ...(body || {}) })),   // {notes, allow_stale, override_gates}
   datasetGroup: (id) => req(`/api/datasets/${id}/group`),
   linkGroupRole: (id, body) => req(`/api/datasets/${id}/group/link`, json(body)),
   // derived units: what a workflow's derive steps make, reviewed as drafts

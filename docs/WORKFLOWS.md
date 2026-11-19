@@ -140,6 +140,17 @@ people review each paper of that task, or which ones, over the workflow's own `c
 (`project_task_config`); it is read when the task's gate opens, and a gate still waiting for
 coders assigns at once — a solo pilot runs a two-coder judgment with one.
 
+**A project release** (`POST /api/projects/{id}/releases {notes, allow_stale, override_gates}`,
+`GET …/releases[/{n}[/export]]`; `project_release`) is one number for the project: every linked
+dataset released under its own number (kept at its latest when unchanged), the workflow's contract
+and its newest finished run, the review statistics per task and coder (what each gate asked, what
+was checked and disagreed, each coder's share), one badge over all the datasets (the badge rule
+over their summed counts, "across N datasets"), and the project's gate as it stood — held unless
+overridden, which the release records. The export is a zip of `project.json`, `README.md` and
+every member's own release files under `members/<role>/`. The project moved since a release when a
+member's data moved since its own latest release, a member was released or linked since, or a
+newer run finished. A member's frozen findings and sample draws are read from its project's runs.
+
 ## Linked datasets and a joint review
 
 A workflow may extract two sides of the same papers into two datasets — the regression tables
