@@ -1,0 +1,255 @@
+{
+  "format": 1,
+  "id": "genai-work-chain",
+  "version": 1,
+  "meta": {
+    "title": "GenAI at work — the extraction chain and its validation",
+    "tagline": "The multi-pass extraction run inside Metalens — exhibits, estimands, estimates and design read twice or three times and folded, the abstract's claims and the headline plan — assembled into the record the coders validate in three tasks.",
+    "description": "One workflow over one dataset. For every PDF uploaded, the chain reads the paper in passes: the exhibits as printed, the estimands (tasks, arms, outcomes, what the paper estimates), the estimates read into them from the exhibits, and the study, task and arm variables — the first three twice and the last three times, each reading matched to the first by content, the design cells settled by majority. Then the abstract's claims against the record's estimates and the headline-estimate plan. The record is assembled from the passes with the project's deterministic code — the derived cells, the canonical ids, every quote verified against the page text, every check — and becomes the extraction document under the same contract as the supplied records of version 4, with the claims, the exhibits and their cited cells. The chain's checks run over the passes (the project's whole issue list per paper), the record check over the document, and the routing writes the paper's flags, its decision and its triage score. The three review tasks of version 4 follow unchanged: a blind judgment of design and units by two coders, one exhibit's cells against the print, every routed flag resolved. The release waits for every assigned verdict.",
+    "authors": [
+      {
+        "family": "Einsiedler",
+        "given": "Johanna",
+        "orcid": "0000-0002-6312-6861",
+        "affiliation": "University of Basel; University of Copenhagen"
+      }
+    ],
+    "keywords": [
+      "generative AI",
+      "work",
+      "multi-pass extraction",
+      "validation",
+      "double coding",
+      "economics",
+      "evidence synthesis"
+    ],
+    "license": "CC-BY-4.0",
+    "brands": [
+      "metalens"
+    ]
+  },
+  "card": {
+    "file": "genai-work-chain.card.md"
+  },
+  "dataset": {
+    "unit": "paper",
+    "key": "pdf_sha256"
+  },
+  "steps": [
+    {
+      "id": "exhibits",
+      "kind": "pass",
+      "label": "Exhibits as printed",
+      "pass": "genai_work.exhibits@f89e5ed5",
+      "k": 2,
+      "match": "genai_work.match_exhibits",
+      "help": "pass b: every table and figure transcribed as printed — captions, panels, headers, rows, the figures' numbers — and the numbers of the text; read twice, the first reading the primary"
+    },
+    {
+      "id": "estimands",
+      "kind": "pass",
+      "label": "Estimands",
+      "pass": "genai_work.estimands@db78194e",
+      "reads": [
+        "exhibits"
+      ],
+      "k": 2,
+      "match": "genai_work.match_estimands",
+      "help": "pass a: the tasks, the arms of each (the reference arm first), the outcomes and one estimand per task × arm × reference × outcome × subgroup × horizon, each with its sentence; read twice and aligned by content, what the alignment leaves unmatched paired by the model once"
+    },
+    {
+      "id": "estimates",
+      "kind": "pass",
+      "label": "Estimates",
+      "pass": "genai_work.estimates@a521c8c1",
+      "reads": [
+        "exhibits",
+        "estimands"
+      ],
+      "k": 2,
+      "match": "genai_work.match_estimates",
+      "help": "pass c: every estimate of every estimand read from the exhibits with its numbers as printed, its cell, its role and the sentence that states it; a long list asked in parts; read twice and compared estimand by estimand"
+    },
+    {
+      "id": "design",
+      "kind": "pass",
+      "label": "Study, task and arm variables",
+      "pass": "genai_work.design@13e09201",
+      "reads": [
+        "estimands"
+      ],
+      "k": 3,
+      "match": "genai_work.match_design",
+      "help": "pass d: the study's design variables, each task's category and complexity descriptions, each arm's sample and AI, every cell with its quote; read three times, each cell settled by majority (a dissent noted, no majority flagged for a coder)"
+    },
+    {
+      "id": "claims",
+      "kind": "pass",
+      "label": "The abstract's claims",
+      "pass": "genai_work.claims@f67bea74",
+      "reads": [
+        "estimands",
+        "estimates"
+      ],
+      "help": "the abstract's sentences classified and matched to the introduction's, the result claims mapped to the record's estimates, every stated number looked up among the printed ones"
+    },
+    {
+      "id": "headline_plan",
+      "kind": "pass",
+      "label": "Headline plan",
+      "pass": "genai_work.headline_plan@3625300c",
+      "reads": [
+        "exhibits",
+        "estimands",
+        "estimates",
+        "design",
+        "claims"
+      ],
+      "help": "per unit (an outcome category of one task): the passages describing the task, the level it is analysed at, the abstract's atomic claims, the number behind each claim traced to a printed cell or a formula over cells, and the rule's decision the headline rule reads"
+    },
+    {
+      "id": "extraction",
+      "kind": "compute",
+      "label": "Extraction record",
+      "fn": "genai_work.assemble",
+      "reads": [
+        "exhibits",
+        "estimands",
+        "estimates",
+        "design",
+        "claims",
+        "headline_plan"
+      ],
+      "preset": "genai-work-extraction@cea73929",
+      "dataset": "extraction",
+      "help": "the record assembled from the passes — the derived cells, the canonical ids, the study from pass d, each task with its arms and outcomes, one reference row and one contrast row per estimate, every quote verified against the page text — as the extraction document with its review fields: the units' own words, the composite outcomes, the abstract's claims matched to their units, every exhibit with its cited cells; the one dataset the three tasks read"
+    },
+    {
+      "id": "record",
+      "kind": "check",
+      "label": "Record checks",
+      "check": "genai-work-record",
+      "over": [
+        "extraction"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the deterministic checks over the record as stored: structure, plausibility and scale, statistics within the rounding, SD vs SE, duplicates, numbers against their quotes; findings are notes on the records"
+    },
+    {
+      "id": "passes_check",
+      "kind": "check",
+      "label": "Chain checks",
+      "check": "genai-work-passes",
+      "over": [
+        "exhibits",
+        "estimands",
+        "estimates",
+        "design"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the project's whole issue list per paper from the four passes: the record's checks on the record assembled from them, the sources resolved into the transcribed exhibits, the exhibit coverage, the grid gaps, the duplicates, the statistics against each other, the table and the stating sentence, and the readings' disagreements"
+    },
+    {
+      "id": "route",
+      "kind": "compute",
+      "label": "Routing",
+      "fn": "genai_work.route",
+      "reads": [
+        "exhibits",
+        "estimands",
+        "estimates",
+        "design",
+        "headline_plan"
+      ],
+      "edits": "extraction",
+      "writes": [
+        "paper.flags",
+        "paper.routed",
+        "paper.route_reasons",
+        "paper.triage_score"
+      ],
+      "params": {
+        "threshold": 6
+      },
+      "help": "a paper is routed to a coder when its record contradicts an inclusion criterion (every extracted size below 200, no no-AI reference arm, no performance outcome, no identification) or when a headline estimate scores at least the threshold on the triage (2 per failed check, 1 per warning, 1 per field the readings disagree on, 2 when a reading lacks it); the flags table lists what a coder resolves, each with its page"
+    },
+    {
+      "id": "review_judgment",
+      "kind": "review",
+      "label": "Judgment",
+      "over": [
+        "extraction"
+      ],
+      "template": "genai-work-judgment",
+      "help": "the study's screening and design from the PDF alone, the units as extracted with the coder's categories, the abstract's sentences against their units; two coders per paper, each blind to the other and to the model's categories",
+      "mode": "all",
+      "unit": "paper",
+      "coders": 2,
+      "blocks": "release"
+    },
+    {
+      "id": "review_check",
+      "kind": "review",
+      "label": "Extraction check",
+      "over": [
+        "extraction"
+      ],
+      "template": "genai-work-check",
+      "help": "one exhibit per paper, drawn at random among those an estimate cites: every cited cell as printed against its unit, the cells the extraction missed added, a full-review flag",
+      "mode": "sample",
+      "unit": "row",
+      "table": "exhibits",
+      "where": {
+        "n_cited": {
+          "gt": 0
+        }
+      },
+      "per_paper": 1,
+      "seed": "check-v1",
+      "coders": 1,
+      "blocks": "release"
+    },
+    {
+      "id": "review_routed",
+      "kind": "review",
+      "label": "Routed papers",
+      "over": [
+        "extraction"
+      ],
+      "template": "genai-work-routed",
+      "help": "a paper whose record contradicts an inclusion criterion or whose headline estimate scores high on the checks: every flag resolved",
+      "mode": "all",
+      "unit": "paper",
+      "where": {
+        "paper_metadata.routed": true
+      },
+      "coders": 1,
+      "blocks": "release"
+    },
+    {
+      "id": "contract",
+      "kind": "check",
+      "label": "Contract check",
+      "check": "schema",
+      "over": [
+        "extraction"
+      ],
+      "on_fail": "note",
+      "severity": "error",
+      "help": "the declared fields, types and options of the record re-checked on the values as stored, after the coders' corrections; findings are notes on the records, never a verdict"
+    },
+    {
+      "id": "release",
+      "kind": "release",
+      "label": "Release",
+      "gate": [
+        "extraction",
+        "review_judgment",
+        "review_check",
+        "review_routed"
+      ]
+    }
+  ]
+}

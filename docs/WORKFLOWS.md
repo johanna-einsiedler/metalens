@@ -449,6 +449,9 @@ The chain's later steps: `genai_work.claims` and `genai_work.headline_plan` are 
 earlier ones (two and four to five calls per paper), `genai_work.assemble` reads all six passes
 into the document, and `genai_work.route` (a fields compute, `threshold` param) writes the
 paper's `flags`, `routed`, `route_reasons` and `triage_score` from the record it recomputes.
+The bundled `genai-work-chain` workflow strings them together: six passes, the assemble compute
+(dataset role `extraction`), the record and chain checks, the route compute, then the three review
+tasks and the release of `genai-work` v4.
 
 ### Compute steps
 

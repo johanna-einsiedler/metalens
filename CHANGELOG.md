@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step five: the workflow
+
+- `paperlens/workflows/genai-work-chain.json` (version 1, with its card): the chain as a bundled
+  workflow — the four extraction passes with their readings and matchers (exhibits ×2,
+  estimands ×2, estimates ×2, design ×3), the claims and headline-plan passes, the assemble
+  compute into the extraction document under `genai-work-extraction@cea73929` (dataset role
+  `extraction`), the record check, the chain check over the four passes, the route compute
+  (`threshold` 6) editing the paper's flags and decision, then the three review tasks of
+  `genai-work` v4 unchanged, the contract check and the release. `genai-work` v4 keeps its id
+  for the records the project extracted locally.
+
 ### The GenAI-at-work chain, step four: claims, the headline plan, routing, the passes check
 
 - `genai_work.claims` (pass, two calls): the abstract's sentences classified and matched to the
