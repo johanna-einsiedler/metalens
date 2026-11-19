@@ -8,6 +8,18 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The validation presets retired; the seeder seeds a project
+
+- The three validation presets of the GenAI-at-work review (`genai-work-judgment`,
+  `genai-work-extraction-check`, `genai-work-routed`) are no longer bundled: the three review
+  templates over the extraction record took their place in `genai-work` v4. A dataset imported
+  under one of them keeps its stored schema and renders as it did.
+- `scripts/seed_accounts.py` seeds a **project** (`/api/projects*`): found or made by title, a
+  dataset linked for every role it lacks, the people added by email, each task's people set where
+  the manifest's `tasks` says so (`{"review_judgment": {"coders": 1}}` — a count or emails), the
+  run started and each side's files uploaded as before; the summary names the review tasks and
+  what each waits for.
+
 ### Project releases
 
 - A project is released as one (`project_release`, `POST /api/projects/{id}/releases`): every
@@ -29,9 +41,8 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - `genai-work` v4 (`@e62c0d84`): one dataset — the pipeline's extraction record — and three review
   tasks over it with the bundled templates: the judgment by two coders, the extraction check of one
   exhibit per paper (a draw of rows), the routed papers only (a filter); the record checks on
-  arrival, the contract check after the coding, the release gated on all three. The three
-  validation presets stay bundled for the datasets imported under them; the seeder uploads the
-  extraction side alone (`papers: {extraction: …}`).
+  arrival, the contract check after the coding, the release gated on all three. The seeder
+  uploads the extraction side alone (`papers: {extraction: …}`).
 
 ### Projects, by their own name
 
