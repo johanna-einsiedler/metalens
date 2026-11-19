@@ -2320,37 +2320,7 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
                         or any(lk.get(k) not in kd for k in ("field", "value", "label"))
                         or any(k in lk and (kd.get(lk[k]) or {}).get("type") != "boolean" for k in ("when", "skip_when"))):
                     E(f"{at}.link[{j}] needs child (a child of the stage), field, value and label (fields of it) and, when given, when and skip_when (boolean fields of it)")
-        il = st.get("inline")                                          # groups of fields drawn on one line
-        if il is not None:
-            own = set(st.get("paper_fields") or []) | set(st.get("fields") or [])
-            if (not isinstance(il, list) or not il
-                    or any(not isinstance(g, list) or len(g) < 2 or any(not isinstance(n, str) or n not in own for n in g) for g in il)):
-                E(f"{at}.inline must list groups of two or more of the stage's paper or entry fields (drawn on one line)")
-        secs = st.get("sections")                                      # sub-panels: the stage's paper or entry fields in labelled blocks
-        if secs is not None:
-            own = set(st.get("paper_fields") or []) | set(st.get("fields") or [])
-            placed: set[str] = set()
-            if not isinstance(secs, list) or not secs:
-                E(f"{at}.sections must be a non-empty list of {{label, help?, fields}}")
-            for j, sc in enumerate(secs if isinstance(secs, list) else []):
-                sat = f"{at}.sections[{j}]"
-                if not isinstance(sc, dict):
-                    E(f"{sat} must be an object {{label, help?, fields}}"); continue
-                for k in sorted(set(sc) - _ALLOWED_KEYS["section"]):
-                    E(f"{sat}: unknown key {k!r}")
-                if not (isinstance(sc.get("label"), str) and sc["label"].strip()):
-                    E(f"{sat}.label is required")
-                if "help" in sc and not isinstance(sc["help"], str):
-                    E(f"{sat}.help must be a string")
-                names = sc.get("fields")
-                if not isinstance(names, list) or not names or any(not isinstance(n, str) for n in names):
-                    E(f"{sat}.fields must be a non-empty list of the stage's paper or entry fields"); continue
-                for n in names:
-                    if n not in own:
-                        E(f"{sat}.fields: {n!r} is not a paper or entry field of this stage")
-                    elif n in placed:
-                        E(f"{sat}.fields: {n!r} is already in another section")
-                    placed.add(n)
+        _validate_sections_inline(st, set(st.get("paper_fields") or []) | set(st.get("fields") or []), E, at)   # inline groups, sections
         mt = st.get("match")
         if mt is not None:
             tbl = pfields.get(mt.get("table")) if isinstance(mt, dict) else None
@@ -2380,6 +2350,41 @@ def _validate_stages_review(rv: dict, spec: dict, E, W) -> None:
     for n in declared:
         if n not in covered and n != rv.get("items"):
             W(f"$.display.review.stages: {n!r} is in no stage (reachable only from the Fields view)")
+
+
+def _validate_sections_inline(obj: dict, own: set, E, at: str) -> None:
+    """The ``inline`` and ``sections`` grammar a stage and a template's block share: ``inline``
+    lists groups of two or more of the stage's own fields drawn on one line; ``sections`` lists
+    ``{label, help?, fields}`` blocks, each field of the stage in at most one."""
+    il = obj.get("inline")                                             # groups of fields drawn on one line
+    if il is not None:
+        if (not isinstance(il, list) or not il
+                or any(not isinstance(g, list) or len(g) < 2 or any(not isinstance(n, str) or n not in own for n in g) for g in il)):
+            E(f"{at}.inline must list groups of two or more of the stage's paper or entry fields (drawn on one line)")
+    secs = obj.get("sections")                                         # sub-panels: the stage's fields in labelled blocks
+    if secs is not None:
+        placed: set[str] = set()
+        if not isinstance(secs, list) or not secs:
+            E(f"{at}.sections must be a non-empty list of {{label, help?, fields}}")
+        for j, sc in enumerate(secs if isinstance(secs, list) else []):
+            sat = f"{at}.sections[{j}]"
+            if not isinstance(sc, dict):
+                E(f"{sat} must be an object {{label, help?, fields}}"); continue
+            for k in sorted(set(sc) - _ALLOWED_KEYS["section"]):
+                E(f"{sat}: unknown key {k!r}")
+            if not (isinstance(sc.get("label"), str) and sc["label"].strip()):
+                E(f"{sat}.label is required")
+            if "help" in sc and not isinstance(sc["help"], str):
+                E(f"{sat}.help must be a string")
+            names = sc.get("fields")
+            if not isinstance(names, list) or not names or any(not isinstance(n, str) for n in names):
+                E(f"{sat}.fields must be a non-empty list of the stage's paper or entry fields"); continue
+            for n in names:
+                if n not in own:
+                    E(f"{sat}.fields: {n!r} is not a paper or entry field of this stage")
+                elif n in placed:
+                    E(f"{sat}.fields: {n!r} is already in another section")
+                placed.add(n)
 
 
 def _validate_criteria_review(rv: dict, spec: dict, E) -> None:

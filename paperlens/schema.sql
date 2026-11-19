@@ -869,3 +869,9 @@ CREATE TABLE IF NOT EXISTS workflow_assignment (             -- which coder revi
     UNIQUE (step_run_id, document_id, coder_user_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_assignment_coder_idx ON workflow_assignment(coder_user_id);
+-- a coder's ANSWERS to a review template's questions, in their coding: {"<template>": {"<unit key>": {question: value}}}
+-- (the entry's own answers under "", a child's row under "<child>#<_rid>"; on the document the paper's under "",
+-- a paper table's row under "<table>#<_rid>", a distinct value under "<path>.<field>=<value>", an added unit under "<unit>#+<id>")
+ALTER TABLE record_coding   ADD COLUMN IF NOT EXISTS answers jsonb;
+ALTER TABLE document_coding ADD COLUMN IF NOT EXISTS answers jsonb;
+ALTER TABLE coding_event    ADD COLUMN IF NOT EXISTS answers jsonb;   -- {template, unit, set, previous}: an answer is no verdict and no disagreement

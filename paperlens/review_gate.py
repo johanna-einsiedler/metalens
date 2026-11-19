@@ -187,6 +187,11 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
     if header["mode"] != "none" and rv.get("coders"):
         header["coders"] = int(rv["coders"])
         _assign(conn, step_run, header)
+    if rv.get("template"):                                            # the review template the coders work through
+        from . import templates
+        tpl = templates.get(rv["template"])
+        header["template"] = rv["template"]
+        header["template_id"] = templates.template_id(tpl) if tpl else None
     conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), step_run["id"]))
     return header
 
@@ -463,6 +468,8 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
            "documents": sorted({i["document_id"] for i in its if not i["checked"] and i.get("document_id")})}
     if mode == "sample":
         out.update({k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "exhaustive", "strata", "drawn")})
+    if header.get("template"):
+        out.update({"template": header["template"], "template_id": header.get("template_id")})
     if header.get("coders"):
         header = step_run.get("review") or header                  # ensure_assigned may have written it
         out.update({"coders": header.get("coders"), "n_coders": header.get("n_coders", 0), "assigned": bool(header.get("assigned")),
@@ -575,6 +582,7 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | N
            "draw": {k: header.get(k) for k in ("frame_n", "n_target", "seed", "stratify", "strata", "exhaustive", "drawn_at") if k in header},
            "items": its, "documents": sorted(docs.values(), key=lambda d: d["first_ord"]), "datasets": datasets or [run["dataset_id"]],
            "joint": len((step_run.get("outputs") or {}).get("over") or []) > 1,       # two sides of each paper in one worklist
+           "task": f"{run['id']}:{step_run['step_id']}", "template": header.get("template"),   # what ?task= on a document's view names
            "progress": {"drawn": len(its), "checked": checked, "pending": len(its) - checked,
                         "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "papers": len(papers), "papers_done": n_papers_done},
            "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}

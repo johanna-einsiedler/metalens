@@ -8,6 +8,29 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Review templates: what a review asks, answered into the coding
+
+- A **review template** (`paperlens/templates/<id>.json`, `paperlens/templates.py`) says how a
+  person checks records of one preset and what they answer: stages of blocks over units — the
+  paper, the entries, a child's rows, a paper table's rows, the distinct values of a column — each
+  with the fields shown (editable into the coding; read-only and digit-masked where the block says),
+  marks, a `where` filter, and QUESTIONS (typed, with options of their own or `options_from` a
+  field of the preset, required or `required_when`); `add` lets the coder add a unit the list
+  lacks; `blind` keeps the model's values for the named fields (and every unshown paper field)
+  out of the coder's payload. Three templates are bundled for the GenAI-at-work validation
+  (`genai-work-judgment`, `genai-work-check`, `genai-work-routed`), all `for` the extraction
+  record. A review step names one with `template` (part of the contract).
+- **Answers** live in the coder's coding (`record_coding.answers`, `document_coding.answers`,
+  keyed template → unit → question; each write a `coding_event` of status `noted`), never on the
+  record and never a disagreement. The queue names the task; `GET /api/documents/{id}/view?task=`
+  serves the document through the template (the coder's projection with their `answers`; the owner
+  whole with `answers_by_coder`); `POST /api/documents/{id}/answers` writes a coder's; a verdict
+  sent with `task` is refused while required answers are missing. The workspace draws a template
+  stage as its blocks (`static/template.js`): a card per unit, the questions under the shown
+  fields, the owed count in the bar, "done" held until the answers are in; the owner sees each
+  coder's answers under every unit with disagreements marked. Exports and releases carry the
+  answers with each coding. `GET /api/templates[/{id}]`, `POST /api/templates/validate`.
+
 ### Row ids on the paper block; the extraction record says more
 
 - A paper-level table's rows carry the same permanent id as a sub-entry's (`_rid`, assigned at
