@@ -18,6 +18,8 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Json
 
+from .checks_genai import CODES as GENAI_CODES, check_genai_record
+
 ON_FAIL = ("note", "flag", "fail")
 SEVERITIES = ("error", "warn", "info")
 SEV_RANK = {"info": 0, "warn": 1, "error": 2}
@@ -231,6 +233,10 @@ REGISTRY: dict[str, dict] = {
                                    "stars_vs_level": "warn", "stars_vs_p": "warn", "t_vs_coef_se": "warn", "n_obs_vs_sample": "warn",
                                    "n_obs_varies": "info", "row_index_gap": "warn"},
                          "fn": check_regression_cells},
+    "genai-work-record": {"label": "the GenAI-at-work record's structure, scale, statistics within the rounding, SD vs SE, duplicates, numbers in their quotes",
+                          "applies_to": {"presets": ["genai-work-extraction", "genai-work-extraction-evidence", "genai-work-extraction-labels",
+                                                     "genai-work-extraction-values"], "unit": "entries"},
+                          "inputs": 1, "params": {}, "codes": GENAI_CODES, "fn": check_genai_record},
     "claims-vs-tables": {"label": "point estimates against the transcribed table cells of the companion dataset",
                          "applies_to": {"presets": ["register-claims"], "unit": "results", "companion": ["register-tables", "econ-regression-tables"]},
                          "inputs": 1, "needs_companion": True, "params": {},
@@ -301,7 +307,24 @@ def load_input(conn: psycopg.Connection, dataset_id: str, schema_id: str | None,
                      "field_values": fv if isinstance(fv, dict) else {}, "paper": {"doi": doi, "title": title}})
         docs.setdefault(did, {"params": params if isinstance(params, dict) else {},
                               "paper_metadata": pmr if isinstance(pmr, dict) else {}})
-    return {"dataset_id": dataset_id, "schema_id": schema_id, "spec": spec, "records": recs, "documents": docs}
+    # the quotes behind the records' values, by record and record-relative path (the entries
+    # key prefix dropped, rows addressed where they sit now): what a check reads a number against
+    from . import contract
+    key = ((spec or {}).get("entries") or {}).get("key") or "records"
+    head = re.compile(rf"^{re.escape(key)}\[\d+\]\.")
+    fv_of = {r["id"]: r["field_values"] for r in recs}
+    evidence: dict[str, list[dict]] = {}
+    if recs:
+        for rid, fp, snippet, page, rect, crid, rrid in conn.execute(
+                """SELECT record_id::text, field_path, snippet, page, rect, child_rid, row_rid FROM evidence_span
+                   WHERE record_id = ANY(%s::uuid[]) ORDER BY page, ord""", (list(fv_of),)).fetchall():
+            try:
+                live = contract.live_path(fp, crid, rrid, fv_of.get(rid))
+            except Exception:  # noqa: BLE001 - a quote whose row is gone names nothing
+                live = fp
+            evidence.setdefault(rid, []).append({"field_path": head.sub("", live or "", count=1), "snippet": snippet, "page": page,
+                                                 "located": rect is not None})
+    return {"dataset_id": dataset_id, "schema_id": schema_id, "spec": spec, "records": recs, "documents": docs, "evidence": evidence}
 
 
 def companion_input(conn: psycopg.Connection, dataset_id: str) -> dict | None:

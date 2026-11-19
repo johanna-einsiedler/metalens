@@ -28,7 +28,8 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   and the prompt hash that actually ran.
 - **Kinds.** `extract` (a preset over the PDF; `source: live` runs it on the worker, `source:
   supplied` waits for the pipeline's uploads — the only choice for an import-mode preset),
-  `check` (a rule from the registry in `paperlens/checks.py`; writes findings, never data),
+  `check` (a rule from the registry in `paperlens/checks.py` — `schema`, `regression-cells`,
+  `claims-vs-tables`, `genai-work-record`; writes findings, never data),
   `vocabulary` / `pages` / `crosscheck` (the preset-level update steps, same keys), `release`
   (`gate` lists the steps that must be fresh and reviewed). `agent` steps are grammar-valid and
   refused at plan time until their release. Several extract steps are fine when each names its

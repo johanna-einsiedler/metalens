@@ -1,0 +1,2490 @@
+{
+  "format": 2,
+  "id": "genai-work-extraction",
+  "version": 19,
+  "meta": {
+    "title": "GenAI at work — data extraction (Work experiments)",
+    "tagline": "Study variables, tasks, arms and one result row per arm, measure, subgroup and horizon, every number with its quote and page.",
+    "description": "Human review of the data extraction for the systematic review of generative AI at work. The model's record is prefilled with a quote behind every value (or empty, for the blind validation sample); the coder checks each task, its arms and its result rows against the highlighted passages, corrects cells, adds or deletes rows, scores the four complexity dimensions blind, and verifies or flags each task. Category fields marked open accept the paper's own term when no category fits. Taxonomy schema b5ed1ca67c; codebook in labeling/codebook.md.",
+    "mode": "import",
+    "hidden": false,
+    "brands": [
+      "metalens"
+    ]
+  },
+  "prompt": {
+    "text": "",
+    "params": {}
+  },
+  "paper": {
+    "fields": [
+      {
+        "name": "screen_ai_treatment",
+        "type": "enum",
+        "label": "Screening 1: AI as the treatment",
+        "help": "whether a generative AI tool is used while the measured work is produced, compared with the same work done without it (not met when the AI is used only before the measurement as a tutor, feedback tool or practice aid, when both arms use AI, when AI is only the researchers' method, or when it is evaluated on its own with no humans using it)",
+        "options": [
+          {
+            "value": "true",
+            "label": "True",
+            "help": "the criterion is met"
+          },
+          {
+            "value": "false",
+            "label": "False",
+            "help": "clearly not met"
+          },
+          {
+            "value": "unclear",
+            "label": "Unclear",
+            "help": "the paper does not let you decide; say why in study_notes"
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "screen_work_outcome",
+        "type": "enum",
+        "label": "Screening 2: a work outcome",
+        "help": "whether an outcome is the output of a work task, or of a task built to emulate one, judged on time, quantity, quality or accuracy (not met: grades and test scores, puzzles that stand for no job, how people worked rather than what they produced, a recipient's health or experience, well-being, attitudes, trust or perceptions alone)",
+        "options": [
+          {
+            "value": "true",
+            "label": "True",
+            "help": "the criterion is met"
+          },
+          {
+            "value": "false",
+            "label": "False",
+            "help": "clearly not met"
+          },
+          {
+            "value": "unclear",
+            "label": "Unclear",
+            "help": "the paper does not let you decide; say why in study_notes"
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "screen_design",
+        "type": "enum",
+        "label": "Screening 4: an experimental or quasi-experimental design",
+        "help": "whether the paper compares work done with the AI against work done without it by design: an RCT, a lab or field experiment, a natural or quasi-experiment, a single group before and after (not met: surveys, qualitative or case studies, reviews, theory, descriptive studies, a protocol without results)",
+        "options": [
+          {
+            "value": "true",
+            "label": "True",
+            "help": "the criterion is met"
+          },
+          {
+            "value": "false",
+            "label": "False",
+            "help": "clearly not met"
+          },
+          {
+            "value": "unclear",
+            "label": "Unclear",
+            "help": "the paper does not let you decide; say why in study_notes"
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "scale",
+        "type": "enum",
+        "label": "Scale",
+        "help": "the level at which the study examines AI's effects, by the primary unit of analysis and the level at which outcomes and conclusions are analysed, not by sample size or setting: a large sample of individual workers is micro; meso only when organisational outcomes are directly examined; macro only when aggregate labour-market or economic outcomes are studied; with several levels, the primary level of the empirical analysis",
+        "options": [
+          {
+            "value": "micro",
+            "label": "Micro",
+            "help": "effects on individuals or small teams: worker productivity, behaviour, skills, task performance, also when the participants work within firms or across several organisations"
+          },
+          {
+            "value": "meso",
+            "label": "Meso",
+            "help": "effects on organisations, firms, workplaces or organisational structures: firm-level productivity, staffing, workflows, organisational performance"
+          },
+          {
+            "value": "macro",
+            "label": "Macro",
+            "help": "effects on labour markets, industries, regions or entire economies: aggregate employment, wages, occupational demand, economy-wide productivity"
+          }
+        ],
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "research_design",
+        "type": "enum",
+        "label": "Research design",
+        "help": "the study's overall empirical design, by how AI exposure is assigned and how the study is organised, for the paper's main with-versus-without-AI comparison; a paper whose tasks differ in design takes the main comparison's, the others noted in task_notes; the estimator goes in identification_strategy",
+        "options": [
+          {
+            "value": "lab_rct",
+            "label": "Lab RCT",
+            "help": "participants randomly assigned to AI conditions in a controlled, in-person setting"
+          },
+          {
+            "value": "online_rct",
+            "label": "Online RCT",
+            "help": "participants randomly assigned in an online experiment or web-based setting"
+          },
+          {
+            "value": "field_rct",
+            "label": "Field RCT",
+            "help": "participants randomly assigned in a real workplace or market"
+          },
+          {
+            "value": "natural_experiment",
+            "label": "Natural experiment",
+            "help": "AI exposure arises from an external event or plausibly exogenous variation outside the researchers' control: a launch, a rollout, a policy"
+          },
+          {
+            "value": "observational",
+            "label": "Observational",
+            "help": "naturally occurring AI use or exposure analysed without experimental assignment and without an exogenous event; identification_strategy says how the comparison is made"
+          },
+          {
+            "value": "descriptive",
+            "label": "Descriptive",
+            "help": "describes AI use or outcomes without a treatment or exposure comparison"
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "identification_strategy",
+        "type": "enum",
+        "label": "Identification strategy",
+        "help": "the primary method used to identify or estimate the causal effect of AI exposure in the main comparison: the actual estimation method, not a broad label such as natural experiment; a specific strategy over generic regression adjustment",
+        "options": [
+          {
+            "value": "random_assignment",
+            "label": "Random assignment",
+            "help": "causal effects identified through randomized treatment assignment"
+          },
+          {
+            "value": "difference_in_differences",
+            "label": "Difference in differences",
+            "help": "changes in outcomes between treated and comparison groups before and after AI exposure, staggered adoption designs included"
+          },
+          {
+            "value": "regression_discontinuity",
+            "label": "Regression discontinuity",
+            "help": "effects identified at a treatment-assignment threshold"
+          },
+          {
+            "value": "instrumental_variable",
+            "label": "Instrumental variable",
+            "help": "an instrument that shifts AI exposure but is assumed not to affect outcomes directly"
+          },
+          {
+            "value": "interrupted_time_series",
+            "label": "Interrupted time series",
+            "help": "changes in outcome levels or trends after the AI's introduction, from repeated observations over time"
+          },
+          {
+            "value": "matching",
+            "label": "Matching",
+            "help": "comparable treated and untreated groups constructed on observed characteristics"
+          },
+          {
+            "value": "regression_adjustment",
+            "label": "Regression adjustment",
+            "help": "statistical controls for observed confounders without a more specific identification strategy"
+          },
+          {
+            "value": "pre_post",
+            "label": "Pre/post",
+            "help": "outcomes before and after AI adoption without an untreated comparison group"
+          },
+          {
+            "value": "none",
+            "label": "None",
+            "help": "no causal identification strategy is implemented"
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "experimental_design",
+        "type": "enum",
+        "label": "Experimental design",
+        "help": "whether the same people did the work with and without AI or different people did",
+        "options": [
+          {
+            "value": "within_person",
+            "label": "Within person",
+            "help": "the same people do the task with and without the AI"
+          },
+          {
+            "value": "across_person",
+            "label": "Across person",
+            "help": "different people in the arms"
+          },
+          {
+            "value": "not_applicable",
+            "label": "Not applicable",
+            "help": "no with-versus-without contrast at the person level"
+          }
+        ],
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "unit_of_analysis",
+        "type": "enum",
+        "label": "Unit of analysis",
+        "help": "the unit the main estimates are computed on",
+        "options": [
+          {
+            "value": "individual",
+            "label": "Individual"
+          },
+          {
+            "value": "team",
+            "label": "Team"
+          },
+          {
+            "value": "firm",
+            "label": "Firm"
+          },
+          {
+            "value": "occupation",
+            "label": "Occupation"
+          },
+          {
+            "value": "region_or_country",
+            "label": "region or country"
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "data_source",
+        "type": "multi",
+        "label": "Data source",
+        "help": "the data actually analysed, all that apply; not how participants were recruited or how data were collected: MTurk, Prolific and similar platforms used only for recruitment are neither online_freelancing_data nor online_platform_data",
+        "options": [
+          {
+            "value": "experimental_data",
+            "label": "experimental data",
+            "help": "data generated through a researcher-designed experiment or intervention"
+          },
+          {
+            "value": "job_postings",
+            "label": "job postings",
+            "help": "job advertisements or vacancy data"
+          },
+          {
+            "value": "worker_household_survey",
+            "label": "worker - household survey",
+            "help": "survey data from workers, individuals or households, online surveys outside experiments included"
+          },
+          {
+            "value": "firm_survey",
+            "label": "firm survey",
+            "help": "survey data from firms or employers"
+          },
+          {
+            "value": "public_admin_data",
+            "label": "public admin data",
+            "help": "government or public administrative records, e.g. Statistics Denmark"
+          },
+          {
+            "value": "private_admin_data",
+            "label": "private admin data",
+            "help": "internal firm or private administrative records, e.g. ADP payroll, HR or hiring records"
+          },
+          {
+            "value": "ai_usage_data",
+            "label": "AI usage data",
+            "help": "observed AI usage or interaction data, e.g. the Anthropic Economic Index, Google ATLAS"
+          },
+          {
+            "value": "online_cvs",
+            "label": "online CVs",
+            "help": "online professional profiles or employment histories, e.g. Revelio, LinkedIn"
+          },
+          {
+            "value": "online_platform_data",
+            "label": "online platform data",
+            "help": "observed activity or records from digital platforms, e.g. GitHub"
+          },
+          {
+            "value": "online_freelancing_data",
+            "label": "online freelancing data",
+            "help": "online freelance labour markets: freelancers, contracts, earnings or platform activity, e.g. Upwork, Fiverr"
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "period_start_year",
+        "type": "integer",
+        "label": "Data period start, year",
+        "help": "the year the data begin, as the paper states it",
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "period_start_month",
+        "type": "integer",
+        "label": "Data period start, month",
+        "help": "the month (1-12) the data begin, when the paper gives it; null otherwise",
+        "evidence": "none"
+      },
+      {
+        "name": "period_end_year",
+        "type": "integer",
+        "label": "Data period end, year",
+        "help": "the year the data end, as the paper states it",
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "period_end_month",
+        "type": "integer",
+        "label": "Data period end, month",
+        "help": "the month (1-12) the data end, when the paper gives it; null otherwise",
+        "evidence": "none"
+      },
+      {
+        "name": "sample_size",
+        "type": "integer",
+        "label": "Sample size",
+        "help": "the analysed number of human participants in the comparison that establishes the AI effect (the with-versus-without-AI design research_design describes), across its tasks; not a survey, descriptive dataset or pilot in the same paper; with several qualifying studies, the largest; people, never observations, tasks or firms (give those in study_notes); -1 if not stated",
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "preregistered",
+        "type": "enum",
+        "label": "Preregistered",
+        "help": "whether the study was preregistered (a registry, an analysis plan) as the paper states it",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          },
+          {
+            "value": "not_stated",
+            "label": "not stated",
+            "help": "the paper does not say"
+          }
+        ],
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "incentivized",
+        "type": "enum",
+        "label": "Performance incentives",
+        "help": "whether participants' pay, grade or advancement depended on their performance in the task (performance pay, a bonus, a graded assignment), not merely on taking part; if unclear, default to not_stated",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          },
+          {
+            "value": "not_stated",
+            "label": "not stated",
+            "help": "the paper does not say"
+          }
+        ],
+        "evidence": "value",
+        "confidence": "design"
+      },
+      {
+        "name": "vendor_affiliated",
+        "type": "enum",
+        "label": "Vendor affiliated",
+        "help": "whether an author is affiliated with, or the study was funded or run by, the provider of the AI tool studied (the firm that makes or sells it); read from the title page and the funding note by the coder, which the model does not see",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          },
+          {
+            "value": "not_stated",
+            "label": "not stated",
+            "help": "the paper does not say"
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "focus_topic",
+        "type": "enum",
+        "label": "Focus topic",
+        "help": "the one topic the paper's stated research question speaks to first; the quote is where the paper states its question",
+        "options": [
+          {
+            "value": "inequality",
+            "label": "Inequality",
+            "help": "Findings are about inequality effects of AI."
+          },
+          {
+            "value": "productivity",
+            "label": "Productivity",
+            "help": "Findings are about productivity effects of AI."
+          },
+          {
+            "value": "substitute_complement",
+            "label": "Substitute complement",
+            "help": "Findings relate to the substitutions of humans by AI and/or to AI and humans complementing each other."
+          },
+          {
+            "value": "entry_level",
+            "label": "Entry level",
+            "help": "Findings speak to the debate on AI affecting entry-level jobs."
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value"
+      },
+      {
+        "name": "focus_topic_secondary",
+        "type": "multi",
+        "label": "Focus topic (secondary)",
+        "help": "other topics the findings also speak to, each with its own quote; empty when there is none; never other beside a category that fits",
+        "options": [
+          {
+            "value": "inequality",
+            "label": "Inequality",
+            "help": "Findings are about inequality effects of AI."
+          },
+          {
+            "value": "productivity",
+            "label": "Productivity",
+            "help": "Findings are about productivity effects of AI."
+          },
+          {
+            "value": "substitute_complement",
+            "label": "Substitute complement",
+            "help": "Findings relate to the substitutions of humans by AI and/or to AI and humans complementing each other."
+          },
+          {
+            "value": "entry_level",
+            "label": "Entry level",
+            "help": "Findings speak to the debate on AI affecting entry-level jobs."
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value"
+      },
+      {
+        "name": "focus_dimension",
+        "type": "multi",
+        "label": "Focus dimension",
+        "help": "whether the study focuses on workers (supply) or on employers' demand for labour (demand); both only when both are explicitly studied. Default to supply for worker-focused studies, including most AI productivity and collaboration experiments; never infer demand from productivity gains, economic outcomes or possible employment implications; demand only when employer labour demand is directly examined. Quote the paper's own statement of its question or findings, never a cited work",
+        "options": [
+          {
+            "value": "demand",
+            "label": "Demand",
+            "help": "only studies explicitly examining employers' labour requirements: job postings, vacancies, recruitment, hiring patterns, skill demand, workforce expansion or reduction"
+          },
+          {
+            "value": "supply",
+            "label": "Supply",
+            "help": "any study about workers: their tasks, skills, behaviour, AI use, productivity, performance, wages or employment outcomes, including experiments with individuals, professionals or teams doing work tasks"
+          }
+        ],
+        "evidence": "value"
+      },
+      {
+        "name": "peer_reviewed",
+        "type": "enum",
+        "label": "Peer reviewed",
+        "help": "filled in code from the record's venue and the predatory-journal list, not by the model",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes"
+          },
+          {
+            "value": "no",
+            "label": "No"
+          },
+          {
+            "value": "predatory_journal",
+            "label": "predatory journal"
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "summary",
+        "type": "text",
+        "label": "Summary",
+        "help": "four to eight sentences stating the paper's main findings with their numbers, in plain language; written by the summary call, nothing that is not in the paper",
+        "evidence": "none"
+      },
+      {
+        "name": "model_estimands",
+        "type": "table",
+        "label": "Model estimands",
+        "help": "what the model found the paper estimates: one row per task, arm against reference arm, outcome, subgroup and horizon, with the coder's match verdict",
+        "columns": [
+          {
+            "name": "estimand_id",
+            "type": "string",
+            "label": "Id"
+          },
+          {
+            "name": "task",
+            "type": "string",
+            "label": "Task"
+          },
+          {
+            "name": "arm",
+            "type": "string",
+            "label": "Arm"
+          },
+          {
+            "name": "vs_arm",
+            "type": "string",
+            "label": "vs"
+          },
+          {
+            "name": "outcome",
+            "type": "string",
+            "label": "Outcome (the model's name)"
+          },
+          {
+            "name": "subgroup",
+            "type": "string",
+            "label": "Subgroup"
+          },
+          {
+            "name": "horizon",
+            "type": "string",
+            "label": "Horizon"
+          },
+          {
+            "name": "exhibits",
+            "type": "string",
+            "label": "Exhibits"
+          },
+          {
+            "name": "match",
+            "type": "enum",
+            "label": "Match",
+            "help": "your verdict on the model's estimand",
+            "options": [
+              {
+                "value": "matched",
+                "label": "Matched",
+                "help": "one of your outcomes: give its id in coder_outcome"
+              },
+              {
+                "value": "model_only_keep",
+                "label": "model only, keep",
+                "help": "an outcome you missed and the paper reports: add it to your outcomes"
+              },
+              {
+                "value": "model_only_drop",
+                "label": "model only, drop",
+                "help": "the paper does not estimate this"
+              },
+              {
+                "value": "unsure",
+                "label": "Unsure",
+                "help": "say why in the note"
+              }
+            ]
+          },
+          {
+            "name": "coder_task",
+            "type": "string",
+            "label": "Your task",
+            "help": "the id of your task (T1 …) this estimand belongs to"
+          },
+          {
+            "name": "coder_arm",
+            "type": "string",
+            "label": "Your arm",
+            "help": "the id of your arm (T1 …) that is compared with the reference"
+          },
+          {
+            "name": "coder_outcome",
+            "type": "string",
+            "label": "Your outcome",
+            "help": "the id of your outcome (O1 …) this estimand belongs to"
+          },
+          {
+            "name": "note",
+            "type": "string",
+            "label": "Note"
+          }
+        ],
+        "evidence": "row"
+      },
+      {
+        "name": "model_estimates",
+        "type": "table",
+        "label": "Model estimates",
+        "help": "the model's estimates, one per estimand and specification with the cell they were read from; ＋ row accepts one as a result row",
+        "columns": [
+          {
+            "name": "task",
+            "type": "string",
+            "label": "Task"
+          },
+          {
+            "name": "estimate_id",
+            "type": "string",
+            "label": "Id"
+          },
+          {
+            "name": "estimand_id",
+            "type": "string",
+            "label": "Estimand"
+          },
+          {
+            "name": "role",
+            "type": "enum",
+            "label": "Role",
+            "options": [
+              {
+                "value": "main",
+                "label": "Main",
+                "help": "the estimate the authors lead with for this estimand"
+              },
+              {
+                "value": "supporting",
+                "label": "Supporting",
+                "help": "another specification presented alongside"
+              },
+              {
+                "value": "robustness",
+                "label": "Robustness",
+                "help": "a check: appendix, alternative estimator, restriction"
+              },
+              {
+                "value": "reference",
+                "label": "reference arm",
+                "help": "the reference arm's printed statistics for this estimand"
+              },
+              {
+                "value": "orphan",
+                "label": "Orphan",
+                "help": "a number in an exhibit the model could not place"
+              }
+            ]
+          },
+          {
+            "name": "arm",
+            "type": "string",
+            "label": "Arm"
+          },
+          {
+            "name": "vs_arm",
+            "type": "string",
+            "label": "vs"
+          },
+          {
+            "name": "measure",
+            "type": "string",
+            "label": "Measure"
+          },
+          {
+            "name": "measure_unit",
+            "type": "string",
+            "label": "Unit"
+          },
+          {
+            "name": "subgroup",
+            "type": "string",
+            "label": "Subgroup"
+          },
+          {
+            "name": "horizon",
+            "type": "string",
+            "label": "Horizon"
+          },
+          {
+            "name": "n",
+            "type": "integer",
+            "label": "n"
+          },
+          {
+            "name": "n_obs",
+            "type": "integer",
+            "label": "n obs"
+          },
+          {
+            "name": "mean",
+            "type": "number",
+            "label": "Mean"
+          },
+          {
+            "name": "sd",
+            "type": "number",
+            "label": "SD"
+          },
+          {
+            "name": "effect_reported",
+            "type": "string",
+            "label": "Effect (as printed)"
+          },
+          {
+            "name": "effect_value",
+            "type": "number",
+            "label": "Effect"
+          },
+          {
+            "name": "effect_type",
+            "type": "string",
+            "label": "Effect type"
+          },
+          {
+            "name": "effect_units",
+            "type": "string",
+            "label": "Units"
+          },
+          {
+            "name": "se",
+            "type": "number",
+            "label": "SE"
+          },
+          {
+            "name": "ci_low",
+            "type": "number",
+            "label": "CI low"
+          },
+          {
+            "name": "ci_high",
+            "type": "number",
+            "label": "CI high"
+          },
+          {
+            "name": "p_value",
+            "type": "number",
+            "label": "p"
+          },
+          {
+            "name": "p_reported",
+            "type": "string",
+            "label": "p printed"
+          },
+          {
+            "name": "cluster_level",
+            "type": "string",
+            "label": "Clustered on"
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "label": "Source",
+            "help": "the exhibit, panel, column and row the numbers were read from"
+          },
+          {
+            "name": "flags",
+            "type": "string",
+            "label": "Checks",
+            "help": "what the deterministic checks found on this estimate before import (a number not in its cell or quote, a standard error that differs from the table, a duplicate cell, instability across runs); blank when none"
+          },
+          {
+            "name": "is_main",
+            "type": "boolean",
+            "label": "Main"
+          },
+          {
+            "name": "verdict",
+            "type": "enum",
+            "label": "Verdict",
+            "help": "your verdict after checking the cell in the PDF",
+            "options": [
+              {
+                "value": "accepted",
+                "label": "Accepted",
+                "help": "checked against the PDF and taken as a result row (＋ row)"
+              },
+              {
+                "value": "wrong",
+                "label": "Wrong",
+                "help": "a number or its mapping is wrong: say what in the note"
+              },
+              {
+                "value": "duplicate",
+                "label": "Duplicate",
+                "help": "the same estimate as another row"
+              },
+              {
+                "value": "not_an_estimate",
+                "label": "not an estimate",
+                "help": "not an estimate of a with-versus-without-AI contrast"
+              },
+              {
+                "value": "unsure",
+                "label": "Unsure",
+                "help": "say why in the note"
+              }
+            ]
+          },
+          {
+            "name": "note",
+            "type": "string",
+            "label": "Note"
+          }
+        ],
+        "evidence": "row"
+      },
+      {
+        "name": "evidence_statements",
+        "type": "table",
+        "label": "Evidence statements",
+        "help": "one row per finding of the summary: the finding in one sentence with the number as printed, backed by the quoted passage; result_ref names the result row it rests on as task_id/arm_id/measure, or is null for a finding with no row",
+        "columns": [
+          {
+            "name": "statement",
+            "type": "string",
+            "label": "Statement",
+            "required": true
+          },
+          {
+            "name": "result_ref",
+            "type": "string",
+            "label": "Result row"
+          }
+        ],
+        "evidence": "row"
+      },
+      {
+        "name": "study_notes",
+        "type": "text",
+        "label": "Study notes",
+        "help": "anything a coder must know about the paper as a whole: several studies, exclusions, discrepancies between text and tables",
+        "evidence": "none"
+      },
+      {
+        "name": "evidence_items",
+        "type": "table",
+        "label": "Evidence items",
+        "help": "the numbered passages and tables the reader took from the methods and results, one row each in the order they appear; bears_on names the fields the reader thought the item supports",
+        "columns": [
+          {
+            "name": "n",
+            "type": "integer",
+            "label": "No.",
+            "required": true
+          },
+          {
+            "name": "page",
+            "type": "integer",
+            "label": "Page"
+          },
+          {
+            "name": "kind",
+            "type": "enum",
+            "label": "Kind",
+            "required": true,
+            "options": [
+              "passage",
+              "table"
+            ]
+          },
+          {
+            "name": "text",
+            "type": "text",
+            "label": "Text",
+            "help": "the passage verbatim; for a table its caption and rows as markdown",
+            "verbatim": true
+          },
+          {
+            "name": "note",
+            "type": "string",
+            "label": "Note"
+          },
+          {
+            "name": "bears_on",
+            "type": "list",
+            "label": "Bears on"
+          }
+        ],
+        "evidence": "none"
+      }
+    ]
+  },
+  "entries": {
+    "key": "tasks",
+    "label": "Task",
+    "help": "one per distinct task the participants performed, with its arms (the reference arm included) and its result rows",
+    "cardinality": "many",
+    "id_field": "task_id",
+    "title": "{task_id} · {task_name}",
+    "evidence": "row",
+    "fields": [
+      {
+        "name": "task_id",
+        "type": "string",
+        "label": "Task id",
+        "help": "T1, T2, ... in the order the paper presents the tasks; S2.T1 when the paper's studies are numbered and repeat tasks",
+        "evidence": "row"
+      },
+      {
+        "name": "task_name",
+        "type": "string",
+        "label": "Task name",
+        "help": "a short unique name for the task made from the paper's description: 'classification of chest X-rays', 'mid-level professional writing', 'customer support chats'",
+        "evidence": "row",
+        "confidence": "task"
+      },
+      {
+        "name": "task_label",
+        "type": "enum",
+        "label": "Task label",
+        "help": "the category the core activity of the task falls in. The label follows the purpose of the output, not its medium ('analyse a complaint and draft a written analysis' is problem_solving_reasoning, writing being only the medium; 'write a blog post' is writing), and the specific category wins over the generic one (persuasion_negotiation, advising_recommending, summarizing_synthesis, forecasting, customer_interaction before writing, data_analysis or problem_solving_reasoning); writing only when the text itself is the product",
+        "options": [
+          {
+            "value": "writing",
+            "label": "Writing",
+            "help": "Producing new prose text from scratch. E.g., drafting a cover letter, press release or essay."
+          },
+          {
+            "value": "editing_feedback",
+            "label": "Editing & Feedback",
+            "help": "Improving existing text or work, or giving written feedback on it. E.g., revising a draft for clarity, giving peer feedback on an essay."
+          },
+          {
+            "value": "summarizing_synthesis",
+            "label": "Summarizing & synthesis",
+            "help": "Condensing or integrating given source material into a shorter account that stays faithful to the sources. E.g., summarizing a report, synthesizing findings from several papers."
+          },
+          {
+            "value": "translation",
+            "label": "Translation",
+            "help": "Translating from one language into another while preserving the meaning."
+          },
+          {
+            "value": "programming",
+            "label": "Programming",
+            "help": "Writing, modifying, debugging or testing code."
+          },
+          {
+            "value": "data_analysis",
+            "label": "Data analysis",
+            "help": "Processing and analyzing quantitative data to produce results, models or insights. E.g., running a regression, building a spreadsheet model."
+          },
+          {
+            "value": "information_search",
+            "label": "Information search",
+            "help": "Finding information from external sources to answer questions. E.g.,searching the web."
+          },
+          {
+            "value": "problem_solving_reasoning",
+            "label": "Problem solving & reasoning",
+            "help": "Solving problems through reasoning. E.g., math problems, logic puzzles, exam questions."
+          },
+          {
+            "value": "classification_detection",
+            "label": "Classification & detection",
+            "help": "Assigning items to predefined categories. E.g., labelling X-rays as normal/abnormal, flagging fake news."
+          },
+          {
+            "value": "evaluation_selection",
+            "label": "Evaluation & selection",
+            "help": "Judging the quality of items or choosing among options, where no predefined category scheme exists. E.g., screening CVs, grading essays, picking an investment."
+          },
+          {
+            "value": "forecasting",
+            "label": "Forecasting",
+            "help": "Predicting future outcomes or unknown quantities. E.g., predicting recidivism, forecasting sales."
+          },
+          {
+            "value": "ideation",
+            "label": "Ideation",
+            "help": "Generating new ideas or concepts. E.g., brainstorming product or business ideas."
+          },
+          {
+            "value": "visual_design",
+            "label": "Visual design",
+            "help": "Creating visual artifacts. E.g., illustrations, UI mockups, slides."
+          },
+          {
+            "value": "advising_recommending",
+            "label": "Advising & recommending",
+            "help": "Producing a recommendation tailored to a specific person's or organization's situation. E.g., a treatment plan, legal advice, a consulting recommendation."
+          },
+          {
+            "value": "customer_interaction",
+            "label": "Customer interaction",
+            "help": "Real-time, conversational service with clients or customers. E.g., support chats."
+          },
+          {
+            "value": "planning_scheduling",
+            "label": "Planning & scheduling",
+            "help": "Producing a plan, schedule or allocation of resources over time. E.g., a project plan, event itinerary, shift schedule."
+          },
+          {
+            "value": "persuasion_negotiation",
+            "label": "Persuasion & negotiation",
+            "help": "Producing messages or bargaining behavior aimed at changing another party's beliefs, decisions or terms. E.g., writing a convincing message, negotiating a deal."
+          },
+          {
+            "value": "physical_manual_tasks",
+            "label": "Physical & manual tasks",
+            "help": "catch all for tasks where the core activity is bodily work or handling physical objects, materials or equipment. E.g., assembling components, operating machinery, providing hands-on patient care."
+          }
+        ],
+        "allow_other": true,
+        "evidence": "value",
+        "confidence": "task"
+      },
+      {
+        "name": "soc_major_group",
+        "type": "enum",
+        "label": "SOC major group",
+        "help": "the occupation the task belongs to (the work, not the participants): a legal memo is Legal (23) whoever writes it; not_applicable when none fits",
+        "options": [
+          {
+            "value": "11",
+            "label": "Management (11)"
+          },
+          {
+            "value": "13",
+            "label": "Business and Financial Operations (13)"
+          },
+          {
+            "value": "15",
+            "label": "Computer and Mathematical (15)"
+          },
+          {
+            "value": "17",
+            "label": "Architecture and Engineering (17)"
+          },
+          {
+            "value": "19",
+            "label": "Life, Physical, and Social Science (19)"
+          },
+          {
+            "value": "21",
+            "label": "Community and Social Services (21)"
+          },
+          {
+            "value": "23",
+            "label": "Legal (23)"
+          },
+          {
+            "value": "25",
+            "label": "Education, Training, and Library (25)"
+          },
+          {
+            "value": "27",
+            "label": "Arts, Design, Entertainment, Sports, and Media (27)"
+          },
+          {
+            "value": "29",
+            "label": "Healthcare Practitioners and Technical (29)"
+          },
+          {
+            "value": "31",
+            "label": "Healthcare Support (31)"
+          },
+          {
+            "value": "33",
+            "label": "Protective Service (33)"
+          },
+          {
+            "value": "35",
+            "label": "Food Preparation and Serving Related (35)"
+          },
+          {
+            "value": "37",
+            "label": "Building and Grounds Cleaning and Maintenance (37)"
+          },
+          {
+            "value": "39",
+            "label": "Personal Care and Service (39)"
+          },
+          {
+            "value": "41",
+            "label": "Sales and Related (41)"
+          },
+          {
+            "value": "43",
+            "label": "Office and Administrative Support (43)"
+          },
+          {
+            "value": "45",
+            "label": "Farming, Fishing, and Forestry (45)"
+          },
+          {
+            "value": "47",
+            "label": "Construction and Extraction (47)"
+          },
+          {
+            "value": "49",
+            "label": "Installation, Maintenance, and Repair (49)"
+          },
+          {
+            "value": "51",
+            "label": "Production (51)"
+          },
+          {
+            "value": "53",
+            "label": "Transportation and Material Moving (53)"
+          },
+          {
+            "value": "55",
+            "label": "Military Specific (55)"
+          },
+          {
+            "value": "not_applicable",
+            "label": "Not applicable",
+            "help": "Anything not fitting above."
+          }
+        ],
+        "evidence": "value",
+        "confidence": "task"
+      },
+      {
+        "name": "task_structure",
+        "type": "enum",
+        "label": "Task structure",
+        "help": "closed when there is a verifiable right answer, open_ended when the output is quality-rated",
+        "options": [
+          {
+            "value": "closed",
+            "label": "Closed",
+            "help": "scored by accuracy against a unambiguous solution"
+          },
+          {
+            "value": "open_ended",
+            "label": "open-ended",
+            "help": "quality-rated"
+          }
+        ],
+        "evidence": "value",
+        "confidence": "task"
+      },
+      {
+        "name": "task_embodiment",
+        "type": "enum",
+        "label": "Embodiment",
+        "help": "whether the task needs physical presence: remote unless the task requires face-to-face interaction (co_present) or bodily work (physical)",
+        "options": [
+          {
+            "value": "remote",
+            "label": "remote - disembodied",
+            "help": "task can be done with no need for physical presence, e.g. remotely via a computer (or phone)"
+          },
+          {
+            "value": "co_present",
+            "label": "Co-present",
+            "help": "The task requires physical presence, mainly because it involves face-to-face interaction with people, but not manual work. E.g., teaching a class, conducting a patient consultation, in-store sales."
+          },
+          {
+            "value": "physical",
+            "label": "Physical",
+            "help": "The task requires bodily work or the handling of physical objects, materials or equipment."
+          }
+        ],
+        "evidence": "value",
+        "confidence": "task"
+      },
+      {
+        "name": "task_notes",
+        "type": "text",
+        "label": "Task notes",
+        "help": "what a coder must know about the task: what participants did when the name does not say it, how arms map to the paper's conditions, a design that differs from the study's design_type, in a reversed design the worker the AI replaces, discrepancies",
+        "evidence": "none"
+      },
+      {
+        "name": "k_score",
+        "type": "enum",
+        "label": "Knowledge & education: complex?",
+        "help": "Knowledge and Education: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. If scaffolding substantially lowered the bar (worked examples, cheat-sheets, procedure-recall tools), score based on what participants actually had to bring after the scaffolding. Programming note: it is the depth of programming knowledge that matters, not the language name. Intro courses teach Python, Java, or C — but professional uses often require more than basics to use these languages effectively. Do not score a language as first-year simply because it appears in introductory curricula.",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes",
+            "help": "the task requires second-year undergraduate knowledge or above. That is at least some degree of specialization within knowledge domain."
+          },
+          {
+            "value": "no",
+            "label": "No",
+            "help": "high-school or first-year undergraduate knowledge suffices, including basic undergraduate concepts."
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "g_score",
+        "type": "enum",
+        "label": "Goal & path: complex?",
+        "help": "Goal Definition and Path Specification: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Subjective or holistic grading is evidence of openness but not sufficient on its own — a concrete problem with an easy-to-infer route, rated holistically (e.g. \"resolve this customer's issue,\" scored by CSAT), is still No. A clean outcome metric does not make a task closed if the route to it is hard to infer.",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes",
+            "help": "the path to completion is hard to infer: it is not obvious how to proceed from the stated objective, OR there are many valid approaches / no single right answer, so it is easy to get lost or commit to a wrong route. Importantly, in getting lost there should be a mistake that makes the task fail. This includes tasks whose end-state and metric are perfectly clear but whose route is undiscovered and tasks where it is hard to identify what the objective even is. For example \"improve firm profit,\" \"get rich,\" \"win the game\", are all tasks whose route is hard to discover and the wrong path would cause a failure (e.g. company default or losing the game)."
+          },
+          {
+            "value": "no",
+            "label": "No",
+            "help": "how to proceed is easy to infer, even if the instruction does not spell it out: a determinate done-state with an obvious or readily-found route and little risk of getting lost (a defined deliverable against a key or rubric, a specific problem with a specified target)."
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "i_score",
+        "type": "enum",
+        "label": "Interdependence: complex?",
+        "help": "Task Interdependence: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Three rules: - Trivial decomposition is not interdependence. \"You must do A before B\" holds almost everywhere and is not the target. Score Yes only when the parts are of different nature and an early error is genuinely hard to spot and costly to undo. - Easy, timely correction defeats coupling. Fast, reliable feedback (a counterpart who corrects you, a rerunnable test, visible intermediate results) → No. Slow, noisy, or confounded feedback (a market signal weeks later) does not count. - Programming tasks: distinguish compile-time from deployment feedback. Compilers/tests catch syntax and unit-level errors quickly, but multi-day/multi-week projects surface the relevant feedback at integration or deployment — slow and noisy. A 1-hour task with a rerunnable test suite → No; an ongoing project where errors surface at launch or in downstream systems → Yes. - Do not score from the grading structure. A conjunctive grade (\"pass all 12\") or a single holistic score is a measurement property, not task structure; ignore it.",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes",
+            "help": "the task combines genuinely *different* kinds of subtask, AND an error in an early or upstream component is *hard to catch as the work proceeds* and *likely to propagate or be costly to fix* — often forcing a partial restart rather than a local patch. The heart of the dimension is that mistakes are hard to detect mid-task and expensive to unwind, not that recovery is strictly impossible."
+          },
+          {
+            "value": "no",
+            "label": "No",
+            "help": "the work is either (a) a stream of independent or repeated homogeneous units (one chat after another, paragraph after paragraph), where an error stays local; or (b) coupled but where errors are *easy to catch and cheap to fix as you go* — a counterpart redirects you, you rerun a test, you see intermediate output and revise before completion."
+          }
+        ],
+        "evidence": "none"
+      },
+      {
+        "name": "r_score",
+        "type": "enum",
+        "label": "Resources & context: complex?",
+        "help": "Resources and Context: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Do not count the AI tool being studied as a resource — it is the treatment.",
+        "options": [
+          {
+            "value": "yes",
+            "label": "Yes",
+            "help": "the task requires substantial resources beyond what is handed to the participant: extensive materials to search or synthesise across a large context (e.g. a corpus of documents, multiple studies to browse, a large codebase, browsing the internet for at least an hour), specialist data sources or tools, or substantial context-specific knowledge — whether firm-specific (e.g. tacit knowledge), study-specific, procedural, or otherwise — that the participant must bring or that would need to be supplied to a model."
+          },
+          {
+            "value": "no",
+            "label": "No",
+            "help": "the task is self-contained: a few materials sitting directly in front of the participant suffice, and it draws only on general knowledge or basic everyday tacit knowledge."
+          }
+        ],
+        "evidence": "none"
+      }
+    ],
+    "children": [
+      {
+        "key": "arms",
+        "label": "Arm",
+        "help": "one per condition of the task, the reference arm first",
+        "title": "{arm_id} · {arm_label}",
+        "evidence": "row",
+        "fields": [
+          {
+            "name": "arm_id",
+            "type": "string",
+            "label": "Arm id",
+            "help": "C for the reference arm, T1, T2, ... for the treatment arms of this task, in the paper's order",
+            "evidence": "row"
+          },
+          {
+            "name": "arm_label",
+            "type": "string",
+            "label": "Arm label",
+            "help": "the paper's own name for the condition ('Control', 'ChatGPT access', 'GPT-4 + overview')",
+            "evidence": "row"
+          },
+          {
+            "name": "is_baseline",
+            "type": "boolean",
+            "label": "Reference arm",
+            "help": "true for the one arm of the task the others are compared with: usually the people doing the work without the AI, or before getting it; control_type says what the comparison is",
+            "evidence": "row"
+          },
+          {
+            "name": "compared_with",
+            "type": "string",
+            "label": "Compared with",
+            "help": "the arm_id of the reference arm this arm is compared with; empty when the task has one reference arm (then every other arm is compared with it)",
+            "evidence": "none"
+          },
+          {
+            "name": "control_type",
+            "type": "enum",
+            "label": "Control type",
+            "help": "what the reference arm is, on the reference arm only (null on the treatment arms)",
+            "options": [
+              {
+                "value": "no_ai_concurrent",
+                "label": "no AI, concurrent group",
+                "help": "a concurrent group or condition doing the task without the AI, drawn from the same pool (randomized or assigned; design_type says which)"
+              },
+              {
+                "value": "no_ai_prior",
+                "label": "no AI, the same units before",
+                "help": "the same people or units before access: a pre-period, an own baseline, the not-yet-treated state of a rollout"
+              },
+              {
+                "value": "no_ai_after",
+                "label": "no AI, the same units after",
+                "help": "the same people or units after the AI was taken away (a ban, an outage, the end of access): the time or group with the AI is the treatment arm, the one without it the reference arm, whatever the paper calls the treatment"
+              },
+              {
+                "value": "placebo_tool",
+                "label": "another, non-AI tool",
+                "help": "the comparison condition got a non-AI aid instead: a search engine, documentation, templates, a checklist, non-generative software"
+              },
+              {
+                "value": "other_ai",
+                "label": "another AI",
+                "help": "a different AI system or configuration is the comparison (an older model, no retrieval, a different prompt or interface, non-agentic); every arm uses AI"
+              },
+              {
+                "value": "expert_benchmark",
+                "label": "expert benchmark",
+                "help": "unassisted experts or incumbents whose performance is the reference for AI-assisted others: a different population, not an assigned condition"
+              },
+              {
+                "value": "ai_alone",
+                "label": "the AI alone",
+                "help": "the AI's own output with no human; recorded only when the paper's contrast is against it, with n_arm null"
+              },
+              {
+                "value": "external_norm",
+                "label": "external norm",
+                "help": "a published norm, a historical rate or a market benchmark; no participants"
+              },
+              {
+                "value": "none",
+                "label": "None",
+                "help": "no comparison: a single arm, descriptive"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "sample_population",
+            "type": "string",
+            "label": "Sample population",
+            "help": "who the people in this arm are, in the paper's own words: 'BCG consultants', 'third-year law students', 'customer support agents of a Fortune 500 firm'",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "sample_population_type",
+            "type": "enum",
+            "label": "Population type",
+            "help": "the kind of people the outcomes are measured on: the actual population whose outcomes are measured, not everyone the study mentions. The specific category wins over the generic one; recruitment through an online platform or panel takes precedence over general_population whatever the age, nationality or demographic restrictions; never other merely because a sample is heterogeneous or distinctively described",
+            "options": [
+              {
+                "value": "students",
+                "label": "Students",
+                "help": "university or school students"
+              },
+              {
+                "value": "crowdworkers_online_panel",
+                "label": "crowdworkers/online panel",
+                "help": "Prolific, MTurk, similar platforms"
+              },
+              {
+                "value": "general_population",
+                "label": "general population",
+                "help": "members of the public or of sub-populations: convenience samples, job applicants, mixed groups of adults without a shared task-relevant occupation"
+              },
+              {
+                "value": "professionals_in_domain",
+                "label": "Professionals, in-domain",
+                "help": "People working in the occupation the task comes from such as consultants on consulting tasks, radiologists on X-ray"
+              },
+              {
+                "value": "professionals_out_of_domain",
+                "label": "Professionals, out-of-domain",
+                "help": "Professionals doing a task outside their field"
+              },
+              {
+                "value": "recipients",
+                "label": "recipients of the work",
+                "help": "the people the work is for, when the outcomes are measured on them: patients counselled, customers served, students taught (a reversed design, see the rules)"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "sample_expertise",
+            "type": "enum",
+            "label": "Expertise",
+            "help": "the arm's training and experience in the domain of the task, decided in this order: (1) people employed in the occupation the task belongs to are expert, whatever their seniority and whatever spread of skill or experience the paper reports among them, unless the paper itself calls them junior, then intermediate; (2) students in the field and trainees are intermediate; (3) people with no training in the domain (the general public, crowdworkers, job applicants, students outside the field) are novice; (4) mixed only when the arm deliberately combines people from different levels in this sense (students with professionals, laypeople with experts), never for a reported skill spread within one occupational sample; (5) not_applicable only for a task with no domain anyone could be trained in (a hidden-profile game, a generic survey); (6) not_stated when the paper says nothing about who the people are",
+            "options": [
+              {
+                "value": "novice",
+                "label": "Novice",
+                "help": "no training in the task domain: the general public, crowdworkers, job applicants, students outside the field; a sample described as needing no specific industry or contextual knowledge"
+              },
+              {
+                "value": "intermediate",
+                "label": "Intermediate",
+                "help": "students in the field, trainees, and staff the paper itself calls junior"
+              },
+              {
+                "value": "expert",
+                "label": "Expert",
+                "help": "employed in the occupation the task belongs to, whatever the seniority or the spread of skill the paper reports, unless the paper itself calls them junior"
+              },
+              {
+                "value": "mixed",
+                "label": "Mixed",
+                "help": "the arm deliberately combines people from different levels (students with professionals, laypeople with experts); a reported spread of skill or experience within one occupational sample is not mixed"
+              },
+              {
+                "value": "not_applicable",
+                "label": "Not applicable",
+                "help": "the task has no domain anyone could be trained in"
+              },
+              {
+                "value": "not_stated",
+                "label": "not stated",
+                "help": "the paper gives no information on who the people are"
+              }
+            ],
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "sample_representativeness",
+            "type": "enum",
+            "label": "Representativeness",
+            "help": "how the arm's sample relates to a population",
+            "options": [
+              {
+                "value": "population_wide",
+                "label": "Population-wide",
+                "help": "e.g. register data in Denmark"
+              },
+              {
+                "value": "representative_sample",
+                "label": "representative sample",
+                "help": "e.g. household or firm survey"
+              },
+              {
+                "value": "non_representative_sample",
+                "label": "non-representative sample",
+                "help": "e.g. small experiment"
+              }
+            ],
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "countries",
+            "type": "list",
+            "label": "Countries",
+            "help": "where the arm's people or data come from, not the authors; 'online, unspecified' when the paper does not say",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "n_arm",
+            "type": "integer",
+            "label": "People in the arm",
+            "help": "human subjects who did this task in this arm; null if not stated",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "arm_description",
+            "type": "text",
+            "label": "What this arm got",
+            "help": "tool, access, training, prompts, restrictions: what made this condition what it was",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "arm_notes",
+            "type": "text",
+            "label": "Arm notes",
+            "help": "anything a coder must know about the arm",
+            "evidence": "none"
+          },
+          {
+            "name": "ai_model",
+            "type": "string",
+            "label": "AI model",
+            "help": "the exact system this arm used, with version and access route ('GPT-4 via ChatGPT Plus', 'GitHub Copilot', 'Claude Sonnet 4'); null for a no-AI reference arm or if not stated",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "ai_role",
+            "type": "enum",
+            "label": "AI role",
+            "help": "how the AI took part in the work in this arm; none for a no-AI reference arm",
+            "options": [
+              {
+                "value": "open_ended_assistance",
+                "label": "Open-ended assistance",
+                "help": "the human has open-ended access and uses it however they like; a general-purpose chatbot or agent is open_ended_assistance"
+              },
+              {
+                "value": "ai_review",
+                "label": "AI review",
+                "help": "The human produces the work and AI provides feedback."
+              },
+              {
+                "value": "ai_advice",
+                "label": "AI advice",
+                "help": "AI gives a recommendation like a prediction or a label but human makes decision. E.g. radiology image classification or algorithmic hiring"
+              },
+              {
+                "value": "human_review",
+                "label": "Human review",
+                "help": "AI produces the work and the human reviews it."
+              },
+              {
+                "value": "ai_only",
+                "label": "AI-only",
+                "help": "Full delegation with human limited to prompting, guiding and giving feedback."
+              },
+              {
+                "value": "none",
+                "label": "None",
+                "help": "the arm did not use AI (a no-AI reference arm)"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "is_agentic",
+            "type": "boolean",
+            "label": "Agentic tool",
+            "help": "whether the AI autonomously executes a multi-step task or workflow rather than merely responding or assisting: true when it independently determines and executes successive actions toward a goal (conducting an interview, navigating software, using tools, modifying files, completing a workflow with limited human intervention); false when it responds to individual prompts, generates content, recommends or assists without executing a sequence of actions on its own; null for a no-AI reference arm",
+            "evidence": "value",
+            "confidence": "arm"
+          },
+          {
+            "name": "ai_measure",
+            "type": "enum",
+            "label": "How AI enters",
+            "help": "how AI exposure or use is operationalised in this arm; null for a no-AI reference arm",
+            "options": [
+              {
+                "value": "exposure",
+                "label": "Exposure",
+                "help": "potential exposure to AI measured through an index, score or proxy based on tasks, occupations or capabilities, e.g. Eloundou et al."
+              },
+              {
+                "value": "adoption",
+                "label": "Adoption",
+                "help": "actual AI adoption or deployment by workers, firms or organisations, naturally occurring rollouts included, where adoption is not assigned by the researchers"
+              },
+              {
+                "value": "observed_usage",
+                "label": "observed usage",
+                "help": "actual intensity, frequency or patterns of AI use measured through usage logs, interactions or other behavioural records"
+              },
+              {
+                "value": "experimental_access",
+                "label": "experimental access",
+                "help": "the researchers assign, provide or withhold access to AI as part of an experimental intervention, whether or not the participants use it"
+              }
+            ],
+            "evidence": "value",
+            "confidence": "arm"
+          }
+        ]
+      },
+      {
+        "key": "outcomes",
+        "label": "Outcome",
+        "help": "one per measure the task is scored on, the coder's list",
+        "title": "{outcome_id} · {outcome_finding}",
+        "evidence": "row",
+        "fields": [
+          {
+            "name": "outcome_id",
+            "type": "string",
+            "label": "Outcome id",
+            "help": "O1, O2 … in the paper's order",
+            "evidence": "row"
+          },
+          {
+            "name": "outcome_name",
+            "type": "string",
+            "label": "Measure",
+            "help": "the outcome as the paper names it: 'time taken', 'average grade'",
+            "evidence": "row"
+          },
+          {
+            "name": "how_measured",
+            "type": "string",
+            "label": "How measured",
+            "help": "who or what produced the measure and against what standard: blinded professional graders on a 1-7 rubric, self-reported minutes, a timer",
+            "evidence": "row"
+          },
+          {
+            "name": "outcome_unit",
+            "type": "string",
+            "label": "Unit",
+            "help": "the unit or scale of the measure as printed: 'minutes', '1-7 scale', 'percent correct', 'USD', 'count'; null when the paper gives none",
+            "evidence": "none"
+          },
+          {
+            "name": "outcome_direction",
+            "type": "enum",
+            "label": "Better side",
+            "help": "up if higher values are better (quality, output); down if lower is better (time, errors); neutral for a quantity without a better side",
+            "options": [
+              {
+                "value": "up",
+                "label": "Up"
+              },
+              {
+                "value": "down",
+                "label": "Down"
+              },
+              {
+                "value": "neutral",
+                "label": "Neutral"
+              }
+            ],
+            "evidence": "none"
+          },
+          {
+            "name": "outcome_type",
+            "type": "enum",
+            "label": "Outcome class",
+            "help": "what kind of outcome the measure is, by what was measured and not by its name; every outcome measured while the treatment arm has the AI in use, with a with-versus-without-AI contrast, is a row; an outcome measured afterwards without the AI (a post-test, a retention test, later unaided work) is not a row: name it in task_notes",
+            "options": [
+              {
+                "value": "performance",
+                "label": "work performance",
+                "help": "the work produced or the task performed, measured by graders, instruments, timers, counts or an answer key: time, output volume, quality, accuracy, errors, completion, creativity or novelty rated by others"
+              },
+              {
+                "value": "behaviour",
+                "label": "Behaviour",
+                "help": "what people did, observed: use or adoption of the AI, reliance on or acceptance of its suggestions, take-up of the assigned condition, time allocation across tasks, effort, help-seeking, collaboration"
+              },
+              {
+                "value": "subjective",
+                "label": "subjective report",
+                "help": "what people reported about themselves or the work: satisfaction, enjoyment, well-being, stress, perceived agency or autonomy, trust, confidence, self-assessed performance, beliefs, attitudes, intentions"
+              },
+              {
+                "value": "labour_market",
+                "label": "labour market",
+                "help": "employment status, retention or attrition, earnings, hours, promotion, hiring"
+              }
+            ],
+            "evidence": "none"
+          },
+          {
+            "name": "outcome_finding",
+            "type": "enum",
+            "label": "Finding type",
+            "help": "the finer kind of outcome this row measures",
+            "options": [
+              {
+                "value": "productivity_time",
+                "label": "Time taken",
+                "help": "time to complete a piece of work, or output per period: durations, counts per period, throughput, completion share"
+              },
+              {
+                "value": "productivity_quality",
+                "label": "Output quality",
+                "help": "the quality of the work: ratings on a scale, pass or acceptance rates, error and revision counts"
+              },
+              {
+                "value": "employment_hiring",
+                "label": "Employment or hiring",
+                "help": "employment status, hiring, retention or attrition as the outcome"
+              },
+              {
+                "value": "wages_earnings",
+                "label": "Wages or earnings",
+                "help": "pay, earnings or income as the outcome"
+              },
+              {
+                "value": "labor_demand",
+                "label": "Labour demand",
+                "help": "demand for workers or for a kind of work: vacancies, postings, hours demanded"
+              },
+              {
+                "value": "skill_split",
+                "label": "Skill split",
+                "help": "Lower- vs higher-skill effect"
+              },
+              {
+                "value": "task_shift",
+                "label": "Task shift",
+                "help": "Change in share/volume of a kind of work"
+              },
+              {
+                "value": "output_diversity",
+                "label": "Output diversity",
+                "help": "Collective output diversity across people or items"
+              },
+              {
+                "value": "performance_dispersion",
+                "label": "Performance dispersion",
+                "help": "the spread of performance across people: a slope by baseline skill, a variance, a correlation across tasks"
+              },
+              {
+                "value": "adoption_usage",
+                "label": "Adoption or usage of the AI",
+                "help": "adoption or usage of AI as the outcome"
+              },
+              {
+                "value": "secondary_outcome",
+                "label": "Secondary outcome",
+                "help": "well-being, attitudes, beliefs, trust"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none"
+          },
+          {
+            "name": "outcome_measure_kind",
+            "type": "enum",
+            "label": "Measure kind",
+            "help": "for a performance outcome, what the measure counts: one level below the finding type, which follows from it (durations, counts per period, throughput and completion shares are time taken; ratings, pass rates and error counts are quality; a dispersion statistic is dispersion); null for an outcome of another class",
+            "options": [
+              {
+                "value": "duration",
+                "label": "duration per task or work item",
+                "help": "time to complete a defined piece of work: minutes per task, handle time, hours to completion, time to reply"
+              },
+              {
+                "value": "output_count",
+                "label": "output count per period",
+                "help": "pieces of work completed in a period: pull requests, commits, documents, emails replied to"
+              },
+              {
+                "value": "throughput",
+                "label": "throughput rate",
+                "help": "output per unit of time: resolutions per hour, chats per hour"
+              },
+              {
+                "value": "completion_share",
+                "label": "completion share or composite index",
+                "help": "the share of a task completed, or a quality-over-time index"
+              },
+              {
+                "value": "rating",
+                "label": "rating on a scale",
+                "help": "quality judged by graders, experts or a model on a scale: a 1 to 7 quality score, a 4.0 grade, creativity, coherence"
+              },
+              {
+                "value": "pass_rate",
+                "label": "pass, acceptance or resolution rate",
+                "help": "the share of work that meets a standard: correctness, build success, approval, resolution"
+              },
+              {
+                "value": "error_count",
+                "label": "error and revision counts",
+                "help": "defects or rework counted on the output: hallucinations, review comments, merge conflicts"
+              },
+              {
+                "value": "dispersion",
+                "label": "dispersion between workers",
+                "help": "a statistic of the spread of performance across people: a slope by baseline skill, a variance, a correlation of grades across tasks"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none"
+          },
+          {
+            "name": "outcome_measured_on",
+            "type": "enum",
+            "label": "Measured on",
+            "help": "whom or what the measure is taken on",
+            "options": [
+              {
+                "value": "worker",
+                "label": "the worker",
+                "help": "the person doing the task: their time, throughput, errors, use of the tool, self-reports"
+              },
+              {
+                "value": "output",
+                "label": "the output",
+                "help": "the work product, graded by others or against a key"
+              },
+              {
+                "value": "recipient",
+                "label": "the recipient",
+                "help": "the person the work is for: a patient's comprehension of a consultation, a customer's satisfaction with the service"
+              }
+            ],
+            "evidence": "none"
+          }
+        ]
+      },
+      {
+        "key": "results",
+        "label": "Result",
+        "help": "one row per arm × measure × subgroup × horizon; reference-arm rows carry n, mean, sd only",
+        "evidence": "row",
+        "fields": [
+          {
+            "name": "arm",
+            "type": "string",
+            "label": "Arm",
+            "help": "the arm_id this row is for",
+            "evidence": "row"
+          },
+          {
+            "name": "vs_arm",
+            "type": "string",
+            "label": "Compared with",
+            "help": "the arm_id the effect is measured against, usually C; null on a reference-arm row, which carries only n, mean and sd",
+            "evidence": "none"
+          },
+          {
+            "name": "measure",
+            "type": "string",
+            "label": "Measure",
+            "help": "the outcome as the paper names it: 'time to complete', 'quality grade', 'tickets resolved per hour'",
+            "evidence": "row",
+            "confidence": "results"
+          },
+          {
+            "name": "measure_unit",
+            "type": "string",
+            "label": "Unit",
+            "help": "the unit or scale of the measure as printed: 'minutes', '1-7 scale', 'percent correct', 'USD', 'count'; null when the paper gives none",
+            "evidence": "row"
+          },
+          {
+            "name": "outcome_class",
+            "type": "enum",
+            "label": "Outcome class",
+            "help": "what kind of outcome the measure is, by what was measured and not by its name; every outcome measured while the treatment arm has the AI in use, with a with-versus-without-AI contrast, is a row; an outcome measured afterwards without the AI (a post-test, a retention test, later unaided work) is not a row: name it in task_notes",
+            "options": [
+              {
+                "value": "performance",
+                "label": "work performance",
+                "help": "the work produced or the task performed, measured by graders, instruments, timers, counts or an answer key: time, output volume, quality, accuracy, errors, completion, creativity or novelty rated by others"
+              },
+              {
+                "value": "behaviour",
+                "label": "Behaviour",
+                "help": "what people did, observed: use or adoption of the AI, reliance on or acceptance of its suggestions, take-up of the assigned condition, time allocation across tasks, effort, help-seeking, collaboration"
+              },
+              {
+                "value": "subjective",
+                "label": "subjective report",
+                "help": "what people reported about themselves or the work: satisfaction, enjoyment, well-being, stress, perceived agency or autonomy, trust, confidence, self-assessed performance, beliefs, attitudes, intentions"
+              },
+              {
+                "value": "labour_market",
+                "label": "labour market",
+                "help": "employment status, retention or attrition, earnings, hours, promotion, hiring"
+              }
+            ],
+            "evidence": "row",
+            "confidence": "results"
+          },
+          {
+            "name": "finding_type",
+            "type": "enum",
+            "label": "Finding type",
+            "help": "the finer kind of outcome this row measures",
+            "options": [
+              {
+                "value": "productivity_time",
+                "label": "Time taken",
+                "help": "time to complete a piece of work, or output per period: durations, counts per period, throughput, completion share"
+              },
+              {
+                "value": "productivity_quality",
+                "label": "Output quality",
+                "help": "the quality of the work: ratings on a scale, pass or acceptance rates, error and revision counts"
+              },
+              {
+                "value": "employment_hiring",
+                "label": "Employment or hiring",
+                "help": "employment status, hiring, retention or attrition as the outcome"
+              },
+              {
+                "value": "wages_earnings",
+                "label": "Wages or earnings",
+                "help": "pay, earnings or income as the outcome"
+              },
+              {
+                "value": "labor_demand",
+                "label": "Labour demand",
+                "help": "demand for workers or for a kind of work: vacancies, postings, hours demanded"
+              },
+              {
+                "value": "skill_split",
+                "label": "Skill split",
+                "help": "Lower- vs higher-skill effect"
+              },
+              {
+                "value": "task_shift",
+                "label": "Task shift",
+                "help": "Change in share/volume of a kind of work"
+              },
+              {
+                "value": "output_diversity",
+                "label": "Output diversity",
+                "help": "Collective output diversity across people or items"
+              },
+              {
+                "value": "performance_dispersion",
+                "label": "Performance dispersion",
+                "help": "the spread of performance across people: a slope by baseline skill, a variance, a correlation across tasks"
+              },
+              {
+                "value": "adoption_usage",
+                "label": "Adoption or usage of the AI",
+                "help": "adoption or usage of AI as the outcome"
+              },
+              {
+                "value": "secondary_outcome",
+                "label": "Secondary outcome",
+                "help": "well-being, attitudes, beliefs, trust"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none",
+            "confidence": "results"
+          },
+          {
+            "name": "measure_kind",
+            "type": "enum",
+            "label": "Measure kind",
+            "help": "for a performance outcome, what the measure counts: one level below the finding type, which follows from it (durations, counts per period, throughput and completion shares are time taken; ratings, pass rates and error counts are quality; a dispersion statistic is dispersion); null for an outcome of another class",
+            "options": [
+              {
+                "value": "duration",
+                "label": "duration per task or work item",
+                "help": "time to complete a defined piece of work: minutes per task, handle time, hours to completion, time to reply"
+              },
+              {
+                "value": "output_count",
+                "label": "output count per period",
+                "help": "pieces of work completed in a period: pull requests, commits, documents, emails replied to"
+              },
+              {
+                "value": "throughput",
+                "label": "throughput rate",
+                "help": "output per unit of time: resolutions per hour, chats per hour"
+              },
+              {
+                "value": "completion_share",
+                "label": "completion share or composite index",
+                "help": "the share of a task completed, or a quality-over-time index"
+              },
+              {
+                "value": "rating",
+                "label": "rating on a scale",
+                "help": "quality judged by graders, experts or a model on a scale: a 1 to 7 quality score, a 4.0 grade, creativity, coherence"
+              },
+              {
+                "value": "pass_rate",
+                "label": "pass, acceptance or resolution rate",
+                "help": "the share of work that meets a standard: correctness, build success, approval, resolution"
+              },
+              {
+                "value": "error_count",
+                "label": "error and revision counts",
+                "help": "defects or rework counted on the output: hallucinations, review comments, merge conflicts"
+              },
+              {
+                "value": "dispersion",
+                "label": "dispersion between workers",
+                "help": "a statistic of the spread of performance across people: a slope by baseline skill, a variance, a correlation of grades across tasks"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none",
+            "confidence": "results"
+          },
+          {
+            "name": "direction",
+            "type": "enum",
+            "label": "Better side",
+            "help": "up if higher values are better (quality, output); down if lower is better (time, errors); neutral for a quantity without a better side",
+            "options": [
+              {
+                "value": "up",
+                "label": "Up"
+              },
+              {
+                "value": "down",
+                "label": "Down"
+              },
+              {
+                "value": "neutral",
+                "label": "Neutral"
+              }
+            ],
+            "evidence": "none"
+          },
+          {
+            "name": "contrast_type",
+            "type": "enum",
+            "label": "Contrast type",
+            "help": "what the effect compares; null on a reference-arm row",
+            "options": [
+              {
+                "value": "ai_vs_no_ai",
+                "label": "AI vs no AI",
+                "help": "an AI arm against a no-AI reference arm (concurrent or placebo tool)"
+              },
+              {
+                "value": "pre_vs_post",
+                "label": "post vs pre",
+                "help": "the same units after getting the AI against before"
+              },
+              {
+                "value": "ai_vs_ai",
+                "label": "AI vs AI",
+                "help": "two AI arms against each other (two tools, two models)"
+              },
+              {
+                "value": "ai_variant",
+                "label": "AI variant",
+                "help": "an AI arm against the same AI with a feature, prompt or interface changed"
+              },
+              {
+                "value": "dose",
+                "label": "Dose",
+                "help": "more versus less use or access to the same AI"
+              },
+              {
+                "value": "vs_benchmark",
+                "label": "vs benchmark",
+                "help": "an arm against a benchmark that is not a condition of the study: unassisted experts, a published norm"
+              },
+              {
+                "value": "human_ai_vs_ai",
+                "label": "human+AI vs AI alone",
+                "help": "people using the AI against the AI's own output with no human"
+              },
+              {
+                "value": "interaction",
+                "label": "Interaction",
+                "help": "the difference between two subgroups' AI effects"
+              },
+              {
+                "value": "association",
+                "label": "Association",
+                "help": "users against non-users without assignment"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none"
+          },
+          {
+            "name": "estimand_type",
+            "type": "enum",
+            "label": "Estimand",
+            "help": "which effect the row estimates, by how people entered the comparison; null on a reference-arm row",
+            "options": [
+              {
+                "value": "itt",
+                "label": "intent to treat",
+                "help": "by assigned condition, whether or not the tool was used"
+              },
+              {
+                "value": "tot",
+                "label": "treatment on the treated",
+                "help": "the effect for those who used the tool, with assignment as the instrument (LATE, TOT)"
+              },
+              {
+                "value": "per_protocol",
+                "label": "per protocol",
+                "help": "users or compliers only, by actual use, without instrumenting"
+              },
+              {
+                "value": "not_applicable",
+                "label": "not applicable",
+                "help": "no assignment: an observational association or a descriptive comparison"
+              }
+            ],
+            "evidence": "none"
+          },
+          {
+            "name": "subgroup",
+            "type": "string",
+            "label": "Subgroup",
+            "help": "'full sample', or the subset this row is for: of people ('bottom half of baseline ability'), of tasks ('routine topics'), of sites, of time since treatment",
+            "evidence": "row",
+            "confidence": "results"
+          },
+          {
+            "name": "horizon",
+            "type": "string",
+            "label": "Horizon",
+            "help": "when the outcome is measured relative to AI access: 'same session', '8 weeks after rollout'; null if a single cross-section",
+            "evidence": "row"
+          },
+          {
+            "name": "measured_on",
+            "type": "enum",
+            "label": "Measured on",
+            "help": "whom or what the measure is taken on",
+            "options": [
+              {
+                "value": "worker",
+                "label": "the worker",
+                "help": "the person doing the task: their time, throughput, errors, use of the tool, self-reports"
+              },
+              {
+                "value": "output",
+                "label": "the output",
+                "help": "the work product, graded by others or against a key"
+              },
+              {
+                "value": "recipient",
+                "label": "the recipient",
+                "help": "the person the work is for: a patient's comprehension of a consultation, a customer's satisfaction with the service"
+              }
+            ],
+            "evidence": "row",
+            "confidence": "results"
+          },
+          {
+            "name": "statistic",
+            "type": "enum",
+            "label": "Statistic",
+            "help": "what the central value in `mean` is",
+            "options": [
+              {
+                "value": "mean",
+                "label": "Mean"
+              },
+              {
+                "value": "median",
+                "label": "Median"
+              },
+              {
+                "value": "proportion",
+                "label": "Proportion"
+              },
+              {
+                "value": "count",
+                "label": "Count"
+              },
+              {
+                "value": "rate",
+                "label": "Rate"
+              },
+              {
+                "value": "other",
+                "label": "Other"
+              }
+            ],
+            "evidence": "row"
+          },
+          {
+            "name": "n",
+            "type": "integer",
+            "label": "n",
+            "help": "people (or units) behind this row's value",
+            "evidence": "value"
+          },
+          {
+            "name": "n_obs",
+            "type": "integer",
+            "label": "Observations",
+            "help": "the observations behind the estimate when they differ from the people (tasks x participants, person-weeks, tickets), as printed; null when equal to n or not stated",
+            "evidence": "value"
+          },
+          {
+            "name": "cluster_level",
+            "type": "string",
+            "label": "Clustered on",
+            "help": "what the standard errors are clustered on ('participant', 'team', 'branch'), as stated; null if not clustered or not stated",
+            "evidence": "none"
+          },
+          {
+            "name": "mean",
+            "type": "number",
+            "label": "Mean",
+            "help": "the arm's central value of the measure as printed, whichever statistic the paper gives (`statistic` says which); a proportion as printed (0.82 or 82, not converted)",
+            "evidence": "value"
+          },
+          {
+            "name": "sd",
+            "type": "number",
+            "label": "SD",
+            "help": "the arm's standard deviation as printed; from an SE or CI only with estimated = true and the arithmetic in result_notes; for a median, null with the IQR in result_notes",
+            "evidence": "value"
+          },
+          {
+            "name": "effect_reported",
+            "type": "string",
+            "label": "Effect as reported",
+            "help": "the number exactly as printed, with its sign and unit: '-40%', '+0.41 SD', '0.18 (0.05)'; null on a reference-arm row",
+            "evidence": "value",
+            "confidence": "results"
+          },
+          {
+            "name": "effect_value",
+            "type": "number",
+            "label": "Effect value",
+            "help": "the same number as a plain number in the units of effect_type; null if the paper gives only a direction",
+            "evidence": "value",
+            "confidence": "results"
+          },
+          {
+            "name": "effect_type",
+            "type": "enum",
+            "label": "Effect type",
+            "help": "the form of the number in effect_value",
+            "options": [
+              {
+                "value": "mean_difference",
+                "label": "mean difference"
+              },
+              {
+                "value": "percent_change",
+                "label": "percent change"
+              },
+              {
+                "value": "ratio",
+                "label": "Ratio"
+              },
+              {
+                "value": "standardized_difference",
+                "label": "standardized difference"
+              },
+              {
+                "value": "regression_coefficient",
+                "label": "regression coefficient"
+              },
+              {
+                "value": "difference_in_differences",
+                "label": "difference in differences"
+              },
+              {
+                "value": "elasticity",
+                "label": "Elasticity"
+              },
+              {
+                "value": "interaction",
+                "label": "Interaction"
+              },
+              {
+                "value": "simulated",
+                "label": "Simulated"
+              }
+            ],
+            "allow_other": true,
+            "evidence": "none"
+          },
+          {
+            "name": "effect_units",
+            "type": "string",
+            "label": "Effect units",
+            "help": "'minutes', 'percent of the control mean', 'SD of the pre-treatment grade', 'log points'",
+            "evidence": "none"
+          },
+          {
+            "name": "se",
+            "type": "number",
+            "label": "SE",
+            "help": "standard error as printed",
+            "evidence": "value"
+          },
+          {
+            "name": "ci_low",
+            "type": "number",
+            "label": "CI low",
+            "help": "lower 95% bound as printed",
+            "evidence": "value"
+          },
+          {
+            "name": "ci_high",
+            "type": "number",
+            "label": "CI high",
+            "help": "upper 95% bound as printed",
+            "evidence": "value"
+          },
+          {
+            "name": "p_value",
+            "type": "number",
+            "label": "p",
+            "help": "as a number, as printed; null if only stars or an inequality",
+            "evidence": "value"
+          },
+          {
+            "name": "p_reported",
+            "type": "string",
+            "label": "p as printed",
+            "help": "the significance exactly as printed when p_value cannot hold it: '<0.01', 'p = .03', '***' (with the note's star convention); null otherwise",
+            "evidence": "value"
+          },
+          {
+            "name": "estimated",
+            "type": "boolean",
+            "label": "Estimated",
+            "help": "true if any value in the row was read from a figure or computed rather than printed; say how in result_notes",
+            "evidence": "none"
+          },
+          {
+            "name": "is_main",
+            "type": "boolean",
+            "label": "Main estimate",
+            "help": "true for the paper's main specification of this measure: the estimate the results section leads with (the main table's full-sample row), not a robustness check, an alternative estimator or a secondary specification; at most one per estimand",
+            "evidence": "none"
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "label": "Source",
+            "help": "'Table 2, column 3', 'Figure 1', 'p. 5 text'",
+            "evidence": "none"
+          },
+          {
+            "name": "outcome",
+            "type": "string",
+            "label": "Outcome",
+            "help": "the id (O1 …) of the outcome in the coder's outcomes list",
+            "evidence": "none"
+          },
+          {
+            "name": "estimate",
+            "type": "string",
+            "label": "Estimate",
+            "help": "the id of the model estimate this row was accepted from; empty for a row added by hand",
+            "evidence": "none"
+          },
+          {
+            "name": "result_notes",
+            "type": "text",
+            "label": "Result notes",
+            "help": "derivations, which specification, caveats",
+            "evidence": "none"
+          }
+        ]
+      }
+    ]
+  },
+  "confidence": {
+    "levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "notes": true,
+    "groups": [
+      {
+        "id": "design",
+        "label": "Design",
+        "scope": "paper",
+        "help": "scale, research and identification design, data source, unit of analysis, sample size, period"
+      },
+      {
+        "id": "task",
+        "label": "Task",
+        "scope": "entry",
+        "help": "what the task was, its category, occupation and work activities"
+      },
+      {
+        "id": "complexity",
+        "label": "Complexity",
+        "scope": "entry",
+        "help": "the four descriptive fields the complexity scores are given from"
+      },
+      {
+        "id": "arm",
+        "label": "Arm",
+        "scope": "child",
+        "help": "the conditions of the task: what the reference arm is, who the arm's people are, the tool and its role, what the arm got"
+      },
+      {
+        "id": "results",
+        "label": "Results",
+        "scope": "child",
+        "help": "the result rows: measure, subgroup, horizon, the numbers and their quotes"
+      }
+    ]
+  },
+  "display": {
+    "tabs": [
+      {
+        "id": "results",
+        "label": "Results",
+        "fields": [
+          "results"
+        ]
+      },
+      {
+        "id": "arms",
+        "label": "Arms",
+        "fields": [
+          "arms"
+        ]
+      },
+      {
+        "id": "outcomes",
+        "label": "Outcomes",
+        "fields": [
+          "outcomes"
+        ]
+      },
+      {
+        "id": "task",
+        "label": "Task",
+        "fields": [
+          "task_id",
+          "task_name",
+          "task_label",
+          "soc_major_group",
+          "task_structure",
+          "task_embodiment",
+          "task_notes"
+        ]
+      },
+      {
+        "id": "complexity",
+        "label": "Complexity",
+        "fields": [
+          "k_score",
+          "g_score",
+          "i_score",
+          "r_score"
+        ]
+      }
+    ],
+    "entries": "cards",
+    "grid_rows": "results",
+    "triage": "low_confidence_first",
+    "paper_panel": "open",
+    "locate": {
+      "results": {
+        "anchor_fields": [
+          "measure",
+          "subgroup"
+        ]
+      }
+    }
+  }
+}
