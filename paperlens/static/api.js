@@ -122,6 +122,12 @@ export const api = {
   // workflow datasets: a workflow over several presets on a dataset of its own, linking one dataset per preset
   createWorkflowDataset: (body) => req(`/api/workflow-datasets`, json(body)),
   myWorkflows: () => req(`/api/workflow-datasets`),
+  createProject: (body) => req(`/api/projects`, json(body)),                    // {workflow, title?, datasets?}: a workflow's instance
+  myProjects: () => req(`/api/projects`),
+  project: (id) => req(`/api/projects/${id}`),
+  projectTasks: (id, run) => req(`/api/projects/${id}/tasks${run ? `?run=${encodeURIComponent(run)}` : ""}`),
+  assignTaskPaper: (id, srid, body) => req(`/api/projects/${id}/tasks/${srid}/assign`, json(body)),   // {document_id, coders: [user ids]}
+  myTasks: () => req(`/api/me/tasks`),
   datasetGroup: (id) => req(`/api/datasets/${id}/group`),
   linkGroupRole: (id, body) => req(`/api/datasets/${id}/group/link`, json(body)),
   // derived units: what a workflow's derive steps make, reviewed as drafts

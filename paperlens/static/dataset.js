@@ -30,7 +30,10 @@ async function init() {
   ANON = !!OV.viewer_is_anonymous;
   ADMIN = !!(me && me.is_admin);
   CODER = !!OV.viewer_is_coder && !OWNER;
-  if (OV.kind === "workflow") { renderWorkflowDataset(); return; }   // the row linked datasets hang from
+  if (OV.kind === "workflow") {                                       // a project: the row the linked datasets hang from
+    if (location.pathname === "/dataset") { location.replace(`/project?id=${encodeURIComponent(id)}${location.hash}`); return; }
+    renderWorkflowDataset(); return;
+  }
   render();
   loadAudit();
 }
@@ -71,14 +74,14 @@ function render() {
 
     ${OWNER ? `<div class="ds-actions">
       ${addPapersMenu(id, r.mode === "import", "btn btn-primary btn-sm")}
-      <a class="btn btn-ghost btn-sm" href="/workspace?project=${esc(id)}">Data review</a>
+      <a class="btn btn-ghost btn-sm" href="/workspace?dataset=${esc(id)}">Data review</a>
       <button class="btn btn-ghost btn-sm" id="ds-rel-btn" hidden title="freeze the dataset as it is now; published dashboards pin a release">Create release</button>
       ${OV.publish_status === "pending" ? `<button class="btn btn-ghost btn-sm" id="ds-sync" title="check the datasets repository now (runs hourly anyway)">↻ Check GitHub</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-export">Export JSON</button>
       ${OWNER && (OV.stats || {}).n_records > (OV.stats || {}).n_verified ? `<button class="btn btn-ghost btn-sm" id="ds-verify-all" title="mark every unverified record verified — one verification event per record, in your name">✓ Mark all verified (${(OV.stats.n_records || 0) - (OV.stats.n_verified || 0)} left)</button>` : ""}
       ${OWNER && dupGroups().length ? `<button class="btn btn-ghost btn-sm" id="ds-dedupe" title="the same paper appears more than once; keep the newest copy of each">Remove duplicate papers (${dupGroups().reduce((n, g) => n + g.length - 1, 0)})</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="ds-del">Delete dataset</button>
-    </div>` : CODER ? `<div class="ds-actions"><a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}" title="the papers of this dataset, coded in your own name — what you enter is your coding; the owner sees every coder's">Code the papers</a>
+    </div>` : CODER ? `<div class="ds-actions"><a class="btn btn-primary btn-sm" href="/workspace?dataset=${esc(id)}" title="the papers of this dataset, coded in your own name — what you enter is your coding; the owner sees every coder's">Code the papers</a>
       <span class="muted" style="font-size:12.5px">You code this dataset for its owner.</span></div>` : ""}
     <div id="ds-next"></div>
 
@@ -561,10 +564,10 @@ function renderMemberCard(host, w) {
   const live = run && !/^(done|failed|cancelled)$/.test(run.status);
   host.innerHTML = `<div class="ds-card-h">Workflow <span class="muted" style="font-weight:400">· ${esc(wf.title || wf.id)} v${esc(String(wf.version || 1))}</span>
       <a class="btn btn-ghost btn-sm" style="margin-left:auto" href="/dataset?id=${esc(m.id)}#workflow">Open the workflow</a></div>
-    <p style="font-size:13px;margin:0">This dataset is the <b>${esc(m.label || m.role || "")}</b> side of the workflow dataset <a href="/dataset?id=${esc(m.id)}">${esc(m.title || "")}</a>. Runs, the joint review and the release happen there.</p>
+    <p style="font-size:13px;margin:0">This dataset is the <b>${esc(m.label || m.role || "")}</b> side of the project <a href="/project?id=${esc(m.id)}">${esc(m.title || "")}</a>. Runs, the review tasks and the release happen there.</p>
     ${live ? `<p style="font-size:13px;margin:6px 0 0">${nowLine(run) || esc(run.status)} · <a href="/dataset?id=${esc(m.id)}#workflow">follow the run →</a></p>` : ""}`;
   const pill = $("#ds-wfpill");
-  if (pill) pill.innerHTML = ` · <a href="/dataset?id=${esc(m.id)}" title="the workflow dataset this one belongs to">${esc(m.label || m.role || "")} side of ${esc(m.title || "a workflow")}</a>`;
+  if (pill) pill.innerHTML = ` · <a href="/project?id=${esc(m.id)}" title="the project this dataset belongs to">${esc(m.label || m.role || "")} side of ${esc(m.title || "a project")}</a>`;
 }
 
 // Join a workflow: over several presets this dataset becomes one side of a new workflow dataset
@@ -594,7 +597,7 @@ async function renderNext() {
   host.innerHTML = `<div class="ds-card ds-next"><div class="ds-card-h">${n ? `${n} paper${n === 1 ? "" : "s"} imported` : "Import finished"} <span class="muted" style="font-weight:400">· what next?</span>
       <button type="button" class="btn btn-ghost btn-sm" id="ds-next-x" style="margin-left:auto" title="hide this">✕</button></div>
     <div class="ds-next-opts">
-      <a class="ds-next-opt" href="/workspace?project=${esc(id)}"><b>Review the data</b><span class="muted">Check each paper's values against the PDF, correct them, mark them verified.</span></a>
+      <a class="ds-next-opt" href="/workspace?dataset=${esc(id)}"><b>Review the data</b><span class="muted">Check each paper's values against the PDF, correct them, mark them verified.</span></a>
       <div class="ds-next-opt"><b>Add to a workflow</b>
         ${already ? `<span class="muted">${already}</span>`
           : avail.length ? `<span class="muted">A workflow adds checks, a review and releases, and can link this dataset to datasets of other presets over the same papers.</span>
@@ -665,11 +668,11 @@ function renderWorkflowCard(host, w) {
     if (st.kind === "extract" || st.kind === "agent") {
       what = `${st.role ? `<span class="badge" title="the group's dataset of this role">${esc(st.role)}${st.dataset_id && st.dataset_id !== id ? ` · <a href="/dataset?id=${esc(st.dataset_id)}">${esc(dsTitle(st.dataset_id) || "other dataset")}</a>` : st.dataset_id ? " · this dataset" : ""}</span> ` : ""}${esc(st.source === "supplied" ? "uploaded" : "a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
       if (st.work && (st.work.wait_for || st.work.extract || st.work.attach)) what += ` · ${st.work.wait_for || st.work.extract || st.work.attach} new`;
-    } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
+    } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?dataset=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "vocabulary") what = `vocabulary <b>${esc(st.column || "")}</b>${st.version ? ` · v${st.version}` : ""}${mine ? ` · <a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "pages") what = `${esc(st.label || st.group + " pages")} · ${(st.pages || []).map((p) => `<a href="/pages?dataset=${esc(id)}&id=${esc(p.id)}">${esc(p.key)}</a> <span class="badge ${p.status === "committed" ? "tier-human_verified" : ""}">${p.status === "committed" ? `v${p.version}` : "draft"}</span>${p.stale ? `<span class="badge tier-sample_verified">stale</span>` : ""}`).join(" · ") || `<span class="muted">none yet</span>`}${mine ? ` <a class="muted" href="/pages?dataset=${esc(id)}">open</a>` : ""}`;
     else if (st.kind === "derive") what = `over <code>${esc(st.over || "")}</code>${st.version ? ` · v${st.version} (${st.committed_rows || 0} row${st.committed_rows === 1 ? "" : "s"})` : ""}${st.n_calls ? ` · ${st.n_calls} model call${st.n_calls === 1 ? "" : "s"}` : ""}${mine ? ` · <a class="muted" href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.id)}${st.draft_id ? `&id=${esc(st.draft_id)}` : st.derived_id ? `&id=${esc(st.derived_id)}` : ""}">${st.draft_id ? "review the draft" : "open"}</a>` : ""}`;
-    else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?project=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
+    else if (st.kind === "crosscheck") what = `against the companion dataset · see the card above${st.findings && st.findings.findings != null ? ` · ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?dataset=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "review") what = (st.over || []).length > 1 ? `both sides of each paper: ${st.over.join(" → ")}` : st.draft_of ? `the draft of <code>${esc(st.draft_of)}</code>, committed by the owner` : `over <code>${esc((st.over || [])[0] || "")}</code>`;
     else if (st.kind === "release") what = st.release ? `latest v${st.release.number}` : `none yet`;
     const rv = st.review && st.review.mode !== "none" ? st.review : null;
@@ -792,7 +795,7 @@ function renderWorkflowDataset() {
   const cell = (p, m) => {
     const d = p.documents[m.role];
     if (!d) return `<td class="muted">missing</td>`;
-    return `<td><a href="/workspace?project=${esc(id)}&doc=${esc(d.document_id)}">${pl(d.n_records, "record")}</a><span class="muted"> · ${d.n_verified} verified${d.n_flagged ? `, ${d.n_flagged} flagged` : ""}</span></td>`;
+    return `<td><a href="/workspace?dataset=${esc(id)}&doc=${esc(d.document_id)}">${pl(d.n_records, "record")}</a><span class="muted"> · ${d.n_verified} verified${d.n_flagged ? `, ${d.n_flagged} flagged` : ""}</span></td>`;
   };
   const papers = (OV.papers || []).length
     ? `<table class="ds-cc wd-ptable"><thead><tr><th>Paper</th>${linked.map((m) => `<th>${esc(m.label || m.role)}</th>`).join("")}<th>Reviewed</th></tr></thead><tbody>
@@ -806,27 +809,28 @@ function renderWorkflowDataset() {
       <span class="muted">· ${m.dataset.release ? `v${m.dataset.release.number}, ${esc(m.dataset.release.created_at || "")}${m.dataset.release.doi ? ` · DOI ${esc(m.dataset.release.doi)}` : ""}` : "no release yet"}</span></div>`).join("");
   body.innerHTML = `
     <div class="ds-head"><div>
-      <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">Workflow dataset</div>
-      <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled workflow")}${OWNER ? ` <button class="ds-rename" id="ds-rename" title="rename">✎</button>` : ""}</h2>
+      <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">Project</div>
+      <h2 style="margin:.2em 0 4px">${esc(OV.title || "Untitled project")}${OWNER ? ` <button class="ds-rename" id="ds-rename" title="rename">✎</button>` : ""}</h2>
       <div class="muted ds-sub">runs ${wf.has_card ? `<a href="/workflow?id=${esc(wf.id)}">${esc(wf.title || wf.id)}</a>` : esc(wf.title || wf.id || "")} v${esc(String(wf.version || 1))}
         · ${pl(st.n_papers || 0, "paper")}${linked.length > 1 ? ` · ${st.n_complete || 0} with every side` : ""} · ${pl(st.n_records || 0, "record")}</div>
       ${wf.tagline ? `<p class="muted" style="margin:6px 0 0;font-size:13px">${esc(wf.tagline)}</p>` : ""}
     </div></div>
     ${OWNER ? `<div class="ds-actions">
-      ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}">Review the papers</a>` : ""}
+      ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?dataset=${esc(id)}">Review the papers</a>` : ""}
       <a class="btn btn-ghost btn-sm" href="#workflow">Workflow and runs</a>
-      <button type="button" class="btn btn-ghost btn-sm" id="wd-del">Delete workflow dataset</button></div>` : CODER ? `<div class="ds-actions">
-      ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?project=${esc(id)}" title="the papers of every side, coded in your own name">Code the papers</a>` : ""}
-      <a class="btn btn-ghost btn-sm" href="#workflow">Workflow and runs</a> <span class="muted" style="font-size:12.5px">You code this workflow's papers for its owner.</span></div>` : ""}
-    <div class="ds-card" id="wd-members"><div class="ds-card-h">Linked datasets <span class="muted" style="font-weight:400">· one per preset</span></div>
-      <p class="muted" style="font-size:13px;margin:0 0 6px">Each preset's results live in a dataset of their own. This workflow dataset links them, runs the workflow over them and releases them together; it holds no records itself.</p>
+      <button type="button" class="btn btn-ghost btn-sm" id="wd-del">Delete project</button></div>` : CODER ? `<div class="ds-actions">
+      ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?dataset=${esc(id)}" title="the papers of every side, coded in your own name">Code the papers</a>` : ""}
+      <a class="btn btn-ghost btn-sm" href="#tasks">Review tasks</a> <span class="muted" style="font-size:12.5px">You code this project's papers for its owner.</span></div>` : ""}
+    <div class="ds-card" id="wd-members"><div class="ds-card-h">Datasets <span class="muted" style="font-weight:400">· one per preset</span></div>
+      <p class="muted" style="font-size:13px;margin:0 0 6px">Each preset's results live in a dataset of their own. The project links them, runs the workflow over them and releases them together; it holds no records itself.</p>
       ${members.map(memberRow).join("")}<div id="wd-link-form" hidden></div></div>
     ${mine ? codersCard() : ""}
     <span id="workflow"></span><div class="ds-card" id="ds-update" hidden></div>
+    <span id="tasks"></span><div class="ds-card" id="wd-tasks"><div class="ds-card-h">Review tasks <span class="muted" style="font-weight:400;font-size:12.5px">· the review steps of the latest run: who checks what</span></div><div id="wd-tasklist" class="muted" style="font-size:13px">…</div></div>
     <div class="ds-card" id="wd-papers"><div class="ds-card-h">Papers <span class="muted">(${st.n_papers || 0})</span></div>${papers}</div>
     ${made ? `<div class="ds-card"><div class="ds-card-h">Made from the papers</div>${made}</div>` : ""}
     <div class="ds-card" id="wd-rel"><div class="ds-card-h">Releases</div>
-      <p class="muted" style="font-size:13px;margin:0 0 6px">Releasing the workflow freezes each linked dataset under its own number, as long as its review gate is open.</p>
+      <p class="muted" style="font-size:13px;margin:0 0 6px">Releasing the project freezes each of its datasets under its own number, as long as its review gate is open.</p>
       ${rels || `<p class="muted" style="font-size:13px;margin:0">No dataset linked yet.</p>`}
       ${mine && linked.length ? `<div class="ds-relform" style="margin-top:8px"><textarea id="wd-notes" rows="2" placeholder="release notes: what changed and why"></textarea>
         <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="wd-release">Release the linked datasets</button>
@@ -836,7 +840,7 @@ function renderWorkflowDataset() {
   body.querySelectorAll("[data-wd-link]").forEach((b) => (b.onclick = () => openLinkForm(b.dataset.wdLink, $("#wd-link-form"), id, () => location.reload(), b.dataset.wdSource)));
   const del = $("#wd-del");
   if (del) del.onclick = async () => {
-    if (!confirm("Delete this workflow dataset? The linked datasets stay, with all their records and releases; they leave the workflow and become plain datasets again.")) return;
+    if (!confirm("Delete this project? Its datasets stay, with all their records and releases; they leave the workflow and become plain datasets again.")) return;
     try { await api.deleteDataset(id); location.href = "/projects"; } catch (e) { alert(`Delete failed: ${e.message}`); }
   };
   const relBtn = $("#wd-release");
@@ -853,11 +857,44 @@ function renderWorkflowDataset() {
   };
   loadWorkflowCard();
   loadCoders();
+  loadTasks();
 }
 
-// ── coders: the accounts the owner lets code this dataset's papers, each in a coding of their own ──
+// ── the review tasks of a project's latest run: each task's template and datasets, its gate, and
+// who reviews which paper (the owner moves a paper between coders until a verdict was given) ──
+async function loadTasks() {
+  const host = $("#wd-tasklist"); if (!host) return;
+  let tasks = [], me = null;
+  try { tasks = (await api.projectTasks(id)).tasks || []; } catch (e) { host.textContent = e.message; return; }
+  try { me = await api.me(); } catch { /* */ }
+  if (!tasks.length) { host.innerHTML = `<p class="muted" style="margin:0">No run yet. A run opens one task per review step of the workflow.</p>`; return; }
+  const myId = me && me.id;
+  host.innerHTML = tasks.map((t) => {
+    const g = t.gate || {};
+    const what = t.unit === "row" ? `${t.mode === "sample" ? `${t.per_paper || 1} row${(t.per_paper || 1) === 1 ? "" : "s"} of ${esc(t.table || "")} per paper` : `every row of ${esc(t.table || "")}`}`
+      : t.mode === "sample" ? `a sample of ${g.n_target != null ? g.n_target : ""} ${t.unit === "paper" ? "papers" : "records"}` : `every ${t.unit === "paper" ? "paper" : "record"}`;
+    const prog = g.total ? `${g.checked} of ${g.total} checked${g.disagreed ? `, ${g.disagreed} disagreed` : ""}` : g.mode ? "nothing to check" : "not opened yet";
+    const mine = myId && (g.by_coder || []).find((b) => b.user_id === myId);
+    const people = (g.by_coder || []).length ? ` · by coder: ${g.by_coder.map((b) => `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}` : "";
+    const waits = g.needs_coders ? ` · <span class="badge tier-sample_verified">waits for ${g.needs_coders} coders per paper</span>` : "";
+    const matrix = OWNER && (t.assignments || []).length ? `<details class="wd-matrix"><summary class="muted">who reviews which paper (${t.assignments.length})</summary><table class="ds-cc"><thead><tr><th>Paper</th><th>Coders</th></tr></thead><tbody>${t.assignments.map((a) => `<tr><td>${esc(a.title || a.document_id)}</td><td>${a.coders.map((c) => `<span class="badge${c.done ? " tier-human_verified" : ""}" title="${c.done ? "every verdict given" : "still coding"}">${esc(c.label)}${c.done ? " ✓" : ""}</span>`).join(" ")}
+        ${a.coders.some((c) => !c.done) && (OV.coders || []).length > a.coders.length ? ` <select class="wd-move" data-srid="${esc(t.step_run_id)}" data-doc="${esc(a.document_id)}" title="move this paper to another coder (the slot of the first coder who has not given a verdict)"><option value="">move to…</option>${(OV.coders || []).filter((c) => !a.coders.some((x) => x.user_id === c.user_id)).map((c) => `<option value="${esc(c.user_id)}">${esc(c.label)}</option>`).join("")}</select>` : ""}</td></tr>`).join("")}</tbody></table></details>` : "";
+    return `<div class="ds-dashrow wd-task"><span class="wf-kind" title="review">👁</span> <b>${esc(t.label)}</b> ${wfChip(g.pending ? "awaiting_review" : g.satisfied ? "fresh" : t.status, g.pending ? `${g.pending} still to check` : "")}
+      <span class="muted wf-what">${what}${t.template ? ` · template <code>${esc(t.template)}</code>` : ""}${t.coders ? ` · ${t.coders} coder${t.coders === 1 ? "" : "s"} per paper` : ""} · ${prog}${people}${waits}</span>
+      ${mine && mine.pending ? ` <a href="${esc(t.queue)}"><b>code your ${mine.pending} →</b></a>` : OWNER && g.pending && !t.coders ? ` <a href="${esc(t.queue)}">review ${g.pending} →</a>` : ""}${matrix}</div>`;
+  }).join("");
+  host.querySelectorAll(".wd-move").forEach((sel) => (sel.onchange = async () => {
+    const t = tasks.find((x) => x.step_run_id === sel.dataset.srid), a = t && (t.assignments || []).find((x) => x.document_id === sel.dataset.doc);
+    if (!a || !sel.value) return;
+    const slot = a.coders.findIndex((c) => !c.done); if (slot < 0) return;
+    const coders = a.coders.map((c) => c.user_id); coders[slot] = sel.value;
+    try { await api.assignTaskPaper(id, t.step_run_id, { document_id: a.document_id, coders }); loadTasks(); } catch (e) { alert(e.message); sel.value = ""; }
+  }));
+}
+
+// ── people: the accounts the owner lets code this project's papers, each in a coding of their own ──
 function codersCard() {
-  return `<div class="ds-card" id="ds-coders"><div class="ds-card-h">Coders <span class="muted" style="font-weight:400;font-size:12.5px">· accounts that code these papers, each independently</span></div>
+  return `<div class="ds-card" id="ds-coders"><div class="ds-card-h">People <span class="muted" style="font-weight:400;font-size:12.5px">· accounts that code these papers, each independently</span></div>
     <p class="muted" style="font-size:13px;margin:0 0 6px">A coder reads your papers and gives every record their own values, verdict and note — their coding. Coders never see each other's; you see all of them (on a paper: <i>view</i> a coder's coding). Exports and releases carry every coding by label (coder_1, coder_2 …). A workflow step that says <code>coders: N</code> assigns each paper to N of them.</p>
     <div id="ds-coderlist" class="muted" style="font-size:13px">…</div>
     <form id="ds-coderform" style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap"><input id="ds-coderemail" type="email" placeholder="the coder's account email" required style="flex:1;min-width:200px;max-width:320px"/>
@@ -872,10 +909,11 @@ async function loadCoders() {
     const p = prog[b.user_id] || (prog[b.user_id] = { checked: 0, total: 0 }); p.checked += b.checked; p.total += b.total;
   }
   const fromGroup = (c) => c.scope === "group" && OV.kind !== "workflow";
+  if (OV.kind === "workflow") OV.coders = cs;                     // the task matrix offers the project's people
   list.innerHTML = cs.length ? cs.map((c) => `<div class="ds-dashrow"><span class="badge">${esc(c.label)}</span> ${esc(c.email)}
-      <span class="muted">· since ${esc((c.added_at || "").slice(0, 10))}${fromGroup(c) ? " · via the workflow dataset" : ""}${prog[c.user_id] ? ` · ${prog[c.user_id].checked} of ${prog[c.user_id].total} to check done` : ""}</span>
+      <span class="muted">· since ${esc((c.added_at || "").slice(0, 10))}${fromGroup(c) ? " · via the project" : ""}${prog[c.user_id] ? ` · ${prog[c.user_id].checked} of ${prog[c.user_id].total} to check done` : ""}</span>
       ${fromGroup(c) ? "" : `<button type="button" class="btn btn-ghost btn-sm" data-rm-coder="${esc(c.user_id)}" style="margin-left:8px" title="withdraw the access; the coding stays">Remove</button>`}</div>`).join("")
-    : `<p class="muted" style="margin:0">No coders yet. Add an account by its email; the coder then finds this dataset under “Coding for” in their workspace.</p>`;
+    : `<p class="muted" style="margin:0">Nobody yet. Add an account by its email; the person then finds the papers under “Coding for” and their tasks under “My review tasks” in their workspace.</p>`;
   list.querySelectorAll("[data-rm-coder]").forEach((b) => (b.onclick = async () => {
     if (!confirm("Withdraw this coder's access? Their coding stays.")) return;
     try { await api.removeCoder(id, b.dataset.rmCoder); loadCoders(); } catch (e) { alert(e.message); }
@@ -1066,7 +1104,7 @@ function renderAudit() {
     <p class="muted" style="font-size:13px;margin:0 0 10px">What the model extracted and what the review changed, per extraction target. Hover a column for its definition.</p>
     <div class="au-wrap">${auditPageHtml(AUDIT)}</div>
     <details class="au-note"><summary>How this is computed</summary><p>${esc(auditNote(AUDIT))}</p></details>
-    ${AUDIT.n_entries_reviewed < AUDIT.n_entries ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Only ${AUDIT.n_entries_reviewed} of ${AUDIT.n_entries} entries are verified so far. The indices describe the verified part; verify the rest in <a href="/workspace?project=${esc(id)}">Data review</a> to complete the report.</p>` : ""}`;
+    ${AUDIT.n_entries_reviewed < AUDIT.n_entries ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Only ${AUDIT.n_entries_reviewed} of ${AUDIT.n_entries} entries are verified so far. The indices describe the verified part; verify the rest in <a href="/workspace?dataset=${esc(id)}">Data review</a> to complete the report.</p>` : ""}`;
   const slug = (OV.slug || "dataset");
   $("#au-csv").onclick = () => {
     const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;

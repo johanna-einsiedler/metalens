@@ -375,7 +375,7 @@ async function init() {
   window.addEventListener("popstate", onPopState);
   try { ACCOUNT = !!(await api.me()); } catch { ACCOUNT = false; }
   const q = new URLSearchParams(location.search);
-  PROJECT = q.get("project") || null;
+  PROJECT = q.get("dataset") || q.get("project") || null;   // the dataset in view (the old key, project, is read too)
   const docsParam = q.get("docs");    // comma list → scope to one extraction round
   const sinceParam = q.get("since");  // ISO time → docs from this extraction round (live)
   const jobsParam = q.get("jobs");    // comma list of this round's job ids → track pending/errors
@@ -750,7 +750,7 @@ function renderQueueBar() {
   if (!QUEUE) { bar.hidden = true; return; }
   const p = QUEUE.progress || {};
   const done = p.pending === 0;
-  const exit = `/workspace?project=${encodeURIComponent(QUEUE.dataset_id)}`;
+  const exit = `/workspace?dataset=${encodeURIComponent(QUEUE.dataset_id)}`;
   const what = (QUEUE.joint && p.papers ? `${p.papers_done || 0} of ${p.papers} paper${p.papers === 1 ? "" : "s"} done · ` : "")
     + (QUEUE.mode === "sample" ? `${p.drawn} drawn at random${QUEUE.draw && QUEUE.draw.exhaustive ? " (every new one)" : ""}` : `${p.drawn} to review`)
     + (QUEUE.needs_coders ? ` · waits for ${QUEUE.needs_coders} coders` : QUEUE.viewer_coder ? " · your share" : "")
