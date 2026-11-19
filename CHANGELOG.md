@@ -8,6 +8,22 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Row ids on the paper block; the extraction record says more
+
+- A paper-level table's rows carry the same permanent id as a sub-entry's (`_rid`, assigned at
+  ingest, random for a row added by hand — the client gives one, the server adds one to a row
+  that arrives without), and a paper-level quote refers to its row by it: deleting or inserting a
+  row never moves a quote onto its neighbour (`paper_metadata.claims[3]` is brought up to date
+  from the id). The publishable round-trip form carries no id, on the paper block either; the
+  audit diff of a table edit carries none.
+- The `genai-work-extraction` contract (v20, `@cea73929`) gains the task's description, an arm's
+  `treatment`, an outcome's `composite_of`, and four paper tables the pipeline fills — `claims`
+  (the sentences of the text mapped to their estimates and units), `exhibits` (the tables and
+  figures the estimates were read from), `exhibit_cells` (their transcribed cells, each with the
+  estimate it fed) and `flags` (what the checks raised) — with `routed`, `route_reasons` and
+  `triage_score`. The `genai-work` workflow pins it (v3, `@7962f4c3`); the three validation
+  passes still read their own import files until the review templates land.
+
 ### A review is a step
 
 - A workflow's human review is a step of its own (`kind: review`): `over` names the extract steps

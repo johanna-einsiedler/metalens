@@ -413,8 +413,11 @@ export function renderCandidates(f, v, path, opts) {
 
 // A blank row of declared fields, typed like a seeded entry: [] for tables, multi and lists,
 // null for everything else — so every cell is immediately editable.
+// A row added by hand: every declared column blank, and a permanent id of its own (`_rid`,
+// what evidence and a coder's answers refer to), so it never takes a neighbour's.
 export function blankRow(defs) {
-  return Object.fromEntries((defs || []).map((f) => [f.name, f.type === "table" || f.type === "multi" || f.type === "list" ? [] : null]));
+  return { ...Object.fromEntries((defs || []).map((f) => [f.name, f.type === "table" || f.type === "multi" || f.type === "list" ? [] : null])),
+    _rid: `c${Math.random().toString(36).slice(2, 10)}` };
 }
 
 // A sub-entry array: a typed table (one row per element, row-citation cell first) or one

@@ -231,6 +231,8 @@ def verify(conn: psycopg.Connection, record_id: str, coder_user_id: str, *, stat
                     raise ValueError("a patch names a field_path and a value")
                 contract.set_path(fv, p["field_path"], p.get("value"))
             fv_new = fv
+        if fv_new is not None:
+            contract.ensure_row_ids(fv_new)                        # a row added by hand gets its permanent id
         sets, vals = ["updated_at = %s"], [_now()]
         if status not in ("corrected", "noted"):
             sets.append("verification_status = %s"); vals.append(status)
@@ -259,10 +261,13 @@ def set_paper_fields(conn: psycopg.Connection, document_id: str, coder_user_id: 
                            (document_id, coder_user_id)).fetchone()
         raw = copy.deepcopy(own[0] if own and isinstance(own[0], dict) else (row[0] if isinstance(row[0], dict) else {}))
         diff = []
-        for name, value in (fields or {}).items():
+        fields = copy.deepcopy(fields or {})
+        contract.ensure_row_ids(fields)
+        for name, value in fields.items():
             if raw.get(name) == value:
                 continue
-            diff.append({"field_path": f"paper_metadata.{name}", "original_value": raw.get(name), "final_value": value})
+            diff.append({"field_path": f"paper_metadata.{name}", "original_value": contract.strip_row_ids(raw.get(name)),
+                         "final_value": contract.strip_row_ids(value)})
             raw[name] = value
         if diff:
             conn.execute("UPDATE document_coding SET paper_metadata = %s, updated_at = %s WHERE document_id = %s::uuid AND coder_user_id = %s::uuid",

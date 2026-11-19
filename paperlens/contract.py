@@ -25,6 +25,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import uuid
 from typing import Any
 
 # The publishable top-level keys — the de-facto record contract. Anything NOT
@@ -55,11 +56,13 @@ CORE_ARRAY_CANDIDATES: tuple[str, ...] = ("samples", "records", "studies", "summ
 # Where the model's self-assessment lives. ``confidence`` is the declared, publishable,
 # per-instance block; ``extraction_confidence`` is the legacy (non-publishable) one.
 CONFIDENCE_KEY = "confidence"
-# Every sub-entry row and table row carries a permanent id under this key (internal: never
-# published, never shown). Evidence refers to rows by it, so deleting or inserting a row
-# cannot shift a quote onto its neighbour. Rows of the model's output get "o<original index>"
-# (deterministic, so a re-ingest of the same response yields the same ids); rows a reviewer
-# adds get a random id from the client.
+# Every sub-entry row and table row — of an entry and of the paper-level block alike — carries
+# a permanent id under this key (internal: never shown, stripped from the publishable
+# round-trip form; the owner's exports keep it so a coder's answers on a row can be joined to
+# it). Evidence refers to rows by it, so deleting or inserting a row cannot shift a quote onto
+# its neighbour. Rows of the model's output get "o<original index>" (deterministic, so a
+# re-ingest of the same response yields the same ids); a row a reviewer adds gets a random id
+# from the client, or from ``ensure_row_ids`` when it arrives without one.
 ROW_ID_KEY = "_rid"
 
 
@@ -80,6 +83,22 @@ def assign_row_ids(field_values: dict) -> None:
                         inner.setdefault(ROW_ID_KEY, f"o{r}")
 
 
+def ensure_row_ids(field_values: dict) -> None:
+    """Give a row that arrived without an id (added by hand, or by a client before ids) a fresh
+    random one, in place; rows with an id keep it. Same reach as ``assign_row_ids``."""
+    if not isinstance(field_values, dict):
+        return
+    for v in field_values.values():
+        if not is_rows(v):
+            continue
+        for row in v:
+            row.setdefault(ROW_ID_KEY, f"n{uuid.uuid4().hex[:8]}")
+            for vv in row.values():
+                if is_rows(vv):
+                    for inner in vv:
+                        inner.setdefault(ROW_ID_KEY, f"n{uuid.uuid4().hex[:8]}")
+
+
 def strip_row_ids(node):
     """A deep copy of ``node`` without any row id (what leaves the system)."""
     if isinstance(node, dict):
@@ -89,7 +108,8 @@ def strip_row_ids(node):
     return node
 
 
-_ROW_PATH = re.compile(r"^(?:[^.\[]+(?:\._table)?\[\d+\]\.)?(?P<a>[A-Za-z_]\w*)\[(?P<j>\d+)\]"
+# an entry's path ("tasks[0].arms[1]…"), or a paper-level one ("paper_metadata.claims[3]…")
+_ROW_PATH = re.compile(r"^(?:paper_metadata\.|[^.\[]+(?:\._table)?\[\d+\]\.)?(?P<a>[A-Za-z_]\w*)\[(?P<j>\d+)\]"
                        r"(?:\.(?P<b>[A-Za-z_]\w*)\[(?P<r>\d+)\])?(?P<rest>(?:\..*)?)$")
 
 
