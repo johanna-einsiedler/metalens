@@ -2414,29 +2414,12 @@ class ReleaseBody(BaseModel):
 
 
 def _release_members(db, grp: dict, who: Principal, body: ReleaseBody, *, skip: str | None = None) -> tuple[list[dict], list[str]]:
-    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate.
-    Returns ``(released, problems)``; a member's own problem never undoes the others."""
+    """Freeze every linked dataset of a group (but ``skip``), each under its own number and gate
+    (``releases.release_members``). Returns ``(released, problems)``."""
     from . import releases
-    done, problems = [], []
-    for role, info in grp["roles"].items():
-        if info["dataset_id"] == skip:
-            continue
-        try:
-            if not records.dataset_records_all_owned(db, info["dataset_id"], who):
-                problems.append(f"{role}: not released — it holds records you don't own")
-                continue
-            other_last = releases.latest(db, info["dataset_id"])
-            if other_last and not releases.changed_since(db, info["dataset_id"], other_last):
-                done.append({"role": role, "dataset_id": info["dataset_id"], "number": other_last["number"], "unchanged": True})
-                continue
-            orel = releases.create(db, info["dataset_id"], reason="group", notes=body.notes, created_by=who.user_id,
-                                   allow_stale=body.allow_stale, override_gates=body.override_gates)
-            done.append({"role": role, "dataset_id": info["dataset_id"], "number": orel["number"]})
-        except releases.GateClosed as exc:
-            problems.append(f"{role}: not released — {exc}")
-        except Exception as exc:  # noqa: BLE001 - the member's own problem never undoes this release
-            problems.append(f"{role}: not released — {exc}")
-    return done, problems
+    done, problems = releases.release_members(db, grp, notes=body.notes, created_by=who.user_id, allow_stale=body.allow_stale,
+                                              override_gates=body.override_gates, who=who, skip=skip)
+    return [{k: m[k] for k in ("role", "dataset_id", "number", "unchanged") if k in m and not (k == "unchanged" and not m[k])} for m in done], problems
 
 
 @app.post("/api/datasets/{dataset_id}/releases")
@@ -4709,6 +4692,73 @@ def project_task_config(project_id: str, step_id: str, body: TaskConfigBody, db=
         raise HTTPException(status_code=422, detail=str(exc))
     db.commit()
     return {"step_id": step_id, "config": cfg, "tasks": projects.tasks(db, p)}
+
+
+@app.get("/api/projects/{project_id}/releases")
+def project_releases(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The project's releases, newest first — each with its members' numbers, the workflow and run,
+    the review statistics and the badge; the owner also learns whether the project moved since."""
+    from . import releases
+    p, role = _project_or_404(db, project_id, who)
+    rows = releases.list_project(db, project_id)
+    out = {"releases": [releases.public_project_row(r) for r in rows]}
+    if role == "owner":
+        out["head"] = {"changed": releases.changed_since_project(db, p, rows[0] if rows else None)}
+    return out
+
+
+@app.post("/api/projects/{project_id}/releases")
+def project_release_create(project_id: str, body: ReleaseBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: cut a project release — every linked dataset under its own number (kept when
+    unchanged), the workflow and its newest run, the review statistics per task and coder, one
+    badge over all. 409 while the project's gate holds (unless overridden, recorded) or when
+    nothing moved since the last one."""
+    from . import releases
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner releases a project.")
+    last = releases.latest_project(db, project_id)
+    if last and not releases.changed_since_project(db, p, last):
+        raise HTTPException(status_code=409, detail=f"Nothing changed since project release v{last['number']}.")
+    try:
+        rel = releases.create_project(db, p, notes=body.notes, created_by=who.user_id, allow_stale=body.allow_stale,
+                                      override_gates=body.override_gates, who=who)
+    except releases.GateClosed as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc), "gate": exc.gate})
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return releases.public_project_row(rel)
+
+
+@app.get("/api/projects/{project_id}/releases/{number}")
+def project_release_get(project_id: str, number: int, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    from . import releases
+    _project_or_404(db, project_id, who)
+    rel = releases.get_project(db, project_id, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such project release.")
+    return releases.public_project_row(rel)
+
+
+@app.get("/api/projects/{project_id}/releases/{number}/export")
+def project_release_export(project_id: str, number: int, file: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)):
+    """A project release as static files: ``project.json``, ``README.md`` and every member's own
+    release files under ``members/<role>/`` — a zip, or one file with ``?file=``."""
+    from . import release_export, releases
+    p, _role = _project_or_404(db, project_id, who)
+    rel = releases.get_project(db, project_id, number)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="No such project release.")
+    files = release_export.build_project(db, p, rel)
+    if file:
+        if file not in files:
+            raise HTTPException(status_code=404, detail="This release has no such file.")
+        kind = "text/markdown; charset=utf-8" if file.endswith(".md") else "application/json"
+        return Response(content=files[file], media_type=kind)
+    name = f"{(p.get('slug') or 'project')}-v{number}"
+    return Response(content=release_export.as_zip(files, name), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.zip"'})
 
 
 @app.get("/api/me/tasks")

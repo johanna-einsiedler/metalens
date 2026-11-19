@@ -8,6 +8,16 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Project releases
+
+- A project is released as one (`project_release`, `POST /api/projects/{id}/releases`): every
+  linked dataset under its own number (kept when unchanged), the workflow's contract and its newest
+  run, the review statistics per task and coder, one badge over all the datasets, the gate as it
+  stood (held unless overridden, recorded). `GET …/releases[/{n}]` and `…/{n}/export` (a zip of
+  `project.json`, `README.md` and every member's release files under `members/<role>/`). The project
+  page's Releases card lists them and releases through the project. A member's frozen findings and
+  sample draws now read its project's runs, and a member's fingerprint moves with them.
+
 ### Access follows the task; the GenAI-at-work workflow reads one record
 
 - A person added to a project is in its pool — a label and the project's page — and reads the

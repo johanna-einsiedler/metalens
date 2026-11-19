@@ -199,6 +199,66 @@ def build(conn, release: dict) -> dict[str, bytes]:
     return files
 
 
+def build_project(conn, project: dict, rel: dict) -> dict[str, bytes]:
+    """{relative path: file content} for a project release: ``project.json`` (the release, the
+    workflow and its run, the members with their numbers, the review statistics per task and
+    coder, the badge), ``README.md``, and under ``members/<role>/`` every member's own release
+    files as ``build`` makes them."""
+    from . import releases
+    meta = {"format": FORMAT, "format_version": FORMAT_VERSION, "kind": "project",
+            "project": {"id": project["id"], "title": project.get("title"), "description": project.get("description"), "slug": project.get("slug"),
+                        "url": f"{brands.public_url()}/project?id={project['id']}"},
+            "release": {k: rel.get(k) for k in ("number", "created_at", "notes", "content_sha", "doi", "zenodo_url", "published_at", "gates")},
+            "workflow": {"contract": rel.get("workflow_contract"), "spec_sha": rel.get("workflow_spec_sha"), "run_id": rel.get("workflow_run_id")},
+            "review": rel.get("review"), "credibility": rel.get("credibility"), "stats": rel.get("stats"), "engine": rel.get("engine"),
+            "members": [], "files": ["project.json", "README.md"]}
+    files: dict[str, bytes] = {}
+    for m in rel.get("members") or []:
+        mrel = releases.get(conn, m["release_id"], with_snapshot=True) if m.get("release_id") else None
+        ds = records.get_dataset(conn, m["dataset_id"]) or {}
+        folder = f"members/{m['role']}"
+        item = {"role": m["role"], "dataset": {"id": m["dataset_id"], "title": ds.get("title"), "slug": ds.get("slug")},
+                "release": {"number": m.get("number"), "content_sha": m.get("content_sha"), "unchanged": bool(m.get("unchanged"))}, "folder": folder, "files": []}
+        if mrel:
+            sub = build(conn, mrel)
+            for path, content in sub.items():
+                files[f"{folder}/{path}"] = content
+            item["files"] = sorted(sub)
+            item["credibility"] = mrel.get("credibility")
+            item["stats"] = mrel.get("stats")
+        meta["members"].append(item)
+    meta["files"] = sorted(set(meta["files"]) | {f for f in files})
+    files["project.json"] = json.dumps(meta, ensure_ascii=False, indent=1, default=str).encode("utf-8")
+    files["README.md"] = _project_readme(meta).encode("utf-8")
+    return files
+
+
+def _project_readme(meta: dict) -> str:
+    rel, pj = meta["release"], meta["project"]
+    cred = meta.get("credibility") or {}
+    lines = [f"# {pj.get('title') or 'Project'} — release v{rel['number']}", "",
+             f"Frozen on {str(rel.get('created_at'))[:10]} · content sha256 `{rel.get('content_sha')}` · {cred.get('label') or ''}"
+             + (f" · DOI [{rel['doi']}](https://doi.org/{rel['doi']})" if rel.get("doi") else ""), ""]
+    wf = meta.get("workflow") or {}
+    if wf.get("contract"):
+        lines += [f"Built with workflow `{wf['contract']}`" + (f", run `{wf['run_id']}`" if wf.get("run_id") else "") + " — see `workflow` and `review` in `project.json`.", ""]
+    lines += ["## Datasets", ""]
+    for m in meta.get("members") or []:
+        r = m.get("release") or {}
+        lines.append(f"- `{m['folder']}/` — {m['dataset'].get('title') or m['role']} (role `{m['role']}`), release v{r.get('number')}"
+                     + (" (unchanged since the previous project release)" if r.get("unchanged") else "") + f": {', '.join(m.get('files') or []) or 'no files'}")
+    rv = meta.get("review") or {}
+    if rv.get("tasks"):
+        lines += ["", "## Review tasks", ""]
+        for t in rv["tasks"]:
+            by = ", ".join(f"{b.get('label')} {b.get('checked', 0)}/{b.get('total', 0)}" for b in t.get("by_coder") or [])
+            lines.append(f"- **{t.get('label')}** (`{t.get('step_id')}`" + (f", template `{t.get('template_id') or t.get('template')}`" if t.get("template") else "") + ")"
+                         f": {t.get('checked', 0)} of {t.get('total', 0)} checked, {t.get('disagreed', 0)} disagreed" + (f" · by coder: {by}" if by else "")
+                         + (" · released with the gate overridden" if t.get("overridden_by") else ""))
+    lines += ["", "Every member's files are its own release's, as `README.md` in each folder says. Made with Metalens.", ""]
+    return "\n".join(lines)
+
+
 def _readme(meta: dict) -> str:
     rel, ds = meta["release"], meta["dataset"]
     lines = [f"# {ds.get('title') or 'Dataset'} — release v{rel['number']}", "",

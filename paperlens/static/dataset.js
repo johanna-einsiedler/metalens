@@ -829,11 +829,12 @@ function renderWorkflowDataset() {
     <span id="tasks"></span><div class="ds-card" id="wd-tasks"><div class="ds-card-h">Review tasks <span class="muted" style="font-weight:400;font-size:12.5px">· the review steps of the latest run: who checks what</span></div><div id="wd-tasklist" class="muted" style="font-size:13px">…</div></div>
     <div class="ds-card" id="wd-papers"><div class="ds-card-h">Papers <span class="muted">(${st.n_papers || 0})</span></div>${papers}</div>
     ${made ? `<div class="ds-card"><div class="ds-card-h">Made from the papers</div>${made}</div>` : ""}
-    <div class="ds-card" id="wd-rel"><div class="ds-card-h">Releases</div>
-      <p class="muted" style="font-size:13px;margin:0 0 6px">Releasing the project freezes each of its datasets under its own number, as long as its review gate is open.</p>
+    <div class="ds-card" id="wd-rel"><div class="ds-card-h">Releases <span class="muted" style="font-weight:400;font-size:12.5px">· one number for the project: its datasets, the workflow and run, the review statistics</span></div>
+      <div id="wd-prels" class="muted" style="font-size:13px">…</div>
+      <p class="muted" style="font-size:13px;margin:8px 0 6px">A project release freezes each of its datasets under its own number (kept when unchanged), as long as the project's gate is open. The datasets' own latest releases:</p>
       ${rels || `<p class="muted" style="font-size:13px;margin:0">No dataset linked yet.</p>`}
       ${mine && linked.length ? `<div class="ds-relform" style="margin-top:8px"><textarea id="wd-notes" rows="2" placeholder="release notes: what changed and why"></textarea>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="wd-release">Release the linked datasets</button>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button type="button" class="btn btn-primary btn-sm" id="wd-release">Release the project</button>
         <label class="muted" style="font-size:12.5px"><input type="checkbox" id="wd-anyway"/> release even where a gate still holds (recorded)</label></div>
         <div id="wd-relmsg" style="font-size:13px;margin-top:6px"></div></div>` : ""}</div>`;
   const ren = $("#ds-rename"); if (ren) ren.onclick = doRename;
@@ -848,16 +849,34 @@ function renderWorkflowDataset() {
     const anyway = $("#wd-anyway").checked, msg = $("#wd-relmsg");
     relBtn.disabled = true; msg.textContent = "Releasing…";
     try {
-      const out = await api.createRelease(id, { notes: $("#wd-notes").value, allow_stale: anyway, override_gates: anyway });
-      const made = (out.group || []).map((g) => `${g.role} v${g.number}${g.unchanged ? " (unchanged)" : ""}`).join(", ");
-      msg.innerHTML = `${made ? `Released: ${esc(made)}.` : "Nothing was released."}${(out.problems || []).length ? `<div class="ds-relwarn">${out.problems.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : ""}`;
-      if (made) setTimeout(() => location.reload(), 1500);
+      const out = await api.createProjectRelease(id, { notes: $("#wd-notes").value, allow_stale: anyway, override_gates: anyway });
+      const made = (out.members || []).map((g) => `${g.role} v${g.number}${g.unchanged ? " (unchanged)" : ""}`).join(", ");
+      const probs = ((out.stats || {}).problems || []);
+      msg.innerHTML = `Project release v${out.number}: ${esc(made)}.${probs.length ? `<div class="ds-relwarn">${probs.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : ""}`;
+      setTimeout(() => location.reload(), 1500);
     } catch (e) { msg.textContent = `✗ ${e.message}`; }
     relBtn.disabled = false;
   };
   loadWorkflowCard();
   loadCoders();
   loadTasks();
+  loadProjectReleases();
+}
+
+// ── the project's releases: one number each, its datasets' numbers, the review statistics, the badge ──
+async function loadProjectReleases() {
+  const host = $("#wd-prels"); if (!host) return;
+  let r; try { r = await api.projectReleases(id); } catch (e) { host.textContent = e.message; return; }
+  const list = r.releases || [];
+  if (!list.length) { host.innerHTML = `<p class="muted" style="margin:0">No project release yet.</p>`; return; }
+  host.innerHTML = list.map((x) => {
+    const members = (x.members || []).map((m) => `${esc(m.role)} v${m.number}${m.unchanged ? " (unchanged)" : ""}`).join(", ");
+    const tasks = ((x.review || {}).tasks || []).map((t) => `${esc(t.label)} ${t.checked}/${t.total}${t.disagreed ? ` (${t.disagreed} disagreed)` : ""}`).join(" · ");
+    const cred = x.credibility || {};
+    return `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc((x.created_at || "").slice(0, 10))}</span> ${cred.label ? `<span class="badge tier-${esc(cred.tier || "")}" title="${esc(cred.label_long || "")}">${esc(cred.label)}</span>` : ""}
+      <span class="muted">· ${members}${tasks ? ` · ${tasks}` : ""}${x.gates && (x.gates.gates_overridden || x.gates.stale_overridden) ? " · gate overridden" : ""}</span>
+      <a class="muted" href="/api/projects/${esc(id)}/releases/${x.number}/export" title="project.json, README.md and every dataset's release files, as a zip">⬇ files</a>${x.notes ? `<div class="muted" style="font-size:12.5px">${esc(x.notes)}</div>` : ""}</div>`;
+  }).join("") + (r.head && r.head.changed ? `<p class="muted" style="margin:4px 0 0;font-size:12.5px">The project moved since v${list[0].number}.</p>` : "");
 }
 
 // ── the review tasks of a project's latest run: each task's template and datasets, its gate, and

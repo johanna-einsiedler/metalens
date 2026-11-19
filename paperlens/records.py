@@ -1573,8 +1573,9 @@ def _samples_for(conn: psycopg.Connection, dataset_ids: list[str]) -> dict[str, 
     try:
         from . import review_gate
         with_draws = {str(r[0]) for r in conn.execute(
-            """SELECT DISTINCT r.dataset_id FROM workflow_run r JOIN workflow_step_run sr ON sr.run_id = r.id
-               WHERE r.dataset_id = ANY(%s::uuid[]) AND sr.review ->> 'mode' = 'sample'""", (dataset_ids,)).fetchall()}
+            """SELECT DISTINCT d.id FROM dataset d JOIN workflow_run r ON (r.dataset_id = d.id OR (d.group_id IS NOT NULL AND r.group_id = d.group_id))
+               JOIN workflow_step_run sr ON sr.run_id = r.id
+               WHERE d.id = ANY(%s::uuid[]) AND sr.review ->> 'mode' = 'sample'""", (dataset_ids,)).fetchall()}
         for did in with_draws:
             smp = review_gate.dataset_sample(conn, did)
             if smp:

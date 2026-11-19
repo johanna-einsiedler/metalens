@@ -874,6 +874,33 @@ CREATE TABLE IF NOT EXISTS workflow_assignment (             -- which coder revi
     UNIQUE (step_run_id, document_id, coder_user_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_assignment_coder_idx ON workflow_assignment(coder_user_id);
+-- a PROJECT RELEASE: every linked dataset released under its own number (members), the workflow and
+-- the run behind them, the review statistics per task and coder, one badge over all — one number per project
+CREATE TABLE IF NOT EXISTS project_release (
+    id                uuid PRIMARY KEY,
+    project_id        uuid NOT NULL REFERENCES dataset(id) ON DELETE CASCADE,
+    number            integer NOT NULL,
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    created_by        uuid,
+    notes             text,
+    workflow_contract text NOT NULL,
+    workflow_spec_sha text,
+    workflow_run_id   uuid,
+    gates             jsonb,
+    members           jsonb NOT NULL,       -- [{role, dataset_id, release_id, number, content_sha, unchanged}]
+    content_sha       text NOT NULL,
+    stats             jsonb,
+    credibility       jsonb,
+    review            jsonb,                -- per task: the gate's counts and each coder's
+    engine            jsonb,
+    doi               text,
+    zenodo_record_id  bigint,
+    zenodo_url        text,
+    doi_minted_at     timestamptz,
+    published_at      timestamptz,
+    UNIQUE (project_id, number)
+);
+CREATE INDEX IF NOT EXISTS project_release_project_idx ON project_release(project_id, number DESC);
 -- a project's hand on a task: how many of its people review each paper of the step, or which ones
 -- ({"coders": N | [user ids]}); read when the step's gate opens, over the workflow's own `coders`
 CREATE TABLE IF NOT EXISTS project_task_config (
