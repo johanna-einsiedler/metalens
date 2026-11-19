@@ -8,6 +8,15 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Unit fields stacked; the grammar tests follow the renderer
+
+- A template block may say `stack: true`: its shown fields are drawn one under the other — a
+  task's name, its description beneath; an arm's label, then its treatment — instead of side by
+  side. The judgment template's tasks, arms and outcomes stack.
+- The three JavaScript grammar tests CI had failed on since 30 October now expect what the renderer
+  draws: a field's one ⓘ carrying its help and every option's definition, and a row id (`_rid`) on
+  every blank row.
+
 ### The validation presets retired; the seeder seeds a project
 
 - The three validation presets of the GenAI-at-work review (`genai-work-judgment`,

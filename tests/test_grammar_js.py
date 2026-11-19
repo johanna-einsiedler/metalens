@@ -21,6 +21,7 @@ RESULTS = {"key": "results", "label": "Result", "layout": "table",
            "fields": [{"name": "measure", "type": "string"}, {"name": "mean", "type": "number"}]}
 TAGS = {"name": "tags", "type": "multi", "options": [{"value": "a", "label": "A"}, "b"], "allow_other": True}
 TAGS_CLOSED = {"name": "tags", "type": "multi", "options": ["a", "b"]}
+PLAIN_STRING = {"name": "note", "type": "string", "label": "Note"}       # no help, no options: nothing for a tip to say
 HELPED_MULTI = {"name": "src", "type": "multi", "label": "Source", "help": "all that apply",
                 "options": [{"value": "exp", "label": "experimental", "help": "data from an experiment"}, {"value": "survey", "label": "survey"}]}
 HELPED_ENUM = {"name": "design", "type": "enum", "label": "Design", "help": "the main comparison",
@@ -63,13 +64,16 @@ def test_sub_entries_carry_add_and_remove_buttons_when_editable() -> None:
     cards = out["cards"]
     assert cards.count('class="rv-addrow" data-path="arms"') == 1 and "＋ Arm" in cards
     assert cards.count('class="rv-rowdel" data-path="arms" data-row=') == 2
-    assert 'data-blank="{&quot;arm_id&quot;:null,&quot;n_arm&quot;:null,&quot;tags&quot;:[]}"' in cards
+    import html as _html, re as _re
+    blank = json.loads(_html.unescape(_re.search(r'data-blank="([^"]*)"', cards).group(1)))
+    assert {k: v for k, v in blank.items() if k != "_rid"} == {"arm_id": None, "n_arm": None, "tags": []} and blank["_rid"].startswith("c")   # a row id of its own
     assert 'data-path="arms[1].n_arm"' in cards                                  # paths keep the real index
     table = out["table"]
     assert 'class="rv-rowdel-h"' in table and table.count('class="rv-rowdel"') == 1 and "＋ Result" in table
     assert "rv-addrow" in out["empty"] and "rv-addrow" in out["missing"]      # the first row can always be created
     assert "rv-addrow" not in out["readonly"] and "rv-rowdel" not in out["readonly"]
-    assert json.loads(out["blank"]) == {"arm_id": None, "n_arm": None, "tags": []}
+    fresh = json.loads(out["blank"])
+    assert {k: v for k, v in fresh.items() if k != "_rid"} == {"arm_id": None, "n_arm": None, "tags": []} and fresh["_rid"].startswith("c")
 
 
 def test_only_and_show_draw_a_subset_without_the_buttons() -> None:
@@ -113,11 +117,11 @@ def test_option_help_becomes_hover_titles() -> None:
         "multi": {"fields": [HELPED_MULTI], "obj": {"src": ["exp"]}, "opts": {"editable": True}},
         "enum_rct": {"fields": [HELPED_ENUM], "obj": {"design": "rct"}, "opts": {"editable": True}},
         "enum_none": {"fields": [HELPED_ENUM], "obj": {"design": None}, "opts": {"editable": True}},
-        "plain": {"fields": [TAGS_CLOSED], "obj": {"tags": []}, "opts": {"editable": True}},
+        "plain": {"fields": [PLAIN_STRING], "obj": {"note": "x"}, "opts": {"editable": True}},
     })
     m = out["multi"]
     assert '<label class="rv-chk" title="data from an experiment" data-tip="data from an experiment">' in m and '<label class="rv-chk"><input type="checkbox" value="survey"' in m
-    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply" data-tip="all that apply">Source<span class="rv-help" title="all that apply" data-tip="all that apply" tabindex="0">ⓘ</span>' in m
+    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply\nexperimental — data from an experiment\nsurvey" data-tip="all that apply\nexperimental — data from an experiment\nsurvey">Source<span class="rv-help" title="all that apply\nexperimental — data from an experiment\nsurvey" data-tip="all that apply\nexperimental — data from an experiment\nsurvey" tabindex="0">ⓘ</span>' in m
     e = out["enum_rct"]
     assert '<option value="rct" selected title="random assignment">RCT</option>' in e and '<option value="obs" title="no assignment">' in e
     assert '<select class="rv-select" data-help="the main comparison" title="random assignment" data-tip="random assignment">' in e      # the chosen option's definition
@@ -128,19 +132,19 @@ def test_option_help_becomes_hover_titles() -> None:
 def test_help_becomes_immediate_tips() -> None:
     """Every carrier of help carries data-tip for the custom tooltip: the field label and its ⓘ
     (the field's help), each multi checkbox label (its option's definition), the select (the chosen
-    option's definition) and a ⓘ after the select listing every option as "label — definition"
-    under the field's help."""
+    option's definition) and the select (the chosen option's definition); the field's one ⓘ lists
+    every option as "label — definition" under the field's help (no second ⓘ after the select)."""
     out = _render({
         "multi": {"fields": [HELPED_MULTI], "obj": {"src": ["exp"]}, "opts": {"editable": True}},
         "enum_rct": {"fields": [HELPED_ENUM], "obj": {"design": "rct"}, "opts": {"editable": True}},
-        "plain": {"fields": [TAGS_CLOSED], "obj": {"tags": []}, "opts": {"editable": True}},
+        "plain": {"fields": [PLAIN_STRING], "obj": {"note": "x"}, "opts": {"editable": True}},
     })
     m = out["multi"]
-    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply" data-tip="all that apply">Source<span class="rv-help" title="all that apply" data-tip="all that apply" tabindex="0">ⓘ</span>' in m
+    assert 'class="rv-key rv-key-help" data-path="src" title="all that apply\nexperimental — data from an experiment\nsurvey" data-tip="all that apply\nexperimental — data from an experiment\nsurvey">Source<span class="rv-help" title="all that apply\nexperimental — data from an experiment\nsurvey" data-tip="all that apply\nexperimental — data from an experiment\nsurvey" tabindex="0">ⓘ</span>' in m
     assert '<label class="rv-chk" title="data from an experiment" data-tip="data from an experiment">' in m
     e = out["enum_rct"]
     assert '<select class="rv-select" data-help="the main comparison" title="random assignment" data-tip="random assignment">' in e
-    assert '<span class="rv-help rv-opt-help" data-tip="the main comparison\nRCT — random assignment\nobservational — no assignment" title="the main comparison\nRCT — random assignment\nobservational — no assignment" tabindex="0">ⓘ</span></span>' in e
+    assert 'data-path="design" title="the main comparison\nRCT — random assignment\nobservational — no assignment"' in e and "rv-opt-help" not in e   # one ⓘ, on the label
     assert "data-tip" not in out["plain"]
 
 

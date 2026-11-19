@@ -292,6 +292,7 @@
             "task_description"
           ],
           "mask_numbers": true,
+          "stack": true,
           "questions": [
             {
               "name": "category",
@@ -353,6 +354,7 @@
           ],
           "group_by_entry": true,
           "mask_numbers": true,
+          "stack": true,
           "marks": [
             {
               "when": "is_baseline",
@@ -432,6 +434,7 @@
           ],
           "group_by_entry": true,
           "mask_numbers": true,
+          "stack": true,
           "marks": [
             {
               "when_nonempty": "composite_of",

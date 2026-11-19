@@ -393,7 +393,8 @@ enum, multi, list), `label`, `help`, `options` or `options_from` (an enum or mul
 preset, or several with a value `prefix` and a `label_prefix`), `allow_other`, `required`,
 `required_when` (the same small grammar, over the unit's values and its answers). `add` lets the
 coder add a unit the paper has and the list lacks: its `fields` are answered like questions, under
-a key of the coder's own. `sections` and `inline` lay the block out as a stage does. `blind.fields`
+a key of the coder's own. `sections` and `inline` lay the block out as a stage does; `stack: true`
+draws the shown fields one under the other — a task's name, its description beneath — not side by side. `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
