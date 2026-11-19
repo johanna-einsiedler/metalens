@@ -1323,7 +1323,13 @@ def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
                                           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false) ORDER BY ed.id""", (d_id,)).fetchall():
                 if did not in doc_ids:
                     doc_ids.append(did)
-    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": over, "whole": whole, "datasets": datasets}
+    if rv.get("where") and rv.get("unit") != "row" and doc_ids:    # the papers the review keeps (a row review filters rows instead)
+        from . import templates
+        pms = {did: (pm if isinstance(pm, dict) else {}) for did, pm in conn.execute(
+            "SELECT id::text, paper_metadata_raw FROM extraction_document WHERE id = ANY(%s::uuid[])", (doc_ids,)).fetchall()}
+        doc_ids = [d for d in doc_ids if templates.where_match(pms.get(d) or {}, rv["where"], paper=pms.get(d) or {})]
+    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": over, "whole": whole, "datasets": datasets,
+               **({"where": rv["where"]} if rv.get("where") else {})}
     _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, run["dataset_id"]))
     sr = get_step_run(conn, sr["id"])
     header = review_gate.open_gate(conn, sr, st)

@@ -633,11 +633,45 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
         E(f"{at}.mode: a review step reviews — 'all' or 'sample' (leave the step out for no review)"); return
     unit = st.get("unit")
     if unit not in REVIEW_UNITS:
-        E(f"{at}.unit must be 'entry' or 'paper'")
-    elif unit == "row":
-        E(f"{at}.unit 'row' (a paper table's rows) arrives in a later release")
+        E(f"{at}.unit must be 'entry', 'paper' or 'row'")
     elif draft and unit != "entry":
         E(f"{at}.unit: a draft is reviewed as entries")
+    # unit row: the units are the rows of a paper table of the read presets (one exhibit of each
+    # paper, say); a sample draws per_paper of them per paper; where filters the rows
+    cols: dict[str, dict] = {}
+    if unit == "row":
+        table = st.get("table")
+        if not isinstance(table, str):
+            E(f"{at}.table must name a paper table of the preset — the rows unit 'row' reviews")
+        else:
+            for o in over:
+                pspec = presets_of.get(o)
+                if pspec is None:
+                    continue
+                t = next((f for f in (pspec.get("paper") or {}).get("fields") or [] if isinstance(f, dict) and f.get("name") == table), None)
+                if t is None or t.get("type") != "table":
+                    E(f"{at}.table: {table!r} is not a paper table of the preset of {o!r}")
+                else:
+                    cols = {c.get("name"): c for c in t.get("columns") or [] if isinstance(c, dict) and c.get("name")}
+        pp = st.get("per_paper")
+        if st.get("mode") == "sample":
+            if not (isinstance(pp, int) and not isinstance(pp, bool) and pp >= 1):
+                E(f"{at}.per_paper must be an integer ≥ 1 — how many rows a sample draws per paper")
+            for k in ("n", "share"):
+                if st.get(k) is not None:
+                    E(f"{at}.{k} does not apply to a sample of rows: per_paper says how many")
+        elif pp is not None:
+            W(f"{at}.per_paper only applies to mode 'sample'")
+    else:
+        for k in ("table", "per_paper"):
+            if st.get(k) is not None:
+                E(f"{at}.{k} only applies to unit 'row'")
+    where = st.get("where")                                   # rows (unit row) or papers (the others) the review keeps
+    if where is not None:
+        from . import templates
+        pspec0 = next((presets_of.get(o) for o in over if presets_of.get(o) is not None), None)
+        fields = cols if unit == "row" else (templates.unit_fields(pspec0, "paper", None) if pspec0 else {})
+        templates._validate_where(where, fields, pspec0, f"{at}.where", E)   # noqa: SLF001 - one grammar for steps, blocks and the sampler
     if st.get("blocks") not in BLOCKS:
         E(f"{at}.blocks must be 'next' or 'release'")
     if not isinstance(st.get("oversample_flagged", False), bool):
@@ -650,9 +684,6 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
         else:
             from . import templates
             templates.validate_for_step(st, by_id, at, E)
-    for k in ("where", "table", "per_paper"):
-        if st.get(k) is not None:
-            E(f"{at}.{k} arrives in a later release")
     coders = st.get("coders")                               # each paper reviewed by N of the coders, independently
     if coders is not None:
         if not (isinstance(coders, int) and not isinstance(coders, bool) and coders >= 1):
@@ -667,7 +698,7 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
     if draft:
         E(f"{at}: a draft is reviewed whole — mode 'all'")
     has_n, has_share = st.get("n") is not None, st.get("share") is not None
-    if has_n == has_share:
+    if has_n == has_share and unit != "row":
         E(f"{at}: a sample names exactly one of n (a count) or share (a fraction)")
     if has_n and not (isinstance(st["n"], int) and st["n"] >= 1):
         E(f"{at}.n must be an integer ≥ 1")
@@ -687,10 +718,10 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
                 pspec = presets_of.get(o)
                 if pspec is None:
                     continue
-                allowed = _paper_fields(pspec) if unit == "paper" else _scalar_entry_fields(pspec)
+                allowed = {n for n, c in cols.items() if c.get("type") != "table"} if unit == "row" else _paper_fields(pspec) if unit == "paper" else _scalar_entry_fields(pspec)
                 for x in strat:
                     if x not in allowed:
-                        E(f"{at}.stratify: {x!r} is not a {'paper-level' if unit == 'paper' else 'scalar entry'} field of the preset of {o!r}")
+                        E(f"{at}.stratify: {x!r} is not a {'column of the table' if unit == 'row' else 'paper-level' if unit == 'paper' else 'scalar entry'} field of the preset of {o!r}")
 
 
 # ── identity ──────────────────────────────────────────────────────────────────

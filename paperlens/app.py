@@ -558,6 +558,13 @@ def _task_of(db, task: str, who: Principal) -> tuple[dict, dict | None, dict]:
     return run, tpl, st
 
 
+def _task_sampled(db, run: dict, step_id: str, document_id: str) -> dict | None:
+    """The document's drawn rows in a task whose review is of rows (``unit: row``), else None."""
+    from . import review_gate, workflows
+    sr = next((s for s in workflows.step_runs(db, run["id"]) if s["step_id"] == step_id), None)
+    return review_gate.sampled_units(db, sr, document_id) if sr else None
+
+
 def _template_pspec(db, tpl: dict) -> dict:
     """The live spec of the preset a template is for."""
     from . import presets
@@ -580,7 +587,7 @@ def _task_missing(db, document_id: str, task: str, who: Principal) -> list[dict]
     v = _coders.apply(db, v, who.user_id)
     pspec = v.get("spec") or _template_pspec(db, tpl)
     answers = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
-    return templates.completeness(tpl, v, pspec, answers)["missing"]
+    return templates.completeness(tpl, v, pspec, answers, sampled=_task_sampled(db, _run, _st["id"], document_id))["missing"]
 
 
 @app.get("/api/documents/{document_id}/view")
@@ -616,11 +623,14 @@ def document_view(document_id: str, coder: str | None = None, task: str | None =
         run, tpl, st = _task_of(db, task, who)
         v["task"] = {"run_id": run["id"], "step_id": st["id"], "template": tpl["id"] if tpl else None,
                      "template_id": templates.template_id(tpl) if tpl else None}
+        sampled = _task_sampled(db, run, st["id"], document_id)
+        if sampled is not None:
+            v["task"]["sampled"] = {k: sorted((x for x in vals if x is not None), key=str) for k, vals in sampled.items()}
         if tpl is not None:
             pspec = v.get("spec") or _template_pspec(db, tpl)
             if pspec.get("id") != tpl.get("for"):
                 raise HTTPException(status_code=422, detail=f"The task's template is for {tpl.get('for')!r}; this document is under {pspec.get('id')!r}.")
-            v = templates.project(v, tpl, pspec, coder=(role == "coder"))
+            v = templates.project(v, tpl, pspec, coder=(role == "coder"), sampled=sampled)
             if role == "coder":
                 v["answers"] = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
             else:
