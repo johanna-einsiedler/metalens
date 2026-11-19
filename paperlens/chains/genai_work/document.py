@@ -37,7 +37,7 @@ def _runs_note(node):
     parts = []
     if rn.get("of") and rn.get("found", 0) < rn["of"]:
         parts.append(f"returned by {rn['found']} of {rn['of']} runs")
-    for f, alts in (rn.get("alt") or {}).items():
+    for f, alts in sorted((rn.get("alt") or {}).items()):
         parts.append(f"{f}: " + " | ".join(f"{_json(v)} ({k})" for v, k in alts))
     return "runs: " + "; ".join(parts) if parts else ""
 

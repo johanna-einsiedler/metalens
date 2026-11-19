@@ -4780,11 +4780,17 @@ def my_tasks(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
 
 @app.post("/api/workflow-runs/{run_id}/papers")
 def workflow_run_paper(run_id: str, pdf: UploadFile = File(...), api_key: str = Form(""), base_url: str | None = Form(None),
-                       model: str | None = Form(None), db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+                       model: str | None = Form(None), dispatch: bool = Form(True), pages: str | None = Form(None),
+                       title: str | None = Form(None), doi: str | None = Form(None), abstract: str | None = Form(None), journal: str | None = Form(None),
+                       year: int | None = Form(None), authors: str | None = Form(None), peer_reviewed: str | None = Form(None),
+                       db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """A paper of a run that starts with PASS steps: the PDF is kept under the run, its page text
     stored once, and the paper's passes run in order in one job — on the server's key (a credit
     run) or on the key sent with the paper (an own-key run; as `/api/extract` does). Only a paper
-    in the run's plan is taken."""
+    in the run's plan is taken. ``dispatch=false`` stages the paper without running it (a seeder
+    then supplies its pass outputs); ``pages`` (a JSON list of strings) stands in for the page
+    text the engine would extract; ``title``, ``doi``, ``abstract`` and ``journal`` are what the
+    passes know of the paper."""
     from . import passes, worker, workflows
     run = _run_or_404(db, run_id, who)
     if run["status"] in workflows.TERMINAL:
@@ -4799,12 +4805,31 @@ def workflow_run_paper(run_id: str, pdf: UploadFile = File(...), api_key: str = 
     if job is None:
         raise HTTPException(status_code=409, detail="This paper is not in the run's plan.")
     rows = [j for st in steps for j in workflows.jobs(db, run_id, st["id"]) if j["pdf_sha256"] == sha and j["status"] not in workflows.JOB_TERMINAL]
-    if not rows:                                      # every pass of it is done (or supplied): nothing left to run
+    if not rows and dispatch:                         # every pass of it is done (or supplied): nothing left to run
         raise HTTPException(status_code=409, detail="This paper already landed in the run.")
     own_key = bool((api_key or "").strip()) or bool((base_url or "").strip())
-    if not run["use_credits"] and not own_key:
+    if dispatch and not run["use_credits"] and not own_key:
         raise HTTPException(status_code=422, detail="This run uses your own API key: send it with the paper (or a local model server).")
-    paper = passes.stage_paper(db, run_id, data, filename=pdf.filename)
+    page_list = None
+    if pages:
+        try:
+            page_list = json.loads(pages)
+        except ValueError:
+            page_list = None
+        if not isinstance(page_list, list) or not all(isinstance(p, str) for p in page_list):
+            raise HTTPException(status_code=422, detail="pages must be a JSON list of strings, one per page.")
+    author_list = None
+    if authors:
+        try:
+            author_list = json.loads(authors)
+        except ValueError:
+            author_list = [a.strip() for a in authors.split(";") if a.strip()]
+        if not isinstance(author_list, list):
+            raise HTTPException(status_code=422, detail="authors must be a JSON list of names (or names separated by ';').")
+    paper = passes.stage_paper(db, run_id, data, filename=pdf.filename, title=title or None, doi=doi or None, abstract=abstract or None, journal=journal or None,
+                               pages=page_list, year=year, authors=author_list, peer_reviewed=peer_reviewed or None)
+    if not dispatch:
+        return {"queued": False, "staged": True, "pdf_sha256": sha, "n_pages": paper["n_pages"]}
     key = (api_key or "").strip() if own_key else ""
     job_id = worker.enqueue("pass_job", run_id, sha, api_key=key, base_url=(base_url or "").strip() or None, model=model or None, _expires=3600)
     if job_id:

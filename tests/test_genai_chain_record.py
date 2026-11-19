@@ -223,6 +223,26 @@ def _pages(rid):
     return X.Pages.from_raw((PROJECT / "data" / "pdfs" / "txt" / f"{rid}.txt").read_text(encoding="utf-8", errors="ignore"))
 
 
+_RUNS_NOTE = __import__("re").compile(r"^\[runs: (.*?)\] ?")
+
+
+def _norm_notes(o, key=None):
+    """The run notes with their parts sorted: the engine orders a note's fields alphabetically (jsonb
+    keeps no key order), the project's file as it wrote them."""
+    if isinstance(o, dict):
+        return {k: _norm_notes(v, k) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_norm_notes(x, key) for x in o]
+    if isinstance(o, str) and key and (key.endswith("_notes") or key == "notes"):
+        m = _RUNS_NOTE.match(o)
+        if m:
+            return f"[runs: {'; '.join(sorted(p.strip() for p in m.group(1).split(';')))}] " + o[m.end():]
+        i = o.find("runs: ")
+        if i >= 0:                                                 # a confidence note carries the run note after a separator
+            return o[:i] + "runs: " + "; ".join(sorted(p.strip() for p in o[i + 6:].split(";")))
+    return o
+
+
 def _strip(o, keys=("_runs", "settled_by")):
     if isinstance(o, dict):
         return {k: _strip(v, keys) for k, v in o.items() if k not in keys}
@@ -267,8 +287,8 @@ def test_the_document_reproduces_the_projects_v20_import_file() -> None:
     theirs = {k: v for k, v in wm.items() if k not in route}
     assert set(mine) == set(theirs)
     for k in theirs:
-        assert json.dumps(mine[k], sort_keys=True) == json.dumps(theirs[k], sort_keys=True), k
-    assert json.dumps(obj["tasks"], sort_keys=True) == json.dumps(want["tasks"], sort_keys=True)
+        assert json.dumps(_norm_notes(mine[k], k), sort_keys=True) == json.dumps(_norm_notes(theirs[k], k), sort_keys=True), k
+    assert json.dumps(_norm_notes(obj["tasks"]), sort_keys=True) == json.dumps(_norm_notes(want["tasks"]), sort_keys=True)
     keep = lambda e: not e["field"].startswith("paper_metadata.flags")  # noqa: E731
     assert obj["evidence"] == [e for e in want["evidence"] if keep(e)]
     assert set(obj["_record_chain"]) == {str(i) for i in range(len(want["tasks"]))}

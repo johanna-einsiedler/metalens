@@ -960,3 +960,6 @@ CREATE TABLE IF NOT EXISTS workflow_pass_output (
 );
 CREATE INDEX IF NOT EXISTS workflow_pass_output_reuse ON workflow_pass_output (pdf_sha256, code, prompt_sha256, inputs_sha256, model);
 ALTER TABLE workflow_finding ADD COLUMN IF NOT EXISTS pdf_sha256 text;
+ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS year integer;
+ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS authors jsonb;
+ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS peer_reviewed text;

@@ -453,6 +453,12 @@ The bundled `genai-work-chain` workflow strings them together: six passes, the a
 (dataset role `extraction`), the record and chain checks, the route compute, then the three review
 tasks and the release of `genai-work` v4.
 
+Seeding: `POST …/papers` with `dispatch=false` stages a paper without running it (its own page
+text may come along as `pages`, its identity as `title`, `doi`, `abstract`, `journal`); the pass
+outputs supplied afterwards complete its chain. `scripts/seed_genai_chain.py` does this from the
+review project's files, `scripts/compare_chain.py` compares the result with the project's own. With `--manifest` the seeder
+seeds a PROJECT the way `seed_accounts.py` does (owner, people, tasks), then stages and supplies.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:
