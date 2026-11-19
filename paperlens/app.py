@@ -243,6 +243,13 @@ def projects_page() -> FileResponse:
     return _page("projects.html")
 
 
+@app.get("/project")
+def project_page() -> FileResponse:
+    """A project (?id=…): the workflow's instance — its datasets, people, runs, review tasks and
+    releases. The same page as a dataset's, drawn for a project (paperlens/projects.py)."""
+    return _page("dataset.html")
+
+
 def _page_db():
     """get_db for the page routes above its definition: resolved when a request arrives."""
     yield from get_db()
@@ -2002,7 +2009,7 @@ def workflow_dataset_create(body: WorkflowDatasetBody, db=Depends(get_db), who: 
     page); for a workflow over one preset, a new dataset of that preset carrying the workflow."""
     from . import workflows
     if not who.user_id and not who.session_id:
-        raise HTTPException(status_code=401, detail="Sign in to make a workflow dataset.")
+        raise HTTPException(status_code=401, detail="Sign in to make a project.")
     spec = workflows.get_workflow(body.workflow)
     if spec is None:
         raise HTTPException(status_code=404, detail="Workflow not found.")
@@ -4565,3 +4572,122 @@ def get_schema(schema_id: str, db=Depends(get_db)) -> dict:
         raise HTTPException(status_code=404, detail="Schema not found.")
     s["spec"] = records.schema_spec(db, schema_id)
     return s
+
+
+# ── projects: a workflow's instance, by its own name (paperlens/projects.py) ───────────────────
+
+def _project_or_404(db, project_id: str, who: Principal) -> tuple[dict, str]:
+    """``(project row, role)`` for a project the caller may see: ``owner`` | ``coder`` | ``public``."""
+    from . import projects
+    role = _dataset_access(db, project_id, who)
+    p = projects.get(db, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Not a project.")
+    return p, role
+
+
+@app.post("/api/projects")
+def project_create(body: WorkflowDatasetBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Make a project: the workflow's instance, with my datasets linked into its roles (the rest
+    are linked or created on its page). A workflow over one preset makes a dataset of that
+    preset carrying the workflow (not a project row). Alias of ``POST /api/workflow-datasets``."""
+    return workflow_dataset_create(body, db, who)
+
+
+@app.get("/api/projects")
+def projects_mine(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """My projects (and my datasets running a workflow on themselves), each with its datasets and
+    what its latest run is doing. Alias of ``GET /api/workflow-datasets``."""
+    from . import projects
+    return {"projects": projects.list_mine(db, owner_user_id=who.user_id, session_id=who.session_id)}
+
+
+@app.get("/api/projects/{project_id}")
+def project_get(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A project's page: the workflow, the linked datasets with their papers, the runs, the review
+    tasks of the latest run (with who reviews which paper), the owner's people, the viewer's role."""
+    from . import projects
+    p, role = _project_or_404(db, project_id, who)
+    ov = projects.overview(db, p, owner=role == "owner")
+    ov["viewer"] = {"is_owner": role == "owner", "is_coder": role == "coder", "user_id": who.user_id}
+    return ov
+
+
+@app.patch("/api/projects/{project_id}")
+def project_patch(project_id: str, body: DatasetPatch, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: rename a project, or its description. Alias of ``PATCH /api/datasets/{id}``."""
+    _project_or_404(db, project_id, who)
+    return patch_dataset(project_id, body, db, who)
+
+
+@app.delete("/api/projects/{project_id}")
+def project_delete(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: delete a project; its datasets stay, with their records and releases, and become
+    plain datasets again. Alias of ``DELETE /api/datasets/{id}``."""
+    _project_or_404(db, project_id, who)
+    return delete_dataset(project_id, db, who)
+
+
+@app.get("/api/projects/{project_id}/people")
+def project_people(project_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: the people who code for the project, in join order (``coder_1`` …)."""
+    _project_or_404(db, project_id, who)
+    return {"people": dataset_coders(project_id, db, who)["coders"]}
+
+
+@app.post("/api/projects/{project_id}/people")
+def project_person_add(project_id: str, body: CoderBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: let the account with this email code for the project — every linked dataset's papers."""
+    _project_or_404(db, project_id, who)
+    return {"person": dataset_coder_add(project_id, body, db, who)["coder"]}
+
+
+@app.delete("/api/projects/{project_id}/people/{user_id}")
+def project_person_remove(project_id: str, user_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: withdraw a person's access; their codings stay."""
+    _project_or_404(db, project_id, who)
+    return dataset_coder_remove(project_id, user_id, db, who)
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def project_tasks(project_id: str, run: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The review tasks of a run of the project (the active one, else the latest; ``?run=`` names
+    one): each with its template, datasets, gate and — when coders review — who reviews which paper."""
+    from . import projects, workflows
+    p, role = _project_or_404(db, project_id, who)
+    if role == "public":
+        raise HTTPException(status_code=404, detail="Not a project.")
+    r = None
+    if run:
+        r = workflows.get_run(db, run)
+        if r is None or r.get("dataset_id") != project_id:
+            raise HTTPException(status_code=404, detail="Run not found.")
+    return {"tasks": projects.tasks(db, p, run=r)}
+
+
+@app.post("/api/projects/{project_id}/tasks/{step_run_id}/assign")
+def project_task_assign(project_id: str, step_run_id: str, body: AssignBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner: who reviews one paper of a task (``{document_id, coders: [user ids]}``), until a
+    verdict was given. Alias of ``POST /api/workflow-runs/{rid}/assign``."""
+    from . import review_gate, workflows
+    p, role = _project_or_404(db, project_id, who)
+    if role != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner assigns papers.")
+    sr = workflows.get_step_run(db, step_run_id) if records._is_uuid(step_run_id) else None   # noqa: SLF001
+    run = workflows.get_run(db, sr["run_id"]) if sr else None
+    if sr is None or run is None or run.get("dataset_id") != project_id or not (sr.get("review") or {}).get("coders"):
+        raise HTTPException(status_code=404, detail="No coders' task with that id in this project.")
+    try:
+        out = review_gate.reassign(db, sr, body.document_id, body.coders)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return out
+
+
+@app.get("/api/me/tasks")
+def my_tasks(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """My review tasks: every task of a live run that assigned me a paper, with what is left of
+    my share and where to code it."""
+    from . import projects
+    return {"tasks": projects.tasks_for(db, who.user_id)}

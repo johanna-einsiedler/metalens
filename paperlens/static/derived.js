@@ -91,7 +91,7 @@ async function openVersion(did) {
   const host = $("#dv-app");
   const sum = r.summary || {};
   const verdictHelp = { kept: "unchanged from the committed version", revised: "changed — the highlighted records moved it", new: "a row the committed version did not have", removed: "a committed row this draft drops" };
-  const srcChip = (id, trigger) => { const l = labels[id] || {}; return `<a class="pg-chip${trigger ? " trigger" : ""}" title="${esc(id)}" href="/workspace?project=${encodeURIComponent(DATASET_ID)}${l.document_id ? `&doc=${esc(l.document_id)}` : ""}">${esc(l.label || id.slice(0, 8))}</a>`; };
+  const srcChip = (id, trigger) => { const l = labels[id] || {}; return `<a class="pg-chip${trigger ? " trigger" : ""}" title="${esc(id)}" href="/workspace?dataset=${encodeURIComponent(DATASET_ID)}${l.document_id ? `&doc=${esc(l.document_id)}` : ""}">${esc(l.label || id.slice(0, 8))}</a>`; };
   const cell = (x, f) => {
     const v = x.row ? x.row[f] : null, o = x.old ? x.old[f] : null, changed = x.verdict === "revised" && x.changed.includes(f);
     if (x.verdict === "revised" && changed) return `<td class="dv-cell changed" data-f="${esc(f)}"><del>${esc(fmt(o))}</del> <ins>${esc(fmt(v))}</ins></td>`;

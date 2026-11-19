@@ -113,6 +113,22 @@ the gate has a verdict or the owner resumes with `override`, which the gate reco
 answers 409 with the gate until the verdicts are in, or the owner passes `override_gates` /
 `allow_stale`, which the release records (`gates`).
 
+## Projects
+
+A **project** is a workflow's instance: one owner, the datasets it links (one per preset role),
+the people who code for it, its runs, its review tasks and its releases (`paperlens/projects.py`,
+`/project?id=`, `POST /api/projects {workflow, title?, datasets?}`, `GET /api/projects`, `GET
+/api/projects/{id}` — members, papers, runs, the tasks of the latest run, the owner's people, the
+viewer's role — `PATCH`/`DELETE /api/projects/{id}`, `GET`/`POST`/`DELETE
+/api/projects/{id}/people[/{user}]`). Internally it is the **workflow dataset** of the linked
+datasets (below): the row whose id is their `group_id`; a person added to the project codes every
+linked dataset's papers. A **task** is a review step-run of a run — its template, the datasets it
+reads, its gate, its coders and who reviews which paper (`GET /api/projects/{id}/tasks[?run=]`,
+`POST /api/projects/{id}/tasks/{step_run_id}/assign {document_id, coders}` until a verdict was
+given). `GET /api/me/tasks` lists the tasks a live run assigned the caller a paper in, with what
+is left of their share and the queue to code it in; the workspace shows them under "My review
+tasks". A workflow over one preset runs on a dataset of that preset and is not a project row.
+
 ## Linked datasets and a joint review
 
 A workflow may extract two sides of the same papers into two datasets — the regression tables

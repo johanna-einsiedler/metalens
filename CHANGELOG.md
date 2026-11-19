@@ -8,6 +8,18 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Projects, by their own name
+
+- A workflow's instance is a **project** (`paperlens/projects.py`): the workflow dataset row read as
+  one — its datasets, its people, its runs, its review **tasks** (the review step-runs of a run,
+  each with its template, datasets, gate and who reviews which paper) and its releases. `GET/POST
+  /api/projects`, `GET/PATCH/DELETE /api/projects/{id}`, `…/people`, `…/tasks` (the owner moves a
+  paper between coders through `…/tasks/{step_run_id}/assign`), `GET /api/me/tasks` (a coder's own
+  tasks, with what is left of their share). The page is `/project?id=` (a project opened as a
+  dataset redirects there); it gained a Review tasks card with the assignment matrix. The workspace
+  lists Projects (＋ New project) and My review tasks; links into the review workspace name the
+  dataset (`?dataset=`, the old `?project=` still read).
+
 ### A review of rows, and a review step's filter
 
 - A review step may review the ROWS of a paper table (`unit: row`, `table`): every row
