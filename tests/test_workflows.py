@@ -129,16 +129,17 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     steps = {s["step_id"]: s for s in view["steps"]}
     assert steps["tables"]["status"] == "done" and steps["tables"]["outputs"]["n_papers"] == 2 and steps["tables"]["outputs"]["n_records"] == 4
     # the econ workflow draws thirty columns; two papers of two columns are fewer, so every column is drawn
-    assert steps["tables"]["review"]["mode"] == "sample" and steps["tables"]["review"]["total"] == 4 and steps["tables"]["review"]["satisfied"] is False
-    assert steps["tables"]["review"]["exhaustive"] is True and steps["tables"]["review"]["stratify"] == ["table_number"]
+    assert steps["review"]["review"]["mode"] == "sample" and steps["review"]["review"]["total"] == 4 and steps["review"]["review"]["satisfied"] is False
+    assert steps["review"]["review"]["exhaustive"] is True and steps["review"]["review"]["stratify"] == ["table_number"]
+    assert steps["tables"]["review"]["mode"] == "none" and steps["review"]["outputs"]["datasets"] == [ds]
     assert steps["contract"]["status"] == "done" and steps["contract"]["outputs"]["n_checked"] == 6    # the whole dataset, three papers
     assert view["jobs"]["cancelled"] == 1 and next(p for p in view["papers"] if p["status"] == "cancelled")["error"] == "not uploaded"
     conn.rollback()
     # the release gate holds: the gate step awaits review
     p = c.get(f"/api/datasets/{ds}/releases/pending", headers=H).json()
-    assert p["gate"]["open"] is False and p["gate"]["gates_blocking"] == ["tables"]
+    assert p["gate"]["open"] is False and p["gate"]["gates_blocking"] == ["review"]
     r = c.post(f"/api/datasets/{ds}/releases", headers=H, json={"notes": "try"})
-    assert r.status_code == 409 and r.json()["detail"]["gate"]["gates_blocking"] == ["tables"]
+    assert r.status_code == 409 and r.json()["detail"]["gate"]["gates_blocking"] == ["review"]
     # verdicts on the four new records satisfy the gate; the release goes through and remembers the run
     for (rec_id,) in conn.execute("SELECT r.id FROM record r JOIN extraction_document d ON d.id = r.document_id WHERE d.run_id = %s::uuid", (rid,)).fetchall():
         records.verify_record(conn, str(rec_id), status="verified")
@@ -152,7 +153,7 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     rel = releases.latest(conn, ds, with_snapshot=True)
     wf = rel["snapshot"]["workflow"]
     assert wf["id"] == "econ-regressions" and wf["run_id"] == rid and wf["implicit"] is False
-    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "numbers", "release"] and wf["steps"][0]["review"]["mode"] == "sample"
+    assert [s["id"] for s in wf["steps"]] == ["tables", "contract", "numbers", "review", "release"] and wf["steps"][3]["review"]["mode"] == "sample"
     # the recipe, the release files and the JSON export say which process made the data
     ov = records.dataset_overview(conn, ds)
     assert ov["recipe"]["workflow"]["run_id"] == rid and ov["recipe"]["workflow"]["contract"].startswith("econ-regressions@")
@@ -267,8 +268,8 @@ def test_a_gate_that_blocks_the_next_step_pauses_the_run_and_resume_needs_the_ve
     sess = f"wf-{uuid.uuid4().hex[:6]}"
     ds, _doc = _seed(conn, _result("q0"), "econ-regression-tables", sess)
     spec = ws.normalize({"format": 1, "id": "strict", "meta": {"title": "Strict"},
-                         "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825",
-                                    "review": {"mode": "all", "blocks": "next"}},
+                         "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825"},
+                                   {"id": "look", "kind": "review", "over": ["tables"], "mode": "all", "unit": "entry", "blocks": "next"},
                                    {"id": "contract", "kind": "check", "check": "schema", "over": ["tables"], "on_fail": "flag"}]})
     monkeypatch.setattr(workflows, "get_workflow", lambda wid: spec if wid.startswith("strict") else None)
     conn.execute("UPDATE dataset SET workflow = %s WHERE id = %s::uuid", (ws.workflow_id(spec), ds)); conn.commit()
@@ -282,7 +283,7 @@ def test_a_gate_that_blocks_the_next_step_pauses_the_run_and_resume_needs_the_ve
                data={"result": json.dumps(bad), "run_id": rid, "step_id": "tables"})
     assert r.status_code == 200, r.text
     view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
-    assert view["status"] == "awaiting_review:tables" and view["current_step"] == "tables"
+    assert view["status"] == "awaiting_review:look" and view["current_step"] == "look"
     assert c.post(f"/api/workflow-runs/{rid}/resume", headers=H, json={}).status_code == 409           # one record unchecked
     conn.rollback()
     rec = conn.execute("SELECT r.id::text FROM record r JOIN extraction_document d ON d.id = r.document_id WHERE d.run_id = %s::uuid", (rid,)).fetchone()[0]
@@ -303,7 +304,7 @@ def test_a_gate_that_blocks_the_next_step_pauses_the_run_and_resume_needs_the_ve
     assert c.post("/api/ingest-pdf", headers=H, files={"pdf": ("q2.pdf", pdf2, "application/pdf")},
                   data={"result": json.dumps(_result("q2", n=1)), "run_id": run2["id"], "step_id": "tables"}).status_code == 200
     view = c.post(f"/api/workflow-runs/{run2['id']}/resume", headers=H, json={"override": True}).json()
-    assert view["status"] == "done" and view["steps"][0]["review"]["overridden_by"]
+    assert view["status"] == "done" and next(s for s in view["steps"] if s["step_id"] == "look")["review"]["overridden_by"]
     # a stranger owns none of the runs (outside local mode, where one user owns everything);
     # cancel refuses a finished run gracefully
     from paperlens import localmode
@@ -403,7 +404,7 @@ def test_findings_reach_the_document_view_and_the_claims_check_reads_the_compani
     view = c.post(f"/api/workflow-runs/{run['id']}/resume", headers=H, json={"api_key": "k-test", "model": "test-model"}).json()
     assert view["status"] == "done", view
     steps = {s["step_id"]: s for s in view["steps"]}
-    assert steps["edges"]["status"] == "done" and steps["edges"]["n_calls"] == 1 and steps["edges"]["review"]["draft"]["status"] == "draft"
+    assert steps["edges"]["status"] == "done" and steps["edges"]["n_calls"] == 1 and steps["review_edges"]["review"]["draft"]["status"] == "draft"
     # S1 cites Table 3 col (1) = -1.292 (the seeded econ table has it) and Table 4 col (1) (no such column)
     assert steps["links"]["outputs"]["by_code"] == {"exhibit_unlinked": 1}, steps["links"]["outputs"]
     findings = c.get(f"/api/workflow-runs/{run['id']}/issues", headers=H).json()["findings"]

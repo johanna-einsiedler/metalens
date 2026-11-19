@@ -39,12 +39,7 @@
       "kind": "extract",
       "label": "Claims and their results",
       "preset": "register-claims@f7387875",
-      "source": "supplied",
-      "review": {
-        "mode": "all",
-        "unit": "entry",
-        "blocks": "release"
-      }
+      "source": "supplied"
     },
     {
       "id": "contract",
@@ -67,6 +62,18 @@
       ],
       "on_fail": "note",
       "severity": "error"
+    },
+    {
+      "id": "review_claims",
+      "kind": "review",
+      "label": "Review of the claims",
+      "over": [
+        "claims"
+      ],
+      "help": "every new claim verified or flagged before the release",
+      "mode": "all",
+      "unit": "entry",
+      "blocks": "release"
     },
     {
       "id": "edges",
@@ -184,12 +191,19 @@
             "help": "the articles, as first author and year"
           }
         ]
-      },
-      "review": {
-        "mode": "all",
-        "unit": "entry",
-        "blocks": "release"
       }
+    },
+    {
+      "id": "review_edges",
+      "kind": "review",
+      "label": "Review of the corpus edges",
+      "over": [
+        "edges"
+      ],
+      "help": "the draft of the corpus edges reviewed row by row and committed before the release",
+      "mode": "all",
+      "unit": "entry",
+      "blocks": "release"
     },
     {
       "id": "release",
@@ -197,7 +211,9 @@
       "label": "Release",
       "gate": [
         "claims",
-        "edges"
+        "review_claims",
+        "edges",
+        "review_edges"
       ]
     }
   ]

@@ -39,18 +39,9 @@
       "id": "tables",
       "kind": "extract",
       "label": "Regression tables",
-      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF; thirty new columns drawn at random, stratified by table, are reviewed before a release",
+      "help": "one entry per estimated column, transcribed by the pipeline outside Metalens and uploaded here with the PDF",
       "preset": "econ-regression-tables@67780825",
-      "source": "supplied",
-      "review": {
-        "mode": "sample",
-        "unit": "entry",
-        "n": 30,
-        "stratify": [
-          "table_number"
-        ],
-        "blocks": "release"
-      }
+      "source": "supplied"
     },
     {
       "id": "contract",
@@ -77,11 +68,28 @@
       "severity": "error"
     },
     {
+      "id": "review",
+      "kind": "review",
+      "label": "Review of the drawn columns",
+      "over": [
+        "tables"
+      ],
+      "help": "thirty new columns drawn at random, stratified by table, each verified or flagged before a release; when a run adds fewer, every column",
+      "mode": "sample",
+      "unit": "entry",
+      "n": 30,
+      "stratify": [
+        "table_number"
+      ],
+      "blocks": "release"
+    },
+    {
       "id": "release",
       "kind": "release",
       "label": "Release",
       "gate": [
-        "tables"
+        "tables",
+        "review"
       ]
     }
   ]

@@ -5,7 +5,7 @@ coding independently; the owner's view of every coding.
     python3 scripts/ui_check_coders.py --url http://127.0.0.1:8021 --dataset <id> --run <run id> --doc <document id>
                                        --owner EMAIL --coder-a EMAIL --coder-b EMAIL --a-id <user id> [--password pw123456] [--shots DIR]
 
---dataset: a dataset of the owner's with a finished run whose gate says `coders: 2`, both coders
+--dataset: a dataset of the owner's with a finished run whose review step says `coders: 2`, both coders
 granted (scripts in the scratchpad seed one). Checks: a coder's workspace lists the dataset under
 "Coding for" and offers "Code the papers"; in the review the coder is told they code as coder_1,
 sees no delete / add buttons, edits a cell and verifies, and both survive a reload; the second
@@ -36,6 +36,7 @@ def main() -> int:
     ap.add_argument("--coder-a", required=True)
     ap.add_argument("--coder-b", required=True)
     ap.add_argument("--a-id", required=True, help="coder A's user id (the owner's ?coder= switch)")
+    ap.add_argument("--step", default="coding", help="the review step whose gate the coders code")
     ap.add_argument("--password", default="pw123456")
     ap.add_argument("--shots", default=None)
     a = ap.parse_args()
@@ -85,9 +86,9 @@ def main() -> int:
         check(again.inner_text().strip() == "Coded by A", f"the coder's edit survives a reload ({path}: {orig!r} → 'Coded by A')")
         check(card_of(pa).locator(".status.verified").count() >= 1, "…and so does the verdict (verified)")
         shot(pa, "coder-a.png")
-        pa.goto(f"{a.url}/workspace?queue={a.run}:tables"); pa.wait_for_selector("#queuebar:not([hidden])", timeout=20000)
+        pa.goto(f"{a.url}/workspace?queue={a.run}:{a.step}"); pa.wait_for_selector("#queuebar:not([hidden])", timeout=20000)
         bar = pa.locator("#queuebar").inner_text()
-        q = ctx_a.request.get(f"{a.url}/api/workflow-runs/{a.run}/queue/tables").json()
+        q = ctx_a.request.get(f"{a.url}/api/workflow-runs/{a.run}/queue/{a.step}").json()
         check("your share" in bar and f"{q['progress']['checked']}" in bar and q["viewer_coder"], f"the queue bar counts the coder's own share ({q['progress']['checked']} of {q['progress']['drawn']})")
         # ── coder B ──
         ctx_b, pb = signed_in(a.coder_b)

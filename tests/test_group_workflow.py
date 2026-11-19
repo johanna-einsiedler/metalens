@@ -34,7 +34,8 @@ def test_the_grammar_of_roles_and_the_joint_stage() -> None:
     assert ws.gate_steps(spec) == ["tables", "claims", "joint"] and workflows.later_problems(spec) == []
     assert "edges" not in ws.steps_by_id(spec)                  # the corpus-edges step is left out of econ for now
     joint = ws.steps_by_id(spec)["joint"]
-    assert joint["review"] == {"mode": "all", "unit": "paper", "blocks": "release", "oversample_flagged": False}
+    assert "review" not in joint and joint["over"] == ["tables", "claims"] and ws.review_of(joint)["unit"] == "paper"
+    assert {k: joint[k] for k in ("mode", "unit", "blocks", "oversample_flagged")} == {"mode": "all", "unit": "paper", "blocks": "release", "oversample_flagged": False}
     # two extract steps without roles are refused; a review stage must name earlier extract steps
     bad = copy.deepcopy(spec); del bad["steps"][1]["dataset"]
     assert any("distinct dataset role" in m for m in workflows.later_problems(bad))
@@ -62,10 +63,12 @@ def _econ_with_edges(tmp_path, monkeypatch) -> str:
     with open(os.path.join(src, "econ.json"), encoding="utf-8") as f:
         spec = json.load(f)
     with open(os.path.join(src, "econ-claims.json"), encoding="utf-8") as f:
-        edges = next(s for s in json.load(f)["steps"] if s["id"] == "edges")
+        by = {s["id"]: s for s in json.load(f)["steps"]}
+    edges, review_edges = by["edges"], by["review_edges"]
     spec["id"] = "econ-edges"
-    spec["steps"].insert(next(i for i, s in enumerate(spec["steps"]) if s["id"] == "joint"), edges)
-    spec["steps"][-1]["gate"] = ["tables", "claims", "edges", "joint"]
+    at = next(i for i, s in enumerate(spec["steps"]) if s["id"] == "joint")
+    spec["steps"][at:at] = [edges, review_edges]
+    spec["steps"][-1]["gate"] = ["tables", "claims", "edges", "review_edges", "joint"]
     for name in ("econ.card.md", "econ-claims.edges.harmonise.md"):
         shutil.copy(os.path.join(src, name), tmp_path / name)
     (tmp_path / "econ-edges.json").write_text(json.dumps(spec), encoding="utf-8")

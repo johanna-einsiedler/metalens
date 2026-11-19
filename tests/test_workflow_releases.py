@@ -110,7 +110,7 @@ def test_zenodo_metadata_relates_the_presets_and_the_datasets() -> None:
     assert ("10.5072/zenodo.77", "requires") in rel_ids and ("10.5072/zenodo.300", "isSourceOf") in rel_ids
     assert ("https://metalens.tech/workflow?id=econ-regressions", "isDocumentedBy") in rel_ids
     assert ("https://github.com/johanna-einsiedler/metalens", "isPartOf") in rel_ids
-    assert "first cut" in m["description"] and "3 steps" in m["description"] or "4 steps" in m["description"]
+    assert "first cut" in m["description"] and f"{len(spec['steps'])} steps" in m["description"]     # the review step counts
 
 
 # ── with Postgres: releases, DOIs, cards ──────────────────────────────────────
@@ -235,7 +235,7 @@ def test_api_workflow_cards_releases_and_bundle(monkeypatch) -> None:
     assert card["id"] == WID and card["card_md"].startswith("## Introduction") and card["viewer"]["is_admin"] is False and "zenodo" not in card
     by = {s["id"]: s for s in card["steps"]}
     assert by["tables"]["preset_card"]["id"] == "econ-regression-tables" and by["tables"]["preset_card"]["url"] == "/preset?id=econ-regression-tables"
-    assert by["tables"]["review"]["mode"] == "sample" and by["tables"]["review"]["n"] == 30
+    assert by["review"]["review"]["mode"] == "sample" and by["review"]["review"]["n"] == 30 and "review" not in by["tables"]
     assert "se_dangling_ref" in by["numbers"]["check_info"]["codes"] and by["contract"]["check"] == "schema"
     assert card["releases"] == [] and "(version" not in card["cite_as"] and card["verification"]["n_datasets"] >= 1
     assert any(d["id"] == ds for d in card["datasets"]) and "`tables`" in card["steps_md"]

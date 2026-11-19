@@ -12,7 +12,7 @@ const kws = (list) => ((list || []).length ? `<div class="tile-kws">${list.slice
 const kicker = (w) => w.latest
   ? `Workflow · v${w.latest.number}${w.latest.doi ? ` · DOI ${esc(w.latest.doi)}` : ""}`
   : `Workflow · unreleased · <code>${esc(w.contract || "")}</code>`;
-const review = (w) => (w.review || []).map((r) => r.mode === "sample" ? `sample of ${r.n != null ? r.n : Math.round((r.share || 0) * 100) + "%"}` : "every record").join(" · ");
+const review = (w) => (w.review || []).map((r) => (r.mode === "sample" ? `sample of ${r.n != null ? r.n : Math.round((r.share || 0) * 100) + "%"}` : `every ${r.unit === "paper" ? "paper" : "record"}`) + (r.coders ? ` by ${r.coders}` : "")).join(" · ");
 const steps = (w) => (w.steps || []).map((s) => `<span class="kw" title="${esc(s.kind)}">${esc(s.label || s.id)}</span>`).join(" → ");
 const counts = (c) => [n(c.datasets, "dataset"), n(c.papers, "paper"), n(c.records, "record"), n(c.runs, "run")].join(" · ");
 

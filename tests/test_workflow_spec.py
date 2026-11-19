@@ -25,11 +25,24 @@ GOOD = {
     "format": 1, "id": "demo", "version": 2, "meta": {"title": "Demo"},
     "dataset": {"unit": "paper", "key": "pdf_sha256"},
     "steps": [
+        {"id": "extract", "kind": "extract", "preset": MASEM},
+        {"id": "review", "kind": "review", "over": ["extract"], "mode": "all", "unit": "entry"},
+        {"id": "contract", "kind": "check", "check": "schema", "over": ["extract"]},
+        {"id": "release", "kind": "release", "gate": ["extract", "review"]},
+    ],
+}
+# the same workflow in the form before review steps stood on their own: `review` on the extract step
+LEGACY = {
+    "format": 1, "id": "demo", "version": 2, "meta": {"title": "Demo"},
+    "dataset": {"unit": "paper", "key": "pdf_sha256"},
+    "steps": [
         {"id": "extract", "kind": "extract", "preset": MASEM, "review": {"mode": "all"}},
         {"id": "contract", "kind": "check", "check": "schema", "over": ["extract"]},
         {"id": "release", "kind": "release", "gate": ["extract"]},
     ],
 }
+BUNDLED_IDS = {"econ": "econ@6e4eb2b5", "econ-claims": "econ-claims@45c8b5b5", "econ-regressions": "econ-regressions@4d38b5f4",
+               "genai-work": "genai-work@a92931fb", "masem": "masem@d13605f1"}
 
 
 def _errors(mutate) -> list[str]:
@@ -49,14 +62,17 @@ def test_defaults_are_filled_and_the_good_workflow_validates() -> None:
     assert ex["source"] is None or ex["source"] == "live"          # resolved by validate against the live preset
     ws.validate(spec)
     assert ex["source"] == "live" and ex["k"] == 1 and ex["input"] == {"previous": []} and ex["params"] == {}
-    assert ex["review"] == {"mode": "all", "unit": "entry", "blocks": "release", "oversample_flagged": False}
-    ck = spec["steps"][1]
+    assert "review" not in ex                                        # an extract step is never reviewed in place
+    rv = spec["steps"][1]
+    assert rv["kind"] == "review" and rv["label"] == "Review" and {k: rv[k] for k in ("mode", "unit", "blocks", "oversample_flagged")} == {"mode": "all", "unit": "entry", "blocks": "release", "oversample_flagged": False}
+    assert ws.review_of(rv) == {k: rv[k] for k in ("mode", "unit", "blocks", "oversample_flagged")}
+    ck = spec["steps"][2]
     assert ck["on_fail"] == "note" and ck["severity"] == "error" and ck["params"] == {} and ck["label"] == "Contract"
     assert spec["steps"][-1]["kind"] == "release"
-    # a workflow without a release step gets one, gated on its extract steps
+    # a workflow without a release step gets one, gated on its extract and review steps
     doc = copy.deepcopy(GOOD); doc["steps"].pop()
     spec2 = ws.normalize(doc)
-    assert spec2["steps"][-1] == {"id": "release", "kind": "release", "label": "Release", "gate": ["extract"]}
+    assert spec2["steps"][-1] == {"id": "release", "kind": "release", "label": "Release", "gate": ["extract", "review"]}
     assert ws.validate(spec2)[0] == []
 
 
@@ -71,7 +87,7 @@ def test_defaults_are_filled_and_the_good_workflow_validates() -> None:
     ("unknown step key", lambda d: d["steps"][0].__setitem__("prompt", "x"), "unknown key"),
     ("release not last", lambda d: d["steps"].insert(0, {"id": "rel0", "kind": "release", "gate": []}), "last step"),
     ("two releases", lambda d: d["steps"].append({"id": "rel2", "kind": "release", "gate": []}), "exactly one release"),
-    ("gate names a check", lambda d: d["steps"][2].__setitem__("gate", ["contract"]), "not an earlier extract"),
+    ("gate names a check", lambda d: d["steps"][3].__setitem__("gate", ["contract"]), "not an earlier extract"),
     ("pin shape", lambda d: d["steps"][0].__setitem__("preset", "masem-direct"), "pin a data contract"),
     ("unknown preset", lambda d: d["steps"][0].__setitem__("preset", "nope-preset@deadbeef"), "unknown preset"),
     ("live on an import preset", lambda d: d["steps"][0].update({"preset": ECON, "source": "live"}), "has no prompt"),
@@ -79,20 +95,30 @@ def test_defaults_are_filled_and_the_good_workflow_validates() -> None:
     ("k without vote", lambda d: d["steps"][0].__setitem__("k", 2), "needs vote.identity"),
     ("vote identity not a field", lambda d: d["steps"][0].update({"k": 2, "vote": {"identity": ["zzz"]}}), "scalar entry field"),
     ("previous names a later step", lambda d: d["steps"][0].__setitem__("input", {"previous": ["contract"]}), "not an earlier extract"),
-    ("check unknown", lambda d: d["steps"][1].__setitem__("check", "zzz"), "check must be one of"),
-    ("check over a check", lambda d: d["steps"].insert(2, {"id": "c2", "kind": "check", "check": "schema", "over": ["contract"]}), "not an earlier extract"),
-    ("check too many inputs", lambda d: d["steps"][1].__setitem__("over", ["extract", "extract"]), "reads 1 step"),
-    ("check bad on_fail", lambda d: d["steps"][1].__setitem__("on_fail", "explode"), "on_fail"),
-    ("check unknown param", lambda d: d["steps"][1].__setitem__("params", {"zzz": 1}), "no parameter"),
-    ("check param type", lambda d: d["steps"][1].__setitem__("params", {"ignore": "uncited_value"}), "must be a list"),
-    ("review on a check", lambda d: d["steps"][1].__setitem__("review", {"mode": "all"}), "declares no review"),
-    ("review mode", lambda d: d["steps"][0].__setitem__("review", {"mode": "some"}), "mode must be"),
-    ("review unit", lambda d: d["steps"][0].__setitem__("review", {"mode": "all", "unit": "column"}), "unit must be"),
-    ("review blocks", lambda d: d["steps"][0].__setitem__("review", {"mode": "all", "blocks": "everything"}), "blocks must be"),
-    ("sample needs n or share", lambda d: d["steps"][0].__setitem__("review", {"mode": "sample"}), "exactly one of n"),
-    ("sample both", lambda d: d["steps"][0].__setitem__("review", {"mode": "sample", "n": 3, "share": 0.1}), "exactly one of n"),
-    ("sample share range", lambda d: d["steps"][0].__setitem__("review", {"mode": "sample", "share": 1.5}), "share must be"),
-    ("sample strata not a field", lambda d: d["steps"][0].__setitem__("review", {"mode": "sample", "n": 3, "stratify": ["zzz"]}), "stratify"),
+    ("check unknown", lambda d: d["steps"][2].__setitem__("check", "zzz"), "check must be one of"),
+    ("check over a check", lambda d: d["steps"].insert(3, {"id": "c2", "kind": "check", "check": "schema", "over": ["contract"]}), "not an earlier extract"),
+    ("check too many inputs", lambda d: d["steps"][2].__setitem__("over", ["extract", "extract"]), "reads 1 step"),
+    ("check bad on_fail", lambda d: d["steps"][2].__setitem__("on_fail", "explode"), "on_fail"),
+    ("check unknown param", lambda d: d["steps"][2].__setitem__("params", {"zzz": 1}), "no parameter"),
+    ("check param type", lambda d: d["steps"][2].__setitem__("params", {"ignore": "uncited_value"}), "must be a list"),
+    ("review on a check", lambda d: d["steps"][2].__setitem__("review", {"mode": "all"}), "declares no review"),
+    ("review mode", lambda d: d["steps"][1].__setitem__("mode", "some"), "mode must be"),
+    ("review mode none", lambda d: d["steps"][1].__setitem__("mode", "none"), "a review step reviews"),
+    ("review unit", lambda d: d["steps"][1].__setitem__("unit", "column"), "unit must be"),
+    ("review unit row (later)", lambda d: d["steps"][1].__setitem__("unit", "row"), "later release"),
+    ("review template (later)", lambda d: d["steps"][1].__setitem__("template", "x"), "later release"),
+    ("review new_only", lambda d: d["steps"][1].__setitem__("new_only", "yes"), "new_only must be"),
+    ("review blocks", lambda d: d["steps"][1].__setitem__("blocks", "everything"), "blocks must be"),
+    ("review over nothing", lambda d: d["steps"][1].__setitem__("over", []), "over must list"),
+    ("review over a check", lambda d: d["steps"][1].__setitem__("over", ["contract"]), "not an earlier extract"),
+    ("review unknown key", lambda d: d["steps"][1].__setitem__("zzz", 1), "unknown key"),
+    ("legacy review mode", lambda d: d["steps"].pop(1) and d["steps"][0].__setitem__("review", {"mode": "some"}), "mode must be"),
+    ("sample needs n or share", lambda d: d["steps"][1].__setitem__("mode", "sample"), "exactly one of n"),
+    ("sample both", lambda d: d["steps"][1].update({"mode": "sample", "n": 3, "share": 0.1}), "exactly one of n"),
+    ("sample share range", lambda d: d["steps"][1].update({"mode": "sample", "share": 1.5}), "share must be"),
+    ("sample strata not a field", lambda d: d["steps"][1].update({"mode": "sample", "n": 3, "stratify": ["zzz"]}), "stratify"),
+    ("coders on a draft", lambda d: d["steps"].insert(2, {"id": "d", "kind": "derive", "over": "extract", "identity": ["a"], "calls": [{"id": "c", "kind": "transform", "op": "group", "by": ["a"], "fields": {}}], "output": {"fields": [{"name": "a"}]}}) or d["steps"].insert(3, {"id": "dr", "kind": "review", "over": ["d"], "mode": "all", "unit": "entry", "coders": 2}), "committed by the owner"),
+    ("sample of a draft", lambda d: d["steps"].insert(2, {"id": "d", "kind": "derive", "over": "extract", "identity": ["a"], "calls": [{"id": "c", "kind": "transform", "op": "group", "by": ["a"], "fields": {}}], "output": {"fields": [{"name": "a"}]}}) or d["steps"].insert(3, {"id": "dr", "kind": "review", "over": ["d"], "mode": "sample", "n": 2, "unit": "entry"}), "reviewed whole"),
     ("vocabulary without column", lambda d: d["steps"].insert(2, {"id": "v", "kind": "vocabulary"}), "names its column"),
     ("pages without group", lambda d: d["steps"].insert(2, {"id": "pg", "kind": "pages", "keyed_by": "x"}), "names its group"),
     ("derive without calls", lambda d: d["steps"].insert(2, {"id": "d", "kind": "derive", "over": "extract", "identity": ["a"], "output": {"fields": [{"name": "a"}]}}), "calls"),
@@ -122,18 +148,71 @@ def test_the_contract_hashes_steps_pins_and_review_but_not_wording() -> None:
     relabel = copy.deepcopy(GOOD); relabel["steps"][0]["label"] = "Something else"; relabel["steps"][1]["help"] = "why"
     r = ws.normalize(relabel); ws.validate(r)
     assert ws.workflow_id(r) == wid and ws.spec_sha(r) != ws.spec_sha(base)      # wording: same contract, a changed document
-    for mutate in (lambda d: d["steps"][0].__setitem__("review", {"mode": "none"}),
-                   lambda d: d["steps"][0].__setitem__("review", {"mode": "all", "blocks": "next"}),
-                   lambda d: d["steps"][1].__setitem__("on_fail", "flag"),
-                   lambda d: d["steps"][2].__setitem__("gate", [])):
+    for mutate in (lambda d: (d["steps"].pop(1), d["steps"][2].__setitem__("gate", ["extract"])),     # no review at all
+                   lambda d: d["steps"][1].__setitem__("blocks", "next"),
+                   lambda d: d["steps"][1].__setitem__("coders", 2),
+                   lambda d: d["steps"][1].__setitem__("new_only", False),
+                   lambda d: d["steps"][2].__setitem__("on_fail", "flag"),
+                   lambda d: d["steps"][3].__setitem__("gate", [])):
         other = copy.deepcopy(GOOD); mutate(other)
         o = ws.normalize(other); ws.validate(o)
         assert ws.workflow_id(o) != wid
+    # the review step's id, label and the declared defaults are outside the contract
+    for mutate in (lambda d: d["steps"][1].update({"id": "look", "label": "Look"}) or d["steps"][3].__setitem__("gate", ["extract", "look"]),
+                   lambda d: d["steps"][1].__setitem__("new_only", True),
+                   lambda d: d["steps"][3].__setitem__("gate", ["review"])):
+        other = copy.deepcopy(GOOD); mutate(other)
+        o = ws.normalize(other); ws.validate(o)
+        assert ws.workflow_id(o) == wid
     # a derive prompt's wording is outside the contract too
-    d1 = copy.deepcopy(GOOD); d1["steps"].insert(2, {"id": "d", "kind": "derive", "over": "extract", "identity": ["a"],
+    d1 = copy.deepcopy(GOOD); d1["steps"].insert(3, {"id": "d", "kind": "derive", "over": "extract", "identity": ["a"],
                                                       "calls": [{"id": "c", "kind": "llm", "prompt": {"text": "one"}}], "output": {"fields": [{"name": "a"}]}})
-    d2 = copy.deepcopy(d1); d2["steps"][2]["calls"][0]["prompt"]["text"] = "two"
+    d2 = copy.deepcopy(d1); d2["steps"][3]["calls"][0]["prompt"]["text"] = "two"
     assert ws.workflow_id(ws.normalize(d1)) == ws.workflow_id(ws.normalize(d2))
+
+
+def test_the_attribute_form_is_read_as_a_review_step_and_hashes_the_same() -> None:
+    flat = ws.normalize(copy.deepcopy(GOOD)); ws.validate(flat)
+    legacy = ws.normalize(copy.deepcopy(LEGACY)); ws.validate(legacy)
+    assert [s["id"] for s in legacy["steps"]] == ["extract", "extract_review", "contract", "release"]
+    rs = legacy["steps"][1]
+    assert rs["kind"] == "review" and rs["over"] == ["extract"] and rs["label"] == "Review of Extract"
+    assert {k: rs[k] for k in ("mode", "unit", "blocks", "oversample_flagged")} == {"mode": "all", "unit": "entry", "blocks": "release", "oversample_flagged": False}
+    assert "review" not in legacy["steps"][0] and legacy["steps"][-1]["gate"] == ["extract", "extract_review"]
+    assert ws.workflow_id(legacy) == ws.workflow_id(flat)                 # one contract, two spellings
+    assert ws.normalize(legacy) == legacy and ws.normalize(flat) == flat   # idempotent
+    # a nested `review` on a review step is hoisted
+    nested = copy.deepcopy(GOOD); nested["steps"][1] = {"id": "review", "kind": "review", "over": ["extract"], "review": {"mode": "all", "unit": "entry"}}
+    n = ws.normalize(nested); ws.validate(n)
+    assert "review" not in n["steps"][1] and n["steps"][1]["mode"] == "all" and ws.workflow_id(n) == ws.workflow_id(flat)
+    # what the contract hashes: the form before, the review folded onto its step, the gate repointed
+    u = ws.unshim(flat)
+    assert [s["id"] for s in u["steps"]] == ["extract", "contract", "release"] and u["steps"][-1]["gate"] == ["extract"]
+    assert u["steps"][0]["review"] == {"mode": "all", "unit": "entry", "blocks": "release", "oversample_flagged": False}
+    # mode none in the old form: no review step, the none attribute in the contract
+    none = copy.deepcopy(LEGACY); none["steps"][0]["review"] = {"mode": "none"}
+    n2 = ws.normalize(none); ws.validate(n2)
+    assert [s["kind"] for s in n2["steps"]] == ["extract", "check", "release"] and "review" not in n2["steps"][0]
+    assert ws.unshim(n2)["steps"][0]["review"]["mode"] == "none" and ws.review_of(n2["steps"][0])["mode"] == "none"
+    # what only a step can say keeps the step in the contract
+    two = copy.deepcopy(GOOD); two["steps"][1]["new_only"] = False
+    t = ws.normalize(two); ws.validate(t)
+    assert ws.unshim(t)["steps"][1]["kind"] == "review" and ws.unshim(t)["steps"][1]["new_only"] is False and ws.workflow_id(t) != ws.workflow_id(flat)
+    # two review steps over one data step: the second keeps its place
+    twice = copy.deepcopy(GOOD); twice["steps"].insert(2, {"id": "again", "kind": "review", "over": ["extract"], "mode": "all", "unit": "paper"})
+    tw = ws.normalize(twice); ws.validate(tw)
+    assert [s["kind"] for s in ws.unshim(tw)["steps"]] == ["extract", "review", "check", "release"] and ws.workflow_id(tw) != ws.workflow_id(flat)
+    # the helpers: what covers a data step
+    assert ws.review_steps_over(flat, "extract") == [flat["steps"][1]] and ws.review_for(flat, "extract")["step"] == "review"
+    assert ws.review_for(n2, "extract")["mode"] == "none"
+
+
+def test_the_bundled_workflows_keep_their_ids_across_the_two_spellings() -> None:
+    all_wf = workflows.load_all()
+    assert {wid: ws.workflow_id(spec) for wid, spec in all_wf.items() if wid in BUNDLED_IDS} == BUNDLED_IDS
+    for wid, spec in all_wf.items():
+        assert ws.validate(spec)[0] == [] and ws.normalize(spec) == spec, wid
+        assert not any(s.get("kind") in ("extract", "agent", "derive") and "review" in s for s in spec["steps"]), wid
 
 
 def test_what_this_release_refuses_at_plan_time() -> None:
@@ -178,8 +257,10 @@ def test_the_bundled_workflows_validate_and_the_sibling_card_is_inlined() -> Non
     assert errs == [] and warns == [] and workflows.later_problems(econ) == []
     assert ws.has_card(econ) and "## Steps" in econ["card"]["text"] and "file" not in econ["card"]
     assert econ["steps"][0]["source"] == "supplied" and econ["steps"][0]["preset"] == ECON
-    assert ws.pins(econ) == [("tables", ECON)] and ws.gate_steps(econ) == ["tables"]
+    assert ws.pins(econ) == [("tables", ECON)] and ws.gate_steps(econ) == ["tables", "review"]
+    assert ws.steps_by_id(econ)["review"]["over"] == ["tables"] and ws.review_of(ws.steps_by_id(econ)["review"])["n"] == 30
     assert ws.validate(all_wf["masem"])[0] == [] and all_wf["masem"]["steps"][0]["source"] == "live"
+    assert [s["id"] for s in all_wf["masem"]["steps"]] == ["extract", "contract", "review", "release"]
 
 
 def test_a_card_file_outside_the_directory_is_refused(tmp_path) -> None:

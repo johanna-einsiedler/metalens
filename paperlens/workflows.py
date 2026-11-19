@@ -640,10 +640,11 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
     out = []
     facts_by_step: dict[str, dict] = {}
     consumed = consumed_steps(spec)
+    by_id = ws.steps_by_id(spec)
     for st in spec.get("steps") or []:
         sid, kind = st["id"], st["kind"]
         item: dict = {"id": sid, "kind": kind, "label": st.get("label") or sid, "state": "fresh", "because": [], "n_calls": 0}
-        if kind in ws.REVIEWED_KINDS:
+        if kind == "review" or (kind in ws.REVIEWED_KINDS and ws.review_of(st).get("mode", "none") != "none"):
             item["review"] = ws.review_of(st)
         if sid in later:
             item["state"] = "unsupported"; item["because"] = later[sid]
@@ -745,12 +746,14 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                 item["last"] = {k: (sr.get("outputs") or {}).get(k) for k in ("iteration", "papers_rerun", "stopped")}
         elif kind == "review":
             item["over"] = list(st.get("over") or [])
+            item["dataset_ids"] = [ds_of[o] for o in item["over"] if o in ds_of]
+            draft_of = next((o for o in item["over"] if (by_id.get(o) or {}).get("kind") in ws.DRAFT_KINDS), None)
+            if draft_of:
+                item["draft_of"] = draft_of; item["dataset_id"] = ds_of.get(draft_of, dataset_id)
             sr = latest_step_run(conn, dataset_id, sid)
             if sid in open_by_step:
                 item["state"] = "awaiting_review"; item["gate"] = open_by_step[sid]
-            elif sr is None:
-                item["state"] = "missing"; item["because"] = ["no run reviewed yet"]
-            else:
+            elif sr is not None:                              # never run: nothing to review yet, the release is not held
                 g = next((g for g in gates if g["step_id"] == sid), None)
                 if g:
                     item["gate"] = g
@@ -1278,25 +1281,49 @@ def _advance_extract(conn, run: dict, sr: dict, st: dict, complete: bool) -> boo
 
 
 def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
-    """A joint review stage: one gate over the documents this run made in the steps it names,
-    step by step, so the worklist walks each paper's documents together (the tables, then the
-    claims) — or, when the run made none (the checks over what the datasets hold), over every
-    paper of those sides. Opened as the stage declares (every paper, or a random draw of papers)."""
+    """A review step: one gate over the documents this run made in the steps it reads, step by
+    step, so a worklist over two sides walks each paper's documents together (the tables, then
+    the claims) — or over every paper of those sides when the run brought no papers at all (the
+    checks over what the datasets hold) or the step says ``new_only: false``. Over a draft step
+    the gate is the draft's commit. Opened as the step declares (every paper, a random draw,
+    N coders per paper); the step-run records the datasets it reads (``outputs.datasets``)."""
+    by_id = ws.steps_by_id(run["workflow"])
+    rv = ws.review_of(st)
+    over = list(st.get("over") or [])
+    srs = {x["step_id"]: x for x in step_runs(conn, run["id"])}
+    datasets: list[str] = []
+    for o in over:
+        d_id = dataset_for_step(conn, run, o)
+        if d_id not in datasets:
+            datasets.append(d_id)
+    draft_of = next((o for o in over if (by_id.get(o) or {}).get("kind") in ws.DRAFT_KINDS), None)
+    if draft_of is not None:
+        out = (srs.get(draft_of) or {}).get("outputs") or {}
+        outputs = {"over": over, "datasets": datasets, "draft_of": draft_of, "derived_id": out.get("derived_id"), "version": out.get("version")}
+        _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, datasets[0] if datasets else run["dataset_id"]))
+        header = {"mode": "all", "unit": "entry", "blocks": rv.get("blocks", "release"), "opened_at": _iso(_now()), "satisfied_at": None, "overridden_by": None}
+        if out.get("derived_id"):
+            header["draft"] = {"kind": "derived", "id": out["derived_id"], "step": draft_of, "version": out.get("version")}
+        else:
+            header.update(mode="none", satisfied_at=header["opened_at"])         # the step made no draft: nothing to commit
+        conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), sr["id"]))
+        if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
+            _set_sr(conn, sr["id"], status="awaiting_review")
+        return
     doc_ids: list[str] = []
-    for o in st.get("over") or []:
-        osr = next((x for x in step_runs(conn, run["id"]) if x["step_id"] == o), None)
-        for did in ((osr or {}).get("outputs") or {}).get("document_ids") or []:
+    for o in over:
+        for did in ((srs.get(o) or {}).get("outputs") or {}).get("document_ids") or []:
             if did not in doc_ids:
                 doc_ids.append(did)
-    whole = not doc_ids
-    if whole:                                             # a run over what the datasets hold: every paper of the reviewed sides
-        for o in st.get("over") or []:
-            d_id = dataset_for_step(conn, run, o)
+    brought = bool(jobs(conn, run["id"]))                 # an upload run reviews what it brought, even when a side got nothing
+    whole = rv.get("new_only", True) is False or (not doc_ids and not brought)
+    if whole:                                             # every paper of the reviewed sides
+        for d_id in datasets:
             for (did,) in conn.execute("""SELECT DISTINCT ON (ed.id) ed.id::text FROM record r JOIN extraction_document ed ON ed.id = r.document_id
                                           WHERE r.dataset_id = %s::uuid AND NOT COALESCE(r.screened_empty, false) ORDER BY ed.id""", (d_id,)).fetchall():
                 if did not in doc_ids:
                     doc_ids.append(did)
-    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": list(st.get("over") or []), "whole": whole}
+    outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": over, "whole": whole, "datasets": datasets}
     _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, run["dataset_id"]))
     sr = get_step_run(conn, sr["id"])
     header = review_gate.open_gate(conn, sr, st)
@@ -1378,16 +1405,21 @@ def _advance_derive(conn, run: dict, sr: dict, st: dict) -> bool:
 
 
 def _finish_derive(conn, run: dict, sr: dict, st: dict, res: dict) -> None:
-    """The draft is made: record it on the step-run, commit it when the step declares no
-    review, else open the draft gate (the review is the commit)."""
+    """The draft is made: record it on the step-run; a review step over this one opens the
+    draft's gate when its turn comes (the review is the commit); without one the draft is
+    committed at once — unless the run was frozen before review steps stood on their own and
+    the step itself declares the review, whose gate opens here."""
     from . import derived
     draft = res["draft"]
+    covered = bool(ws.review_steps_over(run["workflow"], st["id"]))
     rv = ws.review_of(st)
     outputs = {k: v for k, v in (sr.get("outputs") or {}).items() if k != "job_id"}
     outputs.update({"derived_id": draft["id"], "version": draft["version"], "n_rows": len(draft["rows"]), "repairs": len(res.get("repairs") or [])})
     _set_sr(conn, sr["id"], status="done", outputs=outputs, inputs=basis(conn, dataset_for_step(conn, run, sr["step_id"])), finished_at=_now(),
             n_calls=res.get("n_calls") or 0, credits=(res.get("n_calls") or 0) if run["use_credits"] else 0,
             model=draft.get("model"), prompt_sha256=draft.get("prompt_sha256"))
+    if covered:
+        return                                              # the review step over it opens the draft's gate when its turn comes
     if rv.get("mode", "none") == "none":
         derived.commit(conn, draft["id"])
         return

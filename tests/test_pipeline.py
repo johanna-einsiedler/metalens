@@ -152,7 +152,8 @@ def test_a_follow_up_step_reads_the_runs_by_reference(tmp_path, monkeypatch) -> 
     pin_c, pin_g = _presets(tmp_path, monkeypatch)
     spec = _workflow(tmp_path, monkeypatch, [
         {"id": "claims", "kind": "extract", "preset": pin_c, "source": "live", "k": 2, "vote": {"identity": ["cause", "effect"]}},
-        {"id": "graph", "kind": "extract", "preset": pin_g, "source": "live", "input": {"previous": ["claims"]}, "review": {"mode": "all", "blocks": "release"}}], ["graph"])
+        {"id": "graph", "kind": "extract", "preset": pin_g, "source": "live", "input": {"previous": ["claims"]}},
+        {"id": "review", "kind": "review", "over": ["graph"], "mode": "all", "unit": "entry", "blocks": "release"}], ["graph", "review"])
     errs, _w = workflows.validate_for(conn, spec)
     assert errs == [] and workflows.later_problems(spec) == [], errs
     assert workflows.consumed_steps(spec) == {"claims": "graph"}

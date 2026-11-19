@@ -23,8 +23,8 @@ from paperlens import records, review_gate, workflows
 from paperlens import workflow_spec as ws
 
 SPEC = {"format": 1, "id": "coded", "meta": {"title": "Coded"},
-        "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825", "source": "supplied",
-                   "review": {"mode": "all", "unit": "paper", "coders": 2, "blocks": "release"}}]}
+        "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825", "source": "supplied"},
+                  {"id": "coding", "kind": "review", "over": ["tables"], "mode": "all", "unit": "paper", "coders": 2, "blocks": "release"}]}
 
 
 def _declare(conn, ds: str, spec: dict, monkeypatch) -> None:
@@ -34,17 +34,23 @@ def _declare(conn, ds: str, spec: dict, monkeypatch) -> None:
 
 def test_the_grammar_takes_coders_and_the_contract_moves_with_it() -> None:
     spec = ws.normalize(copy.deepcopy(SPEC))
-    assert ws.validate(spec)[0] == [] and spec["steps"][0]["review"]["coders"] == 2
-    plain = copy.deepcopy(SPEC); plain["steps"][0]["review"].pop("coders")
+    assert ws.validate(spec)[0] == [] and spec["steps"][1]["coders"] == 2 and ws.review_of(spec["steps"][1])["coders"] == 2
+    plain = copy.deepcopy(SPEC); plain["steps"][1].pop("coders")
     plain = ws.normalize(plain)
-    assert "coders" not in plain["steps"][0]["review"] and ws.workflow_id(plain) != ws.workflow_id(spec)   # a declaration, not a default
+    assert "coders" not in plain["steps"][1] and ws.workflow_id(plain) != ws.workflow_id(spec)   # a declaration, not a default
     def errs(mut):
         d = copy.deepcopy(SPEC); mut(d); return ws.validate(ws.normalize(d))[0]
-    assert any("coders must be an integer" in e for e in errs(lambda d: d["steps"][0]["review"].update(coders=0)))
-    assert any("coders must be an integer" in e for e in errs(lambda d: d["steps"][0]["review"].update(coders=True)))
-    assert any("needs a review" in e for e in errs(lambda d: d["steps"][0]["review"].update(mode="none")))
-    sampled = copy.deepcopy(SPEC); sampled["steps"][0]["review"].update(mode="sample", n=2, unit="entry")
+    assert any("coders must be an integer" in e for e in errs(lambda d: d["steps"][1].update(coders=0)))
+    assert any("coders must be an integer" in e for e in errs(lambda d: d["steps"][1].update(coders=True)))
+    assert any("a review step reviews" in e for e in errs(lambda d: d["steps"][1].update(mode="none")))
+    sampled = copy.deepcopy(SPEC); sampled["steps"][1].update(mode="sample", n=2, unit="entry")
     assert ws.validate(ws.normalize(sampled))[0] == []
+    # the form before — `review` on the extract step — reads as the same step and the same contract
+    legacy = ws.normalize({"format": 1, "id": "coded", "meta": {"title": "Coded"},
+                           "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825", "source": "supplied",
+                                      "review": {"mode": "all", "unit": "paper", "coders": 2, "blocks": "release"}}]})
+    assert ws.validate(legacy)[0] == [] and legacy["steps"][1]["id"] == "tables_review" and legacy["steps"][1]["coders"] == 2
+    assert ws.workflow_id(legacy) == ws.workflow_id(spec)
 
 
 def test_a_coders_gate_assigns_waits_queues_and_is_satisfied_by_the_coders(monkeypatch) -> None:
@@ -65,7 +71,8 @@ def test_a_coders_gate_assigns_waits_queues_and_is_satisfied_by_the_coders(monke
         docs[t] = r.json()["document_id"]
     view = owner.post(f"/api/workflow-runs/{run['id']}/complete", json={"step_id": "tables"}).json()
     # the gate opened with nobody to code: it waits, every item pending
-    g = view["steps"][0]["review"]
+    gate_of = lambda v: next(s for s in v["steps"] if s["step_id"] == "coding")["review"]   # noqa: E731
+    g = gate_of(view)
     assert view["status"] == "done" and g["coders"] == 2 and g["assigned"] is False and g["needs_coders"] == 2
     assert g["total"] == 6 and g["pending"] == 6 and g["satisfied"] is False
     # three coders join: the papers are assigned two each, the load even (3 papers × 2 = 6 slots over 3 coders)
@@ -75,37 +82,37 @@ def test_a_coders_gate_assigns_waits_queues_and_is_satisfied_by_the_coders(monke
         assert owner.post(f"/api/datasets/{ds}/coders", json={"email": email}).status_code == 200
         cs[tag] = (c, uid)
     view = owner.get(f"/api/workflow-runs/{run['id']}").json()
-    g = view["steps"][0]["review"]
+    g = gate_of(view)
     assert g["assigned"] is True and "needs_coders" not in g and g["n_coders"] == 3 and g["total"] == 12 and g["pending"] == 12
     assert sorted((b["label"], b["total"], b["papers"]) for b in g["by_coder"]) == [("coder_1", 4, 2), ("coder_2", 4, 2), ("coder_3", 4, 2)]
     conn.rollback()
     asg = conn.execute("SELECT document_id::text, coder_user_id::text FROM workflow_assignment WHERE run_id = %s::uuid ORDER BY ord", (run["id"],)).fetchall()
     assert len(asg) == 6 and all(len({u for d, u in asg if d == did}) == 2 for did in docs.values())
     # each coder's queue is their own; the owner sees all, or one coder's
-    qa = cs["A"][0].get(f"/api/workflow-runs/{run['id']}/queue/tables").json()
+    qa = cs["A"][0].get(f"/api/workflow-runs/{run['id']}/queue/coding").json()
     assert qa["viewer_coder"] == cs["A"][1] and len(qa["items"]) == 4 and all(i["coder_user_id"] == cs["A"][1] for i in qa["items"])
     assert qa["progress"] == {"drawn": 4, "checked": 0, "pending": 4, "disagreed": 0, "papers": 2, "papers_done": 0} and qa["satisfied"] is False
     assert len(qa["documents"]) == 2 and len(qa["by_coder"]) == 3 and qa["gate"]["total"] == 12
-    qo = owner.get(f"/api/workflow-runs/{run['id']}/queue/tables").json()
+    qo = owner.get(f"/api/workflow-runs/{run['id']}/queue/coding").json()
     assert len(qo["items"]) == 12 and qo["viewer_coder"] is None
-    assert len(owner.get(f"/api/workflow-runs/{run['id']}/queue/tables?coder={cs['B'][1]}").json()["items"]) == 4
+    assert len(owner.get(f"/api/workflow-runs/{run['id']}/queue/coding?coder={cs['B'][1]}").json()["items"]) == 4
     assert cs["A"][0].get(f"/api/workflow-runs/{run['id']}").json()["status"] == "done"         # a coder reads the run
     # the owner moves one paper from its second coder to the third — before any verdict
     first_doc = qa["documents"][0]["document_id"]
     others = [u for d, u in asg if d == first_doc and u != cs["A"][1]]
     spare = next(uid for _c, uid in cs.values() if uid not in (cs["A"][1], *others))
-    r = owner.post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "tables", "document_id": first_doc, "coders": [cs["A"][1], spare]})
+    r = owner.post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "coding", "document_id": first_doc, "coders": [cs["A"][1], spare]})
     assert r.status_code == 200, r.text
     assert r.json()["gate"]["total"] == 12
-    assert cs["A"][0].post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "tables", "document_id": first_doc, "coders": [cs["A"][1]]}).status_code == 404
+    assert cs["A"][0].post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "coding", "document_id": first_doc, "coders": [cs["A"][1]]}).status_code == 404
     # the coders give their verdicts; the record's own status never moves; the gate closes only when every slot has one
     def verdicts(tag: str, status: str = "verified"):
         c, uid = cs[tag]
-        q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables").json()
+        q = c.get(f"/api/workflow-runs/{run['id']}/queue/coding").json()
         for it in q["items"]:
             if not it["checked"]:
                 assert c.post(f"/api/records/{it['record_id']}/verify", json={"status": status}).status_code == 200
-        return c.get(f"/api/workflow-runs/{run['id']}/queue/tables").json()
+        return c.get(f"/api/workflow-runs/{run['id']}/queue/coding").json()
     qa = verdicts("A")
     assert qa["progress"]["pending"] == 0 and qa["satisfied"] is False and qa["next"] is None
     conn.rollback()
@@ -117,12 +124,12 @@ def test_a_coders_gate_assigns_waits_queues_and_is_satisfied_by_the_coders(monke
     assert qc["satisfied"] is True and qc["next"]["action"] == "release"
     conn.rollback()
     st = review_gate.state(conn, workflows.get_step_run(conn, qc["items"][0] and conn.execute(
-        "SELECT id::text FROM workflow_step_run WHERE run_id = %s::uuid AND step_id = 'tables'", (run["id"],)).fetchone()[0]))
-    n_b = sum(1 for i in owner.get(f"/api/workflow-runs/{run['id']}/queue/tables").json()["items"] if i["coder_user_id"] == cs["B"][1])
+        "SELECT id::text FROM workflow_step_run WHERE run_id = %s::uuid AND step_id = 'coding'", (run["id"],)).fetchone()[0]))
+    n_b = sum(1 for i in owner.get(f"/api/workflow-runs/{run['id']}/queue/coding").json()["items"] if i["coder_user_id"] == cs["B"][1])
     assert st["satisfied"] is True and st["checked"] == 12 and st["disagreed"] == n_b and n_b >= 2    # B flagged every slot of theirs
     assert not review_gate.blocking_release(review_gate.open_gates(conn, ds))
     # a coder who already gave a verdict cannot be taken off a paper
-    r = owner.post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "tables", "document_id": first_doc, "coders": [spare]})
+    r = owner.post(f"/api/workflow-runs/{run['id']}/assign", json={"step_id": "coding", "document_id": first_doc, "coders": [spare]})
     assert r.status_code == 409 and "already gave a verdict" in r.text
     # the badge: every record audited by its coders, the flagged ones not agreed
     cred = records.dataset_credibility(conn, ds)

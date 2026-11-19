@@ -19,12 +19,14 @@ _yaml = preset_bundle._yaml   # noqa: SLF001
 def _review_text(rv: dict | None) -> str:
     if not rv or rv.get("mode", "none") == "none":
         return "no review declared"
+    coders = f", {rv['coders']} coder{'s' if rv['coders'] != 1 else ''} per paper" if rv.get("coders") else ""
+    holds = "next step" if rv.get("blocks") == "next" else "release"
     if rv["mode"] == "all":
-        return f"every record reviewed before the {'next step' if rv.get('blocks') == 'next' else 'release'}"
-    size = f"{rv['n']} records" if rv.get("n") is not None else f"a {rv.get('share')} share"
+        return f"every {'paper' if rv.get('unit') == 'paper' else 'record'}{coders}, reviewed before the {holds}"
+    size = f"{rv['n']} {'papers' if rv.get('unit') == 'paper' else 'records'}" if rv.get("n") is not None else f"a {rv.get('share')} share"
     strat = f", stratified by {', '.join(rv['stratify'])}" if rv.get("stratify") else ""
     unit = " (whole papers)" if rv.get("unit") == "paper" else ""
-    return f"a random sample of {size}{unit}{strat}, reviewed before the {'next step' if rv.get('blocks') == 'next' else 'release'}"
+    return f"a random sample of {size}{unit}{strat}{coders}, reviewed before the {holds}"
 
 
 def steps_markdown(spec: dict, presets: list[dict] | None = None) -> str:
@@ -68,11 +70,14 @@ def steps_markdown(spec: dict, presets: list[dict] | None = None) -> str:
         elif kind == "crosscheck":
             lines.append("- the claims-vs-tables check against the dataset's companion")
         elif kind == "review":
-            lines.append(f"- a joint review stage over {', '.join(st.get('over') or [])}: each drawn paper's documents of those steps, in one worklist")
+            over = st.get("over") or []
+            lines.append(f"- a joint review over {', '.join(over)}: each drawn paper's documents of those steps, in one worklist" if len(over) > 1
+                         else f"- a review over {', '.join(over)}: a person looks before the data counts as checked")
+            lines.append(f"- review: {_review_text(ws.review_of(st))}")
         elif kind == "release":
             lines.append(f"- gate: {', '.join(st.get('gate') or []) or 'none'} — a release holds while a gate step is stale or awaits review")
-        if kind in ws.REVIEWED_KINDS:
-            lines.append(f"- review: {_review_text(st.get('review'))}")
+        if kind in ws.REVIEWED_KINDS and kind != "review" and ws.review_of(st).get("mode", "none") != "none":
+            lines.append(f"- review: {_review_text(ws.review_of(st))}")
         lines.append("")
     return "\n".join(lines)
 

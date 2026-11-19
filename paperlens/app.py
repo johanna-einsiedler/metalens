@@ -1336,7 +1336,7 @@ def dataset_derived(dataset_id: str, db=Depends(get_db), who: Principal = Depend
         item = {k: st.get(k) for k in ("id", "label", "help", "over", "identity", "group_by", "input", "output")}
         item["calls"] = [{k: c.get(k) for k in ("id", "kind", "op", "by", "fields") if c.get(k) is not None} for c in st.get("calls") or [] if isinstance(c, dict)]
         item["llm_calls"] = len(derived.llm_calls(st))
-        item["review"] = ws_review(st)
+        item["review"] = ws_review(spec, st)
         item.update(derived.state(db, dataset_id, st))
         steps.append(item)
     rows = derived.list_for_dataset(db, dataset_id)
@@ -1348,9 +1348,11 @@ def dataset_derived(dataset_id: str, db=Depends(get_db), who: Principal = Depend
             "active_run": {"id": run["id"], "status": run["status"]} if run else None}
 
 
-def ws_review(st: dict) -> dict:
+def ws_review(spec: dict, st: dict) -> dict:
+    """The review that covers a derive step: its review step's declaration (``step`` names it),
+    else none — the draft is committed at once."""
     from . import workflow_spec as ws
-    return ws.review_of(st)
+    return ws.review_for(spec, st["id"])
 
 
 @app.get("/api/datasets/{dataset_id}/derived/{step}/plan")
@@ -1413,8 +1415,9 @@ def derived_review(did: str, db=Depends(get_db), who: Principal = Depends(princi
     d, owner = _derived_or_404(db, did, who)
     out = derived.review(db, did)
     try:
-        _spec, st = _derive_step_or_404(db, d["dataset_id"], d["step"])
-        out["step"] = {k: st.get(k) for k in ("id", "label", "help", "over", "identity", "output", "review")}
+        spec, st = _derive_step_or_404(db, d["dataset_id"], d["step"])
+        out["step"] = {k: st.get(k) for k in ("id", "label", "help", "over", "identity", "output")}
+        out["step"]["review"] = ws_review(spec, st)
         out["step"]["calls"] = [{k: c.get(k) for k in ("id", "kind", "op") if c.get(k) is not None} for c in st.get("calls") or [] if isinstance(c, dict)]
     except HTTPException:
         out["step"] = None
@@ -1697,7 +1700,8 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict
         out.append({"id": spec["id"], "contract": ws.workflow_id(spec), "version": spec.get("version", 1), "title": meta.get("title"),
                     "tagline": meta.get("tagline"), "has_card": ws.has_card(spec),
                     "steps": [{"id": st["id"], "kind": st["kind"], "label": st.get("label"), "preset": st.get("preset"), "source": st.get("source"),
-                               "review": st.get("review"), "check": st.get("check"), "dataset": st.get("dataset")} for st in spec["steps"]],
+                               "review": ws.review_of(st) if st["kind"] == "review" else None, "over": st.get("over") if st["kind"] == "review" else None,
+                               "check": st.get("check"), "dataset": st.get("dataset")} for st in spec["steps"]],
                     "presets": [p for _s, p in ws.pins(spec)]})
     return {"workflows": out}
 

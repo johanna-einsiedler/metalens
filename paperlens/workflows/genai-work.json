@@ -42,10 +42,7 @@
       "dataset": "extraction",
       "preset": "genai-work-extraction@da3f72fd",
       "source": "supplied",
-      "help": "the pipeline's record of the paper — the tasks, their arms and outcomes, one reference row and one contrast row per estimate with the numbers as printed — uploaded with the PDF; not reviewed here, checked below",
-      "review": {
-        "mode": "none"
-      }
+      "help": "the pipeline's record of the paper — the tasks, their arms and outcomes, one reference row and one contrast row per estimate with the numbers as printed — uploaded with the PDF; not reviewed, checked below"
     },
     {
       "id": "judgment",
@@ -54,13 +51,7 @@
       "dataset": "judgment",
       "preset": "genai-work-judgment@7c55d22b",
       "source": "supplied",
-      "help": "the study's screening and design from the PDF alone, the units as extracted with the coder's categories, the abstract's sentences against their units; two coders per paper, each blind to the other",
-      "review": {
-        "mode": "all",
-        "unit": "paper",
-        "coders": 2,
-        "blocks": "release"
-      }
+      "help": "the study's screening and design from the PDF alone, the units as extracted with the coder's categories, the abstract's sentences against their units"
     },
     {
       "id": "check",
@@ -69,13 +60,7 @@
       "dataset": "check",
       "preset": "genai-work-extraction-check@0f13fe6c",
       "source": "supplied",
-      "help": "one exhibit per paper, drawn at random by the pipeline: every cited cell as printed against its unit, the cells the extraction missed added, a full-review flag",
-      "review": {
-        "mode": "all",
-        "unit": "paper",
-        "coders": 1,
-        "blocks": "release"
-      }
+      "help": "one exhibit per paper, drawn at random by the pipeline: every cited cell as printed against its unit, the cells the extraction missed added, a full-review flag"
     },
     {
       "id": "routed",
@@ -84,13 +69,7 @@
       "dataset": "routed",
       "preset": "genai-work-routed@83b871a1",
       "source": "supplied",
-      "help": "a paper whose record contradicts an inclusion criterion, whose headline estimate scores high on the checks, or that a coder flagged: every flag resolved",
-      "review": {
-        "mode": "all",
-        "unit": "paper",
-        "coders": 1,
-        "blocks": "release"
-      }
+      "help": "a paper whose record contradicts an inclusion criterion, whose headline estimate scores high on the checks, or that a coder flagged: every flag listed"
     },
     {
       "id": "record",
@@ -141,13 +120,55 @@
       "help": "the declared fields, types and options of the pass re-checked on the values as stored, after the coders' corrections; findings are notes on the records, never a verdict"
     },
     {
+      "id": "review_judgment",
+      "kind": "review",
+      "label": "Judgment by two coders",
+      "over": [
+        "judgment"
+      ],
+      "help": "every judgment paper coded whole by two coders, each blind to the other, in a coding of their own",
+      "mode": "all",
+      "unit": "paper",
+      "coders": 2,
+      "blocks": "release"
+    },
+    {
+      "id": "review_check",
+      "kind": "review",
+      "label": "Extraction check by one coder",
+      "over": [
+        "check"
+      ],
+      "help": "every extraction-check paper coded whole by one coder: value and mapping cell by cell, misses added, a full-review flag",
+      "mode": "all",
+      "unit": "paper",
+      "coders": 1,
+      "blocks": "release"
+    },
+    {
+      "id": "review_routed",
+      "kind": "review",
+      "label": "Routed papers resolved by one coder",
+      "over": [
+        "routed"
+      ],
+      "help": "every routed paper coded whole by one coder: each flag resolved",
+      "mode": "all",
+      "unit": "paper",
+      "coders": 1,
+      "blocks": "release"
+    },
+    {
       "id": "release",
       "kind": "release",
       "label": "Release",
       "gate": [
         "judgment",
+        "review_judgment",
         "check",
-        "routed"
+        "review_check",
+        "routed",
+        "review_routed"
       ]
     }
   ]

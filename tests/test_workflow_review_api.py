@@ -34,8 +34,9 @@ def test_a_sampled_gate_draws_queues_and_counts(monkeypatch) -> None:
     c, H = _client(sess)
     ds = records.create_dataset(conn, title="Sampled", schema_id="econ-regression-tables@67780825", session_id=sess)["id"]; conn.commit()
     spec = ws.normalize({"format": 1, "id": "sampled", "meta": {"title": "Sampled"},
-                         "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825",
-                                    "review": {"mode": "sample", "unit": "entry", "n": 3, "seed": 11, "stratify": ["table_number"], "blocks": "next"}}]})
+                         "steps": [{"id": "tables", "kind": "extract", "preset": "econ-regression-tables@67780825"},
+                                   {"id": "draw", "kind": "review", "over": ["tables"], "mode": "sample", "unit": "entry", "n": 3, "seed": 11,
+                                    "stratify": ["table_number"], "blocks": "next"}]})
     assert ws.validate(spec)[0] == [] and workflows.later_problems(spec) == []
     _declare(conn, ds, spec, monkeypatch)
     # two papers with four columns each land: eight new records, three drawn
@@ -46,19 +47,20 @@ def test_a_sampled_gate_draws_queues_and_counts(monkeypatch) -> None:
                    data={"result": json.dumps(_result(t, n=4)), "run_id": run["id"], "step_id": "tables"})
         assert r.status_code == 200, r.text
     view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
-    assert view["status"] == "awaiting_review:tables"
-    gate = view["steps"][0]["review"]
+    assert view["status"] == "awaiting_review:draw"
+    gate = next(s for s in view["steps"] if s["step_id"] == "draw")["review"]
+    assert next(s for s in view["steps"] if s["step_id"] == "tables")["review"]["mode"] == "none"      # the extract step itself holds nothing
     assert gate["mode"] == "sample" and gate["total"] == 3 and gate["frame_n"] == 8 and gate["n_target"] == 3 and gate["seed"] == 11
     assert gate["exhaustive"] is False and gate["strata"] == {"Table 3": {"N": 8, "n": 3}}
     conn.rollback()
     assert conn.execute("SELECT count(*) FROM workflow_sample WHERE run_id = %s::uuid AND kind = 'random'", (run["id"],)).fetchone()[0] == 3
     # the queue: three items in draw order, their documents, nothing checked
-    q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
+    q = c.get(f"/api/workflow-runs/{run['id']}/queue/draw", headers=H).json()
     assert q["mode"] == "sample" and [i["ord"] for i in q["items"]] == [0, 1, 2]
     assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 0, "pending": 3, "disagreed": 0}
     assert sum(d["n_items"] for d in q["documents"]) == 3 and all(d["filename"] for d in q["documents"]) and q["satisfied"] is False and q["next"] is None
     # the same draw again (idempotent on the seed): the engine never redraws on a read
-    assert c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()["items"] == q["items"]
+    assert c.get(f"/api/workflow-runs/{run['id']}/queue/draw", headers=H).json()["items"] == q["items"]
     # verdicts: one plain verify, one flag, one correction then verify — two disagreements
     ids = [i["record_id"] for i in q["items"]]
     records.verify_record(conn, ids[0], status="verified")
@@ -66,11 +68,11 @@ def test_a_sampled_gate_draws_queues_and_counts(monkeypatch) -> None:
     records.verify_record(conn, ids[2], status="corrected", diff=[{"field_path": "notes", "original_value": None, "final_value": "fixed"}],
                           patch=[{"field_path": "notes", "value": "fixed"}])
     conn.commit()
-    q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
+    q = c.get(f"/api/workflow-runs/{run['id']}/queue/draw", headers=H).json()
     assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 2, "pending": 1, "disagreed": 1}
     assert c.post(f"/api/workflow-runs/{run['id']}/resume", headers=H, json={}).status_code == 409
     records.verify_record(conn, ids[2], status="verified"); conn.commit()
-    q = c.get(f"/api/workflow-runs/{run['id']}/queue/tables", headers=H).json()
+    q = c.get(f"/api/workflow-runs/{run['id']}/queue/draw", headers=H).json()
     assert {k: q["progress"][k] for k in ("drawn", "checked", "pending", "disagreed")} == {"drawn": 3, "checked": 3, "pending": 0, "disagreed": 2} and q["satisfied"] and q["next"] == {"action": "resume"}
     # a record verified outside the draw is an ad-hoc audit: in the badge's audited share, not in the sample
     other = next(r for (r,) in conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid", (ds,)).fetchall() if r not in ids)
@@ -106,13 +108,14 @@ def test_an_exhaustive_draw_a_release_override_and_the_catalogue_count_alike(mon
     assert c.post("/api/ingest-pdf", headers=H, files={"pdf": ("f1.pdf", pdf, "application/pdf")},
                   data={"result": json.dumps(_result("f1", n=2)), "run_id": run["id"], "step_id": "tables"}).status_code == 200
     view = c.get(f"/api/workflow-runs/{run['id']}", headers=H).json()
-    assert view["status"] == "done" and view["steps"][0]["review"]["exhaustive"] is True and view["steps"][0]["review"]["total"] == 2
+    g = next(s for s in view["steps"] if s["step_id"] == "tables_review")["review"]          # the attribute form, read as a review step
+    assert view["status"] == "done" and g["exhaustive"] is True and g["total"] == 2
     # the release holds; the owner overrides, and the release says so
     p = c.get(f"/api/datasets/{ds}/releases/pending", headers=H).json()
-    assert p["gate"]["gates_blocking"] == ["tables"] and p["credibility"]["label"] == "AI-only" or p["credibility"]["tier"] == "ai_only"
+    assert p["gate"]["gates_blocking"] == ["tables_review"] and p["credibility"]["label"] == "AI-only" or p["credibility"]["tier"] == "ai_only"
     assert c.post(f"/api/datasets/{ds}/releases", headers=H, json={}).status_code == 409
     r = c.post(f"/api/datasets/{ds}/releases", headers=H, json={"override_gates": True, "allow_stale": True})
-    assert r.status_code == 200 and r.json()["gates"]["gates_overridden"] is True and r.json()["gates"]["gates_blocking"] == ["tables"]
+    assert r.status_code == 200 and r.json()["gates"]["gates_overridden"] is True and r.json()["gates"]["gates_blocking"] == ["tables_review"]
     # the badge with a pending draw says so; a withdrawn verdict is no audit on either counting path
     rec = conn.execute("SELECT id::text FROM record WHERE dataset_id = %s::uuid ORDER BY entry_index LIMIT 1", (ds,)).fetchone()[0]
     records.verify_record(conn, rec, status="verified"); conn.commit()

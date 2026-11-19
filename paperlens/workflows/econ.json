@@ -105,11 +105,9 @@
         "claims"
       ],
       "help": "every new paper on both sides: its regression columns, then its claims with their verdicts against the tables, in one worklist",
-      "review": {
-        "mode": "all",
-        "unit": "paper",
-        "blocks": "release"
-      },
+      "mode": "all",
+      "unit": "paper",
+      "blocks": "release",
       "asks": {
         "tables": [
           "target_regressors",

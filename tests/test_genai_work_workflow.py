@@ -73,13 +73,15 @@ def test_the_presets_and_the_workflow_are_bundled_and_validate() -> None:
     wf = workflows.load_all()["genai-work"]
     assert ws.validate(wf)[0] == [] and workflows.later_problems(wf) == []
     by = ws.steps_by_id(wf)
-    assert [s["id"] for s in wf["steps"]] == ["extraction", "judgment", "check", "routed", "record", "contract_judgment", "contract_check", "contract_routed", "release"]
-    assert by["extraction"]["source"] == "supplied" and by["extraction"]["review"]["mode"] == "none" and by["record"]["check"] == "genai-work-record" and by["record"]["over"] == ["extraction"]
+    assert [s["id"] for s in wf["steps"]] == ["extraction", "judgment", "check", "routed", "record", "contract_judgment", "contract_check", "contract_routed",
+                                              "review_judgment", "review_check", "review_routed", "release"]
+    assert by["extraction"]["source"] == "supplied" and "review" not in by["extraction"] and by["record"]["check"] == "genai-work-record" and by["record"]["over"] == ["extraction"]
     assert all(by[f"contract_{s}"]["check"] == "schema" and by[f"contract_{s}"]["over"] == [s] for s in ("judgment", "check", "routed"))
-    assert all(by[s]["source"] == "supplied" and by[s]["dataset"] == s for s in ("judgment", "check", "routed"))
-    assert by["judgment"]["review"]["coders"] == 2 and by["check"]["review"]["coders"] == 1 and by["routed"]["review"]["coders"] == 1
-    assert all(by[s]["review"] == {**by[s]["review"], "mode": "all", "unit": "paper", "blocks": "release"} for s in ("judgment", "check", "routed"))
-    assert by["release"]["gate"] == ["judgment", "check", "routed"]
+    assert all(by[s]["source"] == "supplied" and by[s]["dataset"] == s and "review" not in by[s] for s in ("judgment", "check", "routed"))
+    assert by["review_judgment"]["coders"] == 2 and by["review_check"]["coders"] == 1 and by["review_routed"]["coders"] == 1
+    assert all(by[f"review_{s}"]["over"] == [s] and {k: by[f"review_{s}"][k] for k in ("mode", "unit", "blocks")} == {"mode": "all", "unit": "paper", "blocks": "release"} for s in ("judgment", "check", "routed"))
+    assert by["release"]["gate"] == ["judgment", "review_judgment", "check", "review_check", "routed", "review_routed"]
+    assert ws.workflow_id(wf) == "genai-work@a92931fb"          # the review steps are the former attributes: the contract is the same
     assert ws.has_card(wf) and "## Steps" in wf["card"]["text"]
     for s in ("extraction", "judgment", "check", "routed"):   # the pins are the bundled files' contracts
         base = by[s]["preset"].split("@")[0]
@@ -132,10 +134,13 @@ def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_code_it(tmp_p
     assert [c["email"] for c in owner.get(f"/api/datasets/{wd}/coders").json()["coders"]] == [a_email, b_email]
     view = owner.get(f"/api/workflow-runs/{rid}").json()
     gates = {s["step_id"]: s["review"] for s in view["steps"] if s.get("review")}
-    assert gates["judgment"]["assigned"] and gates["judgment"]["total"] == 4 and sorted(b["total"] for b in gates["judgment"]["by_coder"]) == [2, 2]
-    assert gates["check"]["assigned"] and gates["check"]["total"] == 1 and len(gates["check"]["by_coder"]) == 1
-    assert gates["routed"]["total"] == 0 and gates["routed"]["satisfied"] is True
-    assert "extraction" not in gates or gates["extraction"]["mode"] == "none"
+    assert gates["review_judgment"]["assigned"] and gates["review_judgment"]["total"] == 4 and sorted(b["total"] for b in gates["review_judgment"]["by_coder"]) == [2, 2]
+    assert gates["review_check"]["assigned"] and gates["review_check"]["total"] == 1 and len(gates["review_check"]["by_coder"]) == 1
+    assert gates["review_routed"]["total"] == 0 and gates["review_routed"]["satisfied"] is True
+    assert all(gates[s]["mode"] == "none" for s in ("extraction", "judgment", "check", "routed") if s in gates)
+    steps_out = {s["step_id"]: s["outputs"] for s in view["steps"]}
+    roles = {r["role"]: r["dataset"]["dataset_id"] for r in g["roles"]}
+    assert steps_out["review_judgment"]["datasets"] == [roles["judgment"]] and steps_out["review_judgment"]["whole"] is False
     # a second seeding changes nothing: the papers are there, no new run is needed for them
     again = seed.seed_workflow(TestClient(appmod.app), manifest, tmp_path, False, client_factory=lambda: TestClient(appmod.app))
     assert again["workflow_dataset"] == wd and again["sides"]["judgment"] == {"imported": 0, "skipped": 2, "failed": 0} and again["sides"]["extraction"]["skipped"] == 2
@@ -143,15 +148,15 @@ def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_code_it(tmp_p
     coded = {d["group_role"] for d in a.get("/api/datasets?coder=1").json()["datasets"]}
     assert coded == {"extraction", "judgment", "check", "routed"} and all(d["workflow_title"] == manifest["title"] for d in a.get("/api/datasets?coder=1").json()["datasets"])
     for c, uid in ((a, a_id), (b, b_id)):
-        q = c.get(f"/api/workflow-runs/{rid}/queue/judgment").json()
+        q = c.get(f"/api/workflow-runs/{rid}/queue/review_judgment").json()
         assert q["viewer_coder"] == uid and len(q["items"]) == 2 and q["progress"]["pending"] == 2
         for it in q["items"]:
             assert c.post(f"/api/records/{it['record_id']}/verify", json={"status": "verified"}).status_code == 200
     conn.rollback()
     judg = review_gate.state(conn, workflows.get_step_run(conn, conn.execute(
-        "SELECT id::text FROM workflow_step_run WHERE run_id = %s::uuid AND step_id = 'judgment'", (rid,)).fetchone()[0]))
+        "SELECT id::text FROM workflow_step_run WHERE run_id = %s::uuid AND step_id = 'review_judgment'", (rid,)).fetchone()[0]))
     assert judg["satisfied"] is True and judg["checked"] == 4
-    chk = owner.get(f"/api/workflow-runs/{rid}/queue/check").json()
+    chk = owner.get(f"/api/workflow-runs/{rid}/queue/review_check").json()
     assert chk["satisfied"] is False and chk["progress"]["pending"] == 1 and chk["by_coder"][0]["label"] in ("coder_1", "coder_2")
     # the export of the judgment side carries both codings; the records as stored stay unverified
     jds = next(r["dataset"]["dataset_id"] for r in g["roles"] if r["role"] == "judgment")
