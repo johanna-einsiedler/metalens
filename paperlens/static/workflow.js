@@ -43,7 +43,9 @@ function reviewText(rv) {
   if (!rv || rv.mode === "none") return "no review";
   const holds = rv.blocks === "next" ? "holds the run" : "holds the release";
   const coders = rv.coders ? ` · ${rv.coders} coder${rv.coders === 1 ? "" : "s"} per paper` : "";
-  if (rv.mode === "all") return `every ${rv.unit === "paper" ? "paper" : "record"}${coders} · ${holds}`;
+  const tpl = rv.template ? ` · template ${rv.template}` : "";
+  if (rv.unit === "row") return `${rv.mode === "sample" ? `${rv.per_paper || 1} row${(rv.per_paper || 1) === 1 ? "" : "s"} of ${rv.table || "a table"} per paper` : `every row of ${rv.table || "a table"}`}${rv.where ? " that meets the filter" : ""}${tpl}${coders} · ${holds}`;
+  if (rv.mode === "all") return `every ${rv.unit === "paper" ? "paper" : "record"}${rv.where ? " that meets the filter" : ""}${tpl}${coders} · ${holds}`;
   const size = rv.n != null ? `${rv.n} ${rv.unit === "paper" ? "papers" : "records"}` : `a ${Math.round((rv.share || 0) * 100)}% share`;
   return `random sample of ${size}${rv.unit === "paper" ? " (whole papers)" : ""}${(rv.stratify || []).length ? `, stratified by ${rv.stratify.join(", ")}` : ""}${coders} · ${holds}`;
 }

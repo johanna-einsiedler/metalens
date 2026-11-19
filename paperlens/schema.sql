@@ -701,6 +701,11 @@ CREATE TABLE IF NOT EXISTS workflow_sample (
     UNIQUE (step_run_id, record_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_sample_record_idx ON workflow_sample(record_id);
+-- a draw of ROWS (a review step with unit: row): the drawn row of a paper table ("exhibits#o3"), the record
+-- the paper's first (the verdict on the paper is read from it); several rows of one paper may share it
+ALTER TABLE workflow_sample ADD COLUMN IF NOT EXISTS unit_key text;
+ALTER TABLE workflow_sample DROP CONSTRAINT IF EXISTS workflow_sample_step_run_id_record_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_sample_unit_uq ON workflow_sample(step_run_id, record_id, COALESCE(unit_key, ''));
 
 -- what a check step found: per run, recomputed each time, never data
 CREATE TABLE IF NOT EXISTS workflow_finding (

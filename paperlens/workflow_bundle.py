@@ -21,6 +21,10 @@ def _review_text(rv: dict | None) -> str:
         return "no review declared"
     coders = f", {rv['coders']} coder{'s' if rv['coders'] != 1 else ''} per paper" if rv.get("coders") else ""
     holds = "next step" if rv.get("blocks") == "next" else "release"
+    tpl = f" (template `{rv['template']}`)" if rv.get("template") else ""
+    if rv.get("unit") == "row":
+        what = f"{rv.get('per_paper') or 1} row{'s' if (rv.get('per_paper') or 1) != 1 else ''} of `{rv.get('table')}` drawn per paper" if rv["mode"] == "sample" else f"every row of `{rv.get('table')}`"
+        return f"{what}{' that meets the filter' if rv.get('where') else ''}{tpl}{coders}, reviewed before the {holds}"
     if rv["mode"] == "all":
         return f"every {'paper' if rv.get('unit') == 'paper' else 'record'}{coders}, reviewed before the {holds}"
     size = f"{rv['n']} {'papers' if rv.get('unit') == 'paper' else 'records'}" if rv.get("n") is not None else f"a {rv.get('share')} share"

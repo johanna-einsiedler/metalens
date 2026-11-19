@@ -8,6 +8,19 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A review of rows, and a review step's filter
+
+- A review step may review the ROWS of a paper table (`unit: row`, `table`): every row
+  (`mode: all`) or `per_paper` of them per paper (`mode: sample`), drawn with the step's seed and
+  the paper's id so a paper's draw never moves; the gate's items carry the drawn row's `unit_key`,
+  the verdict is the paper's, and such a draw never enters the dataset's sample estimate
+  (`workflow_sample.unit_key`; the unique key of a draw now includes it). A review step's `where`
+  keeps the rows (unit row) or the papers (the other units) that meet it, in the templates' small
+  grammar. A task's view carries the drawn rows (`task.sampled`), which a template's `only_sampled`
+  and `sampled` filters read: the check task shows the drawn exhibit and its cells alone, and the
+  required answers follow the draw. `_coding_events` now carries the verifier kind, so a sampled
+  gate with coders reads a coder's verdict (it raised before).
+
 ### Review templates: what a review asks, answered into the coding
 
 - A **review template** (`paperlens/templates/<id>.json`, `paperlens/templates.py`) says how a

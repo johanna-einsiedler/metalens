@@ -37,7 +37,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   steps are fine when each names its dataset role (linked datasets, below); `k` runs with a
   `vote`, `input.previous` and loops run.
 - **A review is a step.** `{"kind": "review", "over": [steps], "template": "<id>", "mode": "all" | "sample", "unit":
-  "entry" | "paper", "blocks": "next" | "release", "coders": N, "new_only": true}`: `over` names
+  "entry" | "paper" | "row", "blocks": "next" | "release", "coders": N, "new_only": true, "where": {…}}`: `over` names
   the earlier extract steps it reads (several: a joint review, each paper's documents of those
   steps in one worklist), or one derive step (the review is the draft's commit). `blocks`
   (default `release`) says whether an unsatisfied gate holds the next step or only the release.
@@ -50,9 +50,17 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   reports the draws: "Sampled 30/412 · 93% agree", with the estimated error rate and its 95%
   interval in the long label, next to the audited share; a record verified outside a draw never
   enters the estimate. `new_only: false` reviews every paper of the sides on every run, not only
-  the run's new ones. `template` names a review template (below): how the coder checks the
-  records and what they answer; it must be `for` the preset of every step the review reads, and
-  is part of the contract. A data step no review step covers is never reviewed: an extract step's
+  the run's new ones. `unit: row` reviews the ROWS of a paper table (`table`, one of the read
+  preset's): `mode: all` every row, `mode: sample` `per_paper` of them per paper, drawn with a
+  seed of the step's `seed` and the paper's id (a paper's draw never moves when papers are
+  added; `n` and `share` do not apply); the gate's items carry the drawn row's `unit_key`
+  (`"<table>#<_rid>"`), the verdict is the paper's (read from its first record), and a draw of
+  rows never enters the dataset's sample estimate. `where` keeps what meets it — the rows, for
+  `unit: row` (keys are the table's columns); the papers, otherwise (keys are paper fields,
+  `paper_metadata.<field>` too), the same small grammar as a template block's. `template` names
+  a review template (below): how the coder checks the records and what they answer; it must be
+  `for` the preset of every step the review reads. `table`, `per_paper`, `where` and `template`
+  are part of the contract. A data step no review step covers is never reviewed: an extract step's
   records count as AI-only, a draft is committed at once. The form before — `"review": {…}` on
   the extract or derive step — is still read: it becomes the review step `<step>_review` right
   after it, with the same contract (below).
@@ -361,8 +369,11 @@ every write is a `coding_event` (status `noted`), never a disagreement. A review
 `template` opens its gate with the template (`review.template`, `review.template_id`); the queue
 names the **task** (`<run>:<step>`), and `GET /api/documents/{id}/view?task=` serves the document
 through it: a coder gets the projection — blind values gone, numbers masked, the template under
-`template`, their `answers` — and `POST /api/documents/{id}/answers {task, record_id?, unit,
-answers}` writes theirs (422 for a value outside the options or an unknown unit). The workspace
+`template`, their `answers`; in a review of rows also `task.sampled` (the drawn rows' keys and
+their columns' values), which a block's `only_sampled` and a `where` with `sampled:
+"<table>.<column>"` read, so the check task shows the drawn exhibit and its cells alone — and
+`POST /api/documents/{id}/answers {task, record_id?, unit, answers}` writes theirs (422 for a
+value outside the options or an unknown unit). The workspace
 draws a template stage as its blocks, a card per unit with the questions under the shown fields,
 and says how many required answers are owed; `done` (and a verdict sent with `task`) is refused
 while any is missing. The owner reads every coder's answers under each unit (`answers_by_coder`)
