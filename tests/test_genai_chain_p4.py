@@ -183,11 +183,15 @@ def _synthetic():
 def test_the_passes_check_turns_the_projects_issues_into_findings_per_paper() -> None:
     ex, es, em, de, pages = _synthetic()
     inputs = [{"name": n, "pass": f"genai_work.{n}", "outputs": {"sha1": o}, "stability": {"sha1": st}, "pages": {"sha1": pages}}
-              for n, o, st in (("exhibits", ex, None), ("estimands", es, None), ("estimates", em, {"issues": [{"severity": "warn", "path": "estimates[0]", "code": "not_in_all_runs", "message": "estimate x1 has no counterpart in 1 of 2 runs"}]}), ("design", de, None))]
+              for n, o, st in (("exhibits", ex, None), ("estimands", es, None),
+                               ("estimates", em, {"issues": [{"severity": "warn", "path": "estimates[0]", "code": "not_in_all_runs", "message": "a copy of what the row's annotation says"}]}),
+                               ("design", de, {"issues": [{"severity": "info", "path": "study.scale", "code": "runs_settled", "message": "'micro' by 2 of 3 readings"}]}))]
     found = PC.check_genai_passes(inputs, {})
     codes = Counter(f["code"] for f in found)
-    assert all(f["pdf_sha256"] == "sha1" for f in found) and codes["source_exhibit_unknown"] == 1 and codes["stars_se_inconsistent"] == 1 and codes["not_in_all_runs"] == 1
-    assert next(f for f in found if f["code"] == "source_exhibit_unknown")["severity"] == "error" and next(f for f in found if f["code"] == "not_in_all_runs")["path"] == "estimates:estimates[0]"
+    assert all(f["pdf_sha256"] == "sha1" for f in found) and codes["source_exhibit_unknown"] == 1 and codes["stars_se_inconsistent"] == 1
+    assert codes["not_in_all_runs"] == 1 and codes["runs_settled"] == 1                      # the row's from its annotation (once), the design cell's from the matcher
+    assert next(f for f in found if f["code"] == "source_exhibit_unknown")["severity"] == "error"
+    assert next(f for f in found if f["code"] == "not_in_all_runs")["path"] == "tasks[0].results[1]" and next(f for f in found if f["code"] == "runs_settled")["path"] == "design:study.scale"
     assert all(f["code"] in PC.CODES for f in found), {f["code"] for f in found} - set(PC.CODES)
     assert PC.check_genai_passes(inputs[:3], {}) == []                                   # the design pass missing: nothing to assemble
     reg = checks.REGISTRY["genai-work-passes"]

@@ -23,6 +23,8 @@ def findings_of(sha: str, ex: dict, es: dict, em: dict, de: dict, pages: list[st
             "message": i.get("message"), "detail": {"source": "record" if not str(i.get("path") or "").startswith(("estimates[", "estimands[", "exhibits[")) else "passes"}}
            for i in fin["issues"]]
     for name, st in (stability or {}).items():
+        if name == "estimates":
+            continue                                   # the rows' disagreements are derived from the annotations above (record.runs_issues)
         for i in (st or {}).get("issues") or []:
             out.append({"pdf_sha256": sha, "path": f"{name}:{i.get('path')}", "code": i.get("code"), "severity": SEVERITY.get(i.get("severity"), "warn"),
                         "message": i.get("message"), "detail": {"source": f"runs:{name}"}})

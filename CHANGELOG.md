@@ -8,6 +8,27 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step six: seeding from the project's files
+
+- `POST /api/workflow-runs/{rid}/papers` takes `dispatch=false` (stage the PDF without running
+  its passes; no key needed), `pages` (a JSON list of strings standing in for the page text the
+  engine would extract) and the paper's identity — `title`, `doi`, `abstract`, `journal`, `year`,
+  `authors`, `peer_reviewed` (kept on `workflow_paper`; the assembled document's bibliography).
+  A seeder stages a paper first, then supplies its pass outputs; the chain advances as the last
+  one lands. The record's result rows the readings disagreed on, or a reading missed, become
+  `runs_disagree` / `not_in_all_runs` issues from the annotations (`record.runs_issues`), so the
+  routing's flags list them; the run notes order their fields alphabetically (jsonb keeps no order).
+- `scripts/seed_genai_chain.py` seeds a `genai-work-chain` dataset from the review project: per
+  paper the PDF with the project's page text and identity, the second and third readings as run
+  outputs, then the six primaries — exhibits, estimands, estimates and design with the readings'
+  annotations and settled cells lifted from the project's record and its stability record beside
+  them, the claims, the headline plan (where the plan file is of the current extraction).
+  `scripts/compare_chain.py` compares the dataset's documents with the project's import files,
+  field for field, and writes a parity report.
+- An end-to-end test runs the whole chain on a project paper's supplied outputs through the API —
+  assemble, the two checks, the routing, the review tasks opening — and asserts the document
+  equals the project's v20 import file (paper fields and tasks).
+
 ### The GenAI-at-work chain, step five: the workflow
 
 - `paperlens/workflows/genai-work-chain.json` (version 1, with its card): the chain as a bundled

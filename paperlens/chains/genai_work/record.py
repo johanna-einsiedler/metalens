@@ -316,6 +316,28 @@ def verify_parts(rec, quotes, pages, rpages):
                         q.pop("model_quote", None)
 
 
+def runs_issues(rec):
+    """The readings' disagreements on the result rows, from the ``_runs`` annotations the matchers
+    (or the seeder) put on the estimates: a row another reading gave other numbers for
+    (``runs_disagree``), a row a reading did not find (``not_in_all_runs``)."""
+    out = []
+    for i, t in enumerate(rec.get("tasks") or []):
+        for j, r in enumerate(t.get("results") or []):
+            rn = r.get("_runs")
+            if not rn or not K.value_of(r.get("vs_arm")):
+                continue
+            eid = r.get("estimate_id") or r.get("estimate")
+            alt = rn.get("alt") or {}
+            if alt:
+                out.append({"severity": "warn", "path": f"tasks[{i}].results[{j}]", "code": "runs_disagree",
+                            "message": f"estimate {eid}: another reading gives " + ", ".join(f"{k}={vs[0][0]}" for k, vs in sorted(alt.items()) if vs)})
+            found, of = rn.get("found"), rn.get("of")
+            if isinstance(found, int) and isinstance(of, int) and found < of:
+                out.append({"severity": "warn", "path": f"tasks[{i}].results[{j}]", "code": "not_in_all_runs",
+                            "message": f"estimate {eid} has no counterpart in {of - found} of {of} readings"})
+    return out
+
+
 def mark_checks(rec, quotes):
     """``_check`` on every wrapped cell with a quote: what the review shows beside the value."""
     qcheck = {q["path"]: q["check"] for q in quotes}
@@ -341,7 +363,7 @@ def finish(ex, es, em, de, P: X.Pages) -> dict:
     mark_checks(rec, quotes)
     issues = K.record_issues(rec, quotes, pages)
     pass_issues, pass_summary = K.pass_issues(ex, es, em)
-    issues += pass_issues + K.cell_checks(ex, em)
+    issues += pass_issues + K.cell_checks(ex, em) + runs_issues(rec)
     corrected = {r.get("estimate_id") for t in rec["tasks"] for r in t["results"] if "sign corrected:" in (r.get("result_notes") or "")}
     est_of = lambda i: (re.match(r"estimates\[([^\]]+)\]", i["path"]) or [None, None])[1]  # noqa: E731
     issues = [i for i in issues if not (i["code"] == "sign_vs_text" and est_of(i) in corrected)]

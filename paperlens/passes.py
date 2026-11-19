@@ -265,12 +265,12 @@ def refs_after(conn, run: dict, st: dict, pdf_sha256: str, entry: dict, output: 
 # ── what a paper is to a run ─────────────────────────────────────────────────
 
 def paper_row(conn, run_id: str, pdf_sha256: str) -> dict | None:
-    r = conn.execute("""SELECT run_id::text, pdf_sha256, filename, paper_id::text, n_pages, text_sha256, status, title, doi, abstract, journal
+    r = conn.execute("""SELECT run_id::text, pdf_sha256, filename, paper_id::text, n_pages, text_sha256, status, title, doi, abstract, journal, year, authors, peer_reviewed
                         FROM workflow_paper WHERE run_id = %s::uuid AND pdf_sha256 = %s""", (run_id, pdf_sha256)).fetchone()
     if r is None:
         return None
     return {"run_id": r[0], "pdf_sha256": r[1], "filename": r[2], "paper_id": r[3], "n_pages": r[4], "text_sha256": r[5], "status": r[6],
-            "title": r[7], "doi": r[8], "abstract": r[9], "journal": r[10]}
+            "title": r[7], "doi": r[8], "abstract": r[9], "journal": r[10], "year": r[11], "authors": r[12] if isinstance(r[12], list) else None, "peer_reviewed": r[13]}
 
 
 def papers_of(conn, run_id: str) -> list[dict]:
@@ -279,27 +279,36 @@ def papers_of(conn, run_id: str) -> list[dict]:
 
 
 def stage_paper(conn, run_id: str, pdf_bytes: bytes, *, filename: str | None, title: str | None = None, doi: str | None = None,
-                abstract: str | None = None, journal: str | None = None, store=None) -> dict:
+                abstract: str | None = None, journal: str | None = None, pages: list[str] | None = None, year: int | None = None,
+                authors: list[str] | None = None, peer_reviewed: str | None = None, store=None) -> dict:
     """A PDF arrives for a run: keep it under the run, extract its page text once (content-addressed
-    by the PDF's hash, shared across runs) and record the paper as ready."""
+    by the PDF's hash, shared across runs) and record the paper as ready. ``pages`` supplied (the
+    pipeline's own page text, one string per page) stand in for the extraction and replace a
+    stored text."""
     from . import pdf_utils
     store = store or storage.get_store()
     sha = _sha(pdf_bytes)
     store.put(storage.run_pdf_key(run_id, sha), pdf_bytes, "application/pdf")
     tkey = storage.paper_text_key(sha)
-    if store.exists(tkey):
+    if pages is not None:
+        pages = [str(p) for p in pages]
+        store.put(tkey, json.dumps(pages, ensure_ascii=False).encode("utf-8"), "application/json")
+    elif store.exists(tkey):
         pages = json.loads(store.get(tkey).decode("utf-8"))
     else:
         pages = pdf_utils.page_texts(pdf_bytes)
         store.put(tkey, json.dumps(pages, ensure_ascii=False).encode("utf-8"), "application/json")
     with conn.transaction():
-        conn.execute("""INSERT INTO workflow_paper (run_id, pdf_sha256, filename, n_pages, text_sha256, status, title, doi, abstract, journal)
-                        VALUES (%s::uuid, %s, %s, %s, %s, 'ready', %s, %s, %s, %s)
+        conn.execute("""INSERT INTO workflow_paper (run_id, pdf_sha256, filename, n_pages, text_sha256, status, title, doi, abstract, journal, year, authors, peer_reviewed)
+                        VALUES (%s::uuid, %s, %s, %s, %s, 'ready', %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (run_id, pdf_sha256) DO UPDATE SET filename = COALESCE(EXCLUDED.filename, workflow_paper.filename),
                           n_pages = EXCLUDED.n_pages, text_sha256 = EXCLUDED.text_sha256, status = 'ready',
                           title = COALESCE(EXCLUDED.title, workflow_paper.title), doi = COALESCE(EXCLUDED.doi, workflow_paper.doi),
-                          abstract = COALESCE(EXCLUDED.abstract, workflow_paper.abstract), journal = COALESCE(EXCLUDED.journal, workflow_paper.journal)""",
-                     (run_id, sha, filename, len(pages), _sha(_canon(pages)), title, doi, abstract, journal))
+                          abstract = COALESCE(EXCLUDED.abstract, workflow_paper.abstract), journal = COALESCE(EXCLUDED.journal, workflow_paper.journal),
+                          year = COALESCE(EXCLUDED.year, workflow_paper.year), authors = COALESCE(EXCLUDED.authors, workflow_paper.authors),
+                          peer_reviewed = COALESCE(EXCLUDED.peer_reviewed, workflow_paper.peer_reviewed)""",
+                     (run_id, sha, filename, len(pages), _sha(_canon(pages)), title, doi, abstract, journal, year,
+                      Json([str(a) for a in authors]) if authors else None, peer_reviewed))
     return paper_row(conn, run_id, sha)
 
 
