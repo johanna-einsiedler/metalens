@@ -42,7 +42,7 @@ LEGACY = {
     ],
 }
 BUNDLED_IDS = {"econ": "econ@6e4eb2b5", "econ-claims": "econ-claims@45c8b5b5", "econ-regressions": "econ-regressions@4d38b5f4",
-               "genai-work": "genai-work@e62c0d84", "masem": "masem@d13605f1"}
+               "genai-work": "genai-work@e62c0d84", "genai-work-chain": "genai-work-chain@0f257796", "masem": "masem@d13605f1"}
 
 
 def _errors(mutate) -> list[str]:
