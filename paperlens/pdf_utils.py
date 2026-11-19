@@ -1834,3 +1834,13 @@ def evidence_items_from_result(result_text: str) -> list[dict]:
 
     walk(parsed)
     return out
+
+
+def page_texts(pdf_bytes: bytes) -> list[str]:
+    """One plain-text string per page (the text layer, reading order), for a chain's passes."""
+    import fitz
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return [page.get_text("text") or "" for page in doc]
+    finally:
+        doc.close()

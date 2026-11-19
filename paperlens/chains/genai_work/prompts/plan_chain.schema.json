@@ -1,0 +1,74 @@
+{
+ "type": "object",
+ "properties": {
+  "chains": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "claim_id": {
+      "type": "string"
+     },
+     "number": {
+      "type": "string"
+     },
+     "estimate_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "printed_in": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "formula": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "inputs": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "estimate_id": {
+         "type": "string"
+        },
+        "field": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "name",
+        "estimate_id",
+        "field"
+       ]
+      }
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "claim_id",
+     "number",
+     "estimate_ids",
+     "printed_in",
+     "formula",
+     "inputs",
+     "why"
+    ]
+   }
+  }
+ },
+ "required": [
+  "chains"
+ ]
+}

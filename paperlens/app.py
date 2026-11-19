@@ -2146,8 +2146,15 @@ def workflow_run_retry(run_id: str, body: RunRetryBody, db=Depends(get_db), who:
         raise _refused(exc)
     if run["status"] in workflows.TERMINAL:
         raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
+    from . import passes
+    from . import workflow_spec as ws
+    kinds = {sid: st.get("kind") for sid, st in ws.steps_by_id(run["workflow"]).items()}
+    chain, plain = [j for j in failed if kinds.get(j["step_id"]) in ("pass", "compute")], [j for j in failed if kinds.get(j["step_id"]) not in ("pass", "compute")]
     try:
-        out = workflows.requeue_papers(db, run, failed, who=who, api_key=body.api_key or None, base_url=body.base_url, model=body.model or None)
+        out = workflows.requeue_papers(db, run, plain, who=who, api_key=body.api_key or None, base_url=body.base_url, model=body.model or None) if plain else {"retried": [], "skipped": []}
+        if chain:
+            more = passes.requeue_papers(db, run, chain, api_key=body.api_key or None, base_url=(body.base_url or "").strip() or None, model=body.model or None)
+            out = {"retried": out["retried"] + more["retried"], "skipped": out["skipped"] + more["skipped"]}
     except workflows.RunRefused as exc:
         raise _refused(exc)
     db.commit()
@@ -3125,7 +3132,8 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
                 raise HTTPException(status_code=422, detail="This workflow does not validate here: " + "; ".join(errs[:3]))
             d = records.get_dataset(db, dataset_id) or {}
             base = (d.get("schema_id") or "").partition("@")[0]
-            if base and base not in {ws.preset_base(p) for _s, p in ws.pins(spec)}:
+            pinned = {ws.preset_base(p) for _s, p in ws.pins(spec)}
+            if base and pinned and base not in pinned:          # a chain of passes pins no preset: it starts from the PDFs
                 raise HTTPException(status_code=422, detail=f"This workflow does not extract with this dataset's preset ({base}).")
             try:
                 workflows.declare(db, d, spec)
@@ -4767,3 +4775,121 @@ def my_tasks(db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     my share and where to code it."""
     from . import projects
     return {"tasks": projects.tasks_for(db, who.user_id)}
+
+
+# ── chains: a run's papers and the outputs of its pass steps (paperlens/passes.py) ─────────────
+
+@app.post("/api/workflow-runs/{run_id}/papers")
+def workflow_run_paper(run_id: str, pdf: UploadFile = File(...), api_key: str = Form(""), base_url: str | None = Form(None),
+                       model: str | None = Form(None), db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A paper of a run that starts with PASS steps: the PDF is kept under the run, its page text
+    stored once, and the paper's passes run in order in one job — on the server's key (a credit
+    run) or on the key sent with the paper (an own-key run; as `/api/extract` does). Only a paper
+    in the run's plan is taken."""
+    from . import passes, worker, workflows
+    run = _run_or_404(db, run_id, who)
+    if run["status"] in workflows.TERMINAL:
+        raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
+    steps = passes.pass_steps(run["workflow"])
+    if not steps:
+        raise HTTPException(status_code=422, detail="This workflow has no pass steps.")
+    data = pdf.file.read()
+    sha = passes._sha(data)  # noqa: SLF001
+    first_jobs = {j["pdf_sha256"]: j for j in workflows.jobs(db, run_id, steps[0]["id"])}
+    job = first_jobs.get(sha)
+    if job is None:
+        raise HTTPException(status_code=409, detail="This paper is not in the run's plan.")
+    rows = [j for st in steps for j in workflows.jobs(db, run_id, st["id"]) if j["pdf_sha256"] == sha and j["status"] not in workflows.JOB_TERMINAL]
+    if not rows:                                      # every pass of it is done (or supplied): nothing left to run
+        raise HTTPException(status_code=409, detail="This paper already landed in the run.")
+    own_key = bool((api_key or "").strip()) or bool((base_url or "").strip())
+    if not run["use_credits"] and not own_key:
+        raise HTTPException(status_code=422, detail="This run uses your own API key: send it with the paper (or a local model server).")
+    paper = passes.stage_paper(db, run_id, data, filename=pdf.filename)
+    key = (api_key or "").strip() if own_key else ""
+    job_id = worker.enqueue("pass_job", run_id, sha, api_key=key, base_url=(base_url or "").strip() or None, model=model or None, _expires=3600)
+    if job_id:
+        for j in rows:
+            workflows.mark_queued(db, j["id"], job_id)
+        return {"queued": True, "job_id": job_id, "pdf_sha256": sha, "n_pages": paper["n_pages"]}
+    res = passes.run_paper(db, run_id, sha, model=model or None, api_key=key, base_url=(base_url or "").strip() or None)
+    return {"queued": False, "pdf_sha256": sha, "n_pages": paper["n_pages"], **res}
+
+
+@app.get("/api/workflow-runs/{run_id}/papers")
+def workflow_run_papers(run_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The papers a run holds (their page counts and identity), for the panel."""
+    from . import passes
+    _run_or_404(db, run_id, who, coder_too=True)
+    return {"papers": passes.papers_of(db, run_id)}
+
+
+@app.get("/api/workflow-runs/{run_id}/passes/{step_id}")
+def workflow_run_pass_outputs(run_id: str, step_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """One pass step's outputs per paper (without the JSON itself): status, runs, calls, usage,
+    findings, whether reused or supplied — and the step's job rows."""
+    from . import passes, workflows
+    _run_or_404(db, run_id, who, coder_too=True)
+    return {"step_id": step_id, "outputs": passes.outputs_of(db, run_id, step_id),
+            "jobs": [{k: j[k] for k in ("pdf_sha256", "filename", "status", "error", "tries")} for j in workflows.jobs(db, run_id, step_id)]}
+
+
+@app.get("/api/workflow-runs/{run_id}/passes/{step_id}/{pdf_sha256}")
+def workflow_run_pass_output(run_id: str, step_id: str, pdf_sha256: str, pass_index: int = 0, role: str = "primary",
+                             db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """One pass output of one paper: the JSON the pass wrote, with its provenance."""
+    from . import passes
+    _run_or_404(db, run_id, who, coder_too=True)
+    row = passes.get_output(db, run_id, step_id, pdf_sha256, role=role, pass_index=pass_index)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such pass output.")
+    return row
+
+
+class PassOutputBody(BaseModel):
+    output: dict
+    pass_index: int = 0
+    role: str = "primary"
+    prompt_sha256: str | None = None       # the hash the output was made under elsewhere (recorded as given)
+    stability: dict | None = None
+
+
+@app.post("/api/workflow-runs/{run_id}/passes/{step_id}/{pdf_sha256}")
+def workflow_run_pass_supply(run_id: str, step_id: str, pdf_sha256: str, body: PassOutputBody, db=Depends(get_db),
+                             who: Principal = Depends(principal)) -> dict:
+    """Owner: a pass output made outside Metalens (the pipeline's own file) stands in for the
+    call — stored as supplied, the paper's job for the step done, the run advanced. A primary
+    output is what the later passes read; a ``run`` output with its ``pass_index`` feeds the
+    matcher."""
+    from . import chains, passes, workflows
+    from . import workflow_spec as ws
+    run = _run_or_404(db, run_id, who)
+    if run["status"] in workflows.TERMINAL:
+        raise HTTPException(status_code=409, detail=f"The run is {run['status']}.")
+    st = ws.steps_by_id(run["workflow"]).get(step_id)
+    if st is None or st.get("kind") != "pass":
+        raise HTTPException(status_code=422, detail="Not a pass step of this run.")
+    if body.role not in ("primary", "run"):
+        raise HTTPException(status_code=422, detail="role must be 'primary' or 'run'.")
+    code = str(st["pass"]).partition("@")[0]
+    try:
+        psha = body.prompt_sha256 or chains.prompt_sha(code)
+    except KeyError:
+        psha = body.prompt_sha256
+    row = passes.store_output(db, run_id=run_id, step_id=step_id, code=code, pdf_sha256=pdf_sha256, output=body.output, prompt_sha256=psha,
+                              inputs_sha256=None, model=run.get("model"), usage=None, n_calls=0, role=body.role, pass_index=body.pass_index,
+                              stability=body.stability, supplied=True, log=["supplied"])
+    if body.role == "primary":
+        entry = chains.get(code)
+        if entry is not None:
+            row["findings"] = passes.refs_after(db, run, st, pdf_sha256, entry, body.output)
+        job = next((j for j in workflows.jobs(db, run_id, step_id) if j["pdf_sha256"] == pdf_sha256), None)
+        if job is None:
+            with db.transaction():
+                db.execute("INSERT INTO workflow_job (id, run_id, step_id, pdf_sha256, status) VALUES (%s::uuid, %s::uuid, %s, %s, 'done')",
+                           (str(uuid.uuid4()), run_id, step_id, pdf_sha256))
+        elif job["status"] not in workflows.JOB_DONE:
+            workflows._set_job(db, job["id"], status="done", error=None)  # noqa: SLF001
+        db.commit()
+        workflows.advance(db, run_id)
+    return {k: v for k, v in row.items() if k != "output"}

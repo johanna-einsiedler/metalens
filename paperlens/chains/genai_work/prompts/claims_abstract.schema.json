@@ -1,0 +1,47 @@
+{
+ "type": "object",
+ "properties": {
+  "sentences": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "numbers": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "intro_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "note": {
+      "type": [
+       "string",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "numbers",
+     "intro_ids",
+     "note"
+    ]
+   }
+  }
+ },
+ "required": [
+  "sentences"
+ ]
+}

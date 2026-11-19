@@ -1,0 +1,3962 @@
+{
+ "schema_hash": "b5ed1ca67c",
+ "model": "gemini-3.1-pro-preview",
+ "inputs_version": "2",
+ "levels": [
+  "study",
+  "task",
+  "arm",
+  "outcome",
+  "result"
+ ],
+ "kind_finding": {
+  "duration": "productivity_time",
+  "output_count": "productivity_time",
+  "throughput": "productivity_time",
+  "completion_share": "productivity_time",
+  "rating": "productivity_quality",
+  "pass_rate": "productivity_quality",
+  "error_count": "productivity_quality",
+  "dispersion": "performance_dispersion"
+ },
+ "quote_groups": {
+  "stats": [
+   "stats_quote",
+   "stats_page"
+  ],
+  "effect": [
+   "effect_quote",
+   "effect_page"
+  ]
+ },
+ "variables": [
+  {
+   "field": "screen_ai_treatment",
+   "level": "study",
+   "type": "enum",
+   "label": "Screening 1: AI as the treatment",
+   "help": "whether a generative AI tool is used while the measured work is produced, compared with the same work done without it (not met when the AI is used only before the measurement as a tutor, feedback tool or practice aid, when both arms use AI, when AI is only the researchers' method, or when it is evaluated on its own with no humans using it)",
+   "sheet": null,
+   "options": [
+    {
+     "code": "true",
+     "label": "true",
+     "definition": "the criterion is met",
+     "since": "v1"
+    },
+    {
+     "code": "false",
+     "label": "false",
+     "definition": "clearly not met",
+     "since": "v1"
+    },
+    {
+     "code": "unclear",
+     "label": "unclear",
+     "definition": "the paper does not let you decide; say why in study_notes",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "screen_work_outcome",
+   "level": "study",
+   "type": "enum",
+   "label": "Screening 2: a work outcome",
+   "help": "whether an outcome is the output of a work task, or of a task built to emulate one, judged on time, quantity, quality or accuracy (not met: grades and test scores, puzzles that stand for no job, how people worked rather than what they produced, a recipient's health or experience, well-being, attitudes, trust or perceptions alone)",
+   "sheet": null,
+   "options": [
+    {
+     "code": "true",
+     "label": "true",
+     "definition": "the criterion is met",
+     "since": "v1"
+    },
+    {
+     "code": "false",
+     "label": "false",
+     "definition": "clearly not met",
+     "since": "v1"
+    },
+    {
+     "code": "unclear",
+     "label": "unclear",
+     "definition": "the paper does not let you decide; say why in study_notes",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "screen_design",
+   "level": "study",
+   "type": "enum",
+   "label": "Screening 4: an experimental or quasi-experimental design",
+   "help": "whether the paper compares work done with the AI against work done without it by design: an RCT, a lab or field experiment, a natural or quasi-experiment, a single group before and after (not met: surveys, qualitative or case studies, reviews, theory, descriptive studies, a protocol without results)",
+   "sheet": null,
+   "options": [
+    {
+     "code": "true",
+     "label": "true",
+     "definition": "the criterion is met",
+     "since": "v1"
+    },
+    {
+     "code": "false",
+     "label": "false",
+     "definition": "clearly not met",
+     "since": "v1"
+    },
+    {
+     "code": "unclear",
+     "label": "unclear",
+     "definition": "the paper does not let you decide; say why in study_notes",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "scale",
+   "level": "study",
+   "type": "enum",
+   "label": "Scale",
+   "help": "the level at which the study examines AI's effects, by the primary unit of analysis and the level at which outcomes and conclusions are analysed, not by sample size or setting: a large sample of individual workers is micro; meso only when organisational outcomes are directly examined; macro only when aggregate labour-market or economic outcomes are studied; with several levels, the primary level of the empirical analysis",
+   "sheet": "Scale",
+   "options": [
+    {
+     "code": "micro",
+     "label": "Micro",
+     "definition": "effects on individuals or small teams: worker productivity, behaviour, skills, task performance, also when the participants work within firms or across several organisations",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "meso",
+     "label": "Meso",
+     "definition": "effects on organisations, firms, workplaces or organisational structures: firm-level productivity, staffing, workflows, organisational performance",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "macro",
+     "label": "Macro",
+     "definition": "effects on labour markets, industries, regions or entire economies: aggregate employment, wages, occupational demand, economy-wide productivity",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "research_design",
+   "level": "study",
+   "type": "enum",
+   "label": "Research design",
+   "help": "the study's overall empirical design, by how AI exposure is assigned and how the study is organised, for the paper's main with-versus-without-AI comparison; a paper whose tasks differ in design takes the main comparison's, the others noted in task_notes; the estimator goes in identification_strategy",
+   "sheet": null,
+   "options": [
+    {
+     "code": "lab_rct",
+     "label": "Lab RCT",
+     "definition": "participants randomly assigned to AI conditions in a controlled, in-person setting",
+     "since": "v1"
+    },
+    {
+     "code": "online_rct",
+     "label": "Online RCT",
+     "definition": "participants randomly assigned in an online experiment or web-based setting",
+     "since": "v1"
+    },
+    {
+     "code": "field_rct",
+     "label": "Field RCT",
+     "definition": "participants randomly assigned in a real workplace or market",
+     "since": "v1"
+    },
+    {
+     "code": "natural_experiment",
+     "label": "Natural experiment",
+     "definition": "AI exposure arises from an external event or plausibly exogenous variation outside the researchers' control: a launch, a rollout, a policy",
+     "since": "v1"
+    },
+    {
+     "code": "observational",
+     "label": "Observational",
+     "definition": "naturally occurring AI use or exposure analysed without experimental assignment and without an exogenous event; identification_strategy says how the comparison is made",
+     "since": "v1"
+    },
+    {
+     "code": "descriptive",
+     "label": "Descriptive",
+     "definition": "describes AI use or outcomes without a treatment or exposure comparison",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": true,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "identification_strategy",
+   "level": "study",
+   "type": "enum",
+   "label": "Identification strategy",
+   "help": "the primary method used to identify or estimate the causal effect of AI exposure in the main comparison: the actual estimation method, not a broad label such as natural experiment; a specific strategy over generic regression adjustment",
+   "sheet": null,
+   "options": [
+    {
+     "code": "random_assignment",
+     "label": "Random assignment",
+     "definition": "causal effects identified through randomized treatment assignment",
+     "since": "v1"
+    },
+    {
+     "code": "difference_in_differences",
+     "label": "Difference in differences",
+     "definition": "changes in outcomes between treated and comparison groups before and after AI exposure, staggered adoption designs included",
+     "since": "v1"
+    },
+    {
+     "code": "regression_discontinuity",
+     "label": "Regression discontinuity",
+     "definition": "effects identified at a treatment-assignment threshold",
+     "since": "v1"
+    },
+    {
+     "code": "instrumental_variable",
+     "label": "Instrumental variable",
+     "definition": "an instrument that shifts AI exposure but is assumed not to affect outcomes directly",
+     "since": "v1"
+    },
+    {
+     "code": "interrupted_time_series",
+     "label": "Interrupted time series",
+     "definition": "changes in outcome levels or trends after the AI's introduction, from repeated observations over time",
+     "since": "v1"
+    },
+    {
+     "code": "matching",
+     "label": "Matching",
+     "definition": "comparable treated and untreated groups constructed on observed characteristics",
+     "since": "v1"
+    },
+    {
+     "code": "regression_adjustment",
+     "label": "Regression adjustment",
+     "definition": "statistical controls for observed confounders without a more specific identification strategy",
+     "since": "v1"
+    },
+    {
+     "code": "pre_post",
+     "label": "Pre/post",
+     "definition": "outcomes before and after AI adoption without an untreated comparison group",
+     "since": "v1"
+    },
+    {
+     "code": "none",
+     "label": "None",
+     "definition": "no causal identification strategy is implemented",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": true,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "experimental_design",
+   "level": "study",
+   "type": "enum",
+   "label": "Experimental design",
+   "help": "whether the same people did the work with and without AI or different people did",
+   "sheet": null,
+   "options": [
+    {
+     "code": "within_person",
+     "label": "Within person",
+     "definition": "the same people do the task with and without the AI",
+     "since": "v1"
+    },
+    {
+     "code": "across_person",
+     "label": "Across person",
+     "definition": "different people in the arms",
+     "since": "v1"
+    },
+    {
+     "code": "not_applicable",
+     "label": "Not applicable",
+     "definition": "no with-versus-without contrast at the person level",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "unit_of_analysis",
+   "level": "study",
+   "type": "enum",
+   "label": "Unit of analysis",
+   "help": "the unit the main estimates are computed on",
+   "sheet": "Unit of analysis",
+   "options": [
+    {
+     "code": "individual",
+     "label": "individual",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "team",
+     "label": "team",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "firm",
+     "label": "firm",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "occupation",
+     "label": "occupation",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "region_or_country",
+     "label": "region or country",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": true,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "data_source",
+   "level": "study",
+   "type": "multi",
+   "label": "Data source",
+   "help": "the data actually analysed, all that apply; not how participants were recruited or how data were collected: MTurk, Prolific and similar platforms used only for recruitment are neither online_freelancing_data nor online_platform_data",
+   "sheet": "Data Source",
+   "options": [
+    {
+     "code": "experimental_data",
+     "label": "experimental data",
+     "definition": "data generated through a researcher-designed experiment or intervention",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "job_postings",
+     "label": "job postings",
+     "definition": "job advertisements or vacancy data",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "worker_household_survey",
+     "label": "worker - household survey",
+     "definition": "survey data from workers, individuals or households, online surveys outside experiments included",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "firm_survey",
+     "label": "firm survey",
+     "definition": "survey data from firms or employers",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "public_admin_data",
+     "label": "public admin data",
+     "definition": "government or public administrative records, e.g. Statistics Denmark",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "private_admin_data",
+     "label": "private admin data",
+     "definition": "internal firm or private administrative records, e.g. ADP payroll, HR or hiring records",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "ai_usage_data",
+     "label": "AI usage data",
+     "definition": "observed AI usage or interaction data, e.g. the Anthropic Economic Index, Google ATLAS",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "online_cvs",
+     "label": "online CVs",
+     "definition": "online professional profiles or employment histories, e.g. Revelio, LinkedIn",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "online_platform_data",
+     "label": "online platform data",
+     "definition": "observed activity or records from digital platforms, e.g. GitHub",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "online_freelancing_data",
+     "label": "online freelancing data",
+     "definition": "online freelance labour markets: freelancers, contracts, earnings or platform activity, e.g. Upwork, Fiverr",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "period_start_year",
+   "level": "study",
+   "type": "integer",
+   "label": "Data period start, year",
+   "help": "the year the data begin, as the paper states it",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "period_start_month",
+   "level": "study",
+   "type": "integer",
+   "label": "Data period start, month",
+   "help": "the month (1-12) the data begin, when the paper gives it; null otherwise",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "period_end_year",
+   "level": "study",
+   "type": "integer",
+   "label": "Data period end, year",
+   "help": "the year the data end, as the paper states it",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "period_end_month",
+   "level": "study",
+   "type": "integer",
+   "label": "Data period end, month",
+   "help": "the month (1-12) the data end, when the paper gives it; null otherwise",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "sample_size",
+   "level": "study",
+   "type": "integer",
+   "label": "Sample size",
+   "help": "the analysed number of human participants in the comparison that establishes the AI effect (the with-versus-without-AI design research_design describes), across its tasks; not a survey, descriptive dataset or pilot in the same paper; with several qualifying studies, the largest; people, never observations, tasks or firms (give those in study_notes); -1 if not stated",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "preregistered",
+   "level": "study",
+   "type": "enum",
+   "label": "Preregistered",
+   "help": "whether the study was preregistered (a registry, an analysis plan) as the paper states it",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "yes",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "no",
+     "since": "v1"
+    },
+    {
+     "code": "not_stated",
+     "label": "not stated",
+     "definition": "the paper does not say",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "incentivized",
+   "level": "study",
+   "type": "enum",
+   "label": "Performance incentives",
+   "help": "whether participants' pay, grade or advancement depended on their performance in the task (performance pay, a bonus, a graded assignment), not merely on taking part; if unclear, default to not_stated",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "yes",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "no",
+     "since": "v1"
+    },
+    {
+     "code": "not_stated",
+     "label": "not stated",
+     "definition": "the paper does not say",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "design",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "vendor_affiliated",
+   "level": "study",
+   "type": "enum",
+   "label": "Vendor affiliated",
+   "help": "whether an author is affiliated with, or the study was funded or run by, the provider of the AI tool studied (the firm that makes or sells it); read from the title page and the funding note by the coder, which the model does not see",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "yes",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "no",
+     "since": "v1"
+    },
+    {
+     "code": "not_stated",
+     "label": "not stated",
+     "definition": "the paper does not say",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "focus_topic",
+   "level": "study",
+   "type": "enum",
+   "label": "Focus topic",
+   "help": "the one topic the paper's stated research question speaks to first; the quote is where the paper states its question",
+   "sheet": "focus topic",
+   "options": [
+    {
+     "code": "inequality",
+     "label": "inequality",
+     "definition": "Findings are about inequality effects of AI.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "productivity",
+     "label": "productivity",
+     "definition": "Findings are about productivity effects of AI.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "substitute_complement",
+     "label": "substitute_complement",
+     "definition": "Findings relate to the substitutions of humans by AI and/or to AI and humans complementing each other.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "entry_level",
+     "label": "entry_level",
+     "definition": "Findings speak to the debate on AI affecting entry-level jobs.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`; never beside a category that fits",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "focus_topic_secondary",
+   "level": "study",
+   "type": "multi",
+   "label": "Focus topic (secondary)",
+   "help": "other topics the findings also speak to, each with its own quote; empty when there is none; never other beside a category that fits",
+   "sheet": "focus topic",
+   "options": [
+    {
+     "code": "inequality",
+     "label": "inequality",
+     "definition": "Findings are about inequality effects of AI.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "productivity",
+     "label": "productivity",
+     "definition": "Findings are about productivity effects of AI.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "substitute_complement",
+     "label": "substitute_complement",
+     "definition": "Findings relate to the substitutions of humans by AI and/or to AI and humans complementing each other.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "entry_level",
+     "label": "entry_level",
+     "definition": "Findings speak to the debate on AI affecting entry-level jobs.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`; never beside a category that fits",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "focus_dimension",
+   "level": "study",
+   "type": "multi",
+   "label": "Focus dimension",
+   "help": "whether the study focuses on workers (supply) or on employers' demand for labour (demand); both only when both are explicitly studied. Default to supply for worker-focused studies, including most AI productivity and collaboration experiments; never infer demand from productivity gains, economic outcomes or possible employment implications; demand only when employer labour demand is directly examined. Quote the paper's own statement of its question or findings, never a cited work",
+   "sheet": "focus dimension",
+   "options": [
+    {
+     "code": "demand",
+     "label": "demand",
+     "definition": "only studies explicitly examining employers' labour requirements: job postings, vacancies, recruitment, hiring patterns, skill demand, workforce expansion or reduction",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "supply",
+     "label": "supply",
+     "definition": "any study about workers: their tasks, skills, behaviour, AI use, productivity, performance, wages or employment outcomes, including experiments with individuals, professionals or teams doing work tasks",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "peer_reviewed",
+   "level": "study",
+   "type": "enum",
+   "label": "Peer reviewed",
+   "help": "filled in code from the record's venue and the predatory-journal list, not by the model",
+   "sheet": "peer-reviewed",
+   "options": [
+    {
+     "code": "yes",
+     "label": "yes",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "no",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "predatory_journal",
+     "label": "predatory journal",
+     "definition": "",
+     "notes": "Maybe we should exclude from our dataset atogether? use this list: https://www.predatoryjournals.org/the-list",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "code",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "summary",
+   "level": "study",
+   "type": "text",
+   "label": "Summary",
+   "help": "four to eight sentences stating the paper's main findings with their numbers, in plain language; written by the summary call, nothing that is not in the paper",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "summary",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "model_estimands",
+   "level": "study",
+   "type": "table",
+   "label": "Model estimands",
+   "help": "what the model found the paper estimates: one row per task, arm against reference arm, outcome, subgroup and horizon, with the coder's match verdict",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "code",
+   "qg": null,
+   "columns": [
+    {
+     "name": "estimand_id",
+     "type": "string",
+     "label": "Id"
+    },
+    {
+     "name": "task",
+     "type": "string",
+     "label": "Task"
+    },
+    {
+     "name": "arm",
+     "type": "string",
+     "label": "Arm"
+    },
+    {
+     "name": "vs_arm",
+     "type": "string",
+     "label": "vs"
+    },
+    {
+     "name": "outcome",
+     "type": "string",
+     "label": "Outcome (the model's name)"
+    },
+    {
+     "name": "subgroup",
+     "type": "string",
+     "label": "Subgroup"
+    },
+    {
+     "name": "horizon",
+     "type": "string",
+     "label": "Horizon"
+    },
+    {
+     "name": "exhibits",
+     "type": "string",
+     "label": "Exhibits"
+    },
+    {
+     "name": "match",
+     "type": "enum",
+     "label": "Match",
+     "options": [
+      {
+       "code": "matched",
+       "label": "matched",
+       "definition": "one of your outcomes: give its id in coder_outcome"
+      },
+      {
+       "code": "model_only_keep",
+       "label": "model only, keep",
+       "definition": "an outcome you missed and the paper reports: add it to your outcomes"
+      },
+      {
+       "code": "model_only_drop",
+       "label": "model only, drop",
+       "definition": "the paper does not estimate this"
+      },
+      {
+       "code": "unsure",
+       "label": "unsure",
+       "definition": "say why in the note"
+      }
+     ],
+     "help": "your verdict on the model's estimand"
+    },
+    {
+     "name": "coder_task",
+     "type": "string",
+     "label": "Your task",
+     "help": "the id of your task (T1 …) this estimand belongs to"
+    },
+    {
+     "name": "coder_arm",
+     "type": "string",
+     "label": "Your arm",
+     "help": "the id of your arm (T1 …) that is compared with the reference"
+    },
+    {
+     "name": "coder_outcome",
+     "type": "string",
+     "label": "Your outcome",
+     "help": "the id of your outcome (O1 …) this estimand belongs to"
+    },
+    {
+     "name": "note",
+     "type": "string",
+     "label": "Note"
+    }
+   ],
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "model_estimates",
+   "level": "study",
+   "type": "table",
+   "label": "Model estimates",
+   "help": "the model's estimates, one per estimand and specification with the cell they were read from; ＋ row accepts one as a result row",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "code",
+   "qg": null,
+   "columns": [
+    {
+     "name": "task",
+     "type": "string",
+     "label": "Task"
+    },
+    {
+     "name": "estimate_id",
+     "type": "string",
+     "label": "Id"
+    },
+    {
+     "name": "estimand_id",
+     "type": "string",
+     "label": "Estimand"
+    },
+    {
+     "name": "role",
+     "type": "enum",
+     "label": "Role",
+     "options": [
+      {
+       "code": "main",
+       "label": "main",
+       "definition": "the estimate the authors lead with for this estimand"
+      },
+      {
+       "code": "supporting",
+       "label": "supporting",
+       "definition": "another specification presented alongside"
+      },
+      {
+       "code": "robustness",
+       "label": "robustness",
+       "definition": "a check: appendix, alternative estimator, restriction"
+      },
+      {
+       "code": "reference",
+       "label": "reference arm",
+       "definition": "the reference arm's printed statistics for this estimand"
+      },
+      {
+       "code": "orphan",
+       "label": "orphan",
+       "definition": "a number in an exhibit the model could not place"
+      }
+     ]
+    },
+    {
+     "name": "arm",
+     "type": "string",
+     "label": "Arm"
+    },
+    {
+     "name": "vs_arm",
+     "type": "string",
+     "label": "vs"
+    },
+    {
+     "name": "measure",
+     "type": "string",
+     "label": "Measure"
+    },
+    {
+     "name": "measure_unit",
+     "type": "string",
+     "label": "Unit"
+    },
+    {
+     "name": "subgroup",
+     "type": "string",
+     "label": "Subgroup"
+    },
+    {
+     "name": "horizon",
+     "type": "string",
+     "label": "Horizon"
+    },
+    {
+     "name": "n",
+     "type": "integer",
+     "label": "n"
+    },
+    {
+     "name": "n_obs",
+     "type": "integer",
+     "label": "n obs"
+    },
+    {
+     "name": "mean",
+     "type": "number",
+     "label": "Mean"
+    },
+    {
+     "name": "sd",
+     "type": "number",
+     "label": "SD"
+    },
+    {
+     "name": "effect_reported",
+     "type": "string",
+     "label": "Effect (as printed)"
+    },
+    {
+     "name": "effect_value",
+     "type": "number",
+     "label": "Effect"
+    },
+    {
+     "name": "effect_type",
+     "type": "string",
+     "label": "Effect type"
+    },
+    {
+     "name": "effect_units",
+     "type": "string",
+     "label": "Units"
+    },
+    {
+     "name": "se",
+     "type": "number",
+     "label": "SE"
+    },
+    {
+     "name": "ci_low",
+     "type": "number",
+     "label": "CI low"
+    },
+    {
+     "name": "ci_high",
+     "type": "number",
+     "label": "CI high"
+    },
+    {
+     "name": "p_value",
+     "type": "number",
+     "label": "p"
+    },
+    {
+     "name": "p_reported",
+     "type": "string",
+     "label": "p printed"
+    },
+    {
+     "name": "cluster_level",
+     "type": "string",
+     "label": "Clustered on"
+    },
+    {
+     "name": "source",
+     "type": "string",
+     "label": "Source",
+     "help": "the exhibit, panel, column and row the numbers were read from"
+    },
+    {
+     "name": "flags",
+     "type": "string",
+     "label": "Checks",
+     "help": "what the deterministic checks found on this estimate before import (a number not in its cell or quote, a standard error that differs from the table, a duplicate cell, instability across runs); blank when none"
+    },
+    {
+     "name": "is_main",
+     "type": "boolean",
+     "label": "Main"
+    },
+    {
+     "name": "verdict",
+     "type": "enum",
+     "label": "Verdict",
+     "options": [
+      {
+       "code": "accepted",
+       "label": "accepted",
+       "definition": "checked against the PDF and taken as a result row (＋ row)"
+      },
+      {
+       "code": "wrong",
+       "label": "wrong",
+       "definition": "a number or its mapping is wrong: say what in the note"
+      },
+      {
+       "code": "duplicate",
+       "label": "duplicate",
+       "definition": "the same estimate as another row"
+      },
+      {
+       "code": "not_an_estimate",
+       "label": "not an estimate",
+       "definition": "not an estimate of a with-versus-without-AI contrast"
+      },
+      {
+       "code": "unsure",
+       "label": "unsure",
+       "definition": "say why in the note"
+      }
+     ],
+     "help": "your verdict after checking the cell in the PDF"
+    },
+    {
+     "name": "note",
+     "type": "string",
+     "label": "Note"
+    }
+   ],
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "evidence_statements",
+   "level": "study",
+   "type": "table",
+   "label": "Evidence statements",
+   "help": "one row per finding of the summary: the finding in one sentence with the number as printed, backed by the quoted passage; result_ref names the result row it rests on as task_id/arm_id/measure, or is null for a finding with no row",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "summary",
+   "qg": null,
+   "columns": [
+    {
+     "name": "statement",
+     "type": "string",
+     "label": "Statement",
+     "required": true
+    },
+    {
+     "name": "result_ref",
+     "type": "string",
+     "label": "Result row"
+    }
+   ],
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "study_notes",
+   "level": "study",
+   "type": "text",
+   "label": "Study notes",
+   "help": "anything a coder must know about the paper as a whole: several studies, exclusions, discrepancies between text and tables",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "evidence_items",
+   "level": "study",
+   "type": "table",
+   "label": "Evidence items",
+   "help": "the numbered passages and tables the reader took from the methods and results, one row each in the order they appear; bears_on names the fields the reader thought the item supports",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "code",
+   "qg": null,
+   "columns": [
+    {
+     "name": "n",
+     "type": "integer",
+     "label": "No.",
+     "required": true
+    },
+    {
+     "name": "page",
+     "type": "integer",
+     "label": "Page"
+    },
+    {
+     "name": "kind",
+     "type": "enum",
+     "label": "Kind",
+     "options": [
+      "passage",
+      "table"
+     ],
+     "required": true
+    },
+    {
+     "name": "text",
+     "type": "text",
+     "label": "Text",
+     "verbatim": true,
+     "help": "the passage verbatim; for a table its caption and rows as markdown"
+    },
+    {
+     "name": "note",
+     "type": "string",
+     "label": "Note"
+    },
+    {
+     "name": "bears_on",
+     "type": "list",
+     "label": "Bears on"
+    }
+   ],
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "task_id",
+   "level": "task",
+   "type": "string",
+   "label": "Task id",
+   "help": "T1, T2, ... in the order the paper presents the tasks; S2.T1 when the paper's studies are numbered and repeat tasks",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "task_name",
+   "level": "task",
+   "type": "string",
+   "label": "Task name",
+   "help": "a short unique name for the task made from the paper's description: 'classification of chest X-rays', 'mid-level professional writing', 'customer support chats'",
+   "sheet": "Open task label",
+   "options": null,
+   "ev": "row",
+   "conf": "task",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "task_label",
+   "level": "task",
+   "type": "enum",
+   "label": "Task label",
+   "help": "the category the core activity of the task falls in. The label follows the purpose of the output, not its medium ('analyse a complaint and draft a written analysis' is problem_solving_reasoning, writing being only the medium; 'write a blog post' is writing), and the specific category wins over the generic one (persuasion_negotiation, advising_recommending, summarizing_synthesis, forecasting, customer_interaction before writing, data_analysis or problem_solving_reasoning); writing only when the text itself is the product",
+   "sheet": "Task label",
+   "options": [
+    {
+     "code": "writing",
+     "label": "Writing",
+     "definition": "Producing new prose text from scratch. E.g., drafting a cover letter, press release or essay.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "editing_feedback",
+     "label": "Editing & Feedback",
+     "definition": "Improving existing text or work, or giving written feedback on it. E.g., revising a draft for clarity, giving peer feedback on an essay.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "summarizing_synthesis",
+     "label": "Summarizing & synthesis",
+     "definition": "Condensing or integrating given source material into a shorter account that stays faithful to the sources. E.g., summarizing a report, synthesizing findings from several papers.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "translation",
+     "label": "Translation",
+     "definition": "Translating from one language into another while preserving the meaning.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "programming",
+     "label": "Programming",
+     "definition": "Writing, modifying, debugging or testing code.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "data_analysis",
+     "label": "Data analysis",
+     "definition": "Processing and analyzing quantitative data to produce results, models or insights. E.g., running a regression, building a spreadsheet model.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "information_search",
+     "label": "Information search",
+     "definition": "Finding information from external sources to answer questions. E.g.,searching the web.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "problem_solving_reasoning",
+     "label": "Problem solving & reasoning",
+     "definition": "Solving problems through reasoning. E.g., math problems, logic puzzles, exam questions.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "classification_detection",
+     "label": "Classification & detection",
+     "definition": "Assigning items to predefined categories. E.g., labelling X-rays as normal/abnormal, flagging fake news.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "evaluation_selection",
+     "label": "Evaluation & selection",
+     "definition": "Judging the quality of items or choosing among options, where no predefined category scheme exists. E.g., screening CVs, grading essays, picking an investment.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "forecasting",
+     "label": "Forecasting",
+     "definition": "Predicting future outcomes or unknown quantities. E.g., predicting recidivism, forecasting sales.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "ideation",
+     "label": "Ideation",
+     "definition": "Generating new ideas or concepts. E.g., brainstorming product or business ideas.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "visual_design",
+     "label": "Visual design",
+     "definition": "Creating visual artifacts. E.g., illustrations, UI mockups, slides.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "advising_recommending",
+     "label": "Advising & recommending",
+     "definition": "Producing a recommendation tailored to a specific person's or organization's situation. E.g., a treatment plan, legal advice, a consulting recommendation.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "customer_interaction",
+     "label": "Customer interaction",
+     "definition": "Real-time, conversational service with clients or customers. E.g., support chats.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "planning_scheduling",
+     "label": "Planning & scheduling",
+     "definition": "Producing a plan, schedule or allocation of resources over time. E.g., a project plan, event itinerary, shift schedule.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "persuasion_negotiation",
+     "label": "Persuasion & negotiation",
+     "definition": "Producing messages or bargaining behavior aimed at changing another party's beliefs, decisions or terms. E.g., writing a convincing message, negotiating a deal.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "physical_manual_tasks",
+     "label": "Physical & manual tasks",
+     "definition": "catch all for tasks where the core activity is bodily work or handling physical objects, materials or equipment. E.g., assembling components, operating machinery, providing hands-on patient care.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "Other",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "task",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "task_name",
+    "knowledge_education"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "soc_major_group",
+   "level": "task",
+   "type": "enum",
+   "label": "SOC major group",
+   "help": "the occupation the task belongs to (the work, not the participants): a legal memo is Legal (23) whoever writes it; not_applicable when none fits",
+   "sheet": "SOC major group (2 digit)",
+   "options": [
+    {
+     "code": "11",
+     "label": "Management (11)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "13",
+     "label": "Business and Financial Operations (13)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "15",
+     "label": "Computer and Mathematical (15)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "17",
+     "label": "Architecture and Engineering (17)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "19",
+     "label": "Life, Physical, and Social Science (19)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "21",
+     "label": "Community and Social Services (21)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "23",
+     "label": "Legal (23)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "25",
+     "label": "Education, Training, and Library (25)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "27",
+     "label": "Arts, Design, Entertainment, Sports, and Media (27)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "29",
+     "label": "Healthcare Practitioners and Technical (29)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "31",
+     "label": "Healthcare Support (31)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "33",
+     "label": "Protective Service (33)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "35",
+     "label": "Food Preparation and Serving Related (35)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "37",
+     "label": "Building and Grounds Cleaning and Maintenance (37)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "39",
+     "label": "Personal Care and Service (39)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "41",
+     "label": "Sales and Related (41)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "43",
+     "label": "Office and Administrative Support (43)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "45",
+     "label": "Farming, Fishing, and Forestry (45)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "47",
+     "label": "Construction and Extraction (47)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "49",
+     "label": "Installation, Maintenance, and Repair (49)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "51",
+     "label": "Production (51)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "53",
+     "label": "Transportation and Material Moving (53)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "55",
+     "label": "Military Specific (55)",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "not_applicable",
+     "label": "Not applicable",
+     "definition": "Anything not fitting above.",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "task",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "task_name",
+    "knowledge_education"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "task_structure",
+   "level": "task",
+   "type": "enum",
+   "label": "Task structure",
+   "help": "closed when there is a verifiable right answer, open_ended when the output is quality-rated",
+   "sheet": "Task structure",
+   "options": [
+    {
+     "code": "closed",
+     "label": "Closed",
+     "definition": "scored by accuracy against a unambiguous solution",
+     "notes": "Is there a verifiable right answer?",
+     "since": "v1"
+    },
+    {
+     "code": "open_ended",
+     "label": "open-ended",
+     "definition": "quality-rated",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "task",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "task_embodiment",
+   "level": "task",
+   "type": "enum",
+   "label": "Embodiment",
+   "help": "whether the task needs physical presence: remote unless the task requires face-to-face interaction (co_present) or bodily work (physical)",
+   "sheet": "Task embodiment",
+   "options": [
+    {
+     "code": "remote",
+     "label": "remote - disembodied",
+     "definition": "task can be done with no need for physical presence, e.g. remotely via a computer (or phone)",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "co_present",
+     "label": "Co-present",
+     "definition": "The task requires physical presence, mainly because it involves face-to-face interaction with people, but not manual work. E.g., teaching a class, conducting a patient consultation, in-store sales.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "physical",
+     "label": "Physical",
+     "definition": "The task requires bodily work or the handling of physical objects, materials or equipment.",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "task",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "knowledge_education",
+   "level": "task",
+   "type": "text",
+   "label": "Knowledge & education (evidence)",
+   "help": "what a person had to already know to do this at all: domain and level, scaffolding provided, what they still had to bring. Describe; do not score",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "complexity",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": true
+  },
+  {
+   "field": "goal_path_specification",
+   "level": "task",
+   "type": "text",
+   "label": "Goal & path (evidence)",
+   "help": "how a solver would work out how to proceed: route obvious or discovered, one right answer or many, could one commit to a wrong route and fail; the objective and the done-state. Describe; do not score",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "complexity",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": true
+  },
+  {
+   "field": "interdependence",
+   "level": "task",
+   "type": "text",
+   "label": "Interdependence (evidence)",
+   "help": "the internal structure of the work: parts of different kinds or one repeated unit; feedback while working; would an early mistake surface during the work or only at the end. Describe; do not score",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "complexity",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": true
+  },
+  {
+   "field": "resources_context",
+   "level": "task",
+   "type": "text",
+   "label": "Resources & context (evidence)",
+   "help": "what a participant had to have or find beyond the instructions: documents, a codebase, data, tools, the internet, firm- or study-specific knowledge; handed over or to be supplied. Do not count the AI tool. Describe; do not score",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "complexity",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": true
+  },
+  {
+   "field": "task_notes",
+   "level": "task",
+   "type": "text",
+   "label": "Task notes",
+   "help": "what a coder must know about the task: what participants did when the name does not say it, how arms map to the paper's conditions, a design that differs from the study's design_type, in a reversed design the worker the AI replaces, discrepancies",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "k_score",
+   "level": "task",
+   "type": "enum",
+   "label": "Knowledge & education: complex?",
+   "help": "Knowledge and Education: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. If scaffolding substantially lowered the bar (worked examples, cheat-sheets, procedure-recall tools), score based on what participants actually had to bring after the scaffolding. Programming note: it is the depth of programming knowledge that matters, not the language name. Intro courses teach Python, Java, or C — but professional uses often require more than basics to use these languages effectively. Do not score a language as first-year simply because it appears in introductory curricula.",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "Yes",
+     "definition": "the task requires second-year undergraduate knowledge or above. That is at least some degree of specialization within knowledge domain.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "No",
+     "definition": "high-school or first-year undergraduate knowledge suffices, including basic undergraduate concepts.",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "g_score",
+   "level": "task",
+   "type": "enum",
+   "label": "Goal & path: complex?",
+   "help": "Goal Definition and Path Specification: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Subjective or holistic grading is evidence of openness but not sufficient on its own — a concrete problem with an easy-to-infer route, rated holistically (e.g. \"resolve this customer's issue,\" scored by CSAT), is still No. A clean outcome metric does not make a task closed if the route to it is hard to infer.",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "Yes",
+     "definition": "the path to completion is hard to infer: it is not obvious how to proceed from the stated objective, OR there are many valid approaches / no single right answer, so it is easy to get lost or commit to a wrong route. Importantly, in getting lost there should be a mistake that makes the task fail. This includes tasks whose end-state and metric are perfectly clear but whose route is undiscovered and tasks where it is hard to identify what the objective even is. For example \"improve firm profit,\" \"get rich,\" \"win the game\", are all tasks whose route is hard to discover and the wrong path would cause a failure (e.g. company default or losing the game).",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "No",
+     "definition": "how to proceed is easy to infer, even if the instruction does not spell it out: a determinate done-state with an obvious or readily-found route and little risk of getting lost (a defined deliverable against a key or rubric, a specific problem with a specified target).",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "i_score",
+   "level": "task",
+   "type": "enum",
+   "label": "Interdependence: complex?",
+   "help": "Task Interdependence: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Three rules: - Trivial decomposition is not interdependence. \"You must do A before B\" holds almost everywhere and is not the target. Score Yes only when the parts are of different nature and an early error is genuinely hard to spot and costly to undo. - Easy, timely correction defeats coupling. Fast, reliable feedback (a counterpart who corrects you, a rerunnable test, visible intermediate results) → No. Slow, noisy, or confounded feedback (a market signal weeks later) does not count. - Programming tasks: distinguish compile-time from deployment feedback. Compilers/tests catch syntax and unit-level errors quickly, but multi-day/multi-week projects surface the relevant feedback at integration or deployment — slow and noisy. A 1-hour task with a rerunnable test suite → No; an ongoing project where errors surface at launch or in downstream systems → Yes. - Do not score from the grading structure. A conjunctive grade (\"pass all 12\") or a single holistic score is a measurement property, not task structure; ignore it.",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "Yes",
+     "definition": "the task combines genuinely *different* kinds of subtask, AND an error in an early or upstream component is *hard to catch as the work proceeds* and *likely to propagate or be costly to fix* — often forcing a partial restart rather than a local patch. The heart of the dimension is that mistakes are hard to detect mid-task and expensive to unwind, not that recovery is strictly impossible.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "No",
+     "definition": "the work is either (a) a stream of independent or repeated homogeneous units (one chat after another, paragraph after paragraph), where an error stays local; or (b) coupled but where errors are *easy to catch and cheap to fix as you go* — a counterpart redirects you, you rerun a test, you see intermediate output and revise before completion.",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "r_score",
+   "level": "task",
+   "type": "enum",
+   "label": "Resources & context: complex?",
+   "help": "Resources and Context: is the task complex on this dimension? Yes or No by the rubric (the options carry the criteria); mark in the PDF the sentences the score rests on. Do not count the AI tool being studied as a resource — it is the treatment.",
+   "sheet": null,
+   "options": [
+    {
+     "code": "yes",
+     "label": "Yes",
+     "definition": "the task requires substantial resources beyond what is handed to the participant: extensive materials to search or synthesise across a large context (e.g. a corpus of documents, multiple studies to browse, a large codebase, browsing the internet for at least an hour), specialist data sources or tools, or substantial context-specific knowledge — whether firm-specific (e.g. tacit knowledge), study-specific, procedural, or otherwise — that the participant must bring or that would need to be supplied to a model.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "no",
+     "label": "No",
+     "definition": "the task is self-contained: a few materials sitting directly in front of the participant suffice, and it draws only on general knowledge or basic everyday tacit knowledge.",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "arm_id",
+   "level": "arm",
+   "type": "string",
+   "label": "Arm id",
+   "help": "C for the reference arm, T1, T2, ... for the treatment arms of this task, in the paper's order",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "arm_label",
+   "level": "arm",
+   "type": "string",
+   "label": "Arm label",
+   "help": "the paper's own name for the condition ('Control', 'ChatGPT access', 'GPT-4 + overview')",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "is_baseline",
+   "level": "arm",
+   "type": "boolean",
+   "label": "Reference arm",
+   "help": "true for the one arm of the task the others are compared with: usually the people doing the work without the AI, or before getting it; control_type says what the comparison is",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "compared_with",
+   "level": "arm",
+   "type": "string",
+   "label": "Compared with",
+   "help": "the arm_id of the reference arm this arm is compared with; empty when the task has one reference arm (then every other arm is compared with it)",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "control_type",
+   "level": "arm",
+   "type": "enum",
+   "label": "Control type",
+   "help": "what the reference arm is, on the reference arm only (null on the treatment arms)",
+   "sheet": null,
+   "options": [
+    {
+     "code": "no_ai_concurrent",
+     "label": "no AI, concurrent group",
+     "definition": "a concurrent group or condition doing the task without the AI, drawn from the same pool (randomized or assigned; design_type says which)",
+     "since": "v1"
+    },
+    {
+     "code": "no_ai_prior",
+     "label": "no AI, the same units before",
+     "definition": "the same people or units before access: a pre-period, an own baseline, the not-yet-treated state of a rollout",
+     "since": "v1"
+    },
+    {
+     "code": "no_ai_after",
+     "label": "no AI, the same units after",
+     "definition": "the same people or units after the AI was taken away (a ban, an outage, the end of access): the time or group with the AI is the treatment arm, the one without it the reference arm, whatever the paper calls the treatment",
+     "since": "v1"
+    },
+    {
+     "code": "placebo_tool",
+     "label": "another, non-AI tool",
+     "definition": "the comparison condition got a non-AI aid instead: a search engine, documentation, templates, a checklist, non-generative software",
+     "since": "v1"
+    },
+    {
+     "code": "other_ai",
+     "label": "another AI",
+     "definition": "a different AI system or configuration is the comparison (an older model, no retrieval, a different prompt or interface, non-agentic); every arm uses AI",
+     "since": "v1"
+    },
+    {
+     "code": "expert_benchmark",
+     "label": "expert benchmark",
+     "definition": "unassisted experts or incumbents whose performance is the reference for AI-assisted others: a different population, not an assigned condition",
+     "since": "v1"
+    },
+    {
+     "code": "ai_alone",
+     "label": "the AI alone",
+     "definition": "the AI's own output with no human; recorded only when the paper's contrast is against it, with n_arm null",
+     "since": "v1"
+    },
+    {
+     "code": "external_norm",
+     "label": "external norm",
+     "definition": "a published norm, a historical rate or a market benchmark; no participants",
+     "since": "v1"
+    },
+    {
+     "code": "none",
+     "label": "none",
+     "definition": "no comparison: a single arm, descriptive",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "arm_description"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "sample_population",
+   "level": "arm",
+   "type": "string",
+   "label": "Sample population",
+   "help": "who the people in this arm are, in the paper's own words: 'BCG consultants', 'third-year law students', 'customer support agents of a Fortune 500 firm'",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "sample_population_type",
+   "level": "arm",
+   "type": "enum",
+   "label": "Population type",
+   "help": "the kind of people the outcomes are measured on: the actual population whose outcomes are measured, not everyone the study mentions. The specific category wins over the generic one; recruitment through an online platform or panel takes precedence over general_population whatever the age, nationality or demographic restrictions; never other merely because a sample is heterogeneous or distinctively described",
+   "sheet": "sample population type",
+   "options": [
+    {
+     "code": "students",
+     "label": "students",
+     "definition": "university or school students",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "crowdworkers_online_panel",
+     "label": "crowdworkers/online panel",
+     "definition": "Prolific, MTurk, similar platforms",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "general_population",
+     "label": "general population",
+     "definition": "members of the public or of sub-populations: convenience samples, job applicants, mixed groups of adults without a shared task-relevant occupation",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "professionals_in_domain",
+     "label": "Professionals, in-domain",
+     "definition": "People working in the occupation the task comes from such as consultants on consulting tasks, radiologists on X-ray",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "professionals_out_of_domain",
+     "label": "Professionals, out-of-domain",
+     "definition": "Professionals doing a task outside their field",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "recipients",
+     "label": "recipients of the work",
+     "definition": "the people the work is for, when the outcomes are measured on them: patients counselled, customers served, students taught (a reversed design, see the rules)",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "Other",
+     "definition": "only when none of the categories fits: the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "sample_population"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "sample_expertise",
+   "level": "arm",
+   "type": "enum",
+   "label": "Expertise",
+   "help": "the arm's training and experience in the domain of the task, decided in this order: (1) people employed in the occupation the task belongs to are expert, whatever their seniority and whatever spread of skill or experience the paper reports among them, unless the paper itself calls them junior, then intermediate; (2) students in the field and trainees are intermediate; (3) people with no training in the domain (the general public, crowdworkers, job applicants, students outside the field) are novice; (4) mixed only when the arm deliberately combines people from different levels in this sense (students with professionals, laypeople with experts), never for a reported skill spread within one occupational sample; (5) not_applicable only for a task with no domain anyone could be trained in (a hidden-profile game, a generic survey); (6) not_stated when the paper says nothing about who the people are",
+   "sheet": "sample population expertise",
+   "options": [
+    {
+     "code": "novice",
+     "label": "Novice",
+     "definition": "no training in the task domain: the general public, crowdworkers, job applicants, students outside the field; a sample described as needing no specific industry or contextual knowledge",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "intermediate",
+     "label": "Intermediate",
+     "definition": "students in the field, trainees, and staff the paper itself calls junior",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "expert",
+     "label": "Expert",
+     "definition": "employed in the occupation the task belongs to, whatever the seniority or the spread of skill the paper reports, unless the paper itself calls them junior",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "mixed",
+     "label": "Mixed",
+     "definition": "the arm deliberately combines people from different levels (students with professionals, laypeople with experts); a reported spread of skill or experience within one occupational sample is not mixed",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "not_applicable",
+     "label": "Not applicable",
+     "definition": "the task has no domain anyone could be trained in",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "not_stated",
+     "label": "not stated",
+     "definition": "the paper gives no information on who the people are",
+     "notes": "",
+     "since": "2026-11-03"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "sample_representativeness",
+   "level": "arm",
+   "type": "enum",
+   "label": "Representativeness",
+   "help": "how the arm's sample relates to a population",
+   "sheet": "Sample representativeness",
+   "options": [
+    {
+     "code": "population_wide",
+     "label": "Population-wide",
+     "definition": "e.g. register data in Denmark",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "representative_sample",
+     "label": "representative sample",
+     "definition": "e.g. household or firm survey",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "non_representative_sample",
+     "label": "non-representative sample",
+     "definition": "e.g. small experiment",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "countries",
+   "level": "arm",
+   "type": "list",
+   "label": "Countries",
+   "help": "where the arm's people or data come from, not the authors; 'online, unspecified' when the paper does not say",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "n_arm",
+   "level": "arm",
+   "type": "integer",
+   "label": "People in the arm",
+   "help": "human subjects who did this task in this arm; null if not stated",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "arm_description",
+   "level": "arm",
+   "type": "text",
+   "label": "What this arm got",
+   "help": "tool, access, training, prompts, restrictions: what made this condition what it was",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "arm_notes",
+   "level": "arm",
+   "type": "text",
+   "label": "Arm notes",
+   "help": "anything a coder must know about the arm",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "ai_model",
+   "level": "arm",
+   "type": "string",
+   "label": "AI model",
+   "help": "the exact system this arm used, with version and access route ('GPT-4 via ChatGPT Plus', 'GitHub Copilot', 'Claude Sonnet 4'); null for a no-AI reference arm or if not stated",
+   "sheet": "AI Model",
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "ai_role",
+   "level": "arm",
+   "type": "enum",
+   "label": "AI role",
+   "help": "how the AI took part in the work in this arm; none for a no-AI reference arm",
+   "sheet": "AI role",
+   "options": [
+    {
+     "code": "open_ended_assistance",
+     "label": "Open-ended assistance",
+     "definition": "the human has open-ended access and uses it however they like; a general-purpose chatbot or agent is open_ended_assistance",
+     "notes": "How was AI used to solve the task?",
+     "since": "v1"
+    },
+    {
+     "code": "ai_review",
+     "label": "AI review",
+     "definition": "The human produces the work and AI provides feedback.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "ai_advice",
+     "label": "AI advice",
+     "definition": "AI gives a recommendation like a prediction or a label but human makes decision. E.g. radiology image classification or algorithmic hiring",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "human_review",
+     "label": "Human review",
+     "definition": "AI produces the work and the human reviews it.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "ai_only",
+     "label": "AI-only",
+     "definition": "Full delegation with human limited to prompting, guiding and giving feedback.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "none",
+     "label": "none",
+     "definition": "the arm did not use AI (a no-AI reference arm)",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "Other",
+     "definition": "",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "arm_description"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "is_agentic",
+   "level": "arm",
+   "type": "boolean",
+   "label": "Agentic tool",
+   "help": "whether the AI autonomously executes a multi-step task or workflow rather than merely responding or assisting: true when it independently determines and executes successive actions toward a goal (conducting an interview, navigating software, using tools, modifying files, completing a workflow with limited human intervention); false when it responds to individual prompts, generates content, recommends or assists without executing a sequence of actions on its own; null for a no-AI reference arm",
+   "sheet": "is_agentic",
+   "options": null,
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "ai_measure",
+   "level": "arm",
+   "type": "enum",
+   "label": "How AI enters",
+   "help": "how AI exposure or use is operationalised in this arm; null for a no-AI reference arm",
+   "sheet": "AI measure",
+   "options": [
+    {
+     "code": "exposure",
+     "label": "exposure",
+     "definition": "potential exposure to AI measured through an index, score or proxy based on tasks, occupations or capabilities, e.g. Eloundou et al.",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "adoption",
+     "label": "adoption",
+     "definition": "actual AI adoption or deployment by workers, firms or organisations, naturally occurring rollouts included, where adoption is not assigned by the researchers",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "observed_usage",
+     "label": "observed usage",
+     "definition": "actual intensity, frequency or patterns of AI use measured through usage logs, interactions or other behavioural records",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "experimental_access",
+     "label": "experimental access",
+     "definition": "the researchers assign, provide or withhold access to AI as part of an experimental intervention, whether or not the participants use it",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "value",
+   "conf": "arm",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "outcome_id",
+   "level": "outcome",
+   "type": "string",
+   "label": "Outcome id",
+   "help": "O1, O2 … in the paper's order",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "outcome_name",
+   "level": "outcome",
+   "type": "string",
+   "label": "Measure",
+   "help": "the outcome as the paper names it: 'time taken', 'average grade'",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "how_measured",
+   "level": "outcome",
+   "type": "string",
+   "label": "How measured",
+   "help": "who or what produced the measure and against what standard: blinded professional graders on a 1-7 rubric, self-reported minutes, a timer",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "outcome_unit",
+   "level": "outcome",
+   "type": "string",
+   "label": "Unit",
+   "help": "the unit or scale of the measure as printed: 'minutes', '1-7 scale', 'percent correct', 'USD', 'count'; null when the paper gives none",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "measure_unit"
+  },
+  {
+   "field": "outcome_direction",
+   "level": "outcome",
+   "type": "enum",
+   "label": "Better side",
+   "help": "up if higher values are better (quality, output); down if lower is better (time, errors); neutral for a quantity without a better side",
+   "sheet": null,
+   "options": [
+    {
+     "code": "up",
+     "label": "up",
+     "since": "v1"
+    },
+    {
+     "code": "down",
+     "label": "down",
+     "since": "v1"
+    },
+    {
+     "code": "neutral",
+     "label": "neutral",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "direction"
+  },
+  {
+   "field": "outcome_type",
+   "level": "outcome",
+   "type": "enum",
+   "label": "Outcome class",
+   "help": "what kind of outcome the measure is, by what was measured and not by its name; every outcome measured while the treatment arm has the AI in use, with a with-versus-without-AI contrast, is a row; an outcome measured afterwards without the AI (a post-test, a retention test, later unaided work) is not a row: name it in task_notes",
+   "sheet": null,
+   "options": [
+    {
+     "code": "performance",
+     "label": "work performance",
+     "definition": "the work produced or the task performed, measured by graders, instruments, timers, counts or an answer key: time, output volume, quality, accuracy, errors, completion, creativity or novelty rated by others",
+     "since": "v1"
+    },
+    {
+     "code": "behaviour",
+     "label": "behaviour",
+     "definition": "what people did, observed: use or adoption of the AI, reliance on or acceptance of its suggestions, take-up of the assigned condition, time allocation across tasks, effort, help-seeking, collaboration",
+     "since": "v1"
+    },
+    {
+     "code": "subjective",
+     "label": "subjective report",
+     "definition": "what people reported about themselves or the work: satisfaction, enjoyment, well-being, stress, perceived agency or autonomy, trust, confidence, self-assessed performance, beliefs, attitudes, intentions",
+     "since": "v1"
+    },
+    {
+     "code": "labour_market",
+     "label": "labour market",
+     "definition": "employment status, retention or attrition, earnings, hours, promotion, hiring",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "outcome_class"
+  },
+  {
+   "field": "outcome_finding",
+   "level": "outcome",
+   "type": "enum",
+   "label": "Finding type",
+   "help": "the finer kind of outcome this row measures",
+   "sheet": "finding type labels",
+   "options": [
+    {
+     "code": "productivity_time",
+     "label": "Time taken",
+     "definition": "time to complete a piece of work, or output per period: durations, counts per period, throughput, completion share",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "productivity_quality",
+     "label": "Output quality",
+     "definition": "the quality of the work: ratings on a scale, pass or acceptance rates, error and revision counts",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "employment_hiring",
+     "label": "Employment or hiring",
+     "definition": "employment status, hiring, retention or attrition as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "wages_earnings",
+     "label": "Wages or earnings",
+     "definition": "pay, earnings or income as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "labor_demand",
+     "label": "Labour demand",
+     "definition": "demand for workers or for a kind of work: vacancies, postings, hours demanded",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "skill_split",
+     "label": "Skill split",
+     "definition": "Lower- vs higher-skill effect",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "task_shift",
+     "label": "Task shift",
+     "definition": "Change in share/volume of a kind of work",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "output_diversity",
+     "label": "Output diversity",
+     "definition": "Collective output diversity across people or items",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "performance_dispersion",
+     "label": "Performance dispersion",
+     "definition": "the spread of performance across people: a slope by baseline skill, a variance, a correlation across tasks",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "adoption_usage",
+     "label": "Adoption or usage of the AI",
+     "definition": "adoption or usage of AI as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "secondary_outcome",
+     "label": "Secondary outcome",
+     "definition": "well-being, attitudes, beliefs, trust",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "A result fitting none of the rest",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "finding_type"
+  },
+  {
+   "field": "outcome_measure_kind",
+   "level": "outcome",
+   "type": "enum",
+   "label": "Measure kind",
+   "help": "for a performance outcome, what the measure counts: one level below the finding type, which follows from it (durations, counts per period, throughput and completion shares are time taken; ratings, pass rates and error counts are quality; a dispersion statistic is dispersion); null for an outcome of another class",
+   "sheet": null,
+   "options": [
+    {
+     "code": "duration",
+     "label": "duration per task or work item",
+     "definition": "time to complete a defined piece of work: minutes per task, handle time, hours to completion, time to reply",
+     "since": "v1"
+    },
+    {
+     "code": "output_count",
+     "label": "output count per period",
+     "definition": "pieces of work completed in a period: pull requests, commits, documents, emails replied to",
+     "since": "v1"
+    },
+    {
+     "code": "throughput",
+     "label": "throughput rate",
+     "definition": "output per unit of time: resolutions per hour, chats per hour",
+     "since": "v1"
+    },
+    {
+     "code": "completion_share",
+     "label": "completion share or composite index",
+     "definition": "the share of a task completed, or a quality-over-time index",
+     "since": "v1"
+    },
+    {
+     "code": "rating",
+     "label": "rating on a scale",
+     "definition": "quality judged by graders, experts or a model on a scale: a 1 to 7 quality score, a 4.0 grade, creativity, coherence",
+     "since": "v1"
+    },
+    {
+     "code": "pass_rate",
+     "label": "pass, acceptance or resolution rate",
+     "definition": "the share of work that meets a standard: correctness, build success, approval, resolution",
+     "since": "v1"
+    },
+    {
+     "code": "error_count",
+     "label": "error and revision counts",
+     "definition": "defects or rework counted on the output: hallucinations, review comments, merge conflicts",
+     "since": "v1"
+    },
+    {
+     "code": "dispersion",
+     "label": "dispersion between workers",
+     "definition": "a statistic of the spread of performance across people: a slope by baseline skill, a variance, a correlation of grades across tasks",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "measure_kind"
+  },
+  {
+   "field": "outcome_measured_on",
+   "level": "outcome",
+   "type": "enum",
+   "label": "Measured on",
+   "help": "whom or what the measure is taken on",
+   "sheet": null,
+   "options": [
+    {
+     "code": "worker",
+     "label": "the worker",
+     "definition": "the person doing the task: their time, throughput, errors, use of the tool, self-reports",
+     "since": "v1"
+    },
+    {
+     "code": "output",
+     "label": "the output",
+     "definition": "the work product, graded by others or against a key",
+     "since": "v1"
+    },
+    {
+     "code": "recipient",
+     "label": "the recipient",
+     "definition": "the person the work is for: a patient's comprehension of a consultation, a customer's satisfaction with the service",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false,
+   "mirror_of": "measured_on"
+  },
+  {
+   "field": "arm",
+   "level": "result",
+   "type": "string",
+   "label": "Arm",
+   "help": "the arm_id this row is for",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "vs_arm",
+   "level": "result",
+   "type": "string",
+   "label": "Compared with",
+   "help": "the arm_id the effect is measured against, usually C; null on a reference-arm row, which carries only n, mean and sd",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "measure",
+   "level": "result",
+   "type": "string",
+   "label": "Measure",
+   "help": "the outcome as the paper names it: 'time to complete', 'quality grade', 'tickets resolved per hour'",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": "results",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "measure_unit",
+   "level": "result",
+   "type": "string",
+   "label": "Unit",
+   "help": "the unit or scale of the measure as printed: 'minutes', '1-7 scale', 'percent correct', 'USD', 'count'; null when the paper gives none",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "outcome_class",
+   "level": "result",
+   "type": "enum",
+   "label": "Outcome class",
+   "help": "what kind of outcome the measure is, by what was measured and not by its name; every outcome measured while the treatment arm has the AI in use, with a with-versus-without-AI contrast, is a row; an outcome measured afterwards without the AI (a post-test, a retention test, later unaided work) is not a row: name it in task_notes",
+   "sheet": null,
+   "options": [
+    {
+     "code": "performance",
+     "label": "work performance",
+     "definition": "the work produced or the task performed, measured by graders, instruments, timers, counts or an answer key: time, output volume, quality, accuracy, errors, completion, creativity or novelty rated by others",
+     "since": "v1"
+    },
+    {
+     "code": "behaviour",
+     "label": "behaviour",
+     "definition": "what people did, observed: use or adoption of the AI, reliance on or acceptance of its suggestions, take-up of the assigned condition, time allocation across tasks, effort, help-seeking, collaboration",
+     "since": "v1"
+    },
+    {
+     "code": "subjective",
+     "label": "subjective report",
+     "definition": "what people reported about themselves or the work: satisfaction, enjoyment, well-being, stress, perceived agency or autonomy, trust, confidence, self-assessed performance, beliefs, attitudes, intentions",
+     "since": "v1"
+    },
+    {
+     "code": "labour_market",
+     "label": "labour market",
+     "definition": "employment status, retention or attrition, earnings, hours, promotion, hiring",
+     "since": "v1"
+    }
+   ],
+   "ev": "row",
+   "conf": "results",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "finding_type",
+   "level": "result",
+   "type": "enum",
+   "label": "Finding type",
+   "help": "the finer kind of outcome this row measures",
+   "sheet": "finding type labels",
+   "options": [
+    {
+     "code": "productivity_time",
+     "label": "Time taken",
+     "definition": "time to complete a piece of work, or output per period: durations, counts per period, throughput, completion share",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "productivity_quality",
+     "label": "Output quality",
+     "definition": "the quality of the work: ratings on a scale, pass or acceptance rates, error and revision counts",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "employment_hiring",
+     "label": "Employment or hiring",
+     "definition": "employment status, hiring, retention or attrition as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "wages_earnings",
+     "label": "Wages or earnings",
+     "definition": "pay, earnings or income as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "labor_demand",
+     "label": "Labour demand",
+     "definition": "demand for workers or for a kind of work: vacancies, postings, hours demanded",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "skill_split",
+     "label": "Skill split",
+     "definition": "Lower- vs higher-skill effect",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "task_shift",
+     "label": "Task shift",
+     "definition": "Change in share/volume of a kind of work",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "output_diversity",
+     "label": "Output diversity",
+     "definition": "Collective output diversity across people or items",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "performance_dispersion",
+     "label": "Performance dispersion",
+     "definition": "the spread of performance across people: a slope by baseline skill, a variance, a correlation across tasks",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "adoption_usage",
+     "label": "Adoption or usage of the AI",
+     "definition": "adoption or usage of AI as the outcome",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "secondary_outcome",
+     "label": "Secondary outcome",
+     "definition": "well-being, attitudes, beliefs, trust",
+     "notes": "",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "A result fitting none of the rest",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": "results",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "measure"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "measure_kind",
+   "level": "result",
+   "type": "enum",
+   "label": "Measure kind",
+   "help": "for a performance outcome, what the measure counts: one level below the finding type, which follows from it (durations, counts per period, throughput and completion shares are time taken; ratings, pass rates and error counts are quality; a dispersion statistic is dispersion); null for an outcome of another class",
+   "sheet": null,
+   "options": [
+    {
+     "code": "duration",
+     "label": "duration per task or work item",
+     "definition": "time to complete a defined piece of work: minutes per task, handle time, hours to completion, time to reply",
+     "since": "v1"
+    },
+    {
+     "code": "output_count",
+     "label": "output count per period",
+     "definition": "pieces of work completed in a period: pull requests, commits, documents, emails replied to",
+     "since": "v1"
+    },
+    {
+     "code": "throughput",
+     "label": "throughput rate",
+     "definition": "output per unit of time: resolutions per hour, chats per hour",
+     "since": "v1"
+    },
+    {
+     "code": "completion_share",
+     "label": "completion share or composite index",
+     "definition": "the share of a task completed, or a quality-over-time index",
+     "since": "v1"
+    },
+    {
+     "code": "rating",
+     "label": "rating on a scale",
+     "definition": "quality judged by graders, experts or a model on a scale: a 1 to 7 quality score, a 4.0 grade, creativity, coherence",
+     "since": "v1"
+    },
+    {
+     "code": "pass_rate",
+     "label": "pass, acceptance or resolution rate",
+     "definition": "the share of work that meets a standard: correctness, build success, approval, resolution",
+     "since": "v1"
+    },
+    {
+     "code": "error_count",
+     "label": "error and revision counts",
+     "definition": "defects or rework counted on the output: hallucinations, review comments, merge conflicts",
+     "since": "v1"
+    },
+    {
+     "code": "dispersion",
+     "label": "dispersion between workers",
+     "definition": "a statistic of the spread of performance across people: a slope by baseline skill, a variance, a correlation of grades across tasks",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": "results",
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "measure",
+    "measure_unit"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "direction",
+   "level": "result",
+   "type": "enum",
+   "label": "Better side",
+   "help": "up if higher values are better (quality, output); down if lower is better (time, errors); neutral for a quantity without a better side",
+   "sheet": null,
+   "options": [
+    {
+     "code": "up",
+     "label": "up",
+     "since": "v1"
+    },
+    {
+     "code": "down",
+     "label": "down",
+     "since": "v1"
+    },
+    {
+     "code": "neutral",
+     "label": "neutral",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "contrast_type",
+   "level": "result",
+   "type": "enum",
+   "label": "Contrast type",
+   "help": "what the effect compares; null on a reference-arm row",
+   "sheet": null,
+   "options": [
+    {
+     "code": "ai_vs_no_ai",
+     "label": "AI vs no AI",
+     "definition": "an AI arm against a no-AI reference arm (concurrent or placebo tool)",
+     "since": "v1"
+    },
+    {
+     "code": "pre_vs_post",
+     "label": "post vs pre",
+     "definition": "the same units after getting the AI against before",
+     "since": "v1"
+    },
+    {
+     "code": "ai_vs_ai",
+     "label": "AI vs AI",
+     "definition": "two AI arms against each other (two tools, two models)",
+     "since": "v1"
+    },
+    {
+     "code": "ai_variant",
+     "label": "AI variant",
+     "definition": "an AI arm against the same AI with a feature, prompt or interface changed",
+     "since": "v1"
+    },
+    {
+     "code": "dose",
+     "label": "dose",
+     "definition": "more versus less use or access to the same AI",
+     "since": "v1"
+    },
+    {
+     "code": "vs_benchmark",
+     "label": "vs benchmark",
+     "definition": "an arm against a benchmark that is not a condition of the study: unassisted experts, a published norm",
+     "since": "v1"
+    },
+    {
+     "code": "human_ai_vs_ai",
+     "label": "human+AI vs AI alone",
+     "definition": "people using the AI against the AI's own output with no human",
+     "since": "v1"
+    },
+    {
+     "code": "interaction",
+     "label": "interaction",
+     "definition": "the difference between two subgroups' AI effects",
+     "since": "v1"
+    },
+    {
+     "code": "association",
+     "label": "association",
+     "definition": "users against non-users without assignment",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "definition": "none of the categories fits: give the paper's own term in `proposed`",
+     "notes": "",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "measure",
+    "subgroup"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "estimand_type",
+   "level": "result",
+   "type": "enum",
+   "label": "Estimand",
+   "help": "which effect the row estimates, by how people entered the comparison; null on a reference-arm row",
+   "sheet": null,
+   "options": [
+    {
+     "code": "itt",
+     "label": "intent to treat",
+     "definition": "by assigned condition, whether or not the tool was used",
+     "since": "v1"
+    },
+    {
+     "code": "tot",
+     "label": "treatment on the treated",
+     "definition": "the effect for those who used the tool, with assignment as the instrument (LATE, TOT)",
+     "since": "v1"
+    },
+    {
+     "code": "per_protocol",
+     "label": "per protocol",
+     "definition": "users or compliers only, by actual use, without instrumenting",
+     "since": "v1"
+    },
+    {
+     "code": "not_applicable",
+     "label": "not applicable",
+     "definition": "no assignment: an observational association or a descriptive comparison",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "subgroup",
+   "level": "result",
+   "type": "string",
+   "label": "Subgroup",
+   "help": "'full sample', or the subset this row is for: of people ('bottom half of baseline ability'), of tasks ('routine topics'), of sites, of time since treatment",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": "results",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "horizon",
+   "level": "result",
+   "type": "string",
+   "label": "Horizon",
+   "help": "when the outcome is measured relative to AI access: 'same session', '8 weeks after rollout'; null if a single cross-section",
+   "sheet": null,
+   "options": null,
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "measured_on",
+   "level": "result",
+   "type": "enum",
+   "label": "Measured on",
+   "help": "whom or what the measure is taken on",
+   "sheet": null,
+   "options": [
+    {
+     "code": "worker",
+     "label": "the worker",
+     "definition": "the person doing the task: their time, throughput, errors, use of the tool, self-reports",
+     "since": "v1"
+    },
+    {
+     "code": "output",
+     "label": "the output",
+     "definition": "the work product, graded by others or against a key",
+     "since": "v1"
+    },
+    {
+     "code": "recipient",
+     "label": "the recipient",
+     "definition": "the person the work is for: a patient's comprehension of a consultation, a customer's satisfaction with the service",
+     "since": "v1"
+    }
+   ],
+   "ev": "row",
+   "conf": "results",
+   "open": false,
+   "required": true,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "statistic",
+   "level": "result",
+   "type": "enum",
+   "label": "Statistic",
+   "help": "what the central value in `mean` is",
+   "sheet": null,
+   "options": [
+    {
+     "code": "mean",
+     "label": "mean",
+     "since": "v1"
+    },
+    {
+     "code": "median",
+     "label": "median",
+     "since": "v1"
+    },
+    {
+     "code": "proportion",
+     "label": "proportion",
+     "since": "v1"
+    },
+    {
+     "code": "count",
+     "label": "count",
+     "since": "v1"
+    },
+    {
+     "code": "rate",
+     "label": "rate",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "since": "v1"
+    }
+   ],
+   "ev": "row",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "n",
+   "level": "result",
+   "type": "integer",
+   "label": "n",
+   "help": "people (or units) behind this row's value",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "stats",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "n_obs",
+   "level": "result",
+   "type": "integer",
+   "label": "Observations",
+   "help": "the observations behind the estimate when they differ from the people (tasks x participants, person-weeks, tickets), as printed; null when equal to n or not stated",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "cluster_level",
+   "level": "result",
+   "type": "string",
+   "label": "Clustered on",
+   "help": "what the standard errors are clustered on ('participant', 'team', 'branch'), as stated; null if not clustered or not stated",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "mean",
+   "level": "result",
+   "type": "number",
+   "label": "Mean",
+   "help": "the arm's central value of the measure as printed, whichever statistic the paper gives (`statistic` says which); a proportion as printed (0.82 or 82, not converted)",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "stats",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "sd",
+   "level": "result",
+   "type": "number",
+   "label": "SD",
+   "help": "the arm's standard deviation as printed; from an SE or CI only with estimated = true and the arithmetic in result_notes; for a median, null with the IQR in result_notes",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "stats",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "effect_reported",
+   "level": "result",
+   "type": "string",
+   "label": "Effect as reported",
+   "help": "the number exactly as printed, with its sign and unit: '-40%', '+0.41 SD', '0.18 (0.05)'; null on a reference-arm row",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "results",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "effect_value",
+   "level": "result",
+   "type": "number",
+   "label": "Effect value",
+   "help": "the same number as a plain number in the units of effect_type; null if the paper gives only a direction",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": "results",
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "effect_type",
+   "level": "result",
+   "type": "enum",
+   "label": "Effect type",
+   "help": "the form of the number in effect_value",
+   "sheet": null,
+   "options": [
+    {
+     "code": "mean_difference",
+     "label": "mean difference",
+     "since": "v1"
+    },
+    {
+     "code": "percent_change",
+     "label": "percent change",
+     "since": "v1"
+    },
+    {
+     "code": "ratio",
+     "label": "ratio",
+     "since": "v1"
+    },
+    {
+     "code": "standardized_difference",
+     "label": "standardized difference",
+     "since": "v1"
+    },
+    {
+     "code": "regression_coefficient",
+     "label": "regression coefficient",
+     "since": "v1"
+    },
+    {
+     "code": "difference_in_differences",
+     "label": "difference in differences",
+     "since": "v1"
+    },
+    {
+     "code": "elasticity",
+     "label": "elasticity",
+     "since": "v1"
+    },
+    {
+     "code": "interaction",
+     "label": "interaction",
+     "since": "v1"
+    },
+    {
+     "code": "simulated",
+     "label": "simulated",
+     "since": "v1"
+    },
+    {
+     "code": "other",
+     "label": "other",
+     "since": "v1"
+    }
+   ],
+   "ev": "none",
+   "conf": null,
+   "open": true,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": [
+    "effect_reported",
+    "effect_units"
+   ],
+   "hidden": false
+  },
+  {
+   "field": "effect_units",
+   "level": "result",
+   "type": "string",
+   "label": "Effect units",
+   "help": "'minutes', 'percent of the control mean', 'SD of the pre-treatment grade', 'log points'",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "se",
+   "level": "result",
+   "type": "number",
+   "label": "SE",
+   "help": "standard error as printed",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "ci_low",
+   "level": "result",
+   "type": "number",
+   "label": "CI low",
+   "help": "lower 95% bound as printed",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "ci_high",
+   "level": "result",
+   "type": "number",
+   "label": "CI high",
+   "help": "upper 95% bound as printed",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "p_value",
+   "level": "result",
+   "type": "number",
+   "label": "p",
+   "help": "as a number, as printed; null if only stars or an inequality",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "p_reported",
+   "level": "result",
+   "type": "string",
+   "label": "p as printed",
+   "help": "the significance exactly as printed when p_value cannot hold it: '<0.01', 'p = .03', '***' (with the note's star convention); null otherwise",
+   "sheet": null,
+   "options": null,
+   "ev": "value",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": "effect",
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "estimated",
+   "level": "result",
+   "type": "boolean",
+   "label": "Estimated",
+   "help": "true if any value in the row was read from a figure or computed rather than printed; say how in result_notes",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "is_main",
+   "level": "result",
+   "type": "boolean",
+   "label": "Main estimate",
+   "help": "true for the paper's main specification of this measure: the estimate the results section leads with (the main table's full-sample row), not a robustness check, an alternative estimator or a secondary specification; at most one per estimand",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "source",
+   "level": "result",
+   "type": "string",
+   "label": "Source",
+   "help": "'Table 2, column 3', 'Figure 1', 'p. 5 text'",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "outcome",
+   "level": "result",
+   "type": "string",
+   "label": "Outcome",
+   "help": "the id (O1 …) of the outcome in the coder's outcomes list",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "human",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "estimate",
+   "level": "result",
+   "type": "string",
+   "label": "Estimate",
+   "help": "the id of the model estimate this row was accepted from; empty for a row added by hand",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "code",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  },
+  {
+   "field": "result_notes",
+   "level": "result",
+   "type": "text",
+   "label": "Result notes",
+   "help": "derivations, which specification, caveats",
+   "sheet": null,
+   "options": null,
+   "ev": "none",
+   "conf": null,
+   "open": false,
+   "required": false,
+   "filled": "model",
+   "qg": null,
+   "columns": null,
+   "derive_from": null,
+   "hidden": false
+  }
+ ],
+ "hashes": {
+  "split": "2b9af957a9",
+  "design": "afbb8492d2",
+  "claims": "de773e57b5"
+ }
+}

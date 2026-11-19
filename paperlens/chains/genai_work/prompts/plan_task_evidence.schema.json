@@ -1,0 +1,51 @@
+{
+ "type": "object",
+ "properties": {
+  "tasks": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "task_id": {
+      "type": "string"
+     },
+     "passages": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "chunk_id": {
+         "type": "string"
+        },
+        "informs": {
+         "type": "array",
+         "items": {
+          "type": "string",
+          "enum": [
+           "knowledge_education",
+           "goal_path_specification",
+           "interdependence",
+           "resources_context",
+           "what_was_done"
+          ]
+         }
+        }
+       },
+       "required": [
+        "chunk_id",
+        "informs"
+       ]
+      }
+     }
+    },
+    "required": [
+     "task_id",
+     "passages"
+    ]
+   }
+  }
+ },
+ "required": [
+  "tasks"
+ ]
+}

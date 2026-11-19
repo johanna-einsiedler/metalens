@@ -34,10 +34,10 @@ from . import preset_spec as ps
 
 WORKFLOWS_DIR = Path(__file__).parent / "workflows"
 FORMAT = 1
-KINDS = ("extract", "check", "derive", "vocabulary", "pages", "crosscheck", "loop", "release", "agent", "review")
-DATA_KINDS = ("extract", "derive", "agent")           # steps whose output a release gate may name
-GATE_KINDS = ("extract", "derive", "agent", "review") # …plus a joint review stage
-REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent", "review")
+KINDS = ("extract", "check", "derive", "vocabulary", "pages", "crosscheck", "loop", "release", "agent", "review", "pass", "compute")
+DATA_KINDS = ("extract", "derive", "agent", "compute")           # steps whose output a release gate may name
+GATE_KINDS = ("extract", "derive", "agent", "compute", "review") # …plus a joint review stage
+REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent", "review", "compute")
 DRAFT_KINDS = ("derive", "vocabulary", "pages")        # steps whose output is a draft a person commits
 REVIEW_MODES = ("none", "all", "sample")
 REVIEW_UNITS = ("entry", "paper", "row")      # row: a paper table's rows (a later release)
@@ -46,6 +46,7 @@ SOURCES = ("live", "supplied")
 MAX_K = 5
 MAX_LOOP = 3
 PIN_RE = re.compile(r"^([a-z][a-z0-9-]{1,63})@([0-9a-f]{8})$")
+PASS_PIN_RE = re.compile(r"^([a-z_][a-z0-9_]*\.[a-z][a-z0-9_]*)@([0-9a-f]{8})$")   # a registered pass at its prompt sha (chains.pin)
 UPDATE_KINDS = ("vocabulary", "pages", "crosscheck")   # the preset-level update steps, as workflow kinds
 LATER = {"agent": "agent steps arrive in a later release"}
 REVIEW_KEYS = ("mode", "unit", "n", "share", "seed", "stratify", "blocks", "oversample_flagged", "coders")   # the attribute form's keys
@@ -60,6 +61,8 @@ _ALLOWED_KEYS = {
     "extract": {"preset", "source", "k", "vote", "input", "params", "dataset"},
     "agent": {"preset", "source", "dataset"},
     "review_step": {"over", "asks", *REVIEW_STEP_KEYS},
+    "pass": {"pass", "reads", "k", "match", "over", "params", "model"},
+    "compute": {"fn", "reads", "edits", "preset", "dataset", "writes", "findings", "params"},
     "vote": {"identity", "fields"},
     "input": {"previous"},
     "check": {"check", "over", "on_fail", "severity", "params"},
@@ -169,6 +172,16 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
             st.setdefault("params", {})
             if kind == "agent":
                 st["source"] = "supplied"
+        if kind == "pass":
+            st.setdefault("k", 1)
+            st.setdefault("reads", [])
+            st.setdefault("params", {})
+        if kind == "compute":
+            st.setdefault("reads", [])
+            st.setdefault("params", {})
+            st.setdefault("findings", [])
+            if st.get("edits") is not None:
+                st.setdefault("writes", [])
         if kind == "check":
             st.setdefault("on_fail", "note")
             st.setdefault("severity", "error")
@@ -355,6 +368,12 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
             _validate_loop(st, at, E, W, earlier=earlier, by_id=by_id)
         elif kind == "review":
             _validate_review_step(st, at, E, W, earlier=earlier, by_id=by_id, presets_of=presets_of)
+        elif kind == "pass":
+            _validate_pass(st, at, E, W, earlier=earlier, by_id=by_id)
+        elif kind == "compute":
+            pspec = _validate_compute(st, at, E, W, resolver=resolver, pin_known=pin_known, earlier=earlier, by_id=by_id, presets_of=presets_of)
+            if sid and pspec is not None:
+                presets_of[sid] = pspec
         elif kind == "release":
             gate = st.get("gate")
             if not isinstance(gate, list) or not all(isinstance(g, str) for g in gate):
@@ -371,30 +390,37 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
     return errs, warns
 
 
+def _validate_pin(st, at, E, W, *, resolver, pin_known) -> dict | None:
+    """``preset`` pins a data contract: the preset exists and the pin is its live contract or a
+    contract this server knows. Returns the preset's spec, or None."""
+    pin = st.get("preset")
+    m = PIN_RE.match(pin) if isinstance(pin, str) else None
+    if not m:
+        E(f"{at}.preset must pin a data contract: <preset id>@<8 hex> (the schema id)"); return None
+    pspec = resolver(m.group(1)) if resolver else None
+    if pspec is None:
+        E(f"{at}.preset: unknown preset {m.group(1)!r}"); return None
+    live = ps.schema_id(pspec)
+    if pin_known is not None and live != pin and not pin_known(pin):
+        E(f"{at}.preset: unknown contract {pin!r}; the live contract is {live!r}")
+    elif live != pin:
+        W(f"{at}.preset is pinned to an older contract than the live {live!r}")
+    return pspec
+
+
 def _validate_extract(st, at, E, W, *, resolver, pin_known, earlier, by_id) -> dict | None:
     pin = st.get("preset")
     m = PIN_RE.match(pin) if isinstance(pin, str) else None
-    pspec = None
-    if not m:
-        E(f"{at}.preset must pin a data contract: <preset id>@<8 hex> (the schema id)")
-    else:
-        pspec = resolver(m.group(1)) if resolver else None
-        if pspec is None:
-            E(f"{at}.preset: unknown preset {m.group(1)!r}")
-        else:
-            live = ps.schema_id(pspec)
-            if pin_known is not None and live != pin and not pin_known(pin):
-                E(f"{at}.preset: unknown contract {pin!r}; the live contract is {live!r}")
-            elif live != pin:
-                W(f"{at}.preset is pinned to an older contract than the live {live!r}")
-            mode = (pspec.get("meta") or {}).get("mode")
-            src = st.get("source")
-            if src is None:
-                st["source"] = "supplied" if mode == "import" else "live"
-            elif src not in SOURCES:
-                E(f"{at}.source must be 'live' or 'supplied'")
-            elif src == "live" and mode == "import":
-                E(f"{at}.source: {m.group(1)!r} has no prompt (an import-mode preset) — its documents are supplied")
+    pspec = _validate_pin(st, at, E, W, resolver=resolver, pin_known=pin_known)
+    if m and pspec is not None:
+        mode = (pspec.get("meta") or {}).get("mode")
+        src = st.get("source")
+        if src is None:
+            st["source"] = "supplied" if mode == "import" else "live"
+        elif src not in SOURCES:
+            E(f"{at}.source must be 'live' or 'supplied'")
+        elif src == "live" and mode == "import":
+            E(f"{at}.source: {m.group(1)!r} has no prompt (an import-mode preset) — its documents are supplied")
     k = st.get("k", 1)
     if not isinstance(k, int) or not 1 <= k <= MAX_K:
         E(f"{at}.k must be an integer from 1 to {MAX_K}")
@@ -444,6 +470,158 @@ def _validate_extract(st, at, E, W, *, resolver, pin_known, earlier, by_id) -> d
     role = st.get("dataset")
     if role is not None and not (isinstance(role, str) and re.match(r"^[a-z][a-z0-9_]{0,31}$", role)):
         E(f"{at}.dataset must be a short lowercase role name (tables, claims, …)")
+    return pspec
+
+
+_PASS_PARAM_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "list": list, "object": dict}
+
+
+def _validate_pass(st, at, E, W, *, earlier, by_id) -> None:
+    """A pass step: a registered pass at its current pin, the earlier pass steps it reads (one
+    per read the pass declares), ``k`` with a matcher of the same chain, ``over`` only for a
+    pass that reads the record, typed params."""
+    from . import chains
+    pin = st.get("pass")
+    entry = None
+    if not isinstance(pin, str) or not PASS_PIN_RE.match(pin):
+        E(f"{at}.pass must be '<chain>.<name>@<sha8>' (the pass at its prompt sha)")
+    else:
+        entry = chains.get(pin)
+        if entry is None or entry.get("kind") != "pass":
+            E(f"{at}.pass: unknown pass {pin.partition('@')[0]!r}"); entry = None
+        elif not chains.pin_ok(pin):
+            E(f"{at}.pass: {pin!r} is not the pass's current pin ({chains.pin(pin)}); re-pin after a prompt change")
+    reads = st.get("reads", [])
+    if not isinstance(reads, list) or any(not isinstance(r, str) for r in reads):
+        E(f"{at}.reads must list earlier pass steps"); reads = []
+    names: dict[str, str] = {}
+    for r in reads:
+        src = by_id.get(r) if r in earlier else None
+        if src is None or src.get("kind") != "pass":
+            E(f"{at}.reads: {r!r} is not an earlier pass step")
+        else:
+            names[str(src.get("pass") or "").partition("@")[0].partition(".")[2]] = r
+    if entry is not None:
+        for need in entry.get("reads") or []:
+            if need not in names:
+                E(f"{at}.reads: {entry['id']} reads {need!r} — name the step that runs it")
+        for n in names:
+            if n not in (entry.get("reads") or []):
+                E(f"{at}.reads: {entry['id']} does not read {n!r}")
+    k = st.get("k", 1)
+    if not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= MAX_K:
+        E(f"{at}.k must be an integer from 1 to {MAX_K}")
+    elif k > 1:
+        if entry is not None and not entry.get("k_ok"):
+            E(f"{at}.k: {entry['id']} runs once per paper")
+        m = st.get("match")
+        me = chains.get(m) if isinstance(m, str) else None
+        if me is None or me.get("kind") != "match" or (entry is not None and me.get("chain") != entry.get("chain")):
+            E(f"{at}.match must name a matcher of the same chain when k > 1")
+    elif st.get("match") is not None:
+        E(f"{at}.match only applies with k > 1")
+    over = st.get("over")
+    if over is not None:
+        if entry is not None and not entry.get("post_record"):
+            E(f"{at}.over: {entry['id']} does not read the record")
+        elif not (isinstance(over, str) and over in earlier and (by_id.get(over) or {}).get("kind") in DATA_KINDS):
+            E(f"{at}.over must name an earlier data step (the record the pass reads)")
+    elif entry is not None and entry.get("post_record"):
+        E(f"{at}: {entry['id']} reads the record — declare over")
+    params = st.get("params", {})
+    if not isinstance(params, dict):
+        E(f"{at}.params must be an object")
+    elif entry is not None:
+        for name, v in params.items():
+            decl = (entry.get("params") or {}).get(name)
+            want = _PASS_PARAM_TYPES.get((decl or {}).get("type"))
+            if decl is None:
+                E(f"{at}.params: {entry['id']} takes no {name!r}")
+            elif want is not None and (not isinstance(v, want) or (want is not bool and isinstance(v, bool) and want is not object)):
+                E(f"{at}.params.{name} must be a {decl.get('type')}")
+    if st.get("model") is not None and not isinstance(st.get("model"), str):
+        E(f"{at}.model must be a string")
+
+
+def _validate_compute(st, at, E, W, *, resolver, pin_known, earlier, by_id, presets_of) -> dict | None:
+    """A compute step: a registered compute that either PRODUCES documents under a pinned preset
+    (``preset``, an optional dataset role) or EDITS the documents of an earlier data step
+    (``edits``, the fields it may write in ``writes``), reading earlier passes (``reads``) and
+    check steps' findings (``findings``), with typed params. Returns the preset's spec for a
+    document step."""
+    from . import chains
+    fn = st.get("fn")
+    entry = chains.get(fn) if isinstance(fn, str) else None
+    if entry is None or entry.get("kind") != "compute":
+        E(f"{at}.fn must name a registered compute (<chain>.<name>)"); entry = None
+    produces = (entry or {}).get("produces")
+    reads = st.get("reads", [])
+    if not isinstance(reads, list) or any(not isinstance(r, str) for r in reads):
+        E(f"{at}.reads must list earlier pass steps"); reads = []
+    names: dict[str, str] = {}
+    for r in reads:
+        src = by_id.get(r) if r in earlier else None
+        if src is None or src.get("kind") != "pass":
+            E(f"{at}.reads: {r!r} is not an earlier pass step")
+        else:
+            names[str(src.get("pass") or "").partition("@")[0].partition(".")[2]] = r
+    if entry is not None:
+        for need in entry.get("reads") or []:
+            if need not in names:
+                E(f"{at}.reads: {entry['id']} reads {need!r} — name the step that runs it")
+        for n in names:
+            if n not in (entry.get("reads") or []):
+                E(f"{at}.reads: {entry['id']} does not read {n!r}")
+    pspec = None
+    if produces == "document":
+        for k in ("edits", "writes"):
+            if st.get(k) is not None:
+                E(f"{at}.{k}: {entry['id']} makes documents, it edits none")
+        pspec = _validate_pin(st, at, E, W, resolver=resolver, pin_known=pin_known)
+        role = st.get("dataset")
+        if role is not None and not (isinstance(role, str) and re.match(r"^[a-z][a-z0-9_]{0,31}$", role)):
+            E(f"{at}.dataset must be a short lowercase role name (tables, claims, …)")
+    elif produces == "fields":
+        for k in ("preset", "dataset"):
+            if st.get(k) is not None:
+                E(f"{at}.{k}: {entry['id']} edits documents, it makes none")
+        edits = st.get("edits")
+        src = by_id.get(edits) if isinstance(edits, str) and edits in earlier else None
+        if src is None or src.get("kind") not in DATA_KINDS or (src.get("kind") == "compute" and not src.get("preset")):
+            E(f"{at}.edits must name an earlier step whose documents it edits"); src = None
+        writes = st.get("writes", [])
+        if not isinstance(writes, list) or not writes or any(not isinstance(w, str) for w in writes):
+            E(f"{at}.writes must list the fields the compute may write")
+        elif src is not None and presets_of.get(edits):
+            spec_ = presets_of[edits]
+            ent = spec_.get("entries") or {}
+            entry_fields = {f.get("name") for f in ent.get("fields") or [] if isinstance(f, dict)}
+            child_fields = {f"{ch.get('key')}[].{f.get('name')}" for ch in ent.get("children") or [] if isinstance(ch, dict)
+                            for f in ch.get("fields") or [] if isinstance(f, dict)}
+            paper_fields = {f"paper.{f.get('name')}" for f in (spec_.get("paper") or {}).get("fields") or [] if isinstance(f, dict)}
+            for w in writes:
+                if w not in entry_fields and w not in child_fields and w not in paper_fields:
+                    E(f"{at}.writes: {w!r} is not a field of {src.get('preset')!r} (an entry field, <child>[].<field> or paper.<field>)")
+    elif entry is not None:
+        E(f"{at}.fn: {entry['id']} declares no produces")
+    fnd = st.get("findings", [])
+    if not isinstance(fnd, list) or any(not isinstance(f, str) for f in fnd):
+        E(f"{at}.findings must list earlier check steps")
+    else:
+        for f in fnd:
+            if f not in earlier or (by_id.get(f) or {}).get("kind") != "check":
+                E(f"{at}.findings: {f!r} is not an earlier check step")
+    params = st.get("params", {})
+    if not isinstance(params, dict):
+        E(f"{at}.params must be an object")
+    elif entry is not None:
+        for name, v in params.items():
+            decl = (entry.get("params") or {}).get(name)
+            want = _PASS_PARAM_TYPES.get((decl or {}).get("type"))
+            if decl is None:
+                E(f"{at}.params: {entry['id']} takes no {name!r}")
+            elif want is not None and (not isinstance(v, want) or (want is not bool and isinstance(v, bool))):
+                E(f"{at}.params.{name} must be a {decl.get('type')}")
     return pspec
 
 
@@ -603,7 +781,7 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
         E(f"{at}.over must list the steps the review reads (extract steps, or one derive step)"); over = []
     kinds = {o: (by_id.get(o) or {}).get("kind") for o in over}
     for o in over:
-        if o not in earlier or kinds[o] not in ("extract", "agent", "derive"):
+        if o not in earlier or kinds[o] not in ("extract", "agent", "derive", "compute") or (kinds[o] == "compute" and not (by_id.get(o) or {}).get("preset")):
             E(f"{at}.over: {o!r} is not an earlier extract step")
     draft = any(kinds[o] in DRAFT_KINDS for o in over)
     if draft and len(over) > 1:
@@ -785,6 +963,8 @@ def workflow_contract(spec: dict) -> dict:
     review step over one data step is hashed as that step's attribute (``unshim``)."""
     def strip_step(st: dict) -> dict:
         out = {k: v for k, v in st.items() if k not in _WORDING}
+        if st.get("kind") == "pass":
+            out.pop("model", None)                      # the run's choice, not the workflow's promise
         if st.get("kind") == "derive":
             out["calls"] = [{k: v for k, v in c.items() if k != "prompt"} for c in st.get("calls") or [] if isinstance(c, dict)]
         return out
@@ -836,7 +1016,8 @@ def roles(spec: dict) -> dict[str, dict]:
                 for p in ((st.get("input") or {}).get("previous") or [])}
     out: dict[str, dict] = {}
     for st in spec.get("steps") or []:
-        if isinstance(st, dict) and st.get("kind") in ("extract", "agent") and st.get("id") not in consumed and st.get("dataset"):
+        if isinstance(st, dict) and (st.get("kind") in ("extract", "agent") or (st.get("kind") == "compute" and st.get("preset"))) \
+                and st.get("id") not in consumed and st.get("dataset"):
             out[st["dataset"]] = {"step": st["id"], "preset": st.get("preset"), "label": st.get("label") or st["id"]}
     return out
 
@@ -844,7 +1025,7 @@ def roles(spec: dict) -> dict[str, dict]:
 def pins(spec: dict) -> list[tuple[str, str]]:
     """(step id, pinned schema id) of every extract step."""
     return [(st["id"], st["preset"]) for st in spec.get("steps") or []
-            if isinstance(st, dict) and st.get("kind") in ("extract", "agent") and isinstance(st.get("preset"), str)]
+            if isinstance(st, dict) and st.get("kind") in ("extract", "agent", "compute") and isinstance(st.get("preset"), str)]
 
 
 def preset_base(pin: str) -> str:

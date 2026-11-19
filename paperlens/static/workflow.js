@@ -15,7 +15,7 @@ const name = (a) => [a.given, a.family].filter(Boolean).join(" ");
 const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 const testDoi = (d) => /^10\.5072\//.test(d || "");
 const md = (text) => (text && text.trim() ? `<div class="md">${renderMarkdown(text)}</div>` : "");
-const KIND = { extract: "⬚ extract", agent: "⬚ agent", check: "✓ check", derive: "Σ derive", vocabulary: "🏷 vocabulary", pages: "📖 pages", crosscheck: "↔ cross-check", loop: "↻ loop", review: "👁 review", release: "⛁ release" };
+const KIND = { extract: "⬚ extract", agent: "⬚ agent", check: "✓ check", derive: "Σ derive", vocabulary: "🏷 vocabulary", pages: "📖 pages", crosscheck: "↔ cross-check", loop: "↻ loop", review: "👁 review", release: "⛁ release", pass: "⟶ pass", compute: "ƒ compute" };
 
 export async function init(id) {
   ID = id;
@@ -61,6 +61,8 @@ function stepsHtml(c) {
       : s.kind === "crosscheck" ? "the claims-vs-tables check against the companion dataset"
       : s.kind === "review" ? ((s.over || []).length > 1 ? `a joint review over ${s.over.join(", ")}: each paper's documents of those steps in one worklist` : `a review over ${(s.over || []).join(", ")}: a person looks before the data counts as checked`)
       : s.kind === "release" ? `gate on ${(s.gate || []).join(", ") || "nothing"}: the release holds while a gate step is stale or awaits review`
+      : s.kind === "compute" ? `registered code <code>${esc(s.fn || "")}</code> per paper${(s.reads || []).length ? ` reading ${s.reads.join(", ")}` : ""} · ${s.preset ? `one document per paper under <code>${esc(s.preset)}</code>${s.dataset ? ` into the <b>${esc(s.dataset)}</b> dataset` : ""}` : `edits ${esc(s.edits || "")}'s documents (${(s.writes || []).join(", ")}) through the audited path`}`
+      : s.kind === "pass" ? `registered code <code>${esc(String(s.pass || "").split("@")[0])}</code> per paper${(s.reads || []).length ? ` reading ${s.reads.join(", ")}` : ""}${(s.k || 1) > 1 ? ` · ${s.k} runs matched by <code>${esc(s.match || "")}</code>` : ""} · its output in its own shape, pinned by its prompts`
       : esc(s.kind);
     return `<li class="ds-dashrow wc-step"><span class="wc-kind">${KIND[s.kind] || esc(s.kind)}</span> <b>${esc(s.label || s.id)}</b> <code class="muted">${esc(s.id)}</code>
       <div class="wc-what">${what}</div>${s.help ? `<div class="muted wc-help">${esc(s.help)}</div>` : ""}

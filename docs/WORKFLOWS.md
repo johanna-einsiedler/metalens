@@ -349,6 +349,113 @@ Exports carry every coding (`codings` per record, `paper_codings` per paper, cod
 freezes them (`codings` in the snapshot, `codings.json` in the zip) next to the paper-level
 values, and a new coding counts as a change since the last release.
 
+## Chains: pass steps
+
+A **chain** (`paperlens/chains/<chain>/`) is registered code a workflow runs per paper — the
+project-specific knowledge (prompts, taxonomy, rules) is the chain's content, the engine knows the
+registry (`paperlens/chains/__init__.py`, the pattern of `checks.REGISTRY`). A step of kind `pass`
+names a pass at its PIN:
+
+```jsonc
+{"id": "estimands", "kind": "pass", "pass": "genai_work.estimands@3f1a9c2e", "reads": ["exhibits"],
+ "k": 2, "match": "genai_work.match_estimands", "params": {"threshold": 6}}
+```
+
+`pass` is `<chain>.<name>@<sha8>`, the sha over the pass's prompt files, its JSON schema and what
+the code puts around them (`inputs_version`), so a prompt edit re-versions every workflow naming
+the pass, as a preset pin does (`chains.pin`; a stale pin is an error). `reads` names the earlier
+pass steps whose outputs the pass declared it reads, one per declared read. `k` runs the pass k
+times per paper and `match` names the chain's matcher that folds the runs into one (a later
+release). `params` are typed by the registration. `model` is the run's choice, not the contract's.
+
+A pass's code gets a context: `ctx.pages` and `ctx.text()` (the page text with `=== PAGE i ===`
+markers), `ctx.paper`, `ctx.read("<pass>")` (the primary output of the step that runs it),
+`ctx.params`, `ctx.prompt(name)`/`ctx.schema()`, and `ctx.call(system, user, schema, max_tokens=…)`
+— one JSON answer through `providers.generate_json`; a cut answer raises `passes.Truncated` so the
+pass can ask again in a shorter form. It returns one JSON object in its own shape.
+
+Outputs sit in `workflow_pass_output` per (run, step, paper, pass index) with the prompt sha, an
+inputs sha (the text, the outputs read, the params), the model, usage and calls. An output made
+under the same shas by any earlier run is REUSED without a call; one made outside Metalens is
+SUPPLIED (`POST /api/workflow-runs/{rid}/passes/{step}/{sha}` with `{output, prompt_sha256?}`) and
+stands in for the call. A paper enters a run that starts on passes through
+`POST /api/workflow-runs/{rid}/papers` (a PDF of the run's plan; its page text is stored once per
+PDF): its passes run in order in one job — a pass with its output stored is skipped, a failure
+stops the paper's chain. A pass step is the barrier across papers: done when every planned
+paper's job is terminal (the owner closes the uploads with `…/complete`), its outputs counting
+papers, failures, reuse, calls and usage; `GET …/passes/{step}` lists a step's outputs per paper,
+`GET …/passes/{step}/{sha}` serves one with its provenance.
+
+A chain run starts from the Add papers page (`/extract?dataset=<id>&workflow=1`): the staged PDFs
+are planned, the run started, and each PDF posted into the run, where its passes run as it
+arrives; a run that still waits for papers offers "Upload the papers" on the dataset page's
+Workflow panel, which opens the same page with `&run=<id>`. The panel names pass and compute steps
+with the registered code, the runs per paper, the last run's papers, reuse, failures, calls and
+findings by code.
+
+A chain's failed papers are retried with `POST /api/workflow-runs/{rid}/retry` (the key with it on
+an own-key run) while the run is live: the paper's failed jobs of every pass and compute step go
+back to pending and its chain runs again from the PDF and page text the run kept, a pass with
+its output stored skipped. The page text of a PDF no live run and no document holds goes with the
+retention sweep.
+
+### Repeated runs
+
+`k` on a pass step runs the pass k times per paper — each run stored with its index — and the
+chain's matcher named by `match` (a registered entry of kind `match`: `fn(ctx, outputs) ->
+{primary, stability}`, free to call the model once for what it cannot align) folds them into the
+PRIMARY output the later passes and computes read, stored with its `stability` (the matcher's own
+record, plus `n_runs`, `k` and the runs that failed). A paper lands when at least
+`chain.runs_needed(k)` runs succeed (all of one, else at least half and at least two). The
+step-run's outputs count papers by their number of runs (`by_runs`); `GET …/passes/{step}/{sha}
+?role=run&pass_index=i` serves one run.
+
+The GenAI-at-work chain's matchers (`genai_work.match_exhibits`, `match_estimands`,
+`match_estimates`, `match_design`) take the first run as the primary and align every further run
+to it by content (tasks by name, arms by label and use, outcomes by measure, estimands by
+structure and wording; the leftovers paired by the model once). The primary comes back with
+`_runs` (`found`, `of`, `alt`) on its tasks, estimates, study, tasks and arms — the contract the
+record card reads — and, for the design, the cells a majority of three readings settles adopted
+(`settled_by`); the stability record holds the alignments, the per-unit statuses, the issues
+(`runs_disagree`, `not_in_all_runs`, `task_count_differs`, `runs_settled`, `runs_unsettled`,
+`runs_wording`) and the metrics for the assembly and the checks to lift.
+
+### Compute steps
+
+A step of kind `compute` runs a chain's registered deterministic code per paper, free:
+
+```jsonc
+{"id": "extraction", "kind": "compute", "fn": "genai_work.assemble", "reads": ["exhibits", "estimands", "estimates", "design"],
+ "preset": "genai-work-extraction@cea73929", "dataset": "extraction"}
+{"id": "route", "kind": "compute", "fn": "genai_work.route", "edits": "extraction", "writes": ["paper.routed", "paper.route_reasons"],
+ "findings": ["record"], "params": {"threshold": 6}}
+```
+
+A compute that PRODUCES documents (`preset`, an optional `dataset` role) builds one document per
+paper from the outputs of the passes it `reads` (`ctx.read`, `ctx.pages`, `ctx.paper`,
+`ctx.preset`); the engine persists it through the ordinary path — quotes located, the contract
+checked — with the passes as provenance (`chain.kind: compute`, `stages` naming each pass, its
+pin and output), then judges the step like an extract step: its dataset, its gate, its release.
+`reextract` re-makes a staged paper already under the pin, replacing its document. A compute
+that EDITS (`edits` the documents of an earlier data step, `writes` the fields it may touch:
+an entry field, `<child>[].<field>`, `paper.<field>`) returns `{records: {id: {path: value}},
+paper: {field: value}, findings: [...]}`; every edit lands through the audited path as a
+`corrected` event by the engine, so later steps are staled by it. Both read the findings of the
+check steps they name (`findings`, as `ctx.findings[step]`). A paper whose inputs failed fails
+its job; the step's outputs count the papers made or edited.
+
+### References across passes
+
+A pass registration may declare `ids` (paths that mint ids, `estimands[].estimand_id`) and
+`refs` (`{"path": "estimates[].estimand_id", "to": "estimands:estimands[].estimand_id"}`, the
+earlier pass named by its read name; without one, this pass's own ids). After every pass the
+engine checks them: a value at `path` that no id was minted for is a `dangling_ref` finding on the
+paper (`dangling_path`, `bad_ref`, `duplicate_id`, `missing_id` likewise), counted on the output
+and per code on the step-run (`findings_by_code`). The registered check `refs` follows ids
+across a document's records and paper tables (`params.refs: [["results[].estimand_id",
+"paper.model_estimands[].estimand_id"]]`; `paper.` addresses the paper block, a trailing `[]` a
+list of ids).
+
 ## Review templates and questions
 
 A preset keeps the data contract and the prompt. A **review template**

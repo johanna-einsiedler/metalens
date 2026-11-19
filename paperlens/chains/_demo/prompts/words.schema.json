@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"words": {"type": "array", "items": {"type": "object", "properties": {"title_id": {"type": "string"}, "word": {"type": "string"}}}}}, "required": ["words"]}

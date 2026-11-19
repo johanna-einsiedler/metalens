@@ -8,6 +8,122 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The GenAI-at-work chain, step two: the four passes and their matchers
+
+- `paperlens/chains/genai_work/passes.py` registers the chain's extraction passes as pass code —
+  `genai_work.exhibits`, `.estimands`, `.estimates`, `.design` — a port of the project's `split.py`
+  over the engine's `ctx`: the same user texts, the short-form retry on a cut answer, the estimates
+  request in parts above 100 estimands, halved when the answer does not fit, with one completion
+  request for the estimands no answer mentioned; and the post-processing inside the pass (quote
+  checks and snapping, table cells, the derived finding types, contrasts and roles), so a stored
+  pass output equals the file the project writes. `canon_ids` (the codebook's T1/C/T1 numbering)
+  is there for the assembly to apply. A replay test runs the four passes on a project paper's
+  cached answers and asserts the stored files, byte for byte, when the project is on the machine.
+- `match.py` registers the matchers for `k` runs — `match_exhibits`, `match_estimands`,
+  `match_estimates`, `match_design` — the project's `stability.py` and `match_runs.py` without
+  files or scipy (a pure-Python Hungarian assignment, tested optimal against brute force). Every
+  further run is aligned to the first by content; the estimands the alignment leaves unmatched on
+  both sides go to the model once (the `match_runs` prompt); estimates are compared estimand by
+  estimand, design cells settled by majority over three readings (settled cells adopted with
+  `settled_by`, unsettled ones flagged). The primary output carries `_runs` (found, of, alt) on
+  its units, the stability record the alignments, the per-unit statuses, the issues
+  (`runs_disagree`, `not_in_all_runs`, `task_count_differs`, `runs_settled`, `runs_unsettled`,
+  `runs_wording`) and the metrics; the fixture paper's runs reproduce its `stability.json`.
+
+### The GenAI-at-work chain, step one: its prompts, taxonomy and text as files
+
+- `paperlens/chains/genai_work/` holds the review project's chain as content: the 26 prompt and
+  schema files of its passes (exhibits, estimands, estimates, design, the two claims calls, the
+  five headline-plan calls, the run matcher) and `taxonomy.json`, rendered by
+  `scripts/export_genai_chain.py` from the project's own code byte for byte, so `hashes.split_hash()`
+  and `design_hash()` reproduce the versions the project runs under (`2b9af957a9`, `afbb8492d2`;
+  the tests pin them). `text.py` copies the project's quote normalisation, snapping and checking,
+  its section scanner, sentence splitter, abstract cut and table rendering over a `Pages` object;
+  `taxonomy.py` reads the snapshot. The passes themselves follow.
+
+### A chain's failed papers are retried; page texts are swept
+
+- `POST /api/workflow-runs/{rid}/retry` runs a chain's failed papers again from the PDF and page
+  text the run kept: the paper's failed or cancelled jobs of every pass and compute step go back
+  to pending, their step-runs count their papers again once it lands, and the paper's chain is
+  dispatched anew (a pass with its output stored is skipped; an own-key run passes the key with
+  the retry, a credit run spends the passes' calls again). A terminal run is not retried.
+- The retention sweep drops the page text of a PDF that no live run and no document holds; the
+  run keeps its paper list, the paper marked `swept`.
+
+### The panel follows a chain
+
+- The dataset page's Workflow panel names pass and compute steps (the registered code, the runs
+  per paper, the last run's papers, reuse, failures, calls and findings by code; what a compute
+  makes or edits) and, while a chain run waits for its papers, says so with an "Upload the
+  papers" link into the Add papers page (`/extract?dataset=&workflow=1&run=`), which posts
+  each planned PDF into the run (`POST /api/workflow-runs/{rid}/papers`, the key with it on an
+  own-key run). A run's "now" line knows the pass and compute phases.
+
+### A pass run k times, folded by the chain's matcher
+
+- A pass step with `k` runs its code k times per paper (each run stored, `role: run`, its
+  index) and the chain's registered matcher (`match`, `fn(ctx, outputs) -> {primary,
+  stability}`; it may call the model) folds them into the primary output the later steps read,
+  stored with its `stability` (the matcher's, plus `n_runs`, `k`, the failed runs). Fewer
+  successful runs than `chain.runs_needed(k)` fail the paper. The step-run counts papers by
+  their number of runs (`by_runs`); a run is served by `?role=run&pass_index=`.
+
+### Compute steps: registered code writes data
+
+- A workflow step of kind `compute` runs a chain's registered deterministic code per paper,
+  free. One that PRODUCES documents (`fn`, `preset: <pin>`, an optional `dataset` role) builds
+  one document per paper from the passes' outputs it `reads`; the document is persisted through
+  the ordinary path (quotes located, the contract checked) with the passes as its provenance
+  (`chain.kind: compute`, `stages`), and the step is then judged like an extract step: its
+  dataset, its gate, its release. `reextract` re-makes a staged paper already under the pin,
+  replacing its document. One that EDITS (`edits: <document step>`, `writes: [fields]`) returns
+  values per record and per paper field; every edit lands through the audited path as a
+  `corrected` event by the engine (`verifier_kind: engine`, `notes: compute:<fn>`), so later
+  steps see the value moved; writing a field the step does not declare is an error. Both read
+  the findings of the check steps they name (`findings`). A paper whose inputs failed fails its job.
+
+### References checked across passes and across a record
+
+- A pass registration declares `ids` (paths that mint ids: unique, non-empty) and `refs`
+  (`{path, to: "<read>:<path>"}`: every value must be an id the earlier pass minted); after
+  every pass — reused or supplied too — the engine checks them and records `dangling_ref`,
+  `bad_ref`, `duplicate_id`, `missing_id` and `dangling_path` as findings of the step on the
+  paper (`workflow_finding.pdf_sha256`), counted on the output and per code on the step-run.
+- A registered check `refs` does the same over a document's records and paper tables:
+  `params.refs` is a table of `[from, to]` paths (`results[].estimand_id`,
+  `paper.model_estimands[].estimand_id`, a trailing `[]` reads a list of ids).
+
+### Pass steps: registered code runs per paper (`paperlens/passes.py`, `paperlens/chains/`)
+
+- A workflow step of kind `pass` runs registered code of a CHAIN per paper: the code may call the
+  model (`ctx.call(system, user, schema)`, a JSON answer; a cut answer raises `Truncated`), reads
+  the page-marked PDF text (`ctx.text()`) and the outputs of the earlier passes it declares
+  (`ctx.read`), and returns one JSON output in its own shape. The step names the pass at its pin
+  (`pass: "<chain>.<name>@<sha8>"`, the sha over its prompt files and schema — a prompt edit
+  re-versions the workflow like a preset pin), the steps it `reads`, typed `params`, `k` with a
+  `match`er (the engine for k > 1 follows). The run's model is the run's choice, not the contract's.
+- Outputs live in `workflow_pass_output` per (run, step, paper, pass index) with the pass's prompt
+  sha and an inputs sha (text, the outputs read, params): an output made under the same shas by
+  any earlier run is reused without a call; an output made outside Metalens is supplied
+  (`POST /api/workflow-runs/{rid}/passes/{step}/{sha}`) and stands in for the call.
+- A paper enters a run that starts on passes through `POST /api/workflow-runs/{rid}/papers`
+  (its PDF kept under the run, its page text stored once per PDF; `workflow_paper`); its passes
+  run in order in one job (`pass_job`, the key sent with the paper on an own-key run, the
+  server's on a credit run), a pass with its output stored is skipped, a failure stops the paper's
+  chain with the reason on the later jobs. A pass step is the barrier across papers: done when
+  every planned paper's job is terminal (the owner may close the uploads), its outputs counting
+  papers, failures, reuse, calls and usage. `GET …/passes/{step}` lists a step's outputs per paper,
+  `GET …/passes/{step}/{sha}` serves one. The `_demo` chain exists for the tests.
+
+### A JSON answer shaped by a schema (`providers.generate_json`)
+
+- One call for a chain's pass: a system prompt, a user text and a JSON schema make one JSON
+  answer. Gemini takes the schema as `response_json_schema` with a system instruction and the
+  output cap; OpenAI-compatible endpoints as a `json_schema` response format (DeepSeek and
+  Mistral `json_object`). The output cap shows as finish reason `length`, so a caller can ask
+  again in a shorter form; a transient failure is retried up to six times with backoff.
+
 ### Unit fields stacked; the grammar tests follow the renderer
 
 - A template block may say `stack: true`: its shown fields are drawn one under the other — a

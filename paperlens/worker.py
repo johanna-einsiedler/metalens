@@ -240,6 +240,26 @@ async def workflow_step_job(ctx: dict, run_id: str, step_id: str) -> dict:
     return await loop.run_in_executor(None, body)
 
 
+async def pass_job(ctx: dict, run_id: str, pdf_sha256: str, *, api_key: str = "", base_url: str | None = None,
+                   model: str | None = None) -> dict:
+    """A paper's PASS steps, in order, as one durable job (paperlens/passes.py): an own-key run's
+    key travels in the payload (as an extraction's does), a credit run's is resolved on the worker.
+    A pass with its output stored is skipped, so a retry resumes where the paper stopped; the run
+    advances when the paper is done or lost."""
+    from . import passes
+    loop = asyncio.get_running_loop()
+
+    def body():
+        conn = records.connect()
+        try:
+            return passes.run_paper(conn, run_id, pdf_sha256, model=model, api_key=api_key or "", base_url=base_url)
+        finally:
+            conn.close()
+
+    await _set_progress(ctx, f"passes · {pdf_sha256[:8]}")
+    return await loop.run_in_executor(None, body)
+
+
 async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
     """Publish a dataset to the metalens-datasets repo as a PR. Only the dataset_id
     transits Redis — the GitHub token lives in the worker env, never in the payload."""
@@ -320,7 +340,7 @@ async def github_sync_task(ctx: dict) -> dict:
 
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, func(extract_chain_job, timeout=1800), publish_dataset_task,
-                 func(workflow_step_job, timeout=1800)]
+                 func(workflow_step_job, timeout=1800), func(pass_job, timeout=3600)]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(workflow_tick_task, minute=set(range(1, 60, 2)), run_at_startup=False),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]
