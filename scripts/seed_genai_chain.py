@@ -182,6 +182,46 @@ def supplies(project: Path, rid: str, *, with_runs: bool = True, stale_plan: boo
     return out
 
 
+def bundle_for(project: Path, rid: str, *, with_runs: bool = True, stale_plan: bool = False) -> dict:
+    """One paper's results as the project page's "Upload papers with results" takes them: the page
+    text, the identity, the primaries by step (``outputs``) with their prompt hashes and stability
+    records, and the further readings (``runs``). Saved beside the PDF as ``<rid>.json``."""
+    sup = supplies(project, rid, with_runs=with_runs, stale_plan=stale_plan)
+    meta = paper_meta(project, rid)
+    out = {"pages": pages_for(project, rid), **{k: meta.get(k) for k in ("title", "doi", "abstract", "journal", "year", "authors", "peer_reviewed")},
+           "outputs": {}, "prompt_sha256": {}, "stability": {}, "runs": []}
+    for s in sup:
+        if s["role"] == "primary":
+            out["outputs"][s["step"]] = s["output"]
+            if s.get("prompt_sha256"):
+                out["prompt_sha256"][s["step"]] = s["prompt_sha256"]
+            if s.get("stability"):
+                out["stability"][s["step"]] = s["stability"]
+        else:
+            out["runs"].append({"step": s["step"], "pass_index": s["pass_index"], "output": s["output"], "prompt_sha256": s.get("prompt_sha256")})
+    return out
+
+
+def write_bundles(project: Path, rids: list[str], out_dir: Path, pdf_dir: Path, *, with_runs: bool = True, stale_plan: bool = False) -> list[str]:
+    """``<rid>.json`` + ``<rid>.pdf`` per paper into ``out_dir``, for the browser upload."""
+    import shutil
+    out_dir.mkdir(parents=True, exist_ok=True)
+    done = []
+    for rid in rids:
+        pdf = pdf_dir / f"{rid}.pdf"
+        if not pdf.exists():
+            print(f"  ! {rid}: no PDF under {pdf_dir}; skipped"); continue
+        try:
+            b = bundle_for(project, rid, with_runs=with_runs, stale_plan=stale_plan)
+        except FileNotFoundError as e:
+            print(f"  ! {e}; skipped"); continue
+        (out_dir / f"{rid}.json").write_text(json.dumps(b, ensure_ascii=False), encoding="utf-8")
+        shutil.copyfile(pdf, out_dir / f"{rid}.pdf")
+        done.append(rid)
+        print(f"  {rid}: {len(b['pages'])} pages, {len(b['outputs'])} outputs, {len(b['runs'])} readings -> {out_dir / (rid + '.json')}")
+    return done
+
+
 # ── the server ──────────────────────────────────────────────────────────────────────────────
 
 def client(url: str, session: str = "chain-seed"):
@@ -428,8 +468,22 @@ def main() -> int:
     ap.add_argument("--no-runs", action="store_true", help="supply the primaries only, not the second and third readings")
     ap.add_argument("--stale-plans", action="store_true", help="supply a headline plan file even when it predates the paper's current extraction")
     ap.add_argument("--dry", action="store_true", help="read the files and report, send nothing")
+    ap.add_argument("--write-bundles", type=Path, help="write <rid>.json + <rid>.pdf per paper into this folder for the project page's “Upload papers with results”, send nothing")
     a = ap.parse_args()
     rids = list(a.rid) + ([x for x in Path(a.ids).read_text().split() if x] if a.ids else [])
+    if a.write_bundles:
+        if a.manifest:
+            m = json.loads(a.manifest.read_text(encoding="utf-8")); root = a.manifest.resolve().parent
+            project = Path(a.project).resolve() if a.project else next((d for d in root.parents if (d / "labeling" / "split").is_dir()), None)
+            rids = rids or list((m.get("only") or {}).get("extraction") or [])
+            folder = (m.get("papers") or {}).get("extraction")
+            pdf_dir = Path(a.pdfs) if a.pdfs else (root / folder if folder else project / "labeling" / "metalens" / "import_pilot")
+        else:
+            if not a.project or not rids:
+                ap.error("--write-bundles needs --project and --rid/--ids (or a --manifest)")
+            project = Path(a.project).resolve(); pdf_dir = Path(a.pdfs) if a.pdfs else project / "labeling" / "metalens" / "import_pilot"
+        done = write_bundles(project, rids, a.write_bundles, pdf_dir, with_runs=not a.no_runs, stale_plan=a.stale_plans)
+        return 0 if done else 1
     if a.manifest:
         m = json.loads(a.manifest.read_text(encoding="utf-8"))
         root = a.manifest.resolve().parent

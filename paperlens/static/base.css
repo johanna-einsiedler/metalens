@@ -1073,6 +1073,32 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .rp-hl { position: absolute; background: rgba(255, 213, 0, .35); border-radius: 2px; }
 .rp-hl-sel { background: color-mix(in srgb, var(--accent) 35%, transparent); box-shadow: 0 0 0 1.5px var(--accent); }
 
+/* the workflow as a flow diagram (static/flow.js): a box per step, an arrow per dependency */
+.wf-flow { margin: 2px 0 10px; overflow-x: auto; }
+.flow { display: block; font-family: inherit; }
+.flow-box { fill: #fff; stroke: var(--border); stroke-width: 1.2; }
+.flow-kind-pass { fill: color-mix(in srgb, var(--accent) 10%, #fff); }
+.flow-kind-compute { fill: color-mix(in srgb, var(--accent) 22%, #fff); }
+.flow-kind-extract, .flow-kind-agent { fill: color-mix(in srgb, var(--accent) 22%, #fff); }
+.flow-kind-check, .flow-kind-crosscheck { fill: #f6f6f2; }
+.flow-kind-review { fill: #fff6df; }
+.flow-kind-release { fill: #e9f5ea; }
+.flow-current { stroke: var(--accent); stroke-width: 2; }
+.flow-icon { font-size: 13px; fill: var(--text-muted); }
+.flow-label { font-size: 12px; font-weight: 600; fill: var(--text, #222); }
+.flow-sub { font-size: 10.5px; fill: var(--text-muted); }
+.flow-edge { fill: none; stroke: #9a9a94; stroke-width: 1.3; }
+.flow-edge-over { stroke-dasharray: 4 3; }
+.flow-edge-edits { stroke-dasharray: 1.5 3; }
+.flow-edge-gate { stroke: #b9b9b2; }
+.flow-arrowhead { fill: #9a9a94; }
+.flow-state { fill: #bbb; }
+.flow-state-fresh { fill: #4fa66b; }
+.flow-state-stale, .flow-state-awaiting_review { fill: #e0a52e; }
+.flow-state-missing, .flow-state-blocked, .flow-state-unsupported { fill: #d05a4e; }
+.flow a { cursor: pointer; }
+@media (prefers-color-scheme: dark) { .flow-box { fill: #1d1f24; } .flow-label { fill: #e6e6e6; } .flow-kind-check, .flow-kind-crosscheck { fill: #23252b; } .flow-kind-review { fill: #2e2a1f; } .flow-kind-release { fill: #1f2d22; } }
+
 /* the Workflow panel on the dataset page: one row per declared step, the run in progress */
 .wf-row { flex-wrap: wrap; gap: 6px; }
 .wf-kind { display: inline-block; width: 1.3em; text-align: center; color: var(--text-muted); }
