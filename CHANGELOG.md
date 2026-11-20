@@ -8,6 +8,14 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A project's compute step writes into its role's dataset
+
+- `workflows.step_datasets` mapped a document-making compute step (the chain's `extraction`) to
+  the project row itself instead of the dataset linked for its role, so a project's records sat
+  on the workflow dataset and left with it when the project was deleted. The role's dataset is
+  the target now, as for an extract step; deleting a project takes its runs, tasks and
+  assignments and leaves the role dataset with its records, as the dialog says.
+
 ### The GenAI-at-work chain, step six: seeding from the project's files
 
 - `POST /api/workflow-runs/{rid}/papers` takes `dispatch=false` (stage the PDF without running

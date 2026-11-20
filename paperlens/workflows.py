@@ -145,8 +145,8 @@ def step_datasets(conn, dataset: dict, spec: dict) -> dict[str, str]:
             out[st["id"]] = out.get(first, own) if first else own
         elif kind == "compute" and st.get("edits"):
             out[st["id"]] = out.get(st["edits"], own)
-        elif kind in ("review", "loop", "release", "pass", "compute"):
-            out[st["id"]] = own
+        elif kind in ("review", "loop", "release", "pass") or (kind == "compute" and not st.get("preset")):
+            out[st["id"]] = own                          # a compute making documents was mapped above, to its role's dataset
     return out
 
 
