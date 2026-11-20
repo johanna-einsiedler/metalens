@@ -128,3 +128,59 @@ def test_the_seeded_chain_reproduces_the_projects_import_file(monkeypatch) -> No
     assert v["chain"]["kind"] == "compute" and [st_["step"] for st_ in v["chain"]["stages"]] == list(SEED.STEP_ORDER) and all(st_["supplied"] for st_ in v["chain"]["stages"])
     assert v["records"][0]["chain"]["kind"] == "match" and v["records"][0]["chain"]["support"]["k"] >= 1
     conn.close()
+
+
+def test_a_projects_chain_writes_into_its_role_dataset_and_deleting_the_project_keeps_it(monkeypatch) -> None:
+    """A project of the chain: the assemble step's documents land in the dataset linked for the
+    role `extraction` (not in the project row), the review tasks assign the owner, and deleting
+    the project takes its runs and tasks with it while the role dataset keeps the records."""
+    from test_genai_chain_p4 import _synthetic
+    from paperlens import workflows
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    _force_local(monkeypatch)
+    monkeypatch.setattr(providers, "generate_json", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no model call expected")))
+    conn = records.connect(); records.init_db(conn)
+    chains.load()
+    sess = f"proj-{uuid.uuid4().hex[:6]}"
+    c, H = _client(sess)
+    r = c.post("/api/projects", headers=H, json={"workflow": "genai-work-chain", "title": f"Chain project {sess}"})
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    page = c.get(f"/api/projects/{pid}", headers=H).json()
+    assert page["kind"] == "project"
+    for item in page.get("members") or []:
+        if not item.get("dataset"):
+            assert c.post(f"/api/datasets/{pid}/group/link", headers=H, json={"role": item["role"], "create": True}).status_code == 200
+    member = next(x["dataset"]["id"] for x in c.get(f"/api/projects/{pid}", headers=H).json()["members"] if x["role"] == "extraction")
+    panel = c.get(f"/api/datasets/{pid}/workflow", headers=H).json()
+    by = {s["id"]: s for s in panel["steps"]}
+    assert by["extraction"]["dataset_id"] == member != pid                     # the compute writes to its role's dataset
+    assert workflows.step_datasets(conn, records.get_dataset(conn, pid), workflows.get_workflow("genai-work-chain"))["extraction"] == member
+    pdf = _pdf("rho"); sha = _sha(pdf)
+    run = c.post(f"/api/datasets/{pid}/workflow/runs", headers=H, json={"new_pdfs": [{"sha256": sha, "filename": "rho.pdf"}], "use_credits": False}).json()
+    rid = run["id"]
+    ex, es, em, de, pages = _synthetic()
+    assert c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": ("rho.pdf", pdf, "application/pdf")},
+                  data={"dispatch": "false", "pages": json.dumps(pages), "title": "Rho"}).status_code == 200
+    outs = {"exhibits": ex, "estimands": es, "estimates": em, "design": de,
+            "claims": {"status": "not_run", "sentences": [], "intro_sentences": [], "estimates_claimed": {}, "main_unclaimed": [], "counts": {}},
+            "headline_plan": {"units": [], "task_evidence": {}, "appendix": None, "atomic_claims": [], "conclusion_sentences": [], "uncovered_units": [], "numeric_claims": [], "chains": [], "decisions": []}}
+    for step in SEED.STEP_ORDER:
+        r = c.post(f"/api/workflow-runs/{rid}/passes/{step}/{sha}", headers=H, json={"output": outs[step], "prompt_sha256": chains.prompt_sha(f"genai_work.{step}")})
+        assert r.status_code == 200, (step, r.text)
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "done", (view["status"], [(s["step_id"], s["status"], s.get("error")) for s in view["steps"] if s.get("error")], [(p["step_id"], p["error"]) for p in view.get("papers") or [] if p.get("error")])
+    assert conn.execute("SELECT count(*) FROM record WHERE dataset_id = %s::uuid", (member,)).fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM record WHERE dataset_id = %s::uuid", (pid,)).fetchone()[0] == 0
+    tasks = c.get(f"/api/projects/{pid}/tasks", headers=H).json()["tasks"]
+    assert {t["step_id"] for t in tasks} >= {"review_judgment", "review_check"} and any(t["run_id"] == rid for t in c.get("/api/me/tasks", headers=H).json()["tasks"])
+    # deleting the project: its runs, step runs and assignments go; the role dataset stays with its records
+    assert c.delete(f"/api/projects/{pid}", headers=H).status_code == 200
+    assert c.get(f"/api/projects/{pid}", headers=H).status_code == 404
+    assert conn.execute("SELECT count(*) FROM workflow_run WHERE id = %s::uuid", (rid,)).fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM workflow_assignment WHERE run_id = %s::uuid", (rid,)).fetchone()[0] == 0
+    assert not any(t["run_id"] == rid for t in c.get("/api/me/tasks", headers=H).json()["tasks"])
+    kept = records.get_dataset(conn, member)
+    assert kept and kept.get("group_id") is None and conn.execute("SELECT count(*) FROM record WHERE dataset_id = %s::uuid", (member,)).fetchone()[0] == 1
+    conn.close()
