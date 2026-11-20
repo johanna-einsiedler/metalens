@@ -268,7 +268,7 @@ def test_answers_are_checked_against_the_questions_and_completeness_counts_what_
 
 def test_a_review_step_may_name_a_template_for_the_preset_it_reads() -> None:
     spec = ws.normalize({"format": 1, "id": "tasked", "meta": {"title": "Tasked"},
-                         "steps": [{"id": "extraction", "kind": "extract", "preset": "genai-work-extraction@cea73929", "source": "supplied"},
+                         "steps": [{"id": "extraction", "kind": "extract", "preset": "genai-work-extraction@ddf3b7fd", "source": "supplied"},
                                    {"id": "judgment", "kind": "review", "over": ["extraction"], "template": "genai-work-judgment", "mode": "all", "unit": "paper", "coders": 2}]})
     assert ws.validate(spec)[0] == []
     assert ws.review_of(spec["steps"][1])["template"] == "genai-work-judgment"

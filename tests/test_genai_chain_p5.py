@@ -29,7 +29,7 @@ def test_the_chain_workflow_validates_and_runs_the_chain_in_order() -> None:
     kinds = {s["id"]: s["kind"] for s in spec["steps"]}
     assert [kinds[i] for i in ORDER] == ["pass"] * 6 + ["compute", "check", "check", "compute", "review", "review", "review", "check", "release"]
     assert spec["dataset"] == {"unit": "paper", "key": "pdf_sha256"} and ws.has_card(spec) and "## Steps" in spec["card"]["text"]
-    assert ws.pins(spec) == [("extraction", "genai-work-extraction@cea73929")] and ws.gate_steps(spec) == ["extraction", "review_judgment", "review_check", "review_routed"]
+    assert ws.pins(spec) == [("extraction", "genai-work-extraction@ddf3b7fd")] and ws.gate_steps(spec) == ["extraction", "review_judgment", "review_check", "review_routed"]
 
 
 def test_the_passes_are_pinned_to_the_registry_and_read_what_it_declares() -> None:
@@ -57,7 +57,7 @@ def test_the_review_tasks_are_those_of_the_supplied_record_workflow() -> None:
     for sid in ("review_judgment", "review_check", "contract", "release"):
         assert strip(chain[sid]) == strip(v4[sid]), sid
     assert strip(chain["review_routed"]) == strip(v4["review_routed"])
-    assert ws.workflow_id(all_wf["genai-work"]) == "genai-work@e62c0d84"            # the supplied-record workflow keeps its id
+    assert ws.workflow_id(all_wf["genai-work"]) == "genai-work@861f2667"            # the supplied-record workflow, pinned to the same contract
 
 
 def test_a_prompt_change_moves_the_workflows_id(monkeypatch) -> None:

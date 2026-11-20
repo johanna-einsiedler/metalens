@@ -42,6 +42,7 @@ from paperlens.chains.genai_work import text as X  # noqa: E402
 WORKFLOW = "genai-work-chain"
 PRESET = "genai-work-extraction"
 STEP_ORDER = ("exhibits", "estimands", "estimates", "design", "claims", "headline_plan")
+DESIGN_HASH_OF_SCHEMA = {"b5ed1ca67c": "afbb8492d2", "9c7787dd92": "c10c2460c9"}   # the design prompt's hash under each taxonomy schema the project ran
 CLAIMS_KEYS = ("status", "abstract", "intro", "sentences", "intro_sentences", "estimates_claimed", "main_unclaimed", "counts")
 PLAN_KEYS = ("units", "task_evidence", "appendix", "atomic_claims", "conclusion_sentences", "uncovered_units", "numeric_claims", "chains", "decisions")
 
@@ -149,7 +150,7 @@ def supplies(project: Path, rid: str, *, with_runs: bool = True, stale_plan: boo
     stab = _json(d / "stability.json") or {}
     snap = _json(HERE.parent / "paperlens" / "chains" / "genai_work" / "taxonomy.json") or {}
     split_hash = rec_file.get("prompt_hash")
-    design_hash = (snap.get("hashes") or {}).get("design")
+    design_hash = DESIGN_HASH_OF_SCHEMA.get(rec_file.get("schema_hash")) or (snap.get("hashes") or {}).get("design")
     out: list[dict] = []
     if with_runs:
         for i, tag in enumerate(("r2", "r3"), 1):

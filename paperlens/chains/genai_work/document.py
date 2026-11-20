@@ -69,7 +69,8 @@ def _other(cell, v):
     val = K.value_of(cell)
     term = (cell.get("proposed") or "").strip() if isinstance(cell, dict) else ""
     if v["open"] and term and v["type"] == "enum" and val == "other":
-        return "other: " + term
+        code = T.mapped(v["field"], cell)                      # a term an accepted amendment folded into a code
+        return code if code != "other" else "other: " + term
     if v["open"] and term and v["type"] == "multi" and isinstance(val, list) and "other" in val:
         return [term if x == "other" else x for x in val]
     return val
@@ -159,21 +160,27 @@ def row_quotes(r):
     return [(q, pg) for q, pg in parts if q]
 
 
-def cited_exhibits(ex, em):
-    """{exhibit id: (kind, exhibit, [(estimate, resolved)])} over the estimates whose source resolves to a table or figure."""
+def cited_by_table(ex, em):
+    """{id(exhibit object): (kind, exhibit, [(estimate, resolved)])} over the estimates whose source
+    resolves to a table or figure — keyed by the exhibit itself, so two exhibits that share an id
+    ("Table 1" in the paper and in its appendix) keep their own cells."""
     groups = {}
     for e in em.get("estimates") or []:
         r = K.resolve_source(ex, e.get("source") or {}, K.first_number(e.get("effect_value"), e.get("cell_as_printed"), e.get("effect_reported")))
         if r.get("kind") in ("tables", "figures") and r.get("table"):
-            groups.setdefault(r["table"]["id"], (r["kind"], r["table"], []))[2].append((e, r))
+            groups.setdefault(id(r["table"]), (r["kind"], r["table"], []))[2].append((e, r))
     return groups
 
 
 def cell_of(kind, x, est, r):
-    """(panel, row label, column, value as printed) of the cell an estimate cites in exhibit `x`."""
+    """(panel, row label, column, value as printed) of the cell an estimate cites in exhibit `x`.
+    The indices belong to the table the source resolved to, which is `x` unless two exhibits share an id."""
     src = est.get("source") or {}
+    x = r.get("table") or x
     panels = x.get("panels") or []
-    if kind == "tables" and r.get("row_i") is not None:
+    ok = (r.get("panel_i") is not None and r["panel_i"] < len(panels)
+          and r.get("row_i") is not None and r["row_i"] < len(panels[r["panel_i"]].get("rows") or []))
+    if kind == "tables" and ok:
         p_ = panels[r["panel_i"]]
         row = p_["rows"][r["row_i"]]
         panel, row_label = p_.get("panel"), row[0] if row else src.get("row")
@@ -260,6 +267,8 @@ def build(paper: dict, fin: dict, heads: dict | None, claims: dict | None, pages
             d = a.get("arm_description")
             if isinstance(d, dict) and d.get("quote"):
                 ev(d["quote"], d.get("page"), aat)
+            if T.ai_alone_arm(a):                                   # no person did the work: the one participant code
+                row["sample_population_type"] = "ai_alone"
             row["confidence"] = _conf(a)
             _with_runs(row, a, "arm_notes")
             arms.append(row)
@@ -373,7 +382,7 @@ def review_fields(obj: dict, es: dict, ex: dict, em: dict, rec: dict, heads: dic
         for q, pg in (row_quotes(r) if r else []):
             ev(q, pg, f"paper_metadata.claims[{k}]", "estimate")
     meta["claims"] = rows
-    cited = cited_exhibits(ex, em)
+    cited = cited_by_table(ex, em)
     estimands = {z.get("estimand_id"): z for z in es.get("estimands") or []}
     items = list(meta.get("evidence_items") or [])
     n_item = max((int(it.get("n") or 0) for it in items), default=0)
@@ -381,7 +390,7 @@ def review_fields(obj: dict, es: dict, ex: dict, em: dict, rec: dict, heads: dic
     for kind in ("tables", "figures"):
         for x in ex.get(kind) or []:
             xid = x.get("id")
-            hit = cited.get(xid)
+            hit = cited.get(id(x))
             panels = x.get("panels") or []
             n_cells = sum(max(len(r_) - 1, 0) for p_ in panels for r_ in p_.get("rows") or []) if kind == "tables" else len(x.get("numbers") or [])
             k = len(ex_rows)

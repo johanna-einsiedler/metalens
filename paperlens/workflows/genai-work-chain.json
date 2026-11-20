@@ -1,7 +1,7 @@
 {
   "format": 1,
   "id": "genai-work-chain",
-  "version": 1,
+  "version": 2,
   "meta": {
     "title": "GenAI at work — the extraction chain and its validation",
     "tagline": "Workflow to populate the Generative AI at work living review.",
@@ -74,7 +74,7 @@
       "id": "design",
       "kind": "pass",
       "label": "Study, task and arm variables",
-      "pass": "genai_work.design@13e09201",
+      "pass": "genai_work.design@349e874d",
       "reads": [
         "estimands"
       ],
@@ -97,7 +97,7 @@
       "id": "headline_plan",
       "kind": "pass",
       "label": "Headline plan",
-      "pass": "genai_work.headline_plan@3625300c",
+      "pass": "genai_work.headline_plan@ed9f1820",
       "reads": [
         "exhibits",
         "estimands",
@@ -120,7 +120,7 @@
         "claims",
         "headline_plan"
       ],
-      "preset": "genai-work-extraction@cea73929",
+      "preset": "genai-work-extraction@ddf3b7fd",
       "dataset": "extraction",
       "help": "the record assembled from the passes — the derived cells, the canonical ids, the study from pass d, each task with its arms and outcomes, one reference row and one contrast row per estimate, every quote verified against the page text — as the extraction document with its review fields: the units' own words, the composite outcomes, the abstract's claims matched to their units, every exhibit with its cited cells; the one dataset the three tasks read"
     },

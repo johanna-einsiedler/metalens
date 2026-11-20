@@ -115,7 +115,7 @@ def test_the_claims_pass_replays_the_projects_cached_calls(rid) -> None:
 # the project's cached plan calls were made before its last code changes, so they cannot answer the
 # pass's requests by key; the project's OWN current code renders these first requests (computed on
 # 20 Nov 2026 by running trial_plan.py's chunking on the two papers): the port's text must hash alike
-PLAN_FIRST_KEYS = {RID: "task_chunks:a341cd38", RID2: "task_chunks:ff4b4de8"}
+PLAN_FIRST_KEYS = {RID: "task_chunks:fdf5636d", RID2: "task_chunks:4a2f19cd"}
 
 
 @pytest.mark.skipif(not _project_ok(), reason="the review project is not on this machine")

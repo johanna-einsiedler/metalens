@@ -1,5 +1,5 @@
 {
- "schema_hash": "b5ed1ca67c",
+ "schema_hash": "9c7787dd92",
  "model": "gemini-3.1-pro-preview",
  "inputs_version": "2",
  "levels": [
@@ -29,6 +29,73 @@
    "effect_page"
   ]
  },
+ "mapping": [
+  {
+   "field": "research_design",
+   "term": "nonrandomized quasi-experimental",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "research_design",
+   "term": "quasi-experiment",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "research_design",
+   "term": "quasi-experimental design",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "research_design",
+   "term": "quasi-experimental methods",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "research_design",
+   "term": "quasiexperimental design",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "research_design",
+   "term": "within-subjects laboratory experiment",
+   "code": "quasi_experiment"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "ai model",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "ai models",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "ai personas",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "ai system",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "llm output",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "no human subjects",
+   "code": "ai_alone"
+  },
+  {
+   "field": "sample_population_type",
+   "term": "synthetic ai agents",
+   "code": "ai_alone"
+  }
+ ],
  "variables": [
   {
    "field": "screen_ai_treatment",
@@ -224,6 +291,13 @@
      "label": "Descriptive",
      "definition": "describes AI use or outcomes without a treatment or exposure comparison",
      "since": "v1"
+    },
+    {
+     "code": "quasi_experiment",
+     "label": "Quasi-experiment",
+     "definition": "the researchers assign the AI condition without randomisation: to intact groups (classes, cohorts, teams, sites) or to periods (the same people first without, then with the AI, in a fixed order); not an external event (natural experiment) and not self-chosen use (observational)",
+     "notes": "",
+     "since": "user-2026-11-20"
     },
     {
      "code": "other",
@@ -2239,6 +2313,13 @@
      "since": "v1"
     },
     {
+     "code": "ai_alone",
+     "label": "AI alone, no human participants",
+     "definition": "no person did the work in this arm: the AI's own output was scored (an AI-only condition, simulated personas, synthetic agents); n_arm null. Every arm whose control type is ai_alone takes it. Arms coded ai_alone are left out of the with-versus-without-AI analysis, which compares people working with the AI against people working without it",
+     "notes": "",
+     "since": "user-2026-11-20"
+    },
+    {
      "code": "recipients",
      "label": "recipients of the work",
      "definition": "the people the work is for, when the outcomes are measured on them: patients counselled, customers served, students taught (a reversed design, see the rules)",
@@ -3956,7 +4037,7 @@
  ],
  "hashes": {
   "split": "2b9af957a9",
-  "design": "afbb8492d2",
+  "design": "c10c2460c9",
   "claims": "de773e57b5"
  }
 }

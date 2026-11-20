@@ -22,7 +22,7 @@ from test_workflows import _pdf, _skip
 from paperlens import coders, presets, records, review_gate, templates as tp, workflows
 from paperlens import workflow_spec as ws
 
-EXT_PIN = "genai-work-extraction@cea73929"
+EXT_PIN = "genai-work-extraction@ddf3b7fd"
 SPEC = {"format": 1, "id": "tasked", "meta": {"title": "Tasked"},
         "steps": [{"id": "extraction", "kind": "extract", "preset": EXT_PIN, "source": "supplied"},
                   {"id": "judgment", "kind": "review", "over": ["extraction"], "template": "genai-work-judgment", "mode": "all", "unit": "paper", "coders": 1}]}

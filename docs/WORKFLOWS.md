@@ -481,7 +481,7 @@ A step of kind `compute` runs a chain's registered deterministic code per paper,
 
 ```jsonc
 {"id": "extraction", "kind": "compute", "fn": "genai_work.assemble", "reads": ["exhibits", "estimands", "estimates", "design"],
- "preset": "genai-work-extraction@cea73929", "dataset": "extraction"}
+ "preset": "genai-work-extraction@ddf3b7fd", "dataset": "extraction"}
 {"id": "route", "kind": "compute", "fn": "genai_work.route", "edits": "extraction", "writes": ["paper.routed", "paper.route_reasons"],
  "findings": ["record"], "params": {"threshold": 6}}
 ```

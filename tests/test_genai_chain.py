@@ -14,10 +14,10 @@ from paperlens.chains.genai_work import hashes, taxonomy, text  # noqa: E402
 
 
 def test_the_prompt_files_reproduce_the_projects_hashes() -> None:
-    assert hashes.split_hash() == "2b9af957a9" and hashes.design_hash() == "afbb8492d2" and hashes.claims_hash() == "de773e57b5"
-    assert hashes.exported() == {"split": "2b9af957a9", "design": "afbb8492d2", "claims": "de773e57b5"}
-    assert taxonomy.model() == "gemini-3.1-pro-preview" and taxonomy.inputs_version() == "2" and taxonomy.schema_hash() == "b5ed1ca67c"
-    assert len(hashes.prompt("design")) == 59092 and len(hashes.prompt("estimands")) == 12305
+    assert hashes.split_hash() == "2b9af957a9" and hashes.design_hash() == "c10c2460c9" and hashes.claims_hash() == "de773e57b5"
+    assert hashes.exported() == {"split": "2b9af957a9", "design": "c10c2460c9", "claims": "de773e57b5"}
+    assert taxonomy.model() == "gemini-3.1-pro-preview" and taxonomy.inputs_version() == "2" and taxonomy.schema_hash() == "9c7787dd92"
+    assert len(hashes.prompt("design")) == 59875 and len(hashes.prompt("estimands")) == 12305
     for name in ("exhibits", "estimands", "estimates", "design", "claims_abstract", "claims_map", "plan_task_evidence", "plan_unit_attr", "plan_atomic", "plan_chain", "match_runs"):
         assert hashes.schema(name)["type"] == "object", name
     assert hashes.short("estimates").startswith("\n\nThe previous answer was too long")
