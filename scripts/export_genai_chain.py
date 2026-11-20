@@ -68,9 +68,10 @@ def files(claims, match_runs, split, tp) -> dict[str, str | dict]:
 
 
 def snapshot(claims, llm, split, S, T) -> dict:
+    mapping = [{"field": f, "term": t, "code": c} for (f, t), c in sorted((getattr(T, "term_mapping", dict)() or {}).items())]   # free terms an amendment folded into a code
     return {"schema_hash": T.schema_hash(), "model": llm.MODEL, "inputs_version": split.INPUTS_VERSION, "levels": list(T.LEVELS),
             "kind_finding": dict(T.KIND_FINDING), "quote_groups": {k: list(v) for k, v in S.QUOTE_GROUPS.items()},
-            "variables": T.variables(),
+            "mapping": mapping, "variables": T.variables(),
             "hashes": {"split": split.split_hash(), "design": split.design_hash(), "claims": claims.claims_hash()}}
 
 

@@ -77,6 +77,32 @@ def wrapped(v: dict) -> bool:
     return (v["ev"] == "value" and not v["qg"]) or v["open"]
 
 
+def term_mapping() -> dict[tuple[str, str], str]:
+    """{(field, normalised term): code}: the free terms proposed for `other` that an accepted amendment folded into a code."""
+    return {(m["field"], " ".join(str(m["term"]).split()).lower()): m["code"] for m in snapshot().get("mapping") or []}
+
+
+def _val(c):
+    return c.get("value") if isinstance(c, dict) else c
+
+
+def mapped(field: str, cell):
+    """A cell's code with the term mapping applied: `other` with a proposed term the mapping knows
+    becomes that code; anything else is the cell's value as stored."""
+    v = _val(cell)
+    term = (cell.get("proposed") or "").strip() if isinstance(cell, dict) else ""
+    if v == "other" and term:
+        return term_mapping().get((field, " ".join(term.split()).lower()), v)
+    return v
+
+
+def ai_alone_arm(arm: dict) -> bool:
+    """An arm in which no person did the work (the user, 20 Nov 2026): its participant type is
+    ai_alone (the code or a mapped term), or its control type is ai_alone. Such arms are left out
+    of the with-versus-without-AI analysis."""
+    return _val(arm.get("control_type")) == "ai_alone" or mapped("sample_population_type", arm.get("sample_population_type")) == "ai_alone"
+
+
 def groups(level: str) -> list[str]:
     seen: list[str] = []
     for v in by_level(level):

@@ -68,7 +68,7 @@ def test_the_presets_and_the_workflow_are_bundled_and_validate() -> None:
     assert by["review_routed"]["where"] == {"paper_metadata.routed": True} and by["review_routed"]["coders"] == 1
     assert by["release"]["gate"] == ["extraction", "review_judgment", "review_check", "review_routed"]
     assert ws.roles(wf) == {"extraction": {"step": "extraction", "preset": by["extraction"]["preset"], "label": "Extraction record"}}
-    assert ws.workflow_id(wf) == "genai-work@e62c0d84" and wf["version"] == 4
+    assert ws.workflow_id(wf) == "genai-work@861f2667" and wf["version"] == 5
     assert ws.has_card(wf) and "## Steps" in wf["card"]["text"]
     assert by["extraction"]["preset"] == presets.emit_schema_row("genai-work-extraction")["schema_id"]
 

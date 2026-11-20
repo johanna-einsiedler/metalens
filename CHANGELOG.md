@@ -8,6 +8,23 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The chain follows the project's taxonomy of 20 November 2026
+
+- The review project amended its taxonomy (schema 9c7787dd92): `research_design` gains
+  `quasi_experiment`, the arms' `sample_population_type` gains `ai_alone`, and the free terms an
+  amendment folded into a code are read as that code (`labeling/taxonomy/mapping.csv`). The chain's
+  files are re-exported: `taxonomy.json` carries the two options and the term mapping, the design
+  prompt and the headline plan's first prompt change with the codebook (design prompt c10c2460c9;
+  pins `genai_work.design@349e874d`, `genai_work.headline_plan@ed9f1820`); `taxonomy.mapped` and
+  `taxonomy.ai_alone_arm` are the project's; the document builder writes a mapped term as its
+  code and an AI-alone arm's participant type as `ai_alone`; the headline rule gives a unit with
+  an AI-alone arm on either side no headline and lists it under `ai_alone_units`.
+- The document's cited exhibits are keyed by the exhibit itself, not its id, so two exhibits
+  sharing an id ("Table 1" in the paper and in its appendix) keep their own cells; indices off
+  the resolved table fall back to the source's own words.
+- The bundled extraction contract is v21 with the two options (`genai-work-extraction@ddf3b7fd`);
+  `genai-work` pins it as version 5, `genai-work-chain` as version 2. Records under v20 stay as
+  they are; the judgment template follows through `options_from`.
 ### The project page: a flow diagram, two ways in for papers, plainer words
 
 - The Workflow card and the workflow's own page draw the steps as a flow diagram (`static/flow.js`):

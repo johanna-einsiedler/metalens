@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 
+from . import taxonomy as T
+
 FULL = {"", "full sample", "all", "overall", "pooled", "whole sample", "entire sample", "all participants", "total", "none", "main sample", "everyone",
         "all workers", "all subjects"}
 PRE = re.compile(r"\bpre[- ]?(treatment|period|test|intervention|deployment)|baseline period|before (the )?(treatment|ai|intervention)", re.I)
@@ -62,12 +64,15 @@ def composites(rows, outcomes):
     return out
 
 
-def units_of(rec, plan=None):
-    """The units of a record with their headline: [{kind, task, arm, vs_arm, headline, rule, tier, candidates, composite, excluded, plan}]."""
+def units_of(rec, plan=None, left_out=None):
+    """The units of a record with their headline: [{kind, task, arm, vs_arm, headline, rule, tier, candidates, composite, excluded, plan}].
+    A unit with an AI-alone arm on either side is not among them (no person did the work on one
+    side: outside the with-versus-without-AI analysis); it is appended to `left_out` when a list is given."""
     out = []
     for t in rec.get("tasks") or []:
         tid = t.get("task_id")
         outcomes = {val(o.get("outcome_id")): o for o in t.get("outcomes") or []}
+        alone = {val(a.get("arm_id")) for a in t.get("arms") or [] if T.ai_alone_arm(a)}
         groups = defaultdict(list)
         for r in t.get("results") or []:
             if not val(r.get("vs_arm")):
@@ -75,6 +80,10 @@ def units_of(rec, plan=None):
             kind = val(r.get("finding_type")) or val(r.get("outcome_class")) or "other"
             groups[(kind, val(r.get("arm")), val(r.get("vs_arm")))].append(r)
         for (kind, arm, vs), rows in sorted(groups.items(), key=lambda kv: (nat(kv[0][1]), nat(kv[0][2]), kv[0][0])):
+            if arm in alone or vs in alone:
+                if left_out is not None:
+                    left_out.append({"kind": kind, "task": tid, "arm": arm, "vs_arm": vs, "candidates": len(rows)})
+                continue
             unit = {"kind": kind, "task": tid, "arm": arm, "vs_arm": vs, "candidates": len(rows), "headline": None, "rule": None, "tier": None,
                     "composite": None, "excluded": [], "plan": None}
             cands = [r for r in rows if val(r.get("contrast_type")) != "interaction" and val(r.get("effect_type")) != "interaction"
@@ -115,10 +124,12 @@ def units_of(rec, plan=None):
 
 
 def headlines(rec, plan=None) -> dict:
-    """The project's ``headlines.json`` for a record: the units, the headline ids and the rows the composite tier excludes."""
-    units = units_of(rec, plan)
+    """The project's ``headlines.json`` for a record: the units, the headline ids, the rows the
+    composite tier excludes and the units left out for an AI-alone arm."""
+    left_out: list = []
+    units = units_of(rec, plan, left_out)
     return {"rule": RULE, "units": units, "headlines": [u["headline"] for u in units if u["headline"]],
-            "excluded": sorted({e for u in units for e in u["excluded"]})}
+            "excluded": sorted({e for u in units for e in u["excluded"]}), "ai_alone_units": left_out}
 
 
 GENERIC = {"score", "scores", "scale", "rating", "ratings", "rated", "index", "overall", "average", "mean", "total", "composite", "combined",

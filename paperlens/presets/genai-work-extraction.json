@@ -1,11 +1,11 @@
 {
   "format": 2,
   "id": "genai-work-extraction",
-  "version": 20,
+  "version": 21,
   "meta": {
     "title": "GenAI at work — data extraction (Work experiments)",
     "tagline": "Study variables, tasks, arms and one result row per arm, measure, subgroup and horizon, every number with its quote and page.",
-    "description": "Human review of the data extraction for the systematic review of generative AI at work. The model's record is prefilled with a quote behind every value (or empty, for the blind validation sample); the coder checks each task, its arms and its result rows against the highlighted passages, corrects cells, adds or deletes rows, scores the four complexity dimensions blind, and verifies or flags each task. Category fields marked open accept the paper's own term when no category fits. Taxonomy schema b5ed1ca67c; codebook in labeling/codebook.md.",
+    "description": "Human review of the data extraction for the systematic review of generative AI at work. The model's record is prefilled with a quote behind every value (or empty, for the blind validation sample); the coder checks each task, its arms and its result rows against the highlighted passages, corrects cells, adds or deletes rows, scores the four complexity dimensions blind, and verifies or flags each task. Category fields marked open accept the paper's own term when no category fits. Taxonomy schema 9c7787dd92; codebook in labeling/codebook.md.",
     "mode": "import",
     "hidden": false,
     "brands": [
@@ -150,6 +150,11 @@
             "value": "descriptive",
             "label": "Descriptive",
             "help": "describes AI use or outcomes without a treatment or exposure comparison"
+          },
+          {
+            "value": "quasi_experiment",
+            "label": "Quasi-experiment",
+            "help": "the researchers assign the AI condition without randomisation: to intact groups (classes, cohorts, teams, sites) or to periods (the same people first without, then with the AI, in a fixed order); not an external event (natural experiment) and not self-chosen use (observational)"
           }
         ],
         "allow_other": true,
@@ -1733,6 +1738,11 @@
                 "value": "recipients",
                 "label": "recipients of the work",
                 "help": "the people the work is for, when the outcomes are measured on them: patients counselled, customers served, students taught (a reversed design, see the rules)"
+              },
+              {
+                "value": "ai_alone",
+                "label": "AI alone, no human participants",
+                "help": "no person did the work in this arm: the AI's own output was scored (an AI-only condition, simulated personas, synthetic agents); n_arm null. Every arm whose control type is ai_alone takes it. Arms coded ai_alone are left out of the with-versus-without-AI analysis, which compares people working with the AI against people working without it"
               }
             ],
             "allow_other": true,

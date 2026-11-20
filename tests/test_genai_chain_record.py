@@ -268,8 +268,7 @@ def test_the_stored_pass_files_reproduce_the_projects_record_and_headlines(rid) 
     assert fin["exhibit_coverage"] == want["exhibit_coverage"] and fin["unmatched_reasons"] == want["unmatched_reasons"]
     heads = H.headlines(fin["record"], _plan(rid))
     want_h = _split(rid, "headlines")
-    # `ai_alone_units` (the project's rule of 20 Nov 2026, with its two new taxonomy codes) comes with the next sync of the chain
-    assert heads == {k: v for k, v in want_h.items() if k not in ("record_id", "ai_alone_units")}
+    assert heads == {k: v for k, v in want_h.items() if k != "record_id"}
 
 
 @pytest.mark.skipif(not _project_ok() or not (PROJECT / "labeling" / "metalens" / "import_pilot" / f"{RID2}.json").exists(), reason="the review project's import file is not on this machine")
@@ -293,3 +292,34 @@ def test_the_document_reproduces_the_projects_v20_import_file() -> None:
     keep = lambda e: not e["field"].startswith("paper_metadata.flags")  # noqa: E731
     assert obj["evidence"] == [e for e in want["evidence"] if keep(e)]
     assert set(obj["_record_chain"]) == {str(i) for i in range(len(want["tasks"]))}
+
+
+def test_an_ai_alone_arm_leaves_its_units_out_and_a_mapped_term_reads_as_its_code() -> None:
+    from paperlens.chains.genai_work import taxonomy as T
+    assert T.mapped("research_design", {"value": "other", "proposed": "Quasi-experimental   design"}) == "quasi_experiment"
+    assert T.mapped("research_design", {"value": "other", "proposed": "a re-analysis"}) == "other" and T.mapped("research_design", {"value": "online_rct"}) == "online_rct"
+    assert T.ai_alone_arm({"control_type": {"value": "ai_alone"}}) and T.ai_alone_arm({"sample_population_type": {"value": "other", "proposed": "LLM output"}})
+    assert not T.ai_alone_arm({"control_type": {"value": "no_ai_concurrent"}, "sample_population_type": {"value": "students"}})
+    rec = {"tasks": [{"task_id": "T1", "outcomes": [{"outcome_id": "O1", "measure": "Time"}],
+                      "arms": [{"arm_id": "C", "control_type": {"value": "no_ai_concurrent"}}, {"arm_id": "T1"}, {"arm_id": "T2", "sample_population_type": {"value": "other", "proposed": "AI models"}}],
+                      "results": [{"estimate_id": "e1", "arm": "T1", "vs_arm": "C", "outcome": "O1", "measure": "Time", "finding_type": "productivity_time", "subgroup": "full sample", "role": "main", "estimand_type": "itt", "source": "Table 1"},
+                                  {"estimate_id": "e2", "arm": "T2", "vs_arm": "C", "outcome": "O1", "measure": "Time", "finding_type": "productivity_time", "subgroup": "full sample", "role": "main", "estimand_type": "itt", "source": "Table 1"}]}]}
+    res = H.headlines(rec)
+    assert res["headlines"] == ["e1"] and res["ai_alone_units"] == [{"kind": "productivity_time", "task": "T1", "arm": "T2", "vs_arm": "C", "candidates": 1}]
+    field = next(v for v in T.by_level("study") if v["field"] == "research_design")
+    assert D._other({"value": "other", "proposed": "quasi-experiment"}, field) == "quasi_experiment" and D._other({"value": "other", "proposed": "a re-analysis"}, field) == "other: a re-analysis"
+
+
+def test_two_exhibits_sharing_an_id_keep_their_own_cited_cells() -> None:
+    ex = {"tables": [{"id": "Table 1", "page": 3, "caption": "Main", "panels": [{"panel": None, "header": ["", "(1)"], "rows": [["AI", "0.5"]], "markdown": ""}]},
+                     {"id": "Table 1", "page": 9, "caption": "Appendix", "panels": [{"panel": None, "header": ["", "(1)"], "rows": [["Robust", "0.7"]], "markdown": ""}]}], "figures": []}
+    em = {"estimates": [{"estimate_id": "x1", "estimand_id": "E1", "source": {"exhibit": "Table 1", "row": "AI", "column": "(1)"}, "effect_value": 0.5, "cell_as_printed": "0.5"},
+                        {"estimate_id": "x2", "estimand_id": "E1", "source": {"exhibit": "Table 1", "row": "Robust", "column": "(1)"}, "effect_value": 0.7, "cell_as_printed": "0.7"}]}
+    cited = D.cited_by_table(ex, em)
+    # the source resolver finds a table by its id, so both estimates resolve to the first "Table 1"; the groups are keyed by that
+    # table OBJECT, so the appendix table of the same id gets no cells of its own (and none of the first table's by mistake)
+    assert list(cited) == [id(ex["tables"][0])] and len(cited[id(ex["tables"][0])][2]) == 2 and cited.get(id(ex["tables"][1])) is None
+    for est, r in cited[id(ex["tables"][0])][2]:
+        panel, row_label, column, value = D.cell_of("tables", ex["tables"][1], est, r)        # the wrong exhibit handed in: the resolved table wins
+        assert (row_label, value) in {("AI", "0.5"), ("Robust", "0.7")} and column == "(1)"
+    assert D.cell_of("tables", ex["tables"][0], em["estimates"][0], {"kind": "tables", "table": ex["tables"][0], "panel_i": 5, "row_i": 0, "col_i": 1})[1] == "AI"   # an index off the table: the source's own words

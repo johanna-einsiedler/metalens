@@ -75,6 +75,7 @@ Per arm: `control_type`, `sample_population`, `sample_population_type`, `sample_
     - `natural_experiment`: AI exposure arises from an external event or plausibly exogenous variation outside the researchers' control: a launch, a rollout, a policy
     - `observational`: naturally occurring AI use or exposure analysed without experimental assignment and without an exogenous event; identification_strategy says how the comparison is made
     - `descriptive`: describes AI use or outcomes without a treatment or exposure comparison
+    - `quasi_experiment` (Quasi-experiment): the researchers assign the AI condition without randomisation: to intact groups (classes, cohorts, teams, sites) or to periods (the same people first without, then with the AI, in a fixed order); not an external event (natural experiment) and not self-chosen use (observational) [added in batch user-2026-11-20]
     - `other`: none of the categories fits: give the paper's own term in `proposed`
 - **`identification_strategy`** — Identification strategy (one category; required; with its own quote; open: `other` + the paper's term allowed; confidence group `design`)  
   the primary method used to identify or estimate the causal effect of AI exposure in the main comparison: the actual estimation method, not a broad label such as natural experiment; a specific strategy over generic regression adjustment.
@@ -301,6 +302,7 @@ Per arm: `control_type`, `sample_population`, `sample_population_type`, `sample_
     - `general_population`: members of the public or of sub-populations: convenience samples, job applicants, mixed groups of adults without a shared task-relevant occupation
     - `professionals_in_domain` (Professionals, in-domain): People working in the occupation the task comes from such as consultants on consulting tasks, radiologists on X-ray
     - `professionals_out_of_domain` (Professionals, out-of-domain): Professionals doing a task outside their field
+    - `ai_alone` (AI alone, no human participants): no person did the work in this arm: the AI's own output was scored (an AI-only condition, simulated personas, synthetic agents); n_arm null. Every arm whose control type is ai_alone takes it. Arms coded ai_alone are left out of the with-versus-without-AI analysis, which compares people working with the AI against people working without it [added in batch user-2026-11-20]
     - `recipients` (recipients of the work): the people the work is for, when the outcomes are measured on them: patients counselled, customers served, students taught (a reversed design, see the rules)
     - `other`: only when none of the categories fits: the paper's own term in `proposed`
 - **`sample_expertise`** — Expertise (one category; with its own quote; confidence group `arm`)  
