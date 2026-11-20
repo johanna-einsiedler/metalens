@@ -752,6 +752,7 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
                 facts_by_step[sid] = {"pin": None, "have": [], "old": [], "items": items, "work": item["work"]}
         elif kind == "check":
             over = st.get("over") or []
+            item["over"] = list(over)
             src = facts_by_step.get(over[0]) if over else None
             if ((checks.REGISTRY.get(st.get("check")) or {}).get("applies_to") or {}).get("unit") == "papers":   # over pass steps
                 item["check"] = st.get("check")
@@ -834,6 +835,7 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
             from . import releases
             last = releases.latest(conn, dataset_id)
             gate = st.get("gate") or []
+            item["gate_steps"] = list(gate)
             blocked = [o["id"] for o in out if o["id"] in gate and o["state"] not in ("fresh",)]
             if last is None:
                 item["state"] = "missing"; item["because"] = ["no release yet"]
@@ -2089,7 +2091,7 @@ def overview(conn, parent: dict, *, owner: bool) -> dict:
         pspec = _preset_spec(conn, ws.preset_base(info["preset"])) or {}
         item = {"role": role, "label": info["label"], "step": info["step"], "preset": info["preset"],
                 "preset_id": ws.preset_base(info["preset"]), "preset_title": (pspec.get("meta") or {}).get("title"),
-                "source": (by_id.get(info["step"]) or {}).get("source"), "dataset": None}
+                "source": "compute" if (by_id.get(info["step"]) or {}).get("kind") == "compute" else (by_id.get(info["step"]) or {}).get("source"), "dataset": None}
         if m:
             n = conn.execute("SELECT count(*), count(DISTINCT document_id) FROM record WHERE dataset_id = %s::uuid", (m["dataset_id"],)).fetchone()
             rel = releases.latest(conn, m["dataset_id"])

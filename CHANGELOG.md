@@ -8,6 +8,22 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The project page: a flow diagram, two ways in for papers, plainer words
+
+- The Workflow card and the workflow's own page draw the steps as a flow diagram (`static/flow.js`):
+  a box per step, coloured by kind and dotted with its state, an arrow for every dependency a step
+  declares (a pass's or compute's reads, a compute's edits, a check's or review's over, the release's
+  gate), the step a run is on outlined. The panel items now carry a check's `over` and a release's
+  `gate_steps` for it.
+- Papers come into a chain project in two ways: **Add papers and run the passes** (PDFs through the
+  extract page, the passes run on your key) and **Upload papers with results** (each PDF with a
+  `<name>.json` beside it holding the pass outputs made outside Metalens — and, if present, the
+  page text, the identity, the further readings and the stability records; no model call). The
+  seeder writes such bundles with `--write-bundles DIR`.
+- The datasets card of a project no longer says "one per preset" nor explains the group; a role
+  made by a compute step reads "assembled by the workflow's code" instead of "a model call per
+  paper"; the People card says what it is for in one line; `genai-work-chain`'s tagline reads
+  "Workflow to populate the Generative AI at work living review."
 ### A project's compute step writes into its role's dataset
 
 - `workflows.step_datasets` mapped a document-making compute step (the chain's `extraction`) to

@@ -109,6 +109,7 @@ export const api = {
   workflowRun: (rid) => req(`/api/workflow-runs/${rid}`),
   workflowPaper: (rid, formData) => req(`/api/workflow-runs/${rid}/papers`, { method: "POST", body: formData }),   // a PDF of a run that starts on passes
   workflowPassOutputs: (rid, step) => req(`/api/workflow-runs/${rid}/passes/${encodeURIComponent(step)}`),
+  workflowSupply: (rid, step, sha, body) => req(`/api/workflow-runs/${rid}/passes/${encodeURIComponent(step)}/${sha}`, json(body)),   // a pass output made outside Metalens
   workflowPassOutput: (rid, step, sha, q) => req(`/api/workflow-runs/${rid}/passes/${encodeURIComponent(step)}/${sha}${q ? `?${new URLSearchParams(q)}` : ""}`),
   workflowResume: (rid, body) => req(`/api/workflow-runs/${rid}/resume`, json(body || {})),
   workflowComplete: (rid, stepId) => req(`/api/workflow-runs/${rid}/complete`, json({ step_id: stepId })),

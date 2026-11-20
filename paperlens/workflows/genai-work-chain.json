@@ -4,7 +4,7 @@
   "version": 1,
   "meta": {
     "title": "GenAI at work — the extraction chain and its validation",
-    "tagline": "The multi-pass extraction run inside Metalens — exhibits, estimands, estimates and design read twice or three times and folded, the abstract's claims and the headline plan — assembled into the record the coders validate in three tasks.",
+    "tagline": "Workflow to populate the Generative AI at work living review.",
     "description": "One workflow over one dataset. For every PDF uploaded, the chain reads the paper in passes: the exhibits as printed, the estimands (tasks, arms, outcomes, what the paper estimates), the estimates read into them from the exhibits, and the study, task and arm variables — the first three twice and the last three times, each reading matched to the first by content, the design cells settled by majority. Then the abstract's claims against the record's estimates and the headline-estimate plan. The record is assembled from the passes with the project's deterministic code — the derived cells, the canonical ids, every quote verified against the page text, every check — and becomes the extraction document under the same contract as the supplied records of version 4, with the claims, the exhibits and their cited cells. The chain's checks run over the passes (the project's whole issue list per paper), the record check over the document, and the routing writes the paper's flags, its decision and its triage score. The three review tasks of version 4 follow unchanged: a blind judgment of design and units by two coders, one exhibit's cells against the print, every routed flag resolved. The release waits for every assigned verdict.",
     "authors": [
       {

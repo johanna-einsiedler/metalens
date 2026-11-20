@@ -2,6 +2,7 @@
 // add papers (reusing the recipe), review, publish/unpublish, export, delete.
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
+import { flowSvg } from "/static/flow.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 import { renderGrid } from "/static/gridview.js";
 
@@ -648,6 +649,62 @@ async function openLinkForm(role, form, groupOf, done, source) {
   };
 }
 
+// Papers with their results made outside Metalens: each PDF with a JSON file of the same name
+// ({pages?, title?, doi?, abstract?, journal?, year?, authors?, peer_reviewed?, outputs: {step: output},
+// prompt_sha256?: {step: sha}, stability?: {step: record}, runs?: [{step, pass_index, output, prompt_sha256?}]}).
+// One run is started for them; each PDF is staged without running its passes, then its outputs
+// are supplied in the workflow's order — the chain assembles, checks and routes the paper as it
+// would after live passes (the seeder's path, from the browser).
+async function sha256Hex(buf) {
+  const h = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function uploadWithResults(files, w) {
+  const msg = $("#wf-upmsg"); const say = (t) => { if (msg) { msg.hidden = false; msg.textContent = t; } };
+  const pdfs = {}, jsons = {};
+  for (const f of files) {
+    const m = f.name.match(/^(.*)\.(pdf|json)$/i);
+    if (m) (m[2].toLowerCase() === "pdf" ? pdfs : jsons)[m[1]] = f;
+  }
+  const stems = Object.keys(pdfs).filter((s) => jsons[s]).sort();
+  if (!stems.length) { alert("Pick each paper's PDF together with its results file of the same name (<name>.pdf and <name>.json)."); return; }
+  const bundles = {};
+  for (const s of stems) {
+    try { bundles[s] = JSON.parse(await jsons[s].text()); } catch (e) { alert(`${jsons[s].name} is not JSON: ${e.message}`); return; }
+    if (!bundles[s] || typeof bundles[s].outputs !== "object") { alert(`${jsons[s].name} has no "outputs" object (one pass output per step).`); return; }
+  }
+  const passIds = (w.steps || []).filter((s) => s.kind === "pass").map((s) => s.id);
+  const shas = {};
+  for (const s of stems) shas[s] = await sha256Hex(await pdfs[s].arrayBuffer());
+  say(`starting a run for ${stems.length} paper${stems.length === 1 ? "" : "s"}…`);
+  const run = await api.workflowStart(id, { new_pdfs: stems.map((s) => ({ sha256: shas[s], filename: pdfs[s].name })), use_credits: false });
+  let n = 0;
+  for (const s of stems) {
+    const b = bundles[s];
+    say(`${pdfs[s].name}: staging…`);
+    const fd = new FormData();
+    fd.append("pdf", pdfs[s]); fd.append("dispatch", "false");
+    if (Array.isArray(b.pages) && b.pages.every((p) => typeof p === "string")) fd.append("pages", JSON.stringify(b.pages));
+    for (const k of ["title", "doi", "abstract", "journal", "peer_reviewed"]) if (b[k]) fd.append(k, String(b[k]));
+    if (b.year) fd.append("year", String(b.year));
+    if (Array.isArray(b.authors)) fd.append("authors", JSON.stringify(b.authors));
+    await api.workflowPaper(run.id, fd);
+    for (const r of b.runs || []) {
+      if (!r || !r.step || !r.output) continue;
+      say(`${pdfs[s].name}: ${r.step} (reading ${(r.pass_index || 0) + 1})…`);
+      await api.workflowSupply(run.id, r.step, shas[s], { output: r.output, role: "run", pass_index: r.pass_index || 1, prompt_sha256: r.prompt_sha256 || null, stability: r.stability || null });
+    }
+    for (const st of passIds) {
+      if (!b.outputs[st]) continue;
+      say(`${pdfs[s].name}: ${st}…`);
+      await api.workflowSupply(run.id, st, shas[s], { output: b.outputs[st], role: "primary", pass_index: 0, prompt_sha256: (b.prompt_sha256 || {})[st] || null, stability: (b.stability || {})[st] || null });
+    }
+    n += 1;
+  }
+  say(`${n} paper${n === 1 ? "" : "s"} uploaded with their results; the chain goes on from here.`);
+  await loadWorkflowCard();
+}
+
 function renderWorkflowCard(host, w) {
   const wf = w.workflow, run = w.current_run, mine = OWNER && !ANON;
   const live = run && !/^(done|failed|cancelled)$/.test(run.status);
@@ -663,11 +720,12 @@ function renderWorkflowCard(host, w) {
   const waitingGate = (w.steps || []).find((s) => s.gate && s.gate.pending && s.gate.run_id && !s.gate.draft);
   const reviewNow = waitingGate ? `<a class="btn btn-primary btn-sm" href="/workspace?queue=${esc(waitingGate.gate.run_id)}:${esc(waitingGate.id)}" title="${esc(`${waitingGate.label || waitingGate.id}: ${waitingGate.gate.pending} of ${waitingGate.gate.total} still to check`)}">Review now · ${waitingGate.gate.pending}</a>` : "";
   const ready = !unlinked && suppliedSteps.length > 0 && suppliedSteps.every((s) => s.state === "fresh" || s.state === "stale");   // every side has papers
+  const hasPass = (w.steps || []).some((s) => s.kind === "pass");                     // a chain: papers come in with their passes run, or with results supplied
   const line = (st) => {
     const because = (st.because || []).join("; ");
     let what = "";
     if (st.kind === "extract" || st.kind === "agent") {
-      what = `${st.role ? `<span class="badge" title="the group's dataset of this role">${esc(st.role)}${st.dataset_id && st.dataset_id !== id ? ` · <a href="/dataset?id=${esc(st.dataset_id)}">${esc(dsTitle(st.dataset_id) || "other dataset")}</a>` : st.dataset_id ? " · this dataset" : ""}</span> ` : ""}${esc(st.source === "supplied" ? "uploaded" : "a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
+      what = `${st.role ? `<span class="badge" title="the group's dataset of this role">${esc(st.role)}${st.dataset_id && st.dataset_id !== id ? ` · <a href="/dataset?id=${esc(st.dataset_id)}">${esc(dsTitle(st.dataset_id) || "other dataset")}</a>` : st.dataset_id ? " · this dataset" : ""}</span> ` : ""}${esc(st.source === "supplied" ? "uploaded" : "extracted by a model call per paper")} · <code>${esc(st.preset || "")}</code>`;
       if (st.work && (st.work.wait_for || st.work.extract || st.work.attach)) what += ` · ${st.work.wait_for || st.work.extract || st.work.attach} new`;
     } else if (st.kind === "check") what = `deterministic · <code>${esc(st.check || "")}</code>${st.findings && st.findings.findings != null ? ` · ${st.findings.n_checked} checked, ${st.findings.findings} finding${st.findings.findings === 1 ? "" : "s"}${st.findings.findings && mine ? ` · <a href="/workspace?dataset=${esc(id)}&triage=checks${st.findings.first_document ? `&doc=${esc(st.findings.first_document)}` : ""}">open</a>` : ""}` : ""}`;
     else if (st.kind === "vocabulary") what = `vocabulary <b>${esc(st.column || "")}</b>${st.version ? ` · v${st.version}` : ""}${mine ? ` · <a class="muted" href="/vocabulary?dataset=${esc(id)}">open</a>` : ""}`;
@@ -739,14 +797,22 @@ function renderWorkflowCard(host, w) {
         ? (unlinked ? `<span class="muted" style="font-size:12.5px">link or make a dataset for each side first</span>`
           : `${ready ? `<button class="btn btn-primary btn-sm" id="wf-checks" title="run the checks and the review over the papers already in the datasets">Run the checks</button>` : `<span class="muted" style="font-size:12.5px">import or extract papers into the datasets first</span>`}
              <button class="btn btn-ghost btn-sm" id="wf-start" title="a run that takes new papers' files uploaded into it, side by side">Start a run with uploads</button>`)
-        : `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1" title="stage new PDFs; the run is planned (calls, credits) before it starts">Add papers</a>
+        : `<a class="btn btn-ghost btn-sm" href="/extract?dataset=${esc(id)}&workflow=1" title="${hasPass ? "upload PDFs and run the workflow's passes on them (your model key; the run is planned first)" : "stage new PDFs; the run is planned (calls, credits) before it starts"}">${hasPass ? "Add papers and run the passes" : "Add papers"}</a>
+           ${hasPass ? `<button class="btn btn-ghost btn-sm" id="wf-upres" title="upload each PDF with a results file of the same name (<name>.json: the pass outputs made outside Metalens); no model call">Upload papers with results</button><input type="file" id="wf-upres-files" multiple accept=".pdf,.json,application/pdf,application/json" hidden>` : ""}
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Each time papers are added, these steps run in this order. The release waits until every review below is done.</p>
+    <div class="wf-flow">${flowSvg(w.steps, { current: cur })}</div>
+    <div id="wf-upmsg" class="muted" style="font-size:12.5px" hidden></div>
     ${problems}${picker}${group}
     ${(w.steps || []).map(line).join("")}
     ${runLine}
     <div class="muted" style="font-size:12.5px;margin-top:6px">Release gate: ${w.gate && w.gate.open ? `<span class="badge tier-human_verified">open</span>` : `<span class="badge tier-sample_verified">holds</span> ${esc([...(w.gate.blocking || []).filter((b) => !(w.gate.gates_blocking || []).includes(b)).map((b) => `${b} not fresh`), ...(w.gate.gates_blocking || []).map((g) => `${g} awaits review`)].join(", "))}`}
       ${(w.runs || []).length > 1 ? `· ${w.runs.length} runs so far` : ""}</div>`;
+  const upres = $("#wf-upres"), upfiles = $("#wf-upres-files");
+  if (upres && upfiles) {
+    upres.onclick = () => upfiles.click();
+    upfiles.onchange = () => uploadWithResults(Array.from(upfiles.files || []), w).catch((e) => alert(`Upload failed: ${e.message}`));
+  }
   const start = $("#wf-start");
   if (start) start.onclick = async () => {
     start.disabled = true;
@@ -803,7 +869,7 @@ function renderWorkflowDataset() {
   const members = OV.members || [], linked = members.filter((m) => m.dataset);
   const pl = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
   const memberRow = (m) => `<div class="ds-dashrow wd-member"><span class="badge ${m.dataset ? "tier-human_verified" : ""}">${esc(m.label || m.role)}</span>
-      <span class="muted">preset <a href="/preset?id=${esc(m.preset_id)}">${esc(m.preset_title || m.preset_id)}</a> · ${m.source === "supplied" ? "uploaded" : "a model call per paper"}</span>
+      <span class="muted">preset <a href="/preset?id=${esc(m.preset_id)}">${esc(m.preset_title || m.preset_id)}</a> · ${m.source === "supplied" ? "uploaded" : m.source === "compute" ? "assembled by the workflow's code" : "extracted by a model call per paper"}</span>
       ${m.dataset ? `→ <a href="/dataset?id=${esc(m.dataset.id)}">${esc(m.dataset.title || m.role)}</a> <span class="muted">· ${pl(m.dataset.n_papers, "paper")}, ${pl(m.dataset.n_records, "record")}${m.dataset.release ? ` · release v${m.dataset.release.number}` : " · not released"}</span>`
         : `<span class="muted">→ not linked yet</span>${mine ? ` <button type="button" class="btn btn-ghost btn-sm" data-wd-link="${esc(m.role)}" data-wd-source="${esc(m.source || "")}">Link or make a dataset…</button>` : ""}`}</div>`;
   const cell = (p, m) => {
@@ -835,8 +901,7 @@ function renderWorkflowDataset() {
       <button type="button" class="btn btn-ghost btn-sm" id="wd-del">Delete project</button></div>` : CODER ? `<div class="ds-actions">
       ${linked.length ? `<a class="btn btn-primary btn-sm" href="/workspace?dataset=${esc(id)}" title="the papers of every side, coded in your own name">Code the papers</a>` : ""}
       <a class="btn btn-ghost btn-sm" href="#tasks">Review tasks</a> <span class="muted" style="font-size:12.5px">You code this project's papers for its owner.</span></div>` : ""}
-    <div class="ds-card" id="wd-members"><div class="ds-card-h">Datasets <span class="muted" style="font-weight:400">· one per preset</span></div>
-      <p class="muted" style="font-size:13px;margin:0 0 6px">Each preset's results live in a dataset of their own. The project links them, runs the workflow over them and releases them together; it holds no records itself.</p>
+    <div class="ds-card" id="wd-members"><div class="ds-card-h">Datasets</div>
       ${members.map(memberRow).join("")}<div id="wd-link-form" hidden></div></div>
     ${mine ? codersCard() : ""}
     <span id="workflow"></span><div class="ds-card" id="ds-update" hidden></div>
@@ -934,8 +999,8 @@ async function loadTasks() {
 
 // ── people: the accounts the owner lets code this project's papers, each in a coding of their own ──
 function codersCard() {
-  return `<div class="ds-card" id="ds-coders"><div class="ds-card-h">People <span class="muted" style="font-weight:400;font-size:12.5px">· accounts that code these papers, each independently</span></div>
-    <p class="muted" style="font-size:13px;margin:0 0 6px">A coder reads your papers and gives every record their own values, verdict and note — their coding. Coders never see each other's; you see all of them (on a paper: <i>view</i> a coder's coding). Exports and releases carry every coding by label (coder_1, coder_2 …). A workflow step that says <code>coders: N</code> assigns each paper to N of them.</p>
+  return `<div class="ds-card" id="ds-coders"><div class="ds-card-h">People</div>
+    <p class="muted" style="font-size:13px;margin:0 0 6px">Human coders that can be assigned to the review tasks of this project.</p>
     <div id="ds-coderlist" class="muted" style="font-size:13px">…</div>
     <form id="ds-coderform" style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap"><input id="ds-coderemail" type="email" placeholder="the coder's account email" required style="flex:1;min-width:200px;max-width:320px"/>
       <button class="btn btn-ghost btn-sm" type="submit">Add coder</button><span class="muted" id="ds-codermsg" style="font-size:12.5px"></span></form></div>`;

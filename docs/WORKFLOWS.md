@@ -459,6 +459,22 @@ outputs supplied afterwards complete its chain. `scripts/seed_genai_chain.py` do
 review project's files, `scripts/compare_chain.py` compares the result with the project's own. With `--manifest` the seeder
 seeds a PROJECT the way `seed_accounts.py` does (owner, people, tasks), then stages and supplies.
 
+From the browser, a chain project's Workflow card takes papers two ways: "Add papers and run the
+passes" (the extract page; the passes run on your key) and "Upload papers with results": each PDF
+with a `<name>.json` beside it —
+
+```json
+{"pages": ["page 1 text", "…"], "title": "…", "doi": "…", "abstract": "…", "journal": "…", "year": 2025, "authors": ["…"], "peer_reviewed": "no",
+ "outputs": {"exhibits": {…}, "estimands": {…}, "estimates": {…}, "design": {…}, "claims": {…}, "headline_plan": {…}},
+ "prompt_sha256": {"exhibits": "810861b1ac"}, "stability": {"design": {…}},
+ "runs": [{"step": "design", "pass_index": 1, "output": {…}}]}
+```
+
+Only `outputs` is required (one entry per pass step, by step id); the rest stands in for what the
+engine would otherwise extract or not know. `scripts/seed_genai_chain.py --write-bundles DIR` writes
+these from the review project's files. The Workflow card draws the steps as a flow diagram: an
+arrow for every dependency a step declares, a dot for each step's state, the step a run is on outlined.
+
 ### Compute steps
 
 A step of kind `compute` runs a chain's registered deterministic code per paper, free:
