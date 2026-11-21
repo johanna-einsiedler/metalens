@@ -29,7 +29,7 @@ CHAIN = [
     {"id": "record", "kind": "check", "label": "Record checks", "over": ["extraction"]},
     {"id": "passes_check", "kind": "check", "label": "Chain checks", "over": ["exhibits", "estimands", "estimates", "design"]},
     {"id": "route", "kind": "compute", "label": "Routing", "reads": ["estimands"], "edits": "extraction"},
-    {"id": "review_judgment", "kind": "review", "label": "Judgment", "over": ["extraction"], "review": {"coders": 2}, "gate": {"total": 2}},
+    {"id": "review_judgment", "kind": "review", "label": "Judgment", "over": ["extraction"], "review": {"coders": 2, "purpose": "audit"}, "gate": {"total": 2}},
     {"id": "release", "kind": "release", "label": "Release", "gate_steps": ["extraction", "review_judgment"]},
 ]
 
@@ -61,7 +61,7 @@ def test_the_diagram_draws_every_dependency_a_step_declares_and_layers_by_depth(
     svg = out["svg"]
     assert svg.startswith("<svg") and svg.count("<rect") == len(CHAIN) and svg.count("<path class=\"flow-edge") == len(out["edges"])
     assert 'class="flow-box flow-kind-pass flow-current"' in svg and "flow-state-stale" in svg and "flow-state-fresh" in svg
-    assert "Study, task and arm…" in svg and "×3" in svg and "· 2 coders" in svg
+    assert "Study, task and arm…" in svg and "×3" in svg and "review · audit · 2 coders" in svg
 
 
 def test_an_empty_or_dependency_free_list_still_renders() -> None:
