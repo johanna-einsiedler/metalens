@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The workflow diagram fits its card, in the palette's colours, with right-angled arrows
+
+The flow diagram on the Workflow card and on a workflow's page (`static/flow.js`) takes the width it
+is given: columns that do not fit go on in a second row of boxes underneath, and an arrow into a later
+row leaves to the right, runs back along the gap between the rows and comes in from the left. Every
+arrow is straight segments joined at right angles, each arrow that changes row in a lane of its own.
+The boxes take the site's palette (passes in the teal wash, computes in the navy wash, reviews in the
+mint wash, the release solid navy); they no longer follow the operating system's colour scheme, which
+painted them dark on the light page. The run row of the Workflow card no longer lists every paper's
+every step; the "Now" line says where the run is.
+
 ### A chain's assembly runs on the worker, and table-row quotes are found at once
 
 - **Fixed**: supplying the last pass output of a paper (the "Upload papers with results" button,

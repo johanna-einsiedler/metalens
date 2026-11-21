@@ -1073,31 +1073,32 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .rp-hl { position: absolute; background: rgba(255, 213, 0, .35); border-radius: 2px; }
 .rp-hl-sel { background: color-mix(in srgb, var(--accent) 35%, transparent); box-shadow: 0 0 0 1.5px var(--accent); }
 
-/* the workflow as a flow diagram (static/flow.js): a box per step, an arrow per dependency */
-.wf-flow { margin: 2px 0 10px; overflow-x: auto; }
-.flow { display: block; font-family: inherit; }
-.flow-box { fill: #fff; stroke: var(--border); stroke-width: 1.2; }
-.flow-kind-pass { fill: color-mix(in srgb, var(--accent) 10%, #fff); }
-.flow-kind-compute { fill: color-mix(in srgb, var(--accent) 22%, #fff); }
-.flow-kind-extract, .flow-kind-agent { fill: color-mix(in srgb, var(--accent) 22%, #fff); }
-.flow-kind-check, .flow-kind-crosscheck { fill: #f6f6f2; }
-.flow-kind-review { fill: #fff6df; }
-.flow-kind-release { fill: #e9f5ea; }
+/* the workflow as a flow diagram (static/flow.js): a box per step, an arrow per dependency — the
+   palette's colours (the page's, whatever the operating system's colour scheme) */
+.wf-flow { margin: 2px 0 10px; }
+.flow { display: block; max-width: 100%; height: auto; font-family: inherit; }
+.flow-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; }
+.flow-kind-pass { fill: color-mix(in srgb, var(--accent-2) 14%, var(--surface)); stroke: var(--accent-3); }
+.flow-kind-compute, .flow-kind-extract, .flow-kind-agent, .flow-kind-derive { fill: color-mix(in srgb, var(--accent) 16%, var(--surface)); stroke: var(--accent-3); }
+.flow-kind-check, .flow-kind-crosscheck { fill: var(--bg); }
+.flow-kind-review { fill: var(--accent-wash); stroke: color-mix(in srgb, var(--success) 40%, var(--border)); }
+.flow-kind-release { fill: var(--accent); stroke: var(--accent-dark); }
+.flow-kind-release ~ text { fill: var(--on-accent); }
 .flow-current { stroke: var(--accent); stroke-width: 2; }
+.flow-kind-release.flow-current { stroke: var(--accent-2); }
 .flow-icon { font-size: 13px; fill: var(--text-muted); }
-.flow-label { font-size: 12px; font-weight: 600; fill: var(--text, #222); }
+.flow-label { font-size: 11.5px; font-weight: 600; fill: var(--text); }
 .flow-sub { font-size: 10.5px; fill: var(--text-muted); }
-.flow-edge { fill: none; stroke: #9a9a94; stroke-width: 1.3; }
+.flow-edge { fill: none; stroke: var(--accent-3); stroke-width: 1.4; }
 .flow-edge-over { stroke-dasharray: 4 3; }
 .flow-edge-edits { stroke-dasharray: 1.5 3; }
-.flow-edge-gate { stroke: #b9b9b2; }
-.flow-arrowhead { fill: #9a9a94; }
-.flow-state { fill: #bbb; }
-.flow-state-fresh { fill: #4fa66b; }
-.flow-state-stale, .flow-state-awaiting_review { fill: #e0a52e; }
-.flow-state-missing, .flow-state-blocked, .flow-state-unsupported { fill: #d05a4e; }
+.flow-edge-gate { stroke: var(--border); }
+.flow-arrowhead { fill: var(--accent-3); }
+.flow-state { fill: var(--border); stroke: var(--surface); stroke-width: 1; }
+.flow-state-fresh { fill: var(--success); }
+.flow-state-stale, .flow-state-awaiting_review { fill: var(--override-line); }
+.flow-state-missing, .flow-state-blocked, .flow-state-unsupported { fill: var(--error); }
 .flow a { cursor: pointer; }
-@media (prefers-color-scheme: dark) { .flow-box { fill: #1d1f24; } .flow-label { fill: #e6e6e6; } .flow-kind-check, .flow-kind-crosscheck { fill: #23252b; } .flow-kind-review { fill: #2e2a1f; } .flow-kind-release { fill: #1f2d22; } }
 
 /* the Workflow panel on the dataset page: one row per declared step, the run in progress */
 .wf-row { flex-wrap: wrap; gap: 6px; }
@@ -1105,8 +1106,6 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .wf-what code { font-size: 11.5px; }
 .wf-why { font-size: 12px; }
 .wf-run { flex-direction: column; align-items: flex-start; gap: 4px; }
-.wf-papers { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
-.wf-paper small { color: var(--text-muted); }
 /* the step a run is on, and the line that says what it is doing */
 .wf-current { background: var(--accent-wash); border-radius: var(--radius-sm); }
 .wf-nowchip { display: inline-flex; align-items: center; gap: 5px; }
@@ -1122,8 +1121,6 @@ a.ds-next-opt:hover { border-color: var(--accent); background: var(--accent-wash
 /* a workflow dataset: its linked datasets and its papers, each side in a column */
 .wd-member { flex-wrap: wrap; gap: 6px; font-size: 13px; }
 .wd-ptable td:first-child { min-width: 220px; }
-.wf-paper.failed small { color: var(--error); }
-.wf-paper.done small, .wf-paper.attached small { color: var(--success); }
 .wf-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 
 .ds-gates .ds-gate.hold { font-weight: 600; }
