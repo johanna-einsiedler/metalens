@@ -61,6 +61,71 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   made by a compute step reads "assembled by the workflow's code" instead of "a model call per
   paper"; the People card says what it is for in one line; `genai-work-chain`'s tagline reads
   "Workflow to populate the Generative AI at work living review."
+### The export traces a flag to its passage
+
+A dataset export already carried each paper's marks; it did not say which entry's verdict they
+belonged to. Each mark in `papers[].highlights` now carries its `id`, and each record carries
+`marks`: the ids its latest verdict-with-marks points at, so a flag in the file can be followed
+to the passage the coder meant. A removed mark drops out of both.
+
+### A refused row change says why, and leaves nothing behind
+
+Adding a row to an entry's table and having the server refuse it (a reviewer who does not own
+the dataset: only the owner may change an entry's values) used to leave the new row on screen
+until the next reload, looking like a row that would not save, with an alert that began with a
+status code. The row is now taken back at once, and the message says who may change values and
+what a reviewer can still do: verify, flag or note. The same wording serves a refused remove,
+copy or accept.
+
+### A field whose options nobody explains carries no ⓘ
+
+Since the field's ⓘ took over every option's definition, a field with options but no help
+text anywhere grew an ⓘ that only repeated the option labels. It is gone again; the ⓘ appears
+when the field or one of its options has something to say. The two grammar tests that still
+described the earlier second ⓘ beside the select now describe the single one.
+
+### A deploy survives a busy database
+
+The schema run (`records.init_db`, the deploy's release command and the app's startup) is a
+hundred-odd idempotent statements in one transaction, and every `ALTER TABLE` among them takes
+an exclusive lock even when it changes nothing. Against a live database it could queue behind
+a request for as long as the request lasted, or lose a lock cycle to it — "deadlock detected" —
+and the deploy failed at the release step while the old build stayed up. The run now waits at
+most five seconds for any one lock, and on a deadlock or a lock timeout backs off and tries
+again, up to six times; the transaction rolls back whole, so a retry starts clean. Two tests
+hold a lock from a second session and watch the run wait it out, and give up when told to.
+
+### A flag that points at the coder's own marks, and the highlighter in every layout
+
+- **The highlighter in every layout.** "✎ mark" (or `h`) and the "Your marks" list used to exist only
+  in the staged review; the button now sits in the PDF pane's tool bar and the list under the entry
+  cards, so the tabbed presets (MASEM among them) can mark sentences too.
+- **A flag says where to look.** Each mark in the list carries "⚑ flag <entry>" for the open entry: the
+  entry is flagged and its verdict points at the mark (`highlight_ids` on the verification event; a
+  verified entry only gains the pointer, its verdict stands). The marks show as chips under the
+  verdict buttons (click: the mark in the PDF; ✕: detach), in the entry's history, and in the
+  document view (`records[].marks`). The last list given wins, so a verdict with a shorter list
+  detaches; a removed mark drops out of the verdicts that pointed at it. Marks are the owner's:
+  attaching is refused for anyone else and for a mark on another paper. (The search box over the
+  PDF this change first came with is the one main already has; "keep a hit as a mark" is not ported.)
+
+### A flag can be taken back
+
+- **A lit verdict button withdraws its verdict.** Clicking ⚑ flag on a flagged entry (or ✓ verify on a
+  verified one, `f` / `v` likewise) sends `unverified`: the entry returns to the unreviewed pool and the
+  badge stops counting it, while the flag stays in the entry's history. Until now a flag could only be
+  replaced by a verification. A withdrawal does not auto-advance to the next entry.
+
+### A dataset import no longer holds the web process
+
+- **Imports are queued.** The import page sends each paper's PDF with `queue=1`, and `POST /api/ingest-pdf`
+  hands the rendering to the worker (`ingest_pdf_job`, the extraction pipeline minus the model call),
+  answering at once with a job id that `/api/jobs/{id}` resolves. Rendering a dataset's pages in the web
+  process held the web machine's one CPU for every visitor; the site stayed slow for as long as an import
+  ran. The owner check, the JSON's validation and the schema row still happen in the request, so a
+  malformed import is refused at once rather than retried as a job. Without `queue` — the scripts, a
+  queue that is down — the import runs synchronously and answers with the document, as before.
+
 ### A project's compute step writes into its role's dataset
 
 - `workflows.step_datasets` mapped a document-making compute step (the chain's `extraction`) to
