@@ -45,6 +45,17 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
 - The bundled extraction contract is v21 with the two options (`genai-work-extraction@ddf3b7fd`);
   `genai-work` pins it as version 5, `genai-work-chain` as version 2. Records under v20 stay as
   they are; the judgment template follows through `options_from`.
+### Rules: deterministic checks a workflow declares without code
+
+- `check: rules` is in the registry for any preset: `params.rules` lists rules over the preset's
+  fields — a comparison between fields, a range, a pattern, a sum or count across a child or paper
+  table, on entries, the paper or a table's rows, each with its own code and severity, `require`
+  (what must hold) or `when` (what is a finding), `where` to narrow the units. The grammar is the
+  review `where` form with `ne`, `between`, `matches`, a `tol`, references to other terms, the
+  aggregates and `$all` / `$any` / `$not` (`docs/WORKFLOWS.md`, "Rules"). A rule is validated with
+  the workflow against the preset it reads; a missing value never fires one. `rules.suggest` gives
+  the rules a preset's field names imply, for the builder to offer.
+
 ### The project page: a flow diagram, two ways in for papers, plainer words
 
 - The Workflow card and the workflow's own page draw the steps as a flow diagram (`static/flow.js`):

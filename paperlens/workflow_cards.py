@@ -91,7 +91,10 @@ def _steps(conn: psycopg.Connection, spec: dict) -> list[dict]:
                                    "url": f"/preset?id={base}", "live_schema_id": meta.get("schema_id") if isinstance(meta, dict) else None}
         if st.get("kind") == "check":
             reg = checks.REGISTRY.get(st.get("check")) or {}
-            item["check_info"] = {"label": reg.get("label"), "codes": reg.get("codes") or {}, "needs_companion": bool(reg.get("needs_companion"))}
+            codes = dict(reg.get("codes") or {})
+            if st.get("check") == "rules":                         # the rules' own codes and severities
+                codes.update({r["code"]: r.get("severity", "error") for r in ((st.get("params") or {}).get("rules") or []) if isinstance(r, dict) and isinstance(r.get("code"), str)})
+            item["check_info"] = {"label": reg.get("label"), "codes": codes, "needs_companion": bool(reg.get("needs_companion"))}
         if (st.get("input") or {}).get("previous"):
             item["reads"] = list(st["input"]["previous"])
         out.append(item)
