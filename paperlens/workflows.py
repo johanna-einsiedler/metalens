@@ -1909,7 +1909,10 @@ def run_view(conn, run: dict | None) -> dict | None:
     out["steps"] = steps
     out["jobs"] = _job_counts(js)
     out["papers"] = [{k: j[k] for k in ("pdf_sha256", "filename", "step_id", "status", "document_id", "error")} for j in js]
-    out["progress"] = {"papers": {"done": out["jobs"]["done"] + out["jobs"]["attached"], "total": out["jobs"]["total"]},
+    by_paper = {}                                                   # a paper, not a (paper, step) job: a chain has several jobs per paper
+    for j in js:
+        by_paper.setdefault(j.get("pdf_sha256") or j["id"], []).append(j["status"])
+    out["progress"] = {"papers": {"done": sum(1 for sts in by_paper.values() if all(x in JOB_DONE for x in sts)), "total": len(by_paper)},
                        "steps": {"done": sum(1 for s in steps if s["status"] in ("done", "skipped")), "total": len(steps), "current": run.get("current_step")}}
     out["now"] = now_running(conn, run, steps, js)
     return out

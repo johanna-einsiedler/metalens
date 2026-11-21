@@ -474,6 +474,9 @@ Only `outputs` is required (one entry per pass step, by step id); the rest stand
 engine would otherwise extract or not know. `scripts/seed_genai_chain.py --write-bundles DIR` writes
 these from the review project's files. The Workflow card draws the steps as a flow diagram: an
 arrow for every dependency a step declares, a dot for each step's state, the step a run is on outlined.
+The columns that do not fit the card's width go on in a second row of boxes underneath; an arrow into
+a later row leaves to the right, runs back along the gap between the rows and comes in from the left.
+Every arrow is straight segments with right-angle corners.
 
 ### Compute steps
 

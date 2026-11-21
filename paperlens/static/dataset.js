@@ -2,7 +2,7 @@
 // add papers (reusing the recipe), review, publish/unpublish, export, delete.
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { flowSvg } from "/static/flow.js";
+import { flowSvg, flowWidth } from "/static/flow.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 import { renderGrid } from "/static/gridview.js";
 
@@ -788,11 +788,8 @@ function renderWorkflowCard(host, w) {
     const ups = ((run.now || {}).uploads || []).filter((u) => !u.pending);
     const goOn = waiting && ups.some((u) => u.total) && ups.some((u) => !u.total)
       ? `<button class="btn btn-ghost btn-sm" id="wf-complete" title="the sides still waiting get no files: the run goes on with what arrived">Go on without the missing files</button>` : "";
-    const sides = new Set((run.papers || []).map((p) => p.step_id)).size > 1;      // one file per side: say which
-    const papers = (run.papers || []).map((p) => `<span class="wf-paper ${esc(p.status)}" title="${esc(p.filename || p.pdf_sha256 || "")}${p.error ? " — " + esc(p.error) : ""}">${esc((p.filename || p.pdf_sha256 || "").slice(0, 28))} <small>${sides ? `${esc(p.step_id)} · ` : ""}${esc(p.status)}</small></span>`).join(" ");
     return `<div class="ds-dashrow wf-run"><b>Run</b> <span class="badge tier-sample_verified">${esc(st)}</span> <span class="muted">· started ${esc((run.created_at || "").slice(0, 16).replace("T", " "))} · ${pp.total ? `papers ${pp.done || 0} of ${pp.total}` : "no papers yet"}${run.credits && run.credits.planned ? ` · ${run.credits.planned} credit${run.credits.planned === 1 ? "" : "s"}${run.credits.refunded ? `, ${run.credits.refunded} given back` : ""}` : ""}${run.error ? ` · ${esc(run.error)}` : ""}</span>
       ${live && run.now ? `<div class="wf-nowline">${nowLine(run)}</div>` : ""}
-      ${papers ? `<div class="wf-papers">${papers}</div>` : ""}
       ${mine ? `<div class="wf-actions">
         ${waiting ? `${uploads} ${goOn}` : ""}
         ${run.status.startsWith("awaiting_review:") ? `<a class="btn btn-ghost btn-sm" href="${draftStep ? `/derived?dataset=${esc(stepDs(draftStep.review.draft.step || draftStep.step_id))}&step=${esc(draftStep.review.draft.step || draftStep.step_id)}&id=${esc(draftStep.review.draft.id)}&run=${esc(run.id)}` : `/workspace?queue=${esc(run.id)}:${esc(run.status.split(":")[1])}`}">Review</a><button class="btn btn-ghost btn-sm" id="wf-resume">Resume run</button>` : ""}
@@ -816,7 +813,7 @@ function renderWorkflowCard(host, w) {
            ${hasPass ? `<button class="btn btn-ghost btn-sm" id="wf-upres" title="upload each PDF with a results file of the same name (<name>.json: the pass outputs made outside Metalens); no model call">Upload papers with results</button><input type="file" id="wf-upres-files" multiple accept=".pdf,.json,application/pdf,application/json" hidden>` : ""}
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Each time papers are added, these steps run in this order. The release waits until every review below is done.</p>
-    <div class="wf-flow">${flowSvg(w.steps, { current: cur })}</div>
+    <div class="wf-flow">${flowSvg(w.steps, { current: cur, width: flowWidth(host) })}</div>
     <div id="wf-upmsg" hidden></div>
     ${problems}${picker}${group}
     ${(w.steps || []).map(line).join("")}

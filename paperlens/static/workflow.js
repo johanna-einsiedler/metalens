@@ -3,7 +3,7 @@
 // card markdown (level-2 sections); everything else is generated from the declaration and the
 // live database. Releases and DOIs are cut by moderators from this page.
 import { api } from "/static/api.js";
-import { flowSvg } from "/static/flow.js";
+import { flowSvg, flowWidth } from "/static/flow.js";
 import { esc, renderMarkdown } from "/static/grammar.js";
 
 const $ = (s) => document.querySelector(s);
@@ -150,7 +150,7 @@ function render() {
     ${citeTop(c)}
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
-    <section id="steps"><h2>Steps</h2><div class="wf-flow">${flowSvg(c.steps)}</div>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
+    <section id="steps"><h2>Steps</h2><div class="wf-flow">${flowSvg(c.steps, { width: flowWidth(body) })}</div>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
     <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Coders</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
     <section id="checks"><h2>Checks</h2>${checksHtml(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>

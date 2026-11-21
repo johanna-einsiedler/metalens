@@ -547,6 +547,7 @@ def test_a_compute_steps_papers_run_as_worker_jobs_and_the_step_waits_for_them(t
     s_by = {s["step_id"]: s for s in view["steps"]}
     assert s_by["mark"]["status"] == "done" and s_by["mark"]["outputs"]["edited_records"] >= 2
     assert view["status"] == "done" and s_by["review"]["review"]["satisfied"] is False       # the review gate holds the release, as before
+    assert view["progress"]["papers"] == {"done": 2, "total": 2}                              # papers, not (paper, step) jobs
     docs = c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"]
     assert len(docs) == 2
     v = c.get(f"/api/documents/{docs[0]['document_id']}/view", headers=H).json()
