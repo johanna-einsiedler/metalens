@@ -53,6 +53,14 @@ def test_a_purpose_is_one_of_five_and_never_moves_the_id() -> None:
     assert "purpose" not in json.dumps(folded)                                   # folded into the extract step's review, the purpose left out
 
 
+def test_an_audit_or_calibration_runs_on_every_paper_or_a_draw_of_papers_entries_or_rows() -> None:
+    for purpose, extra in (("audit", {}), ("calibrate", {"coders": 2})):
+        assert _errs(_spec(purpose=purpose, mode="all", unit="paper", **extra))[0] == []
+        assert _errs(_spec(purpose=purpose, mode="sample", unit="paper", n=10, **extra))[0] == []
+        assert _errs(_spec(purpose=purpose, mode="sample", unit="entry", share=0.2, seed="s", **extra))[0] == []
+        assert _errs(_spec(purpose=purpose, mode="sample", unit="row", table="table_inventory", per_paper=1, **extra))[0] == []
+
+
 def test_a_routed_review_names_its_rule() -> None:
     assert any("purpose routed" in e for e in _errs(_spec(purpose="routed"))[0])
     ok = _spec(purpose="routed", where={"paper_metadata.inventory_note": {"not_null": True}})

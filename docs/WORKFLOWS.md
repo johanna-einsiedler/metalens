@@ -358,15 +358,18 @@ values, and a new coding counts as a change since the last release.
 A review step may say what it is for. `purpose` is read by the stamp, not by the contract: adding
 it moves no workflow id, and the defaults it sets (below) are what is hashed.
 
-- `audit` — a first look at a model step: every paper, or a sample. When its gate closes, the
-  agreement a person had with the model feeds the preset's stamp.
+- `audit` — a first look at a model step. Its size is the review's own: every paper (`mode:
+  all`), or a random draw (`mode: sample`, `n` or `share`, `seed`, `stratify`) of papers (`unit:
+  paper`), of entries (`unit: entry`) or of a paper table's rows (`unit: row`, `per_paper`). When
+  its gate closes, the agreement a person had with the model feeds the preset's stamp.
 - `routed` — the papers a rule sends on, named by `where` (the chain's `route` compute writes
   `paper.routed`; `{"paper_metadata.routed": true}` picks them up). Never stamped: these papers
   were chosen, not drawn.
 - `monitor` — a draw of each run's new papers (`mode: sample`, `new_only: true`) that extends the
   stamp's count and holds nothing: `blocks: none`, and the step stays out of the release gate.
 - `calibrate` — two or more coders per paper (`coders: 2`), so the coders' own agreement is known —
-  the baseline an audit's "X% agree with the model" is read against. A template with `blind`
+  the baseline an audit's "X% agree with the model" is read against. Sized like an audit: every
+  paper, or a random draw of papers, entries or rows. A template with `blind`
   keeps the model's values from the coders; without one the validator warns.
 - `adjudicate` — the units an earlier coders' review of the same step disagreed on (one took the
   model's value, another flagged or changed it), each settled by a further verdict. The earlier
