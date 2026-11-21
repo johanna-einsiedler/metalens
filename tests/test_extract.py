@@ -395,3 +395,21 @@ def test_evidence_beyond_the_model_page_cap_is_still_located() -> None:
     rendered, highlights, _ = pdf_utils.pdf_to_pages_with_rects(_make_pdf(pages), items, dpi=36)
     assert len(rendered) == deep
     assert [h["page"] for h in highlights] == [deep]
+
+
+def test_a_table_row_with_cell_bars_is_found_in_a_few_page_searches(monkeypatch) -> None:
+    """A chain's record cites table rows as transcribed, cells apart by " | ". The text layer has
+    the cells one after another, so the row as written never matches, and every truncation and
+    word window carrying a bar failed too — two page searches each, hundreds per quote, minutes
+    per paper. The row with its bars read as spaces is now the second candidate."""
+    import fitz
+    pdf = _make_pdf(["Table 2. Completion by group\nFinal survey completion Age 46 or older 83.4% 86.3% +2.9 pp [-3.9, 9.7] .583 1.000\nNotes."])
+    row = "Final survey completion | Age 46 or older | 83.4% | 86.3% | +2.9 pp | [-3.9, 9.7] | .583 | 1.000"
+    calls = []
+    real = fitz.Page.search_for
+    monkeypatch.setattr(fitz.Page, "search_for", lambda self, needle, *a, **k: calls.append(needle) or real(self, needle, *a, **k))
+    cands = list(pdf_utils._snippet_candidates(pdf_utils._normalize_snippet(row)))
+    assert cands[0] == row and cands[1] == row.replace(" | ", " ") and not any("|" in c for c in cands[1:])
+    _p, hl, _ = pdf_utils.pdf_to_pages_with_rects(pdf, [{"page": 1, "snippet": row, "field": "tasks[0].results[3]", "source": "Table 2"}], render_pages=False)
+    assert len(hl) == 1 and hl[0]["rects"], hl
+    assert len(calls) <= 8, (len(calls), calls[:10])                 # was ~230 (every candidate, plain and dehyphenated, twice over)

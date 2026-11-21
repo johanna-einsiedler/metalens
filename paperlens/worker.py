@@ -260,6 +260,25 @@ async def pass_job(ctx: dict, run_id: str, pdf_sha256: str, *, api_key: str = ""
     return await loop.run_in_executor(None, body)
 
 
+async def compute_job(ctx: dict, run_id: str, step_id: str, pdf_sha256: str) -> dict:
+    """One paper of a workflow's compute step as a durable job (paperlens/passes.run_compute):
+    the chain's registered code, then the document persisted with its quotes located — minutes
+    for a long record in a long paper, which is why it leaves the request. The run advances when
+    the paper is done or failed."""
+    from . import passes
+    loop = asyncio.get_running_loop()
+
+    def body():
+        conn = records.connect()
+        try:
+            return passes.run_compute(conn, run_id, step_id, pdf_sha256)
+        finally:
+            conn.close()
+
+    await _set_progress(ctx, f"{step_id} · {pdf_sha256[:8]}")
+    return await loop.run_in_executor(None, body)
+
+
 async def publish_dataset_task(ctx: dict, dataset_id: str) -> dict:
     """Publish a dataset to the metalens-datasets repo as a PR. Only the dataset_id
     transits Redis — the GitHub token lives in the worker env, never in the payload."""
@@ -340,7 +359,7 @@ async def github_sync_task(ctx: dict) -> dict:
 
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, func(extract_chain_job, timeout=1800), publish_dataset_task,
-                 func(workflow_step_job, timeout=1800), func(pass_job, timeout=3600)]
+                 func(workflow_step_job, timeout=1800), func(pass_job, timeout=3600), func(compute_job, timeout=3600)]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(workflow_tick_task, minute=set(range(1, 60, 2)), run_at_startup=False),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]

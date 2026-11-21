@@ -660,7 +660,15 @@ async function sha256Hex(buf) {
   return Array.from(new Uint8Array(h)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function uploadWithResults(files, w) {
-  const msg = $("#wf-upmsg"); const say = (t) => { if (msg) { msg.hidden = false; msg.textContent = t; } };
+  // the progress, one line per paper (what the Add papers page shows per file): staging, each
+  // output supplied, done — or the error, the other papers going on
+  const rows = {}; let tail = "";
+  const paint = () => {                                      // the box is re-made with the card, so it is looked up each time
+    const box = $("#wf-upmsg"); if (!box) return;
+    box.hidden = false;
+    box.innerHTML = `<div class="wf-upprog">${Object.values(rows).map((r) => `<div class="wf-upline ${r.state}"><span class="wf-upname">${esc(r.name)}</span> <span class="wf-upstate">${r.state === "done" ? "✓ " : r.state === "failed" ? "✗ " : `<span class="spin"></span> `}${esc(r.text)}</span></div>`).join("")}${tail ? `<div class="muted">${esc(tail)}</div>` : ""}</div>`;
+  };
+  const say = (stem, state, text) => { rows[stem] = { name: rows[stem] ? rows[stem].name : stem, state, text }; paint(); };
   const pdfs = {}, jsons = {};
   for (const f of files) {
     const m = f.name.match(/^(.*)\.(pdf|json)$/i);
@@ -675,34 +683,41 @@ async function uploadWithResults(files, w) {
   }
   const passIds = (w.steps || []).filter((s) => s.kind === "pass").map((s) => s.id);
   const shas = {};
-  for (const s of stems) shas[s] = await sha256Hex(await pdfs[s].arrayBuffer());
-  say(`starting a run for ${stems.length} paper${stems.length === 1 ? "" : "s"}…`);
+  for (const s of stems) { rows[s] = { name: pdfs[s].name, state: "pending", text: "waiting" }; shas[s] = await sha256Hex(await pdfs[s].arrayBuffer()); }
+  tail = `starting a run for ${stems.length} paper${stems.length === 1 ? "" : "s"}…`; paint();
   const run = await api.workflowStart(id, { new_pdfs: stems.map((s) => ({ sha256: shas[s], filename: pdfs[s].name })), use_credits: false });
-  let n = 0;
+  tail = ""; paint();
+  let n = 0, bad = 0;
   for (const s of stems) {
     const b = bundles[s];
-    say(`${pdfs[s].name}: staging…`);
-    const fd = new FormData();
-    fd.append("pdf", pdfs[s]); fd.append("dispatch", "false");
-    if (Array.isArray(b.pages) && b.pages.every((p) => typeof p === "string")) fd.append("pages", JSON.stringify(b.pages));
-    for (const k of ["title", "doi", "abstract", "journal", "peer_reviewed"]) if (b[k]) fd.append(k, String(b[k]));
-    if (b.year) fd.append("year", String(b.year));
-    if (Array.isArray(b.authors)) fd.append("authors", JSON.stringify(b.authors));
-    await api.workflowPaper(run.id, fd);
-    for (const r of b.runs || []) {
-      if (!r || !r.step || !r.output) continue;
-      say(`${pdfs[s].name}: ${r.step} (reading ${(r.pass_index || 0) + 1})…`);
-      await api.workflowSupply(run.id, r.step, shas[s], { output: r.output, role: "run", pass_index: r.pass_index || 1, prompt_sha256: r.prompt_sha256 || null, stability: r.stability || null });
+    const supplies = [...(b.runs || []).filter((r) => r && r.step && r.output), ...passIds.filter((st) => b.outputs[st]).map((st) => ({ step: st, primary: true }))];
+    let k = 0;
+    try {
+      say(s, "running", "staging the PDF and its page text…");
+      const fd = new FormData();
+      fd.append("pdf", pdfs[s]); fd.append("dispatch", "false");
+      if (Array.isArray(b.pages) && b.pages.every((p) => typeof p === "string")) fd.append("pages", JSON.stringify(b.pages));
+      for (const key of ["title", "doi", "abstract", "journal", "peer_reviewed"]) if (b[key]) fd.append(key, String(b[key]));
+      if (b.year) fd.append("year", String(b.year));
+      if (Array.isArray(b.authors)) fd.append("authors", JSON.stringify(b.authors));
+      await api.workflowPaper(run.id, fd);
+      for (const r of supplies) {
+        k += 1;
+        say(s, "running", `output ${k} of ${supplies.length}: ${r.step}${r.primary ? "" : ` (reading ${(r.pass_index || 0) + 1})`}…${k === supplies.length ? " then the chain takes the paper over" : ""}`);
+        if (r.primary) await api.workflowSupply(run.id, r.step, shas[s], { output: b.outputs[r.step], role: "primary", pass_index: 0, prompt_sha256: (b.prompt_sha256 || {})[r.step] || null, stability: (b.stability || {})[r.step] || null });
+        else await api.workflowSupply(run.id, r.step, shas[s], { output: r.output, role: "run", pass_index: r.pass_index || 1, prompt_sha256: r.prompt_sha256 || null, stability: r.stability || null });
+      }
+      say(s, "done", `${supplies.length} outputs supplied`);
+      n += 1;
+    } catch (e) {
+      bad += 1;
+      say(s, "failed", `${k ? `after output ${k} of ${supplies.length}: ` : ""}${e.message}`);
     }
-    for (const st of passIds) {
-      if (!b.outputs[st]) continue;
-      say(`${pdfs[s].name}: ${st}…`);
-      await api.workflowSupply(run.id, st, shas[s], { output: b.outputs[st], role: "primary", pass_index: 0, prompt_sha256: (b.prompt_sha256 || {})[st] || null, stability: (b.stability || {})[st] || null });
-    }
-    n += 1;
   }
-  say(`${n} paper${n === 1 ? "" : "s"} uploaded with their results; the chain goes on from here.`);
+  tail = bad ? `${n} of ${stems.length} papers uploaded; ${bad} failed — the run goes on with the papers that landed (retry the others from the run's panel).` : `${n} paper${n === 1 ? "" : "s"} uploaded with their results; the chain assembles, checks and routes them now — the run below shows each paper as it lands.`;
+  paint();
   await loadWorkflowCard();
+  paint();                                                   // the card was re-made: the summary stays in view
 }
 
 function renderWorkflowCard(host, w) {
@@ -802,7 +817,7 @@ function renderWorkflowCard(host, w) {
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Each time papers are added, these steps run in this order. The release waits until every review below is done.</p>
     <div class="wf-flow">${flowSvg(w.steps, { current: cur })}</div>
-    <div id="wf-upmsg" class="muted" style="font-size:12.5px" hidden></div>
+    <div id="wf-upmsg" hidden></div>
     ${problems}${picker}${group}
     ${(w.steps || []).map(line).join("")}
     ${runLine}

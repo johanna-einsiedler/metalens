@@ -497,7 +497,12 @@ an entry field, `<child>[].<field>`, `paper.<field>`) returns `{records: {id: {p
 paper: {field: value}, findings: [...]}`; every edit lands through the audited path as a
 `corrected` event by the engine, so later steps are staled by it. Both read the findings of the
 check steps they name (`findings`, as `ctx.findings[step]`). A paper whose inputs failed fails
-its job; the step's outputs count the papers made or edited.
+its job; the step's outputs count the papers made or edited. Each paper of a compute step runs
+as its own worker job (`compute_job` → `passes.run_compute`; inline when there is no queue), and
+the step is the barrier: locating a long record's quotes in a long paper takes minutes, so the
+request that completes the last pass returns at once and the run shows "computing · n of m" as
+the papers land. A retry re-pends a failed compute job; advance dispatches it once its inputs
+are there.
 
 ### References across passes
 

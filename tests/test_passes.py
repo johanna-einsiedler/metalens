@@ -491,3 +491,75 @@ def test_a_failed_paper_of_a_chain_is_retried_from_the_kept_pdf_and_swept_texts_
     conn.rollback()
     assert conn.execute("SELECT status FROM workflow_paper WHERE run_id = %s::uuid AND pdf_sha256 = %s", (rid, sha)).fetchone() == ("swept",)
     conn.close()
+
+
+def test_a_compute_steps_papers_run_as_worker_jobs_and_the_step_waits_for_them(tmp_path, monkeypatch) -> None:
+    """With a queue, a compute step's paper goes to the worker (``compute_job``) and the request
+    returns: the step shows its jobs queued and the run "computing · 0 of 2", until the worker's
+    ``passes.run_compute`` lands each paper and advances the run. A retry re-pends a compute job
+    without queueing it under the pass job, so advance dispatches it again."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from test_pipeline import _presets
+    from paperlens import worker
+    _force_local(monkeypatch)
+    fake = _Fake(); monkeypatch.setattr(providers, "generate_json", fake)
+    queued: list[tuple] = []
+    monkeypatch.setattr(worker, "enqueue", lambda task, *a, **k: (queued.append((task, a)) or f"job-{len(queued)}") if task == "compute_job" else None)
+    conn = records.connect(); records.init_db(conn)
+    pin, _graph = _presets(tmp_path, monkeypatch)
+    _chain_workflow(tmp_path, monkeypatch, pin)
+    sess = f"chainq-{uuid.uuid4().hex[:6]}"
+    run_spec = presets.resolve_run(conn, schema_id=pin, params={})
+    with conn.transaction():
+        records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
+    ds = records.create_dataset(conn, title="Demo chain (queued)", schema_id=pin, session_id=sess)["id"]; conn.commit()
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-chain"}).status_code == 200
+    pdfs = {"mu": _pdf("mu"), "nu": _pdf("nu")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    rid = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json()["id"]
+    for n, b in pdfs.items():                                    # the passes run inline (no queue for them here); the compute is queued
+        assert c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    s_by = {s["step_id"]: s for s in view["steps"]}
+    assert view["status"] == "running" and view["current_step"] == "assemble", (view["status"], view["current_step"])
+    assert s_by["assemble"]["status"] == "running" and s_by["assemble"]["jobs"]["queued"] == 2
+    assert view["now"]["phase"] == "computing" and view["now"]["done"] == 0 and view["now"]["total"] == 2
+    assert [q[0] for q in queued] == ["compute_job"] * 2 and {q[1][1] for q in queued} == {"assemble"} and {q[1][2] for q in queued} == {_sha(b) for b in pdfs.values()}
+    assert c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"] == []
+    # a second poll dispatches nothing twice
+    c.get(f"/api/workflow-runs/{rid}", headers=H)
+    assert len(queued) == 2
+    # the worker: one paper lands, the step still waits; the second lands, the step is done and the next compute is queued
+    r1 = passes.run_compute(conn, *queued[0][1])
+    assert r1["status"] == "done" and r1["error"] is None, r1
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["now"]["phase"] == "computing" and view["now"]["done"] == 1 and len(queued) == 2
+    assert passes.run_compute(conn, *queued[1][1])["status"] == "done"
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    s_by = {s["step_id"]: s for s in view["steps"]}
+    assert s_by["assemble"]["status"] == "done" and s_by["assemble"]["outputs"]["n_papers"] == 2
+    assert view["current_step"] == "mark" and s_by["mark"]["jobs"]["queued"] == 2 and len(queued) == 4 and queued[2][1][1] == "mark"
+    assert passes.run_compute(conn, *queued[2][1])["status"] == "done" and passes.run_compute(conn, *queued[3][1])["status"] == "done"
+    assert passes.run_compute(conn, *queued[3][1])["status"] == "skipped"              # a job already done is left alone
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    s_by = {s["step_id"]: s for s in view["steps"]}
+    assert s_by["mark"]["status"] == "done" and s_by["mark"]["outputs"]["edited_records"] >= 2
+    assert view["status"] == "done" and s_by["review"]["review"]["satisfied"] is False       # the review gate holds the release, as before
+    docs = c.get("/api/documents", headers=H, params={"dataset": ds}).json()["documents"]
+    assert len(docs) == 2
+    v = c.get(f"/api/documents/{docs[0]['document_id']}/view", headers=H).json()
+    assert v["chain"]["kind"] == "compute" and all(r["field_values"]["sign"] == "+" for r in v["records"])
+    # a retry of a failed paper: the compute job goes back to pending, not queued under the pass job
+    run = workflows.get_run(conn, rid)
+    sha = _sha(pdfs["mu"])
+    job = next(j for j in workflows.jobs(conn, rid, "mark") if j["pdf_sha256"] == sha)
+    with conn.transaction():
+        conn.execute("UPDATE workflow_job SET status = 'failed', error = 'x' WHERE id = %s::uuid", (job["id"],))
+        conn.execute("UPDATE workflow_run SET status = 'running' WHERE id = %s::uuid", (rid,))
+    monkeypatch.setattr(worker, "enqueue", lambda task, *a, **k: "pass-job-1")
+    out = passes.requeue_papers(conn, workflows.get_run(conn, rid), [job], api_key="k", model="m")
+    assert out["retried"] == [sha]
+    assert next(j for j in workflows.jobs(conn, rid, "mark") if j["pdf_sha256"] == sha)["status"] == "pending"
+    conn.close()
