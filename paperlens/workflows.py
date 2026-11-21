@@ -1424,13 +1424,40 @@ def _attach_document(conn, run: dict, step_id: str, job: dict, document_id: str)
     _set_job(conn, job["id"], status="done", document_id=document_id, error=None)
 
 
-def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete: bool) -> bool:
-    """A compute step: for every paper whose inputs are there (its page text, the outputs of the
-    passes it reads, the document it edits) the registered code runs here, free — a document
-    step persisting one document per paper through the ordinary path and then judged like an
-    extract step (``_advance_extract``: the barrier, the outputs, its gate), a fields step
-    writing through the audited edit path. A paper whose inputs failed fails its job."""
+def compute_paper(conn, run: dict, sr: dict, st: dict, job: dict) -> None:
+    """One paper of a compute step, free: a document step persists one document through the
+    ordinary path (quotes located, the contract checked) and attaches it to the step's dataset,
+    a fields step writes through the audited edit path and notes what it edited on the step-run.
+    The job row ends done or failed; the caller's transaction commits. Runs on the worker
+    (``compute_job``) or inline when there is no queue."""
     from . import passes
+    doc_step = bool(st.get("preset"))
+    _set_job(conn, job["id"], status="running", tries=int(job.get("tries") or 0) + 1, error=None)
+    try:
+        if doc_step:
+            res = passes.compute_document(conn, run, st, job["pdf_sha256"])
+            _attach_document(conn, run, sr["step_id"], job, res["document_id"])
+        else:
+            did = passes.document_of(conn, run["id"], st["edits"], job["pdf_sha256"])
+            res = passes.compute_fields(conn, run, st, job["pdf_sha256"], document_id=did)
+            _set_job(conn, job["id"], status="done", document_id=did, error=None)
+            sr_out = {**((get_step_run(conn, sr["id"]) or {}).get("outputs") or {})}
+            per = sr_out.setdefault("per_paper", {})
+            per[job["pdf_sha256"]] = {k: res[k] for k in ("edited_records", "edited_fields", "findings")}
+            _set_sr(conn, sr["id"], outputs=sr_out)
+    except Exception as exc:  # noqa: BLE001 - the job records it
+        _set_job(conn, job["id"], status="failed", error=str(exc)[:500])
+
+
+def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete: bool) -> bool:
+    """A compute step: every paper whose inputs are there (its page text, the outputs of the
+    passes it reads, the document it edits) goes to the worker as its own job (``compute_job``
+    → ``compute_paper``; inline when there is no queue), and this is the barrier — a document
+    step then judged like an extract step (``_advance_extract``: the outputs, its gate), a fields
+    step once every paper's job is terminal. Locating a long record's quotes in a long paper
+    takes minutes, which is why it never runs inside a request. A paper whose inputs failed
+    fails its job."""
+    from . import passes, worker
     js = jobs(conn, run["id"], sr["step_id"])
     staged = {p["pdf_sha256"]: p for p in passes.papers_of(conn, run["id"])}
     doc_step = bool(st.get("preset"))
@@ -1450,20 +1477,11 @@ def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete:
         did = passes.document_of(conn, run["id"], st["edits"], j["pdf_sha256"]) if not doc_step and st.get("edits") else None
         if not ready or (not doc_step and st.get("edits") and did is None):
             continue                                              # its inputs are not there yet: the barrier waits
-        _set_job(conn, j["id"], status="running", tries=int(j.get("tries") or 0) + 1, error=None)
-        try:
-            if doc_step:
-                res = passes.compute_document(conn, run, st, j["pdf_sha256"])
-                _attach_document(conn, run, sr["step_id"], j, res["document_id"])
-            else:
-                res = passes.compute_fields(conn, run, st, j["pdf_sha256"], document_id=did)
-                _set_job(conn, j["id"], status="done", document_id=did, error=None)
-                sr_out = {**(get_step_run(conn, sr["id"]) or {}).get("outputs", {})}
-                per = sr_out.setdefault("per_paper", {})
-                per[j["pdf_sha256"]] = {k: res[k] for k in ("edited_records", "edited_fields", "findings")}
-                _set_sr(conn, sr["id"], outputs=sr_out)
-        except Exception as exc:  # noqa: BLE001 - the job records it
-            _set_job(conn, j["id"], status="failed", error=str(exc)[:500])
+        job_id = worker.enqueue("compute_job", run["id"], sr["step_id"], j["pdf_sha256"], _expires=3600)
+        if job_id:
+            _set_job(conn, j["id"], status="queued", job_id=job_id)   # the worker runs it; the transaction around advance commits the row
+        else:
+            compute_paper(conn, run, sr, st, j)
     if doc_step:
         return _advance_extract(conn, run, sr, st, complete)
     js = jobs(conn, run["id"], sr["step_id"])

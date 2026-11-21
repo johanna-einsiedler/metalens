@@ -972,6 +972,16 @@ def _snippet_candidates(norm: str):
     cand = emit(norm)
     if cand: yield cand
 
+    # A table row transcribed with cell separators ("label | 83.4% | 86.3% | [-3.9, 9.7]"): the
+    # page's text layer has the cells one after another with no bar between them, so the row
+    # with its bars read as spaces is the candidate that matches — tried second, before the
+    # truncations and the word windows (which, with the bars in them, could never match and
+    # cost two page searches each).
+    if "|" in norm:
+        norm = re.sub(r"\s*\|\s*", " ", norm).strip()
+        cand = emit(norm)
+        if cand: yield cand
+
     # Strip leading "12. " / "12) " markers.
     stripped_lead = re.sub(r"^\s*\d+[.\)]\s+", "", norm)
     cand = emit(stripped_lead)

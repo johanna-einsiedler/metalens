@@ -1137,3 +1137,11 @@ a.ds-next-opt:hover { border-color: var(--accent); background: var(--accent-wash
 .wc-what { font-size: 13px; }
 .wc-help { font-size: 12.5px; }
 .wc-review { margin-top: 2px; }
+
+/* the "Upload papers with results" progress: one line per paper */
+.wf-upprog { margin: 6px 0 2px; font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; }
+.wf-upline { display: flex; gap: 8px; align-items: baseline; }
+.wf-upline .wf-upname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 18em; }
+.wf-upline .wf-upstate { color: var(--text-muted); }
+.wf-upline.done .wf-upstate { color: #2a7a3b; }
+.wf-upline.failed .wf-upstate { color: #b3261e; }

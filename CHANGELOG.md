@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A chain's assembly runs on the worker, and table-row quotes are found at once
+
+- **Fixed**: supplying the last pass output of a paper (the "Upload papers with results" button,
+  the seeder) ran the compute steps inside that request — the record assembled, its quotes
+  located, the checks and the routing — which for a 73-page paper with 568 quotes took five
+  minutes on a laptop and far longer on the server; the proxy cut the response, the browser
+  reported a failure, and every later poll of the run re-entered the same work under the run's
+  lock, so the run never moved. A compute step's papers now run as worker jobs (`compute_job`,
+  one per paper; inline when there is no queue) and the step waits for them; the run reads
+  "computing · n of m papers" meanwhile. A retry leaves a compute job pending for advance to
+  dispatch (it was queued under the pass job and never ran).
+- **Fixed**: a quote citing a table row as transcribed (`label | 83.4% | 86.3% | …`) never
+  matched the page's text layer, and every truncation and word window of it (bars included)
+  failed too, two page searches each: about 230 searches per quote. The row with its bars read
+  as spaces is now the second candidate, so such a quote is found in a few searches; the slow
+  paper's quotes are located in 14 seconds instead of 5 minutes.
+- The "Upload papers with results" button shows a progress line per paper (staging, each
+  output supplied, done — or the error, the other papers going on), then hands over to the
+  run's panel.
+
 ### The chain follows the project's taxonomy of 20 November 2026
 
 - The review project amended its taxonomy (schema 9c7787dd92): `research_design` gains

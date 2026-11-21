@@ -716,6 +716,31 @@ def compute_fields(conn, run: dict, st: dict, pdf_sha256: str, *, document_id: s
     return {"edited_records": n_records, "edited_fields": n_fields, "findings": n_found, "log": ctx.log_lines}
 
 
+
+def run_compute(conn, run_id: str, step_id: str, pdf_sha256: str, *, advance_run: bool = True) -> dict:
+    """One paper of a compute step as the worker runs it (``compute_job``): the job row's
+    paper through ``workflows.compute_paper`` (done or failed), committed, then the run
+    advances — a step whose every paper landed goes on. A job no longer pending or queued
+    (the run cancelled, the paper already made) is left alone."""
+    from . import workflows
+    from . import workflow_spec as ws
+    run = workflows.get_run(conn, run_id)
+    if run is None:
+        raise LookupError("Run not found.")
+    sr = next((x for x in workflows.step_runs(conn, run_id) if x["step_id"] == step_id), None)
+    st = ws.steps_by_id(run["workflow"]).get(step_id)
+    job = next((j for j in workflows.jobs(conn, run_id, step_id) if j["pdf_sha256"] == pdf_sha256), None)
+    if sr is None or st is None or st.get("kind") != "compute" or job is None:
+        return {"status": "skipped", "why": "not a compute job of this run"}
+    if run["status"] in workflows.TERMINAL or job["status"] not in ("pending", "queued"):
+        return {"status": "skipped", "why": f"run {run['status']}, job {job['status']}"}
+    with conn.transaction():                                   # the job row and the document land together, before the run is advanced
+        workflows.compute_paper(conn, run, sr, st, job)
+    if advance_run:
+        workflows.advance(conn, run_id)
+    job = next(j for j in workflows.jobs(conn, run_id, step_id) if j["pdf_sha256"] == pdf_sha256)
+    return {"status": job["status"], "error": job.get("error")}
+
 # ── retries ─────────────────────────────────────────────────────────
 
 def requeue_papers(conn, run: dict, job_rows: list[dict], *, api_key: str | None = None, base_url: str | None = None,
@@ -760,6 +785,8 @@ def requeue_papers(conn, run: dict, job_rows: list[dict], *, api_key: str | None
         job_id = worker.enqueue("pass_job", run["id"], sha, api_key=api_key or "", base_url=base_url, model=model or None, _expires=3600)
         if job_id:
             for sid in chain_steps:
+                if by_id[sid].get("kind") != "pass":
+                    continue                                       # a compute step's job stays pending: advance dispatches it when its inputs are there
                 job = next((x for x in workflows.jobs(conn, run["id"], sid) if x["pdf_sha256"] == sha and x["status"] == "pending"), None)
                 if job:
                     workflows.mark_queued(conn, job["id"], job_id)
