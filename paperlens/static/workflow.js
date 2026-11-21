@@ -81,12 +81,21 @@ function checksHtml(c) {
 
 function badge(cr) { cr = cr || {}; return `<span class="badge tier-${esc(cr.tier || "ai_only")}" title="${esc(cr.label_long || "")}">${esc(cr.label || "")}</span>`; }
 
+// the stamp: what the reviews with a purpose recorded when their gates closed (validation rows), at the newest preset version
+function stampHtml(st, title) {
+  if (!st) return "";
+  const models = (st.models || []).length ? ` · ${st.models.map(esc).join(", ")}` : "";
+  return `<p class="pc-stamp${st.lapsed ? " lapsed" : ""}" title="${st.lapsed ? "recorded at an earlier version of the preset; an audit at the current version renews it" : "recorded at the current version"}">` +
+    `<b>${esc(title || "Stamp")}:</b> ${esc(st.label || "")}${models}${st.coders ? ` · ${st.coders} coders per paper` : ""}</p>`;
+}
 function verificationLive(c) {
   const v = c.verification || {};
-  if (!v.n_datasets) return `<p class="muted">No public dataset declares this workflow yet.</p>`;
+  const steps = (c.stamps || {}).steps || {};
+  const stamp = Object.keys(steps).map((sid) => stampHtml(steps[sid], `Stamp · ${sid}`)).join("");
+  if (!v.n_datasets) return stamp + `<p class="muted">No public dataset declares this workflow yet.</p>`;
   const stat = (num, lbl) => `<div class="stat"><div class="stat-num">${esc(String(num))}</div><div class="stat-lbl">${lbl}</div></div>`;
   const smp = v.sample;
-  return `<div class="ds-stats">${stat(v.n_datasets, "public datasets")}${stat(v.n_papers, "papers")}${stat(v.n_records, "records")}${stat(v.audited, "checked by a person")}${stat(pct(v.agreement), "agreed with the extraction")}
+  return stamp + `<div class="ds-stats">${stat(v.n_datasets, "public datasets")}${stat(v.n_papers, "papers")}${stat(v.n_records, "records")}${stat(v.audited, "checked by a person")}${stat(pct(v.agreement), "agreed with the extraction")}
       ${smp ? stat(`${smp.drawn}/${smp.frame}`, "drawn at random") : ""}<div class="stat"><div class="stat-num small">${badge(v)}</div><div class="stat-lbl">${v.agreement_ci ? `95% CI ${pct(v.agreement_ci[0])}–${pct(v.agreement_ci[1])}` : "under the dataset badge rule"}</div></div></div>
     ${v.label_long ? `<p class="muted" style="font-size:12.5px;margin:4px 0 8px">${esc(v.label_long)}</p>` : ""}
     <table class="ds-cc"><thead><tr><th>Dataset</th><th>Papers</th><th>Records</th><th>Badge</th><th>Last run</th><th>Latest release</th></tr></thead><tbody>

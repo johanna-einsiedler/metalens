@@ -650,6 +650,7 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
     facts_by_step: dict[str, dict] = {}
     consumed = consumed_steps(spec)
     by_id = ws.steps_by_id(spec)
+    stamps: dict | None = None                               # validation rows per review step, read once
     for st in spec.get("steps") or []:
         sid, kind = st["id"], st["kind"]
         item: dict = {"id": sid, "kind": kind, "label": st.get("label") or sid, "state": "fresh", "because": [], "n_calls": 0}
@@ -821,6 +822,13 @@ def step_states(conn, dataset_id: str, spec: dict, *, who=None, new_pdfs=None, r
         elif kind == "review":
             item["over"] = list(st.get("over") or [])
             item["dataset_ids"] = [ds_of[o] for o in item["over"] if o in ds_of]
+            if st.get("purpose"):                               # what it is for, and the stamp's record it last wrote here
+                from . import validation
+                item["purpose"] = st["purpose"]
+                if stamps is None:
+                    stamps = validation.latest_by_step(conn, dataset_id)
+                if stamps.get(sid):
+                    item["validation"] = stamps[sid]
             draft_of = next((o for o in item["over"] if (by_id.get(o) or {}).get("kind") in ws.DRAFT_KINDS), None)
             if draft_of:
                 item["draft_of"] = draft_of; item["dataset_id"] = ds_of.get(draft_of, dataset_id)
@@ -1537,6 +1545,16 @@ def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
         if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
             _set_sr(conn, sr["id"], status="awaiting_review")
         return
+    if rv.get("purpose") == "adjudicate":                 # the units the earlier coders disagreed on, settled by a further verdict
+        rec_ids, doc_ids, settles = _disagreements(conn, run, srs, by_id, st)
+        outputs = {"document_ids": doc_ids, "n_documents": len(doc_ids), "over": over, "whole": False, "datasets": datasets,
+                   "settles": settles, "n_records": len(rec_ids)}
+        _set_sr(conn, sr["id"], status="done", outputs=outputs, finished_at=_now(), inputs=basis(conn, run["dataset_id"]))
+        sr = get_step_run(conn, sr["id"])
+        header = review_gate.open_gate(conn, sr, st, record_ids=rec_ids)
+        if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
+            _set_sr(conn, sr["id"], status="awaiting_review")
+        return
     doc_ids: list[str] = []
     for o in over:
         for did in ((srs.get(o) or {}).get("outputs") or {}).get("document_ids") or []:
@@ -1562,6 +1580,32 @@ def _advance_review(conn, run: dict, sr: dict, st: dict) -> None:
     header = review_gate.open_gate(conn, sr, st)
     if header["mode"] != "none" and header["blocks"] == "next" and not review_gate.state(conn, get_step_run(conn, sr["id"]))["satisfied"]:
         _set_sr(conn, sr["id"], status="awaiting_review")
+
+
+def _disagreements(conn, run: dict, srs: dict, by_id: dict, st: dict) -> tuple[list[str], list[str], list[str]]:
+    """For an adjudication: the records of this run's earlier coders' reviews (the same ``over``,
+    two or more coders) on which the coders answered unalike — one took the model's value, another
+    flagged it or changed it — in the order those reviews list them, with their documents."""
+    over = set(st.get("over") or [])
+    priors = [x["id"] for x in (run.get("workflow") or {}).get("steps") or [] if isinstance(x, dict) and x.get("kind") == "review"
+              and x.get("id") != st.get("id") and set(x.get("over") or []) & over and isinstance(x.get("coders"), int) and x["coders"] >= 2]
+    rec_ids: list[str] = []; doc_ids: list[str] = []
+    for pid in priors:
+        psr = srs.get(pid)
+        if psr is None:
+            continue
+        seen: dict[str, dict] = {}
+        for it in review_gate.items(conn, psr):
+            if not it.get("coder_user_id") or not it.get("checked"):
+                continue
+            u = seen.setdefault(it["record_id"], {"document_id": it.get("document_id"), "answers": set()})
+            u["answers"].add(bool(it.get("disagreed")))
+        for rid, u in seen.items():
+            if len(u["answers"]) > 1 and rid not in rec_ids:
+                rec_ids.append(rid)
+                if u["document_id"] and u["document_id"] not in doc_ids:
+                    doc_ids.append(u["document_id"])
+    return rec_ids, doc_ids, priors
 
 
 def _refund_failed(conn, run: dict, js: list[dict]) -> int:

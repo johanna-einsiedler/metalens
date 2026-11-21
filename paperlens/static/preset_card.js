@@ -185,11 +185,19 @@ function renderFieldDocs(doc) {
 
 // ── verification: the live roll-up over the public datasets built with the preset ──────────
 const badge = (cred) => `<span class="badge tier-${esc((cred || {}).tier || "ai_only")}">${esc((cred || {}).label || "")}</span>`;
+// the stamp: what the reviews with a purpose recorded when their gates closed (validation rows), at the newest preset version
+function stampHtml(st, title) {
+  if (!st) return "";
+  const models = (st.models || []).length ? ` · ${st.models.map(esc).join(", ")}` : "";
+  return `<p class="pc-stamp${st.lapsed ? " lapsed" : ""}" title="${st.lapsed ? "recorded at an earlier version of the preset; an audit at the current version renews it" : "recorded at the current version"}">` +
+    `<b>${esc(title || "Stamp")}:</b> ${esc(st.label || "")}${models}${st.coders ? ` · ${st.coders} coders per paper` : ""}</p>`;
+}
 function verificationLive(c) {
   const v = c.verification || {};
   const stat = (num, lbl) => `<div class="stat"><div class="stat-num">${esc(String(num))}</div><div class="stat-lbl">${lbl}</div></div>`;
-  if (!v.n_datasets) return "";                       // nothing to roll up yet: the block appears with the first public dataset
-  return `<h3 class="pc-section-h">On this server</h3>
+  const stamp = stampHtml(c.stamp && c.stamp.stamp);
+  if (!v.n_datasets) return stamp;                    // nothing to roll up yet: the block appears with the first public dataset
+  return stamp + `<h3 class="pc-section-h">On this server</h3>
     <div class="ds-stats">${stat(v.n_datasets, n(v.n_datasets, "public dataset").replace(/^\d+ /, ""))}${stat(v.n_papers, "papers")}${stat(v.n_records, "records")}${stat(v.audited, "checked by a person")}${stat(pct(v.agreement), "agreed with the model")}
       <div class="stat"><div class="stat-num small">${badge(v)}</div><div class="stat-lbl">${v.agreement_ci ? `95% CI ${pct(v.agreement_ci[0])}–${pct(v.agreement_ci[1])}` : "under the dataset badge rule"}</div></div></div>
     <table class="ds-cc"><thead><tr><th>Dataset</th><th>Papers</th><th>Records</th><th>Checked</th><th>Agreed</th><th>Badge</th><th>Latest release</th></tr></thead><tbody>

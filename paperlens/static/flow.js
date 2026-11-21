@@ -77,7 +77,8 @@ export function flowSvg(steps, opts = {}) {
     const p = pos[s.id];
     const label = String(s.label || s.id);
     const short = label.length > 22 ? label.slice(0, 21).trimEnd() + "…" : label;
-    const extra = s.kind === "pass" && (s.k || 1) > 1 ? ` ×${s.k}` : s.kind === "review" && s.review && s.review.coders ? ` · ${s.review.coders} coder${s.review.coders === 1 ? "" : "s"}` : "";
+    const rv = s.kind === "review" ? (s.review || {}) : null;
+    const extra = s.kind === "pass" && (s.k || 1) > 1 ? ` ×${s.k}` : rv ? `${rv.purpose || s.purpose ? ` · ${rv.purpose || s.purpose}` : ""}${rv.coders ? ` · ${rv.coders} coder${rv.coders === 1 ? "" : "s"}` : ""}` : "";
     const tip = [label, s.kind + (s.k > 1 ? `, ${s.k} readings` : ""), s.state ? `state: ${s.state}` : "", s.help || ""].filter(Boolean).join("\n");
     const inner = `<rect class="flow-box flow-kind-${esc(s.kind)}${s.id === opts.current ? " flow-current" : ""}" x="${p.x}" y="${p.y}" width="${BOX_W}" height="${BOX_H}" rx="7"/>
       <text class="flow-icon" x="${p.x + 10}" y="${p.y + 25}">${esc(KIND_ICON[s.kind] || "·")}</text>
