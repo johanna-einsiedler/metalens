@@ -1145,3 +1145,9 @@ a.ds-next-opt:hover { border-color: var(--accent); background: var(--accent-wash
 .wf-upline .wf-upstate { color: var(--text-muted); }
 .wf-upline.done .wf-upstate { color: #2a7a3b; }
 .wf-upline.failed .wf-upstate { color: #b3261e; }
+
+/* a review step's purpose (audit · routed · monitor · calibrate · adjudicate) and the stamp's record it wrote */
+.wf-purpose { background: var(--accent-wash); color: var(--accent); }
+.wf-stamp { font-size: 12px; }
+.pc-stamp { font-size: 13px; margin: 0 0 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--success-bg); }
+.pc-stamp.lapsed { background: var(--override-bg); }

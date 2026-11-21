@@ -22,6 +22,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from . import analysis_table, records
+from . import validation
 
 FORMAT = 1
 _CACHE: dict[str, dict] = {}          # release id → parsed snapshot (releases are immutable)
@@ -259,6 +260,7 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
     old_docs = {r["doc"] for r in (last["snapshot"]["records"] if last else [])}
     unverified = [r for r in snap["records"] if r.get("status") not in ("verified",)]
     cred = records.dataset_credibility(conn, dataset_id)
+    cred["validations"] = validation.for_dataset(conn, dataset_id)
     from . import workflows
     gate = workflows.gate_report(conn, dataset_id)
     return {"changed": changed_since(conn, dataset_id, last), "next_number": _next_number(conn, dataset_id, last),
@@ -271,7 +273,7 @@ def pending(conn: psycopg.Connection, dataset_id: str) -> dict:
                          **_vocabulary_warnings(conn, dataset_id, snap.get("vocabularies")),
                          **({"check_findings": snap["findings"]["n"]} if snap.get("findings") else {}),
                          **({"derived_units": len(snap["derived"])} if snap.get("derived") else {})},
-            "credibility": {k: cred.get(k) for k in ("tier", "label", "label_long", "audited", "agreed", "n_records", "sample", "checks") if cred.get(k) is not None}}
+            "credibility": {k: cred.get(k) for k in ("tier", "label", "label_long", "audited", "agreed", "n_records", "sample", "checks", "validations") if cred.get(k) is not None}}
 
 
 def _crosscheck_warnings(now: dict | None, before: dict | None) -> dict:
@@ -335,6 +337,7 @@ def create(conn: psycopg.Connection, dataset_id: str, *, reason: str = "manual",
         last = latest(conn, dataset_id, with_snapshot=True)
         number = _next_number(conn, dataset_id, last)
         cred = records.dataset_credibility(conn, dataset_id)
+        cred["validations"] = validation.for_dataset(conn, dataset_id)      # the stamps' records, frozen with the badge
         changes = diff_snapshots(last["snapshot"] if last else None, snap)
         rid = str(uuid.uuid4())
         conn.execute(

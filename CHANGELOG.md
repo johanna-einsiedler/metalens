@@ -28,6 +28,23 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   output supplied, done — or the error, the other papers going on), then hands over to the
   run's panel.
 
+### Review purposes, and the stamp a preset earns
+
+- A review step may say what it is for: `purpose: audit | routed | monitor | calibrate | adjudicate`
+  (`docs/WORKFLOWS.md`, "Review purposes and the stamp"). The purpose is not part of the contract —
+  the bundled workflows' review steps now carry one and keep their ids — but it sets and checks
+  what the step must say: a routed review names its `where`; a monitor is a sample of the run's new
+  papers that holds nothing (`blocks: none`, a new value, kept out of the release gate); a
+  calibration has two or more coders (and should be blind); an adjudication settles the units an
+  earlier coders' review disagreed on (that review holds the run with `blocks: next`), each by a
+  further verdict — a new draw, `record_ids` of the disagreements.
+- **The stamp.** When an audit, monitor or calibrate gate first closes, a `validation` row per
+  dataset records the preset pin, the model, the workflow contract, the papers and units checked,
+  the agreement with its Wilson interval and, with two or more coders, how often the coders
+  answered alike. The preset card shows the rows at its newest pin as its stamp (lapsed when the
+  preset moved on), the workflow card one per review step, the dataset page's Workflow card the
+  row each review last wrote, and a release freezes the dataset's rows with its badge.
+
 ### The chain follows the project's taxonomy of 20 November 2026
 
 - The review project amended its taxonomy (schema 9c7787dd92): `research_design` gains

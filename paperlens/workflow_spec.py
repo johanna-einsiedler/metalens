@@ -41,8 +41,9 @@ REVIEWED_KINDS = ("extract", "derive", "vocabulary", "pages", "agent", "review",
 DRAFT_KINDS = ("derive", "vocabulary", "pages")        # steps whose output is a draft a person commits
 REVIEW_MODES = ("none", "all", "sample")
 REVIEW_UNITS = ("entry", "paper", "row")      # row: a paper table's rows (a later release)
-BLOCKS = ("next", "release")
+BLOCKS = ("next", "release", "none")   # none: the gate holds nothing (a monitor)
 SOURCES = ("live", "supplied")
+PURPOSES = ("audit", "routed", "monitor", "calibrate", "adjudicate")   # what a review step is for; the stamp reads it, the contract does not
 MAX_K = 5
 MAX_LOOP = 3
 PIN_RE = re.compile(r"^([a-z][a-z0-9-]{1,63})@([0-9a-f]{8})$")
@@ -50,7 +51,7 @@ PASS_PIN_RE = re.compile(r"^([a-z_][a-z0-9_]*\.[a-z][a-z0-9_]*)@([0-9a-f]{8})$")
 UPDATE_KINDS = ("vocabulary", "pages", "crosscheck")   # the preset-level update steps, as workflow kinds
 LATER = {"agent": "agent steps arrive in a later release"}
 REVIEW_KEYS = ("mode", "unit", "n", "share", "seed", "stratify", "blocks", "oversample_flagged", "coders")   # the attribute form's keys
-REVIEW_STEP_KEYS = REVIEW_KEYS + ("template", "where", "new_only", "table", "per_paper")                     # …and what only a step may say
+REVIEW_STEP_KEYS = REVIEW_KEYS + ("template", "where", "new_only", "table", "per_paper", "purpose")          # …and what only a step may say
 
 _ALLOWED_KEYS = {
     "root": {"format", "id", "version", "meta", "card", "dataset", "steps", "implicit"},
@@ -222,11 +223,12 @@ def normalize(doc: dict, base_dir: Path | None = None) -> dict:
             over = st.get("over") if isinstance(st.get("over"), list) else []
             st.setdefault("mode", "all")
             st.setdefault("unit", "entry" if any((by_id.get(o) or {}).get("kind") in DRAFT_KINDS for o in over if isinstance(o, str)) else "paper")
-            st.setdefault("blocks", "release")
+            st.setdefault("blocks", "none" if st.get("purpose") == "monitor" else "release")   # a monitor holds nothing
             st.setdefault("oversample_flagged", False)
     if not any(isinstance(st, dict) and st.get("kind") == "release" for st in steps):
         steps.append({"id": "release", "kind": "release", "label": "Release",
-                      "gate": [st["id"] for st in steps if isinstance(st, dict) and st.get("kind") in GATE_KINDS and isinstance(st.get("id"), str)]})
+                      "gate": [st["id"] for st in steps if isinstance(st, dict) and st.get("kind") in GATE_KINDS and isinstance(st.get("id"), str)
+                               and not (st.get("kind") == "review" and st.get("blocks") == "none")]})
     return spec
 
 
@@ -382,6 +384,8 @@ def validate(spec: dict, *, resolver: Callable[[str], dict | None] | None = None
                 for g in gate:
                     if g not in by_id or by_id[g].get("kind") not in GATE_KINDS:
                         E(f"{at}.gate: {g!r} is not an earlier extract, derive or review step")
+                    elif by_id[g].get("kind") == "review" and by_id[g].get("blocks") == "none":
+                        E(f"{at}.gate: {g!r} never holds the release (blocks: none); leave it out of the gate")
         if kind in REVIEWED_KINDS and kind != "review" and st.get("review") is not None:      # the drafts of the update steps
             _validate_review(st.get("review"), st, presets_of.get(sid) if sid else None, f"{at}.review", E, W)
     rel = [st for st in steps if isinstance(st, dict) and st.get("kind") == "release"]
@@ -861,7 +865,7 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
         fields = cols if unit == "row" else (templates.unit_fields(pspec0, "paper", None) if pspec0 else {})
         templates._validate_where(where, fields, pspec0, f"{at}.where", E)   # noqa: SLF001 - one grammar for steps, blocks and the sampler
     if st.get("blocks") not in BLOCKS:
-        E(f"{at}.blocks must be 'next' or 'release'")
+        E(f"{at}.blocks must be 'next', 'release' or 'none'")
     if not isinstance(st.get("oversample_flagged", False), bool):
         E(f"{at}.oversample_flagged must be a boolean")
     if not isinstance(st.get("new_only", True), bool):
@@ -878,6 +882,7 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
             E(f"{at}.coders must be an integer ≥ 1 (how many coders each paper gets)")
         elif draft:
             E(f"{at}.coders: a draft is committed by the owner, not coded")
+    _validate_purpose(st, at, E, W, mode=mode, coders=coders, over=over, earlier=earlier, by_id=by_id)
     if mode != "sample":
         for k in ("n", "share", "seed", "stratify"):
             if st.get(k) is not None:
@@ -912,9 +917,55 @@ def _validate_review_step(st, at, E, W, *, earlier, by_id, presets_of) -> None:
                         E(f"{at}.stratify: {x!r} is not a {'column of the table' if unit == 'row' else 'paper-level' if unit == 'paper' else 'scalar entry'} field of the preset of {o!r}")
 
 
+
+def _validate_purpose(st, at, E, W, *, mode, coders, over, earlier, by_id) -> None:
+    """What a review step is for. ``audit``: a first look at a model step, its agreement feeds
+    the stamp. ``routed``: the papers a rule sends on (``where``); never stamped. ``monitor``: a
+    draw of each run's new papers that extends the stamp and holds nothing. ``calibrate``: two or
+    more coders on the same units, so the coders' own agreement is known. ``adjudicate``: the
+    units an earlier coders' review disagreed on, settled by a further verdict."""
+    purpose = st.get("purpose")
+    if purpose is None:
+        return
+    if purpose not in PURPOSES:
+        E(f"{at}.purpose must be one of {', '.join(PURPOSES)}"); return
+    if purpose == "routed":
+        if st.get("where") is None:
+            E(f"{at}.purpose routed: say in `where` which papers are sent to this review")
+    elif purpose == "monitor":
+        if mode != "sample":
+            E(f"{at}.purpose monitor: a monitor draws a sample of each run's new papers (mode 'sample')")
+        if st.get("new_only", True) is False:
+            E(f"{at}.purpose monitor: a monitor reads the run's new papers (new_only: true)")
+        if st.get("blocks") != "none":
+            E(f"{at}.purpose monitor: a monitor never holds the run or the release (blocks: none)")
+    elif purpose == "calibrate":
+        if not (isinstance(coders, int) and not isinstance(coders, bool) and coders >= 2):
+            E(f"{at}.purpose calibrate: two or more coders per paper measure the coders' own agreement")
+        tpl_id = st.get("template")
+        blind = None
+        if isinstance(tpl_id, str):
+            from . import templates
+            tpl = templates.get(tpl_id)
+            blind = (tpl or {}).get("blind") if isinstance(tpl, dict) else None
+        if not (isinstance(blind, dict) and (blind.get("fields") or blind.get("paper_fields"))):
+            W(f"{at}.purpose calibrate: the coders see the model's values; a calibration is usually blind (a template with `blind`)")
+    elif purpose == "adjudicate":
+        priors = [by_id[e] for e in earlier if isinstance(by_id.get(e), dict) and by_id[e].get("kind") == "review"
+                  and set(by_id[e].get("over") or []) & set(over) and isinstance(by_id[e].get("coders"), int) and by_id[e]["coders"] >= 2]
+        if not priors:
+            E(f"{at}.purpose adjudicate: needs an earlier review of the same step by two or more coders, whose disagreements it settles")
+        elif not any(p.get("blocks") == "next" for p in priors):
+            E(f"{at}.purpose adjudicate: the review it settles must hold the run (blocks: next), so its disagreements are known when this step opens")
+        if mode != "all":
+            E(f"{at}.purpose adjudicate: every disagreement is settled (mode 'all')")
+    elif st.get("blocks") == "none":
+        W(f"{at}.purpose audit: an audit that holds nothing (blocks: none) stamps the preset but never waits for anyone")
+
+
 # ── identity ──────────────────────────────────────────────────────────────────
 
-_WORDING = ("label", "help", "asks")                         # asks: what the review shows, not what it promises
+_WORDING = ("label", "help", "asks", "purpose")              # asks: what the review shows, not what it promises; purpose: what the stamp reads
 
 
 _NONE_REVIEW = {"mode": "none", "unit": "entry", "blocks": "release", "oversample_flagged": False}
@@ -924,6 +975,8 @@ def _review_declared(key: str, value) -> bool:
     """Whether a review step's key enters the contract: the defaults never do."""
     if key == "new_only":
         return value is False
+    if key == "purpose":                                     # what the stamp reads, not what the workflow promises
+        return False
     return value is not None
 
 

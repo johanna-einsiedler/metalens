@@ -23,6 +23,7 @@ assigns as soon as the owner has added enough.
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import random
 import uuid
@@ -33,6 +34,7 @@ from psycopg.types.json import Json
 
 from . import workflow_spec as ws
 
+_log = logging.getLogger("paperlens")
 VERDICTS = ("verified", "flagged")
 
 
@@ -231,6 +233,10 @@ def open_gate(conn: psycopg.Connection, step_run: dict, step: dict, *, record_id
     header = {"mode": rv.get("mode", "none"), "unit": rv.get("unit", "entry"), "blocks": rv.get("blocks", "release"),
               "opened_at": _now(), "document_ids": docs, "satisfied_at": None, "overridden_by": None,
               **({"record_ids": list(record_ids)} if record_ids is not None else {})}
+    if rv.get("purpose"):                                             # what the review is for: the stamp reads it when the gate closes
+        header["purpose"] = rv["purpose"]
+        if rv["purpose"] == "adjudicate":                             # only verdicts given after it opened count: the earlier coders' stand
+            header["drawn_at"] = header["opened_at"]
     if header["mode"] == "none":
         header["satisfied_at"] = header["opened_at"]
     elif header["unit"] == "row":                                 # the rows of a paper table: every one that meets where, or per_paper of them
@@ -350,10 +356,16 @@ def _assign(conn, step_run: dict, header: dict) -> None:
         header["assigned"] = False; header["needs_coders"] = n_want; header["n_coders"] = len(pool)
         return
     docs = _gate_documents(conn, step_run, header)
+    taken: dict[str, set] = {}                                      # an adjudication goes to coders who did not code the paper in this run
+    if header.get("purpose") == "adjudicate" and docs:
+        for did, uid in conn.execute("SELECT document_id::text, coder_user_id::text FROM workflow_assignment WHERE run_id = %s::uuid AND step_run_id <> %s::uuid",
+                                     (step_run["run_id"], step_run["id"])).fetchall():
+            taken.setdefault(did, set()).add(uid)
     rows = []
     for i, did in enumerate(docs):
+        fresh = [c for c in pool if c["user_id"] not in taken.get(did, ())] or pool
         for j in range(n_want):
-            c = pool[(i + j) % len(pool)]
+            c = fresh[(i + j) % len(fresh)]
             rows.append((str(uuid.uuid4()), step_run["run_id"], step_run["id"], step_run["step_id"], did, c["user_id"], i * n_want + j))
     with conn.transaction():
         conn.execute("DELETE FROM workflow_assignment WHERE step_run_id = %s::uuid", (step_run["id"],))
@@ -453,7 +465,7 @@ def _with_coders(conn, step_run: dict, header: dict, base: list[dict]) -> list[d
     ds = _run_dataset(conn, step_run["run_id"])
     labels = _coders.labels_for(conn, ds) if ds else {}
     rec_ids = [it["record_id"] for it in base]
-    sample = header.get("mode") == "sample"
+    sample = header.get("mode") == "sample" or bool(header.get("drawn_at"))   # a draw, or an adjudication: the verdicts after it opened
     cod = _codings(conn, rec_ids) if not sample else {}
     evs = _coding_events(conn, rec_ids) if sample else {}
     when = _drawn_at(header) if sample else None
@@ -588,6 +600,12 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
         header["satisfied_at"] = _now()
         conn.execute("UPDATE workflow_step_run SET review = %s WHERE id = %s::uuid", (Json(header), step_run["id"]))
         step_run["review"] = header
+        if header.get("purpose"):                                     # the gate closed: the stamp's record (audit, monitor, calibrate)
+            from . import validation
+            try:
+                validation.record_from_gate(conn, step_run, header, its)
+            except Exception:  # noqa: BLE001 - a view never fails over the record; the gate's own state stands
+                _log.exception("validation: could not record the closed gate %s", step_run.get("id"))
     out = {"mode": mode, "blocks": header.get("blocks", "release"), "unit": header.get("unit", "entry"), "total": len(its), "checked": checked,
            "pending": pending, "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "satisfied": satisfied,
            "satisfied_at": header.get("satisfied_at"), "overridden_by": header.get("overridden_by"),

@@ -963,3 +963,34 @@ ALTER TABLE workflow_finding ADD COLUMN IF NOT EXISTS pdf_sha256 text;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS year integer;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS authors jsonb;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS peer_reviewed text;
+
+-- ── validation: the record behind a stamp — a review step with a purpose closed its gate ────
+CREATE TABLE IF NOT EXISTS validation (
+    id              uuid PRIMARY KEY,
+    run_id          uuid,                       -- the run; kept when the run is deleted, the stamp outlives it
+    step_run_id     uuid NOT NULL,
+    step_id         text NOT NULL,
+    purpose         text NOT NULL,              -- audit | monitor | calibrate
+    dataset_id      uuid,
+    workflow_id     text,                       -- the workflow contract the run followed (id@sha8)
+    schema_id       text,                       -- the preset pin the units were made under
+    model           text,
+    unit            text,                       -- entry | paper | row
+    n_papers        integer NOT NULL DEFAULT 0,
+    n_units         integer NOT NULL DEFAULT 0,
+    n_checked       integer NOT NULL DEFAULT 0,
+    n_disagreed     integer NOT NULL DEFAULT 0,
+    agreement       double precision,
+    agreement_ci    jsonb,
+    n_coders        integer,
+    human_agreement double precision,           -- two or more coders: how often they answered alike
+    human_n         integer,
+    asks            jsonb,                      -- the fields the review asked about (the step's `asks`), when it said
+    template_id     text,
+    sampled         boolean NOT NULL DEFAULT false,
+    frame_n         integer,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (step_run_id, dataset_id)
+);
+CREATE INDEX IF NOT EXISTS validation_schema_idx ON validation (schema_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS validation_dataset_idx ON validation (dataset_id, created_at DESC);

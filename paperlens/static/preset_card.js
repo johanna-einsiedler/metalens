@@ -96,7 +96,7 @@ function render() {
     <section id="how"><h2>How it extracts</h2>${md((sections["how-it-extracts"] || {}).body)}${howGenerated(c)}</section>
     ${iface ? `<section id="interface"><h2>${esc(iface.title)}</h2>${md(iface.body)}<p class="pc-use"><a class="btn btn-primary btn-sm" href="${useHref}">${c.mode === "import" ? "Import into this schema" : "Use this preset"}</a></p></section>` : ""}
     <section id="fields"><h2>Fields</h2><p class="muted" style="margin:0 0 8px">Generated from the declaration (<code>${esc(c.schema_id)}</code>): every value this preset extracts, with its type, whether it is required, the evidence policy and the confidence group.</p>${renderFieldDocs(c.fields_doc)}${schemaFold(c)}</section>
-    <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
+    <section id="verification"><h2>Verification</h2>${stampHtml(c.stamp && c.stamp.stamp)}${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${usedBy(c)}</section>
     <section id="models"><h2>Models</h2>${models(c)}</section>
@@ -185,6 +185,13 @@ function renderFieldDocs(doc) {
 
 // ── verification: the live roll-up over the public datasets built with the preset ──────────
 const badge = (cred) => `<span class="badge tier-${esc((cred || {}).tier || "ai_only")}">${esc((cred || {}).label || "")}</span>`;
+// the stamp: what the reviews with a purpose recorded when their gates closed (validation rows), at the newest preset version
+function stampHtml(st, title) {
+  if (!st) return "";
+  const models = (st.models || []).length ? ` · ${st.models.map(esc).join(", ")}` : "";
+  return `<p class="pc-stamp${st.lapsed ? " lapsed" : ""}" title="${st.lapsed ? "recorded at an earlier version of the preset; an audit at the current version renews it" : "recorded at the current version"}">` +
+    `<b>${esc(title || "Stamp")}:</b> ${esc(st.label || "")}${models}${st.coders ? ` · ${st.coders} coders per paper` : ""}</p>`;
+}
 function verificationLive(c) {
   const v = c.verification || {};
   const stat = (num, lbl) => `<div class="stat"><div class="stat-num">${esc(String(num))}</div><div class="stat-lbl">${lbl}</div></div>`;

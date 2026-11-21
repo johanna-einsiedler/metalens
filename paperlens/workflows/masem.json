@@ -66,6 +66,7 @@
     {
       "id": "review",
       "kind": "review",
+      "purpose": "audit",
       "label": "Review",
       "over": [
         "extract"
