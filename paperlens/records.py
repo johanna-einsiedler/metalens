@@ -37,16 +37,6 @@ def dsn() -> str:
     return os.environ.get("PAPERLENS_DATABASE_URL", "dbname=paperlens")
 
 
-def connect() -> psycopg.Connection:
-    # Autocommit + explicit `with conn.transaction()` for writes. This avoids the
-    # footgun where an earlier SELECT (e.g. the principal dependency resolving a
-    # session) opens a read transaction, causing a later `with conn.transaction()`
-    # to nest as a savepoint that's rolled back when the connection closes. In
-    # autocommit mode, reads commit individually and transaction() issues a real
-    # BEGIN/COMMIT around each write block.
-    return psycopg.connect(dsn(), autocommit=True)
-
-
 # ── request connection pool ───────────────────────────────────────────────────
 # Opening a connection to a managed Postgres is TCP + TLS + auth — several network round
 # trips, close to a second in production — and the web process used to pay that on EVERY
@@ -172,6 +162,16 @@ def pooled() -> Iterator[psycopg.Connection]:
             p.putconn(conn)
         except Exception:  # noqa: BLE001 - the pool was closed or replaced meanwhile
             conn.close()
+
+
+def connect() -> psycopg.Connection:
+    # Autocommit + explicit `with conn.transaction()` for writes. This avoids the
+    # footgun where an earlier SELECT (e.g. the principal dependency resolving a
+    # session) opens a read transaction, causing a later `with conn.transaction()`
+    # to nest as a savepoint that's rolled back when the connection closes. In
+    # autocommit mode, reads commit individually and transaction() issues a real
+    # BEGIN/COMMIT around each write block.
+    return psycopg.connect(dsn(), autocommit=True)
 
 
 def init_db(conn: psycopg.Connection) -> None:
