@@ -96,7 +96,7 @@ function render() {
     <section id="how"><h2>How it extracts</h2>${md((sections["how-it-extracts"] || {}).body)}${howGenerated(c)}</section>
     ${iface ? `<section id="interface"><h2>${esc(iface.title)}</h2>${md(iface.body)}<p class="pc-use"><a class="btn btn-primary btn-sm" href="${useHref}">${c.mode === "import" ? "Import into this schema" : "Use this preset"}</a></p></section>` : ""}
     <section id="fields"><h2>Fields</h2><p class="muted" style="margin:0 0 8px">Generated from the declaration (<code>${esc(c.schema_id)}</code>): every value this preset extracts, with its type, whether it is required, the evidence policy and the confidence group.</p>${renderFieldDocs(c.fields_doc)}${schemaFold(c)}</section>
-    <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
+    <section id="verification"><h2>Verification</h2>${stampHtml(c.stamp && c.stamp.stamp)}${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${usedBy(c)}</section>
     <section id="models"><h2>Models</h2>${models(c)}</section>
@@ -195,9 +195,8 @@ function stampHtml(st, title) {
 function verificationLive(c) {
   const v = c.verification || {};
   const stat = (num, lbl) => `<div class="stat"><div class="stat-num">${esc(String(num))}</div><div class="stat-lbl">${lbl}</div></div>`;
-  const stamp = stampHtml(c.stamp && c.stamp.stamp);
-  if (!v.n_datasets) return stamp;                    // nothing to roll up yet: the block appears with the first public dataset
-  return stamp + `<h3 class="pc-section-h">On this server</h3>
+  if (!v.n_datasets) return "";                       // nothing to roll up yet: the block appears with the first public dataset
+  return `<h3 class="pc-section-h">On this server</h3>
     <div class="ds-stats">${stat(v.n_datasets, n(v.n_datasets, "public dataset").replace(/^\d+ /, ""))}${stat(v.n_papers, "papers")}${stat(v.n_records, "records")}${stat(v.audited, "checked by a person")}${stat(pct(v.agreement), "agreed with the model")}
       <div class="stat"><div class="stat-num small">${badge(v)}</div><div class="stat-lbl">${v.agreement_ci ? `95% CI ${pct(v.agreement_ci[0])}–${pct(v.agreement_ci[1])}` : "under the dataset badge rule"}</div></div></div>
     <table class="ds-cc"><thead><tr><th>Dataset</th><th>Papers</th><th>Records</th><th>Checked</th><th>Agreed</th><th>Badge</th><th>Latest release</th></tr></thead><tbody>
