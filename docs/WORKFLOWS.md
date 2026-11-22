@@ -157,16 +157,21 @@ answers 409 with the gate until the verdicts are in, or the owner passes `overri
 A **project** is a workflow's instance: one owner, the datasets it links (one per preset role),
 the people who code for it, its runs, its review tasks and its releases (`paperlens/projects.py`,
 `/project?id=`, `POST /api/projects {workflow, title?, datasets?}`, `GET /api/projects`, `GET
-/api/projects/{id}` — members, papers, runs, the tasks of the latest run, the owner's people, the
+/api/projects/{id}` — members, papers, runs, its tasks, the owner's people, the
 viewer's role — `PATCH`/`DELETE /api/projects/{id}`, `GET`/`POST`/`DELETE
 /api/projects/{id}/people[/{user}]`). Internally it is the **workflow dataset** of the linked
 datasets (below): the row whose id is their `group_id`; a person added to the project codes every
-linked dataset's papers. A **task** is a review step-run of a run — its template, the datasets it
-reads, its gate, its coders and who reviews which paper (`GET /api/projects/{id}/tasks[?run=]`,
-`POST /api/projects/{id}/tasks/{step_run_id}/assign {document_id, coders}` until a verdict was
-given). `GET /api/me/tasks` lists the tasks a live run assigned the caller a paper in, with what
-is left of their share and the queue to code it in; the workspace shows them under "My review
-tasks". A workflow over one preset runs on a dataset of that preset and is not a project row.
+linked dataset's papers. A **task** is a review step of the workflow over every run that opened
+it (not cancelled, failed or merely planned): each run's step-run brings its own papers, and the
+task sums their gates, lists every run's papers in its matrix (each with the `step_run_id` and
+`run_id` it belongs to) and names the runs (`runs`); its `queue` is the oldest run whose papers are
+still open. `GET /api/projects/{id}/tasks` gives them, `?run=` one run's tasks alone (what a
+release's statistics read); `POST /api/projects/{id}/tasks/{step_run_id}/assign {document_id,
+coders}` moves a paper within its run until a verdict was given. `GET /api/me/tasks` lists the
+caller's tasks the same way — one per project and review step, their share summed over the runs,
+the queue of the oldest batch still open; the workspace shows them under "My review tasks". A
+queue whose papers are done names the same task's other open batches (`more`), and the queue
+bar offers "Next papers of this task". A workflow over one preset runs on a dataset of that preset and is not a project row.
 
 **Access follows the task.** A person added to a project is in its pool: they see the project's
 page and have a label (`coder_1` …), nothing of its papers yet. A task that assigns them a paper
@@ -695,6 +700,7 @@ release, run_id}`. See `REPRODUCIBILITY.md`.
 | `GET /api/workflows/grammar`, `GET /api/checks`, `GET /api/presets/{id}/rules` | what the editor offers: the step kinds and review options this engine accepts, the checks registry with its parameters, the rules a preset's field names imply |
 | `PATCH /api/datasets/{id}` `{workflow}` | declare the dataset's workflow |
 | `GET /api/datasets/{id}/workflow` | the panel: steps with states, the active run, the gate |
+| `GET /api/datasets/{id}/workflow/steps/{step}` | one step in detail, for the panel under the diagram: its declaration and, run by run (newest first), the papers it ran on and what came of each — a pass's calls and findings, an extraction's records, a check's findings by severity, a review's items checked per paper and per coder; error messages for the owner only |
 | `POST …/workflow/plan`, `POST …/workflow/runs`, `GET …/workflow/runs` | plan, start, list |
 | `GET /api/workflow-runs/{rid}`, `POST …/advance`, `/resume`, `/complete`, `/cancel`, `/retry`, `GET …/issues` | one run |
 | `GET /api/workflow-runs/{rid}/queue/{step}[?coder=]`, `POST …/assign` | a gate's worklist (a coder's own); who reviews a paper |
