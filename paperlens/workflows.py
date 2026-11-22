@@ -32,6 +32,12 @@ TERMINAL = ("failed", "done", "cancelled")
 JOB_DONE = ("done", "attached")
 JOB_TERMINAL = ("done", "attached", "failed", "cancelled")
 STALE_AFTER_MIN = 10
+# A compute step keeps this many of its papers in the queue at once; the rest wait as pending
+# and each paper that lands dispatches the next. The queue drops a job that has not started
+# within an hour (``_expires``), and the worker gets through some forty records an hour, so a
+# step that queued a hundred papers at once lost most of them.
+COMPUTE_IN_FLIGHT = 20
+COMPUTE_MAX_TRIES = 3          # a compute job the queue lost is queued again up to this many tries
 
 
 def _now() -> datetime:
@@ -1479,30 +1485,36 @@ def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete:
     step then judged like an extract step (``_advance_extract``: the outputs, its gate), a fields
     step once every paper's job is terminal. Locating a long record's quotes in a long paper
     takes minutes, which is why it never runs inside a request. A paper whose inputs failed
-    fails its job."""
+    fails its job. At most ``COMPUTE_IN_FLIGHT`` papers of the step wait in the queue at once:
+    the queue drops a job not started within the hour, so the rest stay pending and each paper
+    that lands (its job advances the run) dispatches the next."""
     from . import passes, worker
     js = jobs(conn, run["id"], sr["step_id"])
     staged = {p["pdf_sha256"]: p for p in passes.papers_of(conn, run["id"])}
     doc_step = bool(st.get("preset"))
+    ed = st.get("edits") if not doc_step else None
+    upstream = {o: {x["pdf_sha256"]: x["status"] for x in jobs(conn, run["id"], o)}     # once per advance, not once per paper
+                for o in [*(st.get("reads") or []), *([ed] if ed else [])]}
+    in_flight = sum(1 for j in js if j["status"] in ("queued", "running") and j.get("job_id"))
     for j in js:
         if j["status"] != "pending" or j["pdf_sha256"] not in staged:
             continue
-        upstream_failed = next((o for o in (st.get("reads") or [])
-                                if any(x["pdf_sha256"] == j["pdf_sha256"] and x["status"] in ("failed", "cancelled") for x in jobs(conn, run["id"], o))), None)
-        if upstream_failed is None and not doc_step:
-            ed = st.get("edits")
-            if ed and any(x["pdf_sha256"] == j["pdf_sha256"] and x["status"] in ("failed", "cancelled") for x in jobs(conn, run["id"], ed)):
-                upstream_failed = ed
+        upstream_failed = next((o for o in (st.get("reads") or []) if upstream[o].get(j["pdf_sha256"]) in ("failed", "cancelled")), None)
+        if upstream_failed is None and ed and upstream[ed].get(j["pdf_sha256"]) in ("failed", "cancelled"):
+            upstream_failed = ed
         if upstream_failed:
             _set_job(conn, j["id"], status="failed", error=f"{upstream_failed} failed for this paper")
             continue
+        if in_flight >= COMPUTE_IN_FLIGHT:
+            continue                                              # the queue holds enough of this step: a landing paper dispatches the next
         ready = all(passes.get_output(conn, run["id"], o, j["pdf_sha256"]) is not None for o in (st.get("reads") or []))
-        did = passes.document_of(conn, run["id"], st["edits"], j["pdf_sha256"]) if not doc_step and st.get("edits") else None
-        if not ready or (not doc_step and st.get("edits") and did is None):
+        did = passes.document_of(conn, run["id"], ed, j["pdf_sha256"]) if ed else None
+        if not ready or (ed and did is None):
             continue                                              # its inputs are not there yet: the barrier waits
         job_id = worker.enqueue("compute_job", run["id"], sr["step_id"], j["pdf_sha256"], _expires=3600)
         if job_id:
             _set_job(conn, j["id"], status="queued", job_id=job_id)   # the worker runs it; the transaction around advance commits the row
+            in_flight += 1
         else:
             compute_paper(conn, run, sr, st, j)
     if doc_step:
@@ -1916,31 +1928,60 @@ def failed_jobs(conn, run_id: str, *, who, pdf_sha256: str | None = None) -> tup
 
 
 def reconcile_candidates(conn) -> list[tuple[dict, dict]]:
-    """Runs that have not moved for a while, with their jobs the queue may have finished or
-    forgotten — the cron's work list."""
+    """The jobs the queue may have finished or forgotten — the cron's work list: every waiting
+    job of a run that has not moved for a while, and in any running run a job that has itself
+    waited that long. A run someone keeps open is touched on every poll, so the run's age alone
+    hid the jobs the queue had dropped for as long as anyone watched."""
     rows = conn.execute(
-        f"""SELECT {_RUN_COLS} FROM workflow_run WHERE status = 'running' AND updated_at < now() - make_interval(mins => %s)
-            ORDER BY updated_at""", (STALE_AFTER_MIN,)).fetchall()
+        f"""SELECT {_RUN_COLS}, updated_at < now() - make_interval(mins => %s) FROM workflow_run r WHERE status = 'running' AND (
+                updated_at < now() - make_interval(mins => %s)
+                OR EXISTS (SELECT 1 FROM workflow_job j WHERE j.run_id = r.id AND j.status IN ('queued', 'running') AND j.job_id IS NOT NULL
+                           AND j.updated_at < now() - make_interval(mins => %s)))
+            ORDER BY updated_at""", (STALE_AFTER_MIN, STALE_AFTER_MIN, STALE_AFTER_MIN)).fetchall()
     out = []
     for r in rows:
-        run = _run_row(r)
+        run, run_stale = _run_row(r), bool(r[-1])
+        old = run_stale or {x[0] for x in conn.execute(
+            """SELECT id::text FROM workflow_job WHERE run_id = %s::uuid AND status IN ('queued', 'running') AND job_id IS NOT NULL
+               AND updated_at < now() - make_interval(mins => %s)""", (run["id"], STALE_AFTER_MIN)).fetchall()}
         for j in jobs(conn, run["id"]):
-            if j["status"] in ("queued", "running") and j["job_id"]:
+            if j["status"] in ("queued", "running") and j["job_id"] and (old is True or j["id"] in old):
                 out.append((run, j))
     return out
 
 
+def _requeue_compute(conn, run: dict, job: dict, status: dict | None) -> str:
+    """A compute job the queue no longer runs — dropped before it started (the hour's expiry),
+    timed out, or forgotten: the paper goes back to pending and the run's advance queues it
+    again. A compute step is free and deterministic and its inputs are stored, so running it
+    again costs nothing; after ``COMPUTE_MAX_TRIES`` the job fails as before."""
+    row = conn.execute("SELECT status, tries FROM workflow_job WHERE id = %s::uuid", (job["id"],)).fetchone()
+    if row is None or row[0] not in ("queued", "running"):
+        return "landed" if row and row[0] in JOB_DONE else "settled"          # it finished since the work list was made
+    if int(row[1] or 0) >= COMPUTE_MAX_TRIES:
+        why = str((status or {}).get("error") or "the queue lost this job")
+        on_job_failed(conn, run["id"], job_id=job["job_id"], error=f"{why} (after {row[1]} tries)", final=True)
+        return "lost"
+    _set_job(conn, job["id"], status="pending", job_id=None, tries=int(row[1] or 0) + 1, error=None)
+    conn.commit()
+    advance(conn, run["id"])
+    return "requeued"
+
+
 def apply_job_status(conn, run: dict, job: dict, status: dict | None) -> str:
     """What the queue says about a job the run still waits for: landed → the document; gone →
-    look for a document the worker persisted before the queue forgot; else failed."""
+    look for a document the worker persisted before the queue forgot; else failed. A compute
+    job the queue dropped is queued again (``_requeue_compute``)."""
     if status and status.get("success") is True and isinstance(status.get("result"), dict) and status["result"].get("document_id"):
         on_document(conn, run["id"], job["step_id"], job["pdf_sha256"], status["result"]["document_id"], job_id=job["job_id"])
         return "landed"
+    if status and str(status.get("status") or "") in ("JobStatus.queued", "JobStatus.deferred", "JobStatus.in_progress", "queued", "deferred", "in_progress"):
+        return "waiting"
+    if (ws.steps_by_id(run["workflow"]).get(job["step_id"]) or {}).get("kind") == "compute":
+        return _requeue_compute(conn, run, job, status)
     if status and status.get("success") is False:
         on_job_failed(conn, run["id"], job_id=job["job_id"], error=str(status.get("error") or "failed"), final=True)
         return "failed"
-    if status and str(status.get("status") or "") in ("JobStatus.queued", "JobStatus.deferred", "JobStatus.in_progress", "queued", "deferred", "in_progress"):
-        return "waiting"
     row = conn.execute("SELECT id::text FROM extraction_document WHERE run_id = %s::uuid AND pdf_sha256 = %s ORDER BY created_at DESC LIMIT 1",
                        (run["id"], job["pdf_sha256"])).fetchone()
     if row:
