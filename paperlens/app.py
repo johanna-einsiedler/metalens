@@ -2134,6 +2134,19 @@ def dataset_workflow(dataset_id: str, db=Depends(get_db), who: Principal = Depen
     return out
 
 
+@app.get("/api/datasets/{dataset_id}/workflow/steps/{step_id}")
+def dataset_workflow_step(dataset_id: str, step_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """One step of the dataset's workflow in detail — how it is set up and, run by run, the papers
+    it ran on and what came of each (the Workflow card's panel under the diagram). Whoever sees the
+    Workflow card may read it; error messages only the owner."""
+    from . import step_detail
+    role = _dataset_access(db, dataset_id, who)
+    out = step_detail.detail(db, dataset_id, step_id, owner=role == "owner")
+    if out is None:
+        raise HTTPException(status_code=404, detail="No such step in this dataset's workflow.")
+    return out
+
+
 class GroupLinkBody(BaseModel):
     role: str
     dataset_id: str | None = None          # an existing dataset of mine under the role's preset

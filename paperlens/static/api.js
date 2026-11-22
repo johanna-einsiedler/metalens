@@ -120,6 +120,7 @@ export const api = {
   assignPaper: (rid, body) => req(`/api/workflow-runs/${rid}/assign`, json(body)),      // {step_id, document_id, coders: [user ids]}
   workflowCards: () => req(`/api/workflows/cards`),
   workflowGrammar: () => req(`/api/workflows/grammar`),
+  workflowStep: (datasetId, stepId) => req(`/api/datasets/${encodeURIComponent(datasetId)}/workflow/steps/${encodeURIComponent(stepId)}`),
   checks: () => req(`/api/checks`),
   presetRules: (id) => req(`/api/presets/${encodeURIComponent(id)}/rules`),
   validateWorkflow: (spec) => req(`/api/workflows/validate`, json({ spec })),
