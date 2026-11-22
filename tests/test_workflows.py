@@ -98,11 +98,17 @@ def test_the_econ_dataset_runs_its_supplied_workflow_end_to_end(monkeypatch) -> 
     tables = next(s for s in plan["steps"] if s["id"] == "tables")
     assert tables["state"] == "stale" and tables["work"] == {"extract": 0, "attach": 0, "wait_for": 2, "present": 0, "old_contract": 0, "foreign": 0}
     assert [i["action"] for i in tables["items"]] == ["wait", "wait"]
-    # start: a run with two pending jobs, waiting for the pipeline
-    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged[:2]}).json()
+    # the same PDF under a second name (two records of one paper) is one paper of the run, and the plan says so
+    twice = staged[:2] + [{"sha256": _sha(pdf1), "filename": "p1-again.pdf"}]
+    plan2 = c.post(f"/api/datasets/{ds}/workflow/plan", headers=H, json={"new_pdfs": twice}).json()
+    assert len(next(s for s in plan2["steps"] if s["id"] == "tables")["items"]) == 2
+    assert plan2["inputs"]["same_pdf"] == [{"sha256": _sha(pdf1), "filename": "p1-again.pdf", "same_as": "p1.pdf"}]
+    # start: a run with two pending jobs, waiting for the pipeline (the second name of p1 dropped, not a refusal)
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": twice}).json()
     assert run["status"] == "running" and run["current_step"] == "tables" and run["jobs"] == {**run["jobs"], "total": 2, "pending": 2}
     rid = run["id"]
-    assert c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged[:2]}).status_code == 409   # one run at a time
+    second = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged[:2]})
+    assert second.status_code == 409 and "already in progress" in second.text   # one run at a time
     # the pipeline uploads one paper with the run and step
     r = c.post("/api/ingest-pdf", headers=H, files={"pdf": ("p1.pdf", pdf1, "application/pdf")},
                data={"result": json.dumps(_result("p1")), "run_id": rid, "step_id": "tables", "produced_by": "pipeline"})
