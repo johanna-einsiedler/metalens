@@ -204,6 +204,19 @@ hold a lock from a second session and watch the run wait it out, and give up whe
   `fallbacks` says the pool is too small for the traffic. The pool is filled at startup (`records.warm_pool`),
   so a database the process cannot reach is logged at boot instead of on the first request.
 
+### A workflow proposed from a question
+
+- The editor opens with "Start from a question": what you want out of the papers, in your words,
+  goes to a model (`POST /api/workflows/propose`) with the presets available here — their fields
+  and stamps — the workflows, the checks, the templates and the grammar, never a paper. It answers
+  with a preset to use (a stamped one first) or a new preset document, and a workflow around it:
+  extract, the contract check, rules where the fields imply them, an audit review, the release.
+  The proposer validates both (a new preset's pin is known to the check before it is saved), drops
+  what is not in the grammar or the registry and says so, nudges the model once with the problems,
+  and shows the cost per paper. You save the preset (if new), put the steps into the editor, and
+  save the workflow like any other; nothing is stamped by a proposal. One credit per proposal, a
+  revision with feedback free, a failed proposal refunded; your own key or a local model as ever.
+
 ### The workflow editor: a workflow of your own, composed in the browser
 
 - `/workflow-editor` (linked from the Workflows and Projects pages on Metalens; MASEMiner's pages
