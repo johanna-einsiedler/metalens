@@ -833,9 +833,7 @@ function renderWorkflowCard(host, w) {
     <div id="wf-step" class="wf-step">${WF_STEP && (w.steps || []).some((s) => s.id === WF_STEP) ? "" : `<p class="muted wf-step-hint">Click a step in the diagram to see how it is set up and which papers it has run on.</p>`}</div>
     <div id="wf-upmsg" hidden></div>
     ${problems}${picker}${group}
-    ${runLine}
-    <div class="muted" style="font-size:12.5px;margin-top:6px">Release gate: ${w.gate && w.gate.open ? `<span class="badge tier-human_verified">open</span>` : `<span class="badge tier-sample_verified">holds</span> ${esc([...(w.gate.blocking || []).filter((b) => !(w.gate.gates_blocking || []).includes(b)).map((b) => `${b} not fresh`), ...(w.gate.gates_blocking || []).map((g) => `${g} awaits review`)].join(", "))}`}
-      ${(w.runs || []).length > 1 ? `· ${w.runs.length} runs so far` : ""}</div>`;
+    ${runLine}`;
   // the diagram's boxes: a click (or Enter) opens the step's panel under it; the same step again closes it
   const openStep = (sid) => {
     WF_STEP = WF_STEP === sid ? null : sid;
@@ -998,7 +996,7 @@ async function renderStepPanel(box, w, sid, line, live) {
       ${st.help ? `<p class="wf-step-help">${esc(st.help)}</p>` : ""}
       <div class="wf-step-cols"><div class="wf-step-setup"><h4>How it is set up</h4>${d ? stepSetup(d.step || st, d.check_info) : `<p class="muted">Loading…</p>`}</div>
         <div class="wf-step-runs"><h4>Papers it ran on</h4>${!d ? `<p class="muted">Loading…</p>` : runs.length
-          ? runs.map((r, k) => runBlock(st.kind, r, k === 0)).join("") + (runs.length > 1 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${runs.length} runs, newest first.</p>` : "")
+          ? runs.map((r) => runBlock(st.kind, r, false)).join("") + (runs.length > 1 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${runs.length} runs, newest first.</p>` : "")
           : `<p class="muted">${st.kind === "release" ? "A release is made from the Releases card." : "This step has not run yet."}</p>`}</div></div>`;
   };
   paint(WF_DETAIL[sid] || null);
