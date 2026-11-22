@@ -15,7 +15,9 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   progress and queue, coders, drafts to commit), how it is set up — preset and source, pass and
   readings, the check and its rules, the review's purpose, draw, papers, coders, template and what
   it holds — and, run by run, the papers it ran on with what came of each (`GET
-  /api/datasets/{id}/workflow/steps/{step}`). A second click closes it.
+  /api/datasets/{id}/workflow/steps/{step}`); each run's papers stay folded until opened. A second
+  click closes it. The "Release gate: holds …" line under the run is gone: the diagram's dots and the
+  step panels say what still holds.
 - A project's review task is one per review step over every run, no longer the latest run's
   alone: the project page sums the runs' gates and shows every run's papers in "who reviews which
   paper"; "My review tasks" shows one tile per task with the person's share over the runs and the
