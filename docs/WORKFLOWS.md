@@ -9,7 +9,13 @@ versioned and citable like a preset.
 ## The file
 
 `paperlens/workflows/<id>.json`, with sibling files (`<id>.card.md`, derive prompts) inlined on
-load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
+load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win. A workflow written in the
+editor (`/workflow-editor`) lives in the `user_workflow` table under a minted id
+(`<slug>-<uuid8>`, so it never shadows a bundled one), owned by the account (or the anonymous
+session) that saved it, private unless made public, validated on every save under the same
+grammar; `workflows.spec_for(conn, wid)` reads it (the files first, then the row). A project runs
+it like a bundled workflow (the dataset pins its contract, a run freezes the document); it has
+no releases or DOIs of its own yet.
 
 ```jsonc
 {"format": 1, "id": "econ-regressions", "version": 1,
@@ -684,7 +690,9 @@ release, run_id}`. See `REPRODUCIBILITY.md`.
 
 | | |
 |---|---|
-| `GET /api/workflows`, `GET /api/workflows/{id}`, `POST /api/workflows/validate` | the bundled workflows |
+| `GET /api/workflows`, `GET /api/workflows/{id}`, `POST /api/workflows/validate` | the bundled workflows, and the caller's own and the public user workflows (`personal`, `owned`); validate answers every problem at once with the normalised document |
+| `POST /api/workflows {spec, visibility?}`, `PATCH /api/workflows/{id} {spec?, visibility?}`, `DELETE /api/workflows/{id}` | a user workflow: saved under a minted id (422 `{message, errors}` otherwise, a pin to someone else's private preset included), edited by its owner (the version moves, the contract follows), deleted when nothing runs it (409 otherwise) |
+| `GET /api/workflows/grammar`, `GET /api/checks`, `GET /api/presets/{id}/rules` | what the editor offers: the step kinds and review options this engine accepts, the checks registry with its parameters, the rules a preset's field names imply |
 | `PATCH /api/datasets/{id}` `{workflow}` | declare the dataset's workflow |
 | `GET /api/datasets/{id}/workflow` | the panel: steps with states, the active run, the gate |
 | `POST …/workflow/plan`, `POST …/workflow/runs`, `GET …/workflow/runs` | plan, start, list |

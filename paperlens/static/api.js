@@ -119,6 +119,13 @@ export const api = {
   workflowQueue: (rid, step, coder) => req(`/api/workflow-runs/${rid}/queue/${encodeURIComponent(step)}${coder ? `?coder=${encodeURIComponent(coder)}` : ""}`),
   assignPaper: (rid, body) => req(`/api/workflow-runs/${rid}/assign`, json(body)),      // {step_id, document_id, coders: [user ids]}
   workflowCards: () => req(`/api/workflows/cards`),
+  workflowGrammar: () => req(`/api/workflows/grammar`),
+  checks: () => req(`/api/checks`),
+  presetRules: (id) => req(`/api/presets/${encodeURIComponent(id)}/rules`),
+  validateWorkflow: (spec) => req(`/api/workflows/validate`, json({ spec })),
+  createWorkflow: (body) => req(`/api/workflows`, json(body)),                                   // {spec, visibility?}
+  updateWorkflow: (id, body) => req(`/api/workflows/${encodeURIComponent(id)}`, { ...json(body), method: "PATCH" }),
+  deleteWorkflow: (id) => req(`/api/workflows/${encodeURIComponent(id)}`, { method: "DELETE" }),
   workflowCard: (id) => req(`/api/workflows/${encodeURIComponent(id)}/card`),
   createWorkflowRelease: (id, body) => req(`/api/workflows/${encodeURIComponent(id)}/releases`, json({ notes: "", ...(body || {}) })),
   workflowReleaseDoi: (id, n) => req(`/api/workflows/${encodeURIComponent(id)}/releases/${n}/doi`, { method: "POST" }),

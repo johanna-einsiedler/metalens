@@ -58,9 +58,20 @@ def load_all() -> dict[str, dict]:
 
 
 def get_workflow(wid: str | None) -> dict | None:
+    """The bundled workflow of that id (the hash dropped)."""
     if not wid:
         return None
     return load_all().get(wid.partition("@")[0])
+
+
+def spec_for(conn, wid: str | None) -> dict | None:
+    """A workflow by id wherever it lives: the bundled file, else the user workflow stored under
+    that id (``user_workflows``)."""
+    spec = get_workflow(wid)
+    if spec is None and wid and conn is not None:
+        from . import user_workflows
+        spec = user_workflows.spec_of(conn, wid)
+    return spec
 
 
 def _preset_spec(conn, base: str) -> dict | None:
@@ -84,7 +95,7 @@ def resolve(conn, dataset: dict) -> tuple[dict, bool]:
     """The dataset's workflow: the declared one, else its preset's implicit one-step workflow.
     Returns ``(spec, implicit)``."""
     wf = dataset.get("workflow")
-    spec = get_workflow(wf) if wf else None
+    spec = spec_for(conn, wf) if wf else None
     if spec is not None:
         return spec, False
     sid = dataset.get("schema_id") or ""
@@ -379,10 +390,14 @@ def calls_per_paper(spec: dict, step_id: str) -> int:
 
 
 def workflows_for(conn, dataset: dict) -> list[dict]:
-    """The bundled workflows whose extract step pins this dataset's preset (any contract)."""
+    """The bundled workflows whose extract step pins this dataset's preset (any contract), and
+    the dataset owner's own workflows that do."""
+    from . import user_workflows
     base = (dataset.get("schema_id") or "").partition("@")[0]
     out = []
-    for spec in load_all().values():
+    owner = type("P", (), {"user_id": dataset.get("owner_user_id"), "session_id": dataset.get("session_id")})()
+    mine = [r["spec"] for r in user_workflows.list_for(conn, owner, owned_only=True)]
+    for spec in list(load_all().values()) + mine:
         if (spec.get("meta") or {}).get("hidden"):
             continue
         bases = {ws.preset_base(p) for _s, p in ws.pins(spec)}
@@ -2124,7 +2139,7 @@ def review_asks(conn, dataset: dict) -> dict[str, list[str]]:
     """What the dataset's group workflow asks its joint review to verify, per linked dataset:
     ``{dataset_id: [entry fields]}`` from the review steps' ``asks`` (keyed there by extract step,
     whose dataset role names the linked dataset). Empty when nothing is declared."""
-    spec = get_workflow(dataset.get("workflow"))
+    spec = spec_for(conn, dataset.get("workflow"))
     grp = group_of(conn, dataset)
     if not spec or not grp:
         return {}
@@ -2223,7 +2238,7 @@ def list_mine(conn, *, owner_user_id: str | None, session_id: str | None) -> lis
         d = records.get_dataset(conn, did)
         if d is None:
             continue
-        spec = get_workflow(d.get("workflow"))
+        spec = spec_for(conn, d.get("workflow"))
         meta = (spec or {}).get("meta") or {}
         if is_workflow_dataset(d):
             grp = group_of(conn, d) or {"roles": {}}

@@ -14,7 +14,13 @@
     <div class="ds-head" style="align-items:flex-start">
       <div><h2 style="margin:.2em 0 4px">Workflows</h2>
         <p class="muted" style="margin:0;max-width:760px">A workflow is the process behind a dataset: which preset runs on each paper, the deterministic checks that follow, the dataset-level steps, and where a person looks before a release — every record, a random sample, or none. Each card documents its steps, its review policy and how to cite it, and lists the public datasets built with it.</p></div>
+      <span class="ws-btns ml-only"><a class="btn btn-primary btn-sm" href="/workflow-editor" title="compose a workflow of your own: extract, check, review, release">＋ New workflow</a></span>
     </div>
+    <section class="ws-section ml-only" id="wf-mine-section" hidden>
+      <div class="ws-head"><h3>Mine</h3></div>
+      <p class="muted ws-hint">Workflows you made in the editor, and ones others shared. A project runs one of them like a bundled workflow.</p>
+      <div id="wf-mine" class="proj-grid"></div>
+    </section>
     <section class="ws-section"><div id="wf-tiles" class="tiles tiles-sm"><p class="muted">Loading…</p></div></section>
   </main>
   <script type="module" src="/static/workflows.js"></script>
