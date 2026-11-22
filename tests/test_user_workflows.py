@@ -125,7 +125,7 @@ def test_a_pin_to_someone_elses_private_preset_is_refused_until_it_is_public() -
     assert owner.get("/api/presets/no-such-preset/rules").status_code == 404
 
 
-def test_a_project_runs_a_user_workflow_like_a_bundled_one(monkeypatch) -> None:
+def test_a_project_runs_a_user_workflow_like_a_bundled_one(monkeypatch, no_queue) -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)
     owner, uid, _ = _account("uw-runner")

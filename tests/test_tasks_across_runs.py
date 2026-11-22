@@ -46,7 +46,7 @@ def _run(owner, pid: str, n_papers: int, tag: str) -> str:
     return rid
 
 
-def test_a_task_is_one_per_review_step_over_every_run(monkeypatch) -> None:
+def test_a_task_is_one_per_review_step_over_every_run(monkeypatch, no_queue) -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)
     spec = ws.normalize(copy.deepcopy(SPEC))
