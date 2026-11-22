@@ -150,8 +150,10 @@ how many model calls — then starts it. Credits for every planned call are spen
 given back per paper that never ran. The page posts each PDF to `POST /api/extract` with
 `run_id` and `step_id`; a pipeline posts its files to `POST /api/ingest-pdf` the same way. The
 run advances as papers land: checks run, gates open, the release step closes the run. One run
-per dataset at a time; a run that has not moved for ten minutes is reconciled with the queue
-every two minutes (`workflow_tick_task`).
+per dataset at a time; every two minutes (`workflow_tick_task`) the jobs of a run that has not
+moved for ten minutes, and any job that has itself waited ten minutes, are reconciled with the
+queue — the second because every poll of the run's page touches the run, so a watched run never
+looked idle while the queue had dropped its jobs.
 
 A gate's items are a worklist: `GET /api/workflow-runs/{rid}/queue/{step}` lists them in draw
 order with their verdicts; `/workspace?queue=<run>:<step>` works through them — the sidebar lists
@@ -594,8 +596,13 @@ its job; the step's outputs count the papers made or edited. Each paper of a com
 as its own worker job (`compute_job` → `passes.run_compute`; inline when there is no queue), and
 the step is the barrier: locating a long record's quotes in a long paper takes minutes, so the
 request that completes the last pass returns at once and the run shows "computing · n of m" as
-the papers land. A retry re-pends a failed compute job; advance dispatches it once its inputs
-are there.
+the papers land. At most twenty papers of a compute step wait in the queue at once
+(`COMPUTE_IN_FLIGHT`); the rest stay pending and each paper that lands dispatches the next — the
+queue drops a job not started within the hour, and a step that queued a hundred papers at once
+lost most of them. A compute job the queue no longer has (dropped, timed out, forgotten) goes back
+to pending and is queued again, up to three tries (`COMPUTE_MAX_TRIES`), then fails; a second
+attempt at a paper waits on the first and is skipped once it landed. A retry re-pends a failed
+compute job; advance dispatches it once its inputs are there.
 
 ### References across passes
 

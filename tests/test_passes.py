@@ -570,3 +570,70 @@ def test_a_compute_steps_papers_run_as_worker_jobs_and_the_step_waits_for_them(t
     assert out["retried"] == [sha]
     assert next(j for j in workflows.jobs(conn, rid, "mark") if j["pdf_sha256"] == sha)["status"] == "pending"
     conn.close()
+
+
+def test_a_compute_step_keeps_a_few_papers_in_the_queue_and_a_job_the_queue_dropped_is_queued_again(tmp_path, monkeypatch) -> None:
+    """The live chain queued 114 papers at once; the queue drops a job not started within the
+    hour and the worker made some forty records an hour, so 74 papers sat "queued" with no job
+    behind them — and the owner's page, polled every minute, kept the run looking busy, so the
+    reconcile never asked the queue. Now a compute step keeps ``COMPUTE_IN_FLIGHT`` papers in
+    the queue (each landing dispatches the next), the reconcile looks at a job that has waited
+    long itself, and a compute job the queue no longer has goes back to pending and is queued
+    again — up to ``COMPUTE_MAX_TRIES``, then it fails as before."""
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    from test_pipeline import _presets
+    from paperlens import worker
+    _force_local(monkeypatch)
+    fake = _Fake(); monkeypatch.setattr(providers, "generate_json", fake)
+    monkeypatch.setattr(workflows, "COMPUTE_IN_FLIGHT", 2)
+    queued: list[tuple] = []
+    monkeypatch.setattr(worker, "enqueue", lambda task, *a, **k: (queued.append((task, a)) or f"job-{len(queued)}") if task == "compute_job" else None)
+    conn = records.connect(); records.init_db(conn)
+    pin, _graph = _presets(tmp_path, monkeypatch)
+    _chain_workflow(tmp_path, monkeypatch, pin)
+    sess = f"chaincap-{uuid.uuid4().hex[:6]}"
+    run_spec = presets.resolve_run(conn, schema_id=pin, params={})
+    with conn.transaction():
+        records.upsert_schema(conn, run_spec.schema_id, run_spec.field_defs)
+    ds = records.create_dataset(conn, title="Demo chain (capped)", schema_id=pin, session_id=sess)["id"]; conn.commit()
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "demo-chain"}).status_code == 200
+    pdfs = {n: _pdf(n) for n in ("alpha", "beta", "gamma")}
+    staged = [{"sha256": _sha(b), "filename": f"{n}.pdf"} for n, b in pdfs.items()]
+    rid = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": staged}).json()["id"]
+    for n, b in pdfs.items():
+        assert c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": (f"{n}.pdf", b, "application/pdf")}, data={"api_key": "k", "model": "m"}).status_code == 200
+    counts = lambda: c.get(f"/api/workflow-runs/{rid}", headers=H).json()["steps"]                       # noqa: E731
+    assemble = lambda: next(s for s in counts() if s["step_id"] == "assemble")["jobs"]                    # noqa: E731
+    # three papers ready, two in the queue, the third waits as pending; polls dispatch nothing more
+    assert len(queued) == 2 and assemble()["queued"] == 2 and assemble()["pending"] == 1
+    assert len(queued) == 2
+    # a paper lands: its job's advance dispatches the third
+    assert passes.run_compute(conn, *queued[0][1])["status"] == "done"
+    assert len(queued) == 3 and assemble()["queued"] == 2 and assemble()["done"] == 1
+    # the queue drops the second paper's job (the hour's expiry): the job has waited long, the run was polled a minute ago
+    lost = queued[1][1]
+    conn.execute("UPDATE workflow_job SET updated_at = now() - interval '1 hour' WHERE run_id = %s::uuid AND step_id = 'assemble' AND pdf_sha256 = %s", (rid, lost[2]))
+    conn.execute("UPDATE workflow_run SET updated_at = now() WHERE id = %s::uuid", (rid,)); conn.commit()
+    cands = workflows.reconcile_candidates(conn)
+    mine = [(r, j) for r, j in cands if r["id"] == rid]
+    assert [j["pdf_sha256"] for _r, j in mine] == [lost[2]]                     # the fresh queued job is not asked about
+    expired = {"job_id": mine[0][1]["job_id"], "status": "JobStatus.complete", "success": False, "error": "job expired"}
+    assert workflows.apply_job_status(conn, mine[0][0], mine[0][1], expired) == "requeued"
+    again = next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == lost[2])
+    assert again["status"] == "queued" and again["tries"] == 1 and again["job_id"] == f"job-{len(queued)}" and len(queued) == 4
+    # the dropped job's paper runs once: the new job makes it, a late run of the old one is skipped
+    assert passes.run_compute(conn, *queued[3][1])["status"] == "done"
+    assert passes.run_compute(conn, *lost)["status"] == "skipped"
+    # a job the queue keeps losing fails after COMPUTE_MAX_TRIES, as a lost job did before
+    third = queued[2][1]
+    conn.execute("UPDATE workflow_job SET tries = %s, updated_at = now() - interval '1 hour' WHERE run_id = %s::uuid AND step_id = 'assemble' AND pdf_sha256 = %s",
+                 (workflows.COMPUTE_MAX_TRIES, rid, third[2])); conn.commit()
+    run, job = next((r, j) for r, j in workflows.reconcile_candidates(conn) if r["id"] == rid)
+    assert workflows.apply_job_status(conn, run, job, None) == "lost"
+    gone = next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == third[2])
+    assert gone["status"] == "failed" and "the queue lost this job" in gone["error"] and f"after {workflows.COMPUTE_MAX_TRIES} tries" in gone["error"]
+    # a job still waiting in the queue is left alone, whatever its age
+    assert workflows.apply_job_status(conn, run, {**job, "status": "queued"}, {"status": "JobStatus.queued"}) == "waiting"
+    conn.close()

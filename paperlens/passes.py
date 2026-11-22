@@ -748,6 +748,9 @@ def run_compute(conn, run_id: str, step_id: str, pdf_sha256: str, *, advance_run
     if run["status"] in workflows.TERMINAL or job["status"] not in ("pending", "queued"):
         return {"status": "skipped", "why": f"run {run['status']}, job {job['status']}"}
     with conn.transaction():                                   # the job row and the document land together, before the run is advanced
+        now = conn.execute("SELECT status FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job["id"],)).fetchone()
+        if now is None or now[0] not in ("pending", "queued"):  # a second attempt (the queue's retry, a job queued again) waited on the first
+            return {"status": "skipped", "why": f"job {now[0] if now else 'gone'}"}
         workflows.compute_paper(conn, run, sr, st, job)
     if advance_run:
         workflows.advance(conn, run_id)

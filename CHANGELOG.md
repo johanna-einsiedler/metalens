@@ -8,6 +8,21 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A compute step keeps twenty papers in the queue; a job the queue dropped is queued again
+
+- A compute step queued every ready paper at once, and the queue drops a job that has not started
+  within the hour: on the live chain 114 papers went in, the worker made about forty records in
+  that hour, and the other 74 sat "queued" with no job behind them. Now at most twenty papers of a
+  compute step wait in the queue (`COMPUTE_IN_FLIGHT`); each paper that lands dispatches the next.
+- The two-minute reconcile asked the queue only about runs that had not moved for ten minutes, and
+  every poll of the run's page moved the run: a watched run hid its dropped jobs for good. It now
+  also asks about any job that has itself waited ten minutes.
+- A compute job the queue no longer has goes back to pending and is queued again (free and
+  deterministic; its inputs are stored), up to three tries, then fails as before. A second
+  attempt at the same paper (the queue's own retry after a timeout) waits on the first and is
+  skipped once the paper landed, so a paper never gets two documents.
+- The compute barrier reads the upstream steps' jobs once per advance, not once per paper.
+
 ### A step's panel under the diagram, one task per review step, the whole page width
 
 - The Workflow card shows the diagram and no list of steps under it. A click on a box opens the
