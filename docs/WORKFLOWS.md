@@ -13,7 +13,7 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win. A 
 editor (`/workflow-editor`) lives in the `user_workflow` table under a minted id
 (`<slug>-<uuid8>`, so it never shadows a bundled one), owned by the account (or the anonymous
 session) that saved it, private unless made public, validated on every save under the same
-grammar; `workflows.get_workflow(wid, conn)` reads it when given a connection. A project runs
+grammar; `workflows.spec_for(conn, wid)` reads it (the files first, then the row). A project runs
 it like a bundled workflow (the dataset pins its contract, a run freezes the document); it has
 no releases or DOIs of its own yet.
 

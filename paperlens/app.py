@@ -4902,7 +4902,7 @@ def project_task_config(project_id: str, step_id: str, body: TaskConfigBody, db=
     p, role = _project_or_404(db, project_id, who)
     if role != "owner":
         raise HTTPException(status_code=403, detail="Only the owner configures a task.")
-    spec = workflows.get_workflow(p.get("workflow"), db)
+    spec = workflows.spec_for(db, p.get("workflow"))
     st = ws.steps_by_id(spec).get(step_id) if spec else None
     if st is None or st.get("kind") != "review":
         raise HTTPException(status_code=404, detail="No review step with that id in the project's workflow.")

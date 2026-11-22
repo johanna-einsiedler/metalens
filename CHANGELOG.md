@@ -98,7 +98,7 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   `POST /api/workflows`, `PATCH`, `DELETE` (409 while a dataset runs it), `GET /api/workflows`
   lists them beside the bundled ones (`personal`, `owned`), `GET /api/workflows/{id}/card` gives
   them a plain page (Edit, Copy, New project with it). A project or a dataset may name one like a
-  bundled workflow; `workflows.get_workflow(wid, conn)` resolves it. `GET /api/workflows/grammar`,
+  bundled workflow; `workflows.spec_for(conn, wid)` resolves it. `GET /api/workflows/grammar`,
   `GET /api/checks` and `GET /api/presets/{id}/rules` tell the editor what this engine accepts.
 
 ### The GenAI-at-work chain, step six: seeding from the project's files

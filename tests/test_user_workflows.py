@@ -50,7 +50,7 @@ def test_a_user_workflow_is_saved_listed_read_edited_shared_and_deleted() -> Non
     d = owner.get(f"/api/workflows/{wid}").json()
     assert d["personal"] and d["owned"] and d["spec"]["id"] == wid and d["errors"] == [] and d["contract"] == w["contract"]
     conn.rollback()
-    assert workflows.get_workflow(wid, conn)["id"] == wid and workflows.get_workflow(wid) is None       # the row needs a connection; the files never shadow
+    assert workflows.spec_for(conn, wid)["id"] == wid and workflows.get_workflow(wid) is None          # the row needs a connection; the files never shadow
     # the owner edits: a second check added with a parameter, the version moves and the contract follows
     spec2 = copy.deepcopy(SPEC); spec2["steps"].insert(2, {"id": "cells", "kind": "check", "check": "regression-cells", "over": ["tables"], "on_fail": "flag",
                                                            "params": {"t_tolerance": 0.2}})
