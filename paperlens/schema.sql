@@ -362,6 +362,22 @@ CREATE TABLE IF NOT EXISTS personal_preset (
     updated_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS personal_preset_owner_idx   ON personal_preset(owner_user_id);
+
+-- ── user workflows: a workflow document written in the editor, beside the bundled files ──────
+CREATE TABLE IF NOT EXISTS user_workflow (
+    id              text PRIMARY KEY,          -- "<slug>-<uuid8>": a bundled id always wins, so a row never shadows one
+    owner_user_id   uuid,
+    session_id      text,
+    visibility      text NOT NULL DEFAULT 'private',   -- private | public
+    title           text NOT NULL,
+    spec            jsonb NOT NULL,            -- the normalised document, its id the row's
+    contract        text NOT NULL,             -- id@sha8 of the document as stored
+    spec_sha        text,
+    version         integer NOT NULL DEFAULT 1,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_workflow_owner_idx ON user_workflow(owner_user_id);
 CREATE INDEX IF NOT EXISTS personal_preset_session_idx ON personal_preset(session_id);
 
 -- ── declarative presets (format 2) + confidence with a home ──────────────────
@@ -963,19 +979,3 @@ ALTER TABLE workflow_finding ADD COLUMN IF NOT EXISTS pdf_sha256 text;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS year integer;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS authors jsonb;
 ALTER TABLE workflow_paper ADD COLUMN IF NOT EXISTS peer_reviewed text;
-
--- ── user workflows: a workflow document written in the editor, beside the bundled files ──────
-CREATE TABLE IF NOT EXISTS user_workflow (
-    id              text PRIMARY KEY,          -- "<slug>-<uuid8>": a bundled id always wins, so a row never shadows one
-    owner_user_id   uuid,
-    session_id      text,
-    visibility      text NOT NULL DEFAULT 'private',   -- private | public
-    title           text NOT NULL,
-    spec            jsonb NOT NULL,            -- the normalised document, its id the row's
-    contract        text NOT NULL,             -- id@sha8 of the document as stored
-    spec_sha        text,
-    version         integer NOT NULL DEFAULT 1,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS user_workflow_owner_idx ON user_workflow(owner_user_id);

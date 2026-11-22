@@ -61,23 +61,6 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   made by a compute step reads "assembled by the workflow's code" instead of "a model call per
   paper"; the People card says what it is for in one line; `genai-work-chain`'s tagline reads
   "Workflow to populate the Generative AI at work living review."
-### The workflow editor: a workflow of your own, composed in the browser
-
-- `/workflow-editor` (linked from the Workflows and Projects pages on Metalens; MASEMiner's pages
-  never show it): a new workflow, one of yours, or a bundled one copied. Steps of three families
-  — Extract (a preset, pinned), Check (a registered check with its typed parameters, or `rules` in
-  the workflow's own words with a "suggest" button), Review (over, mode, unit, size, strata,
-  where, coders, template, what it holds) — and the Release's gate; other kinds as JSON. The
-  server validates the document as you type (`POST /api/workflows/validate` now returns the
-  normalised document too), every problem placed under the step it names; the diagram follows.
-- User workflows live in the `user_workflow` table under minted ids (`<slug>-<uuid8>`; a bundled
-  id always wins), owned by the account or session that saved them, private or public:
-  `POST /api/workflows`, `PATCH`, `DELETE` (409 while a dataset runs it), `GET /api/workflows`
-  lists them beside the bundled ones (`personal`, `owned`), `GET /api/workflows/{id}/card` gives
-  them a plain page (Edit, Copy, New project with it). A project or a dataset may name one like a
-  bundled workflow; `workflows.get_workflow(wid, conn)` resolves it. `GET /api/workflows/grammar`,
-  `GET /api/checks` and `GET /api/presets/{id}/rules` tell the editor what this engine accepts.
-
 ### A project's compute step writes into its role's dataset
 
 - `workflows.step_datasets` mapped a document-making compute step (the chain's `extraction`) to
@@ -100,6 +83,23 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   long, and `fallbacks` — requests that went direct because the pool was busy). A rising `requests_queued` or
   `fallbacks` says the pool is too small for the traffic. The pool is filled at startup (`records.warm_pool`),
   so a database the process cannot reach is logged at boot instead of on the first request.
+
+### The workflow editor: a workflow of your own, composed in the browser
+
+- `/workflow-editor` (linked from the Workflows and Projects pages on Metalens; MASEMiner's pages
+  never show it): a new workflow, one of yours, or a bundled one copied. Steps of three families
+  — Extract (a preset, pinned), Check (a registered check with its typed parameters, or `rules` in
+  the workflow's own words with a "suggest" button), Review (over, mode, unit, size, strata,
+  where, coders, template, what it holds) — and the Release's gate; other kinds as JSON. The
+  server validates the document as you type (`POST /api/workflows/validate` now returns the
+  normalised document too), every problem placed under the step it names; the diagram follows.
+- User workflows live in the `user_workflow` table under minted ids (`<slug>-<uuid8>`; a bundled
+  id always wins), owned by the account or session that saved them, private or public:
+  `POST /api/workflows`, `PATCH`, `DELETE` (409 while a dataset runs it), `GET /api/workflows`
+  lists them beside the bundled ones (`personal`, `owned`), `GET /api/workflows/{id}/card` gives
+  them a plain page (Edit, Copy, New project with it). A project or a dataset may name one like a
+  bundled workflow; `workflows.get_workflow(wid, conn)` resolves it. `GET /api/workflows/grammar`,
+  `GET /api/checks` and `GET /api/presets/{id}/rules` tell the editor what this engine accepts.
 
 ### The GenAI-at-work chain, step six: seeding from the project's files
 

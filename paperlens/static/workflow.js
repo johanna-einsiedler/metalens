@@ -102,6 +102,7 @@ function doiBadge(x) {
   return ` <a class="badge" href="${esc(x.zenodo_url || "https://doi.org/" + encodeURIComponent(x.doi))}" target="_blank" rel="noopener" title="${testDoi(x.doi) ? "a sandbox DOI from testing: it resolves nowhere" : "the DOI of this version"}">${testDoi(x.doi) ? "test " : ""}DOI ${esc(x.doi)}</a>`;
 }
 function citeTop(c) {
+  if (c.personal) return "";                                   // a user workflow: no citation of its own yet
   const latest = c.latest || {};
   const doi = c.concept_doi || latest.doi;
   const zen = doi
@@ -111,6 +112,7 @@ function citeTop(c) {
     <div class="pc-cite-actions"><button class="btn btn-ghost btn-sm" id="wc-cite-copy" type="button">Copy</button> ${zen}</div></div>`;
 }
 function versions(c) {
+  if (c.personal) return `<p class="muted">A user workflow has no numbered release yet: a project pins its contract <code>${esc(c.contract)}</code>, and every run keeps the document it ran.</p>`;
   const admin = c.viewer && c.viewer.is_admin;
   const rows = (c.releases || []).map((x) => `<div class="ds-dashrow"><b>v${x.number}</b> <span class="muted">· ${esc(day(x.created_at))}</span>${doiBadge(x) || (admin && c.zenodo && c.zenodo.allowed ? ` <button type="button" class="btn btn-ghost btn-sm" data-wfdoi="${x.number}" title="mint a permanent DOI for this release on Zenodo${c.zenodo.sandbox ? " (sandbox: a test DOI)" : ""}">◎ DOI</button>` : ` <span class="muted">no DOI</span>`)}
       <span class="muted"> · contract <code>${esc(x.contract)}</code> · ${(x.presets || []).map((p) => `${esc(p.step)}: ${p.preset_release ? `preset v${p.preset_release}` : "unreleased preset"}`).join(", ")} · <a href="${esc(x.bundle_url)}" title="workflow.json, steps.md, card.md, CITATION.cff, README — a loadable workflow folder">⬇ files</a></span>
@@ -150,14 +152,14 @@ function render() {
         ? `${c.owned ? `<a class="btn btn-ghost btn-sm" href="/workflow-editor?id=${encodeURIComponent(c.id)}">Edit</a>` : `<a class="btn btn-ghost btn-sm ml-only" href="/workflow-editor?id=${encodeURIComponent(c.id)}">Copy</a>`}<button type="button" class="btn btn-primary btn-sm" id="wc-project">New project with it</button>`
         : `<a class="btn btn-ghost btn-sm ml-only" href="/workflow-editor?id=${encodeURIComponent(c.id)}" title="a workflow of your own with these steps">Copy to edit</a>`}</div></div>
     ${c.personal ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px">${c.owned ? "Your workflow" : "A workflow someone shared"} · <code>${esc(c.contract)}</code> · v${esc(String(c.version || 1))} · ${esc(c.visibility || "private")}${c.updated_at ? ` · saved ${esc(day(c.updated_at))}` : ""}. A project pins this contract; a run keeps the document it ran.</p>` : ""}
-    ${c.personal ? "" : citeTop(c)}
+    ${citeTop(c)}
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="steps"><h2>Steps</h2><div class="wf-flow">${flowSvg(c.steps)}</div>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
     <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Coders</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
     <section id="checks"><h2>Checks</h2>${checksHtml(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
-    ${c.personal ? "" : `<section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>`}
+    <section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${(c.datasets || []).length ? (c.datasets || []).map((d) => `<div class="ds-dashrow"><a href="/dataset?id=${encodeURIComponent(d.id)}"><b>${esc(d.title || d.slug || "dataset")}</b></a> <span class="muted">· ${n(d.n_papers, "paper")} · ${n(d.n_records, "record")}</span> ${badge(d.credibility)}${(d.releases || []).filter((r) => r.doi).map((r) => ` <a class="badge" href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">v${r.number} DOI</a>`).join("")}</div>`).join("") : `<p class="muted">No public dataset declares this workflow yet.</p>`}</section>
     ${relatedMd ? `<section id="related"><h2>Related work</h2>${md(relatedMd)}</section>` : ""}
     ${extra.map((k) => `<section id="${esc(k)}"><h2>${esc(sections[k].title)}</h2>${md(sections[k].body)}</section>`).join("")}`;
