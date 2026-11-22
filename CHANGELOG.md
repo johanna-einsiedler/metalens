@@ -8,6 +8,16 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The worker's two-minute tick no longer computes papers on its event loop
+
+- The tick did its database work on the worker's event loop. When it re-queued a dropped compute
+  job, the run's advance queued the next papers through `worker.enqueue`, whose `asyncio.run`
+  refuses a running loop; the None that came back read as "no queue", so the advance computed every
+  pending paper itself, in one transaction under the run's lock. The worker stood still, nothing
+  committed, and every poll of the run waited on the lock until it failed with a 500 (live chain
+  run, 22 Nov, from 15:46). The tick's database work now runs on a worker thread, and `enqueue`
+  called on a running loop uses its own loop on a helper thread.
+
 ### A compute step keeps twenty papers in the queue; a job the queue dropped is queued again
 
 - A compute step queued every ready paper at once, and the queue drops a job that has not started
