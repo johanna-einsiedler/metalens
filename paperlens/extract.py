@@ -230,3 +230,23 @@ def with_feedback(prompt: str, findings: list[dict]) -> str:
     if len(findings) > 60:
         lines.append(f"- … and {len(findings) - 60} more")
     return prompt.rstrip() + "\n\n---\n\n" + "\n".join(lines) + "\n"
+
+
+def import_supplied(conn, pdf_bytes: bytes, *, text: str, usage: dict | None = None,
+                    made_by: str = "imported", schema_id: str | None = None,
+                    spec: dict | None = None, session_id: str | None = None,
+                    owner_user_id: str | None = None, filename: str | None = None,
+                    source_job_id: str | None = None, run_id: str | None = None,
+                    step_id: str | None = None) -> dict:
+    """The import pipeline: ``run_extraction`` with the canonical JSON SUPPLIED (``text``)
+    instead of asked of a model — the pages rendered, the JSON's own evidence located, a full
+    viewable document persisted. ``made_by`` is stored where a live run stores its model.
+    Shared by the web process (a synchronous import) and the worker (a queued one), so the
+    two paths can never drift. ``run_id`` and ``step_id`` name the workflow run's supplied
+    step the paper belongs to, when it belongs to one."""
+    def _supplied(pdf_bytes_, prompt, **kw):
+        return LLMResult(text=text, finish_reason="stop", usage=usage or {}, resolved_model=made_by)
+    return run_extraction(conn, pdf_bytes, prompt="", schema_id=schema_id, session_id=session_id,
+                          owner_user_id=owner_user_id, source_job_id=source_job_id,
+                          filename=filename, complete=_supplied, spec=spec,
+                          **({"run_id": run_id, "step_id": step_id} if run_id else {}))
