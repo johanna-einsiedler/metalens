@@ -551,6 +551,12 @@ a.acct:hover { color: var(--accent); }
 .we-add { margin: 10px 0 14px; font-size: 13px; }
 .we-adv { margin: 10px 0; font-size: 13px; }
 .we-adv summary { cursor: pointer; color: var(--text-muted); }
+/* the proposer at the top of the editor: a question in, a preset and steps out, reviewed before anything is saved */
+.we-propose { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 8px 14px 12px; margin: 0 0 16px; font-size: 13px; }
+.we-propose summary { cursor: pointer; }
+.we-propose .cmp-model { margin-top: 6px; }
+.wp-result { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.wp-preset table { font-size: 12.5px; }
 /* the editor is Metalens's: MASEMiner's pages never link it */
 .brand-maseminer .ml-only { display: none !important; }
 @media (max-width: 760px) {

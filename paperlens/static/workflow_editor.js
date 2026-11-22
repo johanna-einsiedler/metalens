@@ -7,10 +7,12 @@
 import { api } from "/static/api.js";
 import { flowSvg } from "/static/flow.js";
 import { esc } from "/static/grammar.js";
+import { modelChoice, renderModelPanel } from "/static/modelpanel.js";
 
 const $ = (s) => document.querySelector(s);
 const body = $("#we-body");
 let ID = null, LOADED = null, DOC = null, GRAMMAR = null, ME = null, timer = null, LAST = null;
+let CFG = null, MODELS = {}, PROPOSAL = null, PROPOSING = false;     // the proposer: the model config, the last proposal
 const PARTS = { presets: [], checks: [], templates: [] };
 const IDENTITY = ["title", "doi", "year", "journal", "authors"];
 const FAMILY = { extract: "Extract", check: "Check", review: "Review", release: "Release" };
@@ -130,11 +132,96 @@ function stepCard(st, i, errs) {
     ${errs.length ? `<ul class="we-errs">${errs.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}</div>`;
 }
 
+// ── the proposer: a workflow from a question ──────────────────────────────────
+function proposerHtml() {
+  const p = PROPOSAL;
+  const presetHtml = !p ? "" : p.preset.use
+    ? `<p><b>Preset:</b> uses <a href="/preset?id=${encodeURIComponent(p.preset.use)}">${esc(p.preset.title || p.preset.use)}</a> <code>${esc(p.preset.schema_id || "")}</code></p>`
+    : p.preset.new
+      ? `<div class="wp-preset"><p><b>A new preset:</b> ${esc(p.preset.title || "")} <span class="muted">· ${esc(((p.preset.new.entries || {}).fields || []).length)} entry field${((p.preset.new.entries || {}).fields || []).length === 1 ? "" : "s"}${((p.preset.new.paper || {}).fields || []).length ? `, ${((p.preset.new.paper || {}).fields || []).length} paper field${((p.preset.new.paper || {}).fields || []).length === 1 ? "" : "s"}` : ""}</span>
+          ${p.preset.saved ? ` · saved as <a href="/preset?id=${encodeURIComponent(p.preset.saved.id)}&edit=1">${esc(p.preset.saved.id)}</a>` : ` · <button type="button" class="btn btn-primary btn-sm" id="wp-save-preset">Save this preset as mine</button> <span class="muted">(then the workflow can pin it)</span>`}</p>
+          <table class="ds-cc"><thead><tr><th>Field</th><th>Type</th><th>Help</th></tr></thead><tbody>${[...((p.preset.new.paper || {}).fields || []).map((f) => ({ ...f, name: `paper.${f.name}` })), ...(((p.preset.new.entries || {}).fields) || [])].map((f) => `<tr><td><code>${esc(f.name)}</code></td><td>${esc(f.type || "")}${f.options ? ` (${esc(f.options.map((o) => (typeof o === "string" ? o : o.value || o.label)).join(", "))})` : ""}</td><td>${esc(f.help || "")}</td></tr>`).join("")}</tbody></table>
+          ${(p.preset.errors || []).length ? `<ul class="we-errs">${p.preset.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+          <details class="we-adv"><summary>The preset document (JSON)</summary><pre class="pc-default" style="max-height:320px">${esc(JSON.stringify(p.preset.new, null, 2))}</pre></details></div>`
+      : "";
+  const canUse = p && (p.preset.use || (p.preset.new && p.preset.saved));
+  return `<details class="we-propose" id="wp" ${p ? "open" : (ID ? "" : "open")}><summary><b>Start from a question</b> <span class="muted">— say what you want from the papers; a model proposes a preset and the steps, you review and save</span></summary>
+    <div class="we-row"><div class="we-f" style="flex:2"><label>What do you want to get out of the papers? <span class="muted">(one question per line)</span></label><textarea id="wp-questions" rows="3" class="sf-ta" placeholder="Does working with an AI assistant change task performance, and by how much?">${esc((PROPOSAL && PROPOSAL.questions || []).map((q) => q.text).join("\n"))}</textarea></div>
+      <div class="we-f" style="flex:1"><label>Context <span class="muted">(field, the papers, what to leave out)</span></label><textarea id="wp-context" rows="3" class="sf-ta">${esc((PROPOSAL && PROPOSAL.context) || "")}</textarea></div></div>
+    <div id="wp-model" class="cmp-model"></div>
+    <div class="wf-actions" style="justify-content:flex-start;margin-top:8px"><button type="button" class="btn btn-primary" id="wp-go" ${PROPOSING ? "disabled" : ""}>${p ? "Propose again" : "Propose"}</button>
+      ${p ? `<input id="wp-feedback" placeholder="feedback for a revision (free)" style="min-width:260px"/><button type="button" class="btn btn-ghost" id="wp-revise">Revise</button>` : ""}
+      <span id="wp-msg" class="muted" style="align-self:center"></span></div>
+    ${p ? `<div class="wp-result">
+      ${presetHtml}
+      ${(p.notes || []).length ? `<p class="muted"><b>The model notes:</b> ${p.notes.map(esc).join(" · ")}</p>` : ""}
+      ${(p.unanswered || []).length ? `<p class="muted"><b>Not answerable from the papers:</b> ${p.unanswered.map((u) => `${esc(u.question)} — ${esc(u.reason || "")}`).join("; ")}</p>` : ""}
+      ${(p.dropped || []).length ? `<p class="muted"><b>Left out:</b> ${p.dropped.map(esc).join("; ")}</p>` : ""}
+      <p><b>Workflow:</b> ${(p.workflow.steps || []).map((s) => `<span class="kw">${esc(s.label || s.id)}</span>`).join(" → ")} <span class="muted">· ${p.cost ? `${p.cost.calls_per_paper} model call${p.cost.calls_per_paper === 1 ? "" : "s"} per paper` : ""}${p.proposal ? ` · ${esc(p.proposal.model)}${p.proposal.charged ? " · 1 credit used" : ""}` : ""}</span></p>
+      ${(p.errors || []).length ? `<ul class="we-errs">${p.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+      <div class="wf-actions" style="justify-content:flex-start"><button type="button" class="btn btn-primary" id="wp-use" ${canUse ? "" : "disabled"} title="${canUse ? "put these steps into the editor below" : "save the proposed preset first"}">Use this workflow</button>
+        ${p.preset.saved ? `<a class="btn btn-ghost" href="/extract?preset=${encodeURIComponent(p.preset.saved.id)}" title="run the preset on a few papers before a project">Try the preset on a few papers</a>` : ""}</div>
+    </div>` : ""}
+  </details>`;
+}
+
+function wireProposer() {
+  const host = $("#wp-model");
+  if (host && !host.children.length) renderModelPanel(host, { prefix: "wp", cfg: CFG, models: MODELS, creditsNote: "one credit per proposal, revisions are free",
+    note: "The model sees your questions, the presets and checks available here and the grammar — never your papers. It proposes; nothing is saved until you do." });
+  const go = $("#wp-go"); if (go) go.onclick = () => propose(null);
+  const rv = $("#wp-revise"); if (rv) rv.onclick = () => propose(($("#wp-feedback") || {}).value || "");
+  const sp = $("#wp-save-preset"); if (sp) sp.onclick = savePreset;
+  const use = $("#wp-use"); if (use) use.onclick = useProposal;
+}
+
+async function propose(feedback) {
+  if (PROPOSING) return;
+  const qs = $("#wp-questions").value.split("\n").map((q) => q.trim()).filter(Boolean);
+  const msg = $("#wp-msg");
+  if (!qs.length) { msg.textContent = "Write at least one question first."; $("#wp-questions").focus(); return; }
+  const choice = modelChoice("wp", { quiet: true });
+  if (!choice) { msg.textContent = "A proposal needs a model: use a credit, your own API key or a local model."; return; }
+  PROPOSING = true; $("#wp-go").disabled = true; msg.textContent = "Asking the model… this usually takes 10–40 seconds.";
+  try {
+    const revising = feedback != null && PROPOSAL;
+    const r = await api.proposeWorkflow({ questions: qs, context: $("#wp-context").value.trim(), ...choice,
+      ...(revising ? { previous: { preset: PROPOSAL.preset, workflow: PROPOSAL.workflow, notes: PROPOSAL.notes }, feedback } : {}) });
+    if (!r.ok) { msg.textContent = `The proposal failed: ${r.error || "unknown error"}`; return; }
+    PROPOSAL = { ...r, context: $("#wp-context").value.trim() };
+    if (r.credits && CFG) CFG.credits = r.credits;
+    msg.textContent = "";
+  } catch (e) { msg.textContent = e.message; }
+  finally { PROPOSING = false; }
+  rerender();
+}
+
+async function savePreset() {
+  const msg = $("#wp-msg"); msg.textContent = "Saving the preset…";
+  try {
+    const out = await api.createPreset({ spec: PROPOSAL.preset.new, visibility: "private" });
+    const list = await api.presets();
+    PARTS.presets = (list.presets || []).filter((x) => x.schema_id && x.spec);
+    const row = PARTS.presets.find((x) => x.preset_id === out.id || x.id === out.id) || {};
+    PROPOSAL.preset.saved = { id: out.id, schema_id: row.schema_id || out.schema_id };
+    for (const st of PROPOSAL.workflow.steps || []) if (st.kind === "extract" && String(st.preset || "").split("@")[0] === (PROPOSAL.preset.new || {}).id) st.preset = PROPOSAL.preset.saved.schema_id;
+    msg.textContent = "";
+  } catch (e) { const errs = (e.detail && e.detail.errors) || []; msg.textContent = errs.length ? `the preset does not validate: ${errs.slice(0, 3).join("; ")}` : e.message; }
+  rerender();
+}
+
+function useProposal() {
+  DOC = clone(PROPOSAL.workflow); delete DOC.card;
+  LOADED = null; ID = null;
+  rerender(); validateSoon(0);
+  const first = $(".we-step"); if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function render(errsByStep = {}, rootErrs = [], warns = []) {
   const owned = !!(LOADED && LOADED.owned);
   const copying = !!(LOADED && !LOADED.personal);
   const heading = !LOADED ? "New workflow" : owned ? "Edit workflow" : copying ? "Copy a bundled workflow" : "Copy a shared workflow";
-  body.innerHTML = `<div class="ds-head" style="align-items:flex-start"><div><h2 style="margin:.2em 0 4px">${esc(heading)}</h2>
+  body.innerHTML = `${!LOADED ? proposerHtml() : ""}<div class="ds-head" style="align-items:flex-start"><div><h2 style="margin:.2em 0 4px">${esc(heading)}</h2>
       <p class="muted" style="margin:0;max-width:760px">Steps of three families run in order on every paper: <b>Extract</b> (a preset), <b>Check</b> (a registered check, or rules in your own words), <b>Review</b> (where a person looks); the <b>Release</b> waits for them. The server checks the document as you type and draws its contract.</p></div></div>
     ${copying ? `<p class="muted" style="margin:6px 0 12px">Saving makes a workflow of your own with these steps; the bundled one stays as it is.</p>` : ""}
     <div class="we-row"><div class="we-f" style="flex:2"><label>Title</label>${inp("meta.title", (DOC.meta || {}).title)}</div><div class="we-f" style="flex:1"><label>Id</label>${inp("id", DOC.id, "str", LOADED && LOADED.personal && owned ? "readonly" : "")}<div class="sf-help">${LOADED && owned ? "fixed" : "a slug; the server adds a suffix so no bundled id is taken"}</div></div></div>
@@ -157,6 +244,7 @@ function render(errsByStep = {}, rootErrs = [], warns = []) {
       <a class="btn btn-ghost" href="${LOADED ? `/workflow?id=${encodeURIComponent(ID)}` : "/workflows"}">Cancel</a>
       <span id="we-msg" class="muted" style="align-self:center"></span></div>`;
   wire();
+  wireProposer();
 }
 
 function statusHtml(r) {
@@ -303,8 +391,10 @@ async function init() {
   try { ME = await api.me(); } catch { ME = null; }
   if (!ME || !(ME.email || ME.local_mode)) { body.innerHTML = '<p class="muted">Please <a href="/">sign in</a> to make a workflow.</p>'; return; }
   try {
-    const [g, p, c, t] = await Promise.all([api.workflowGrammar(), api.presets(), api.checks(), api.templates()]);
+    const [g, p, c, t, cfg, models] = await Promise.all([api.workflowGrammar(), api.presets(), api.checks(), api.templates(),
+      api.extractionConfig().catch(() => null), api.models().then((m) => m.providers || {}).catch(() => ({}))]);
     GRAMMAR = g; PARTS.presets = (p.presets || []).filter((x) => x.schema_id && x.spec); PARTS.checks = c.checks || []; PARTS.templates = t.templates || [];
+    CFG = cfg; MODELS = models;
   } catch (e) { body.innerHTML = `<p class="muted">Could not load the editor's parts: ${esc(e.message)}</p>`; return; }
   if (ID) {
     try { LOADED = await api.workflow(ID); }

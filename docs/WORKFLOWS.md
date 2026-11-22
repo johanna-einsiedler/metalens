@@ -17,6 +17,18 @@ grammar; `workflows.spec_for(conn, wid)` reads it (the files first, then the row
 it like a bundled workflow (the dataset pins its contract, a run freezes the document); it has
 no releases or DOIs of its own yet.
 
+**Proposing a workflow.** The editor's "Start from a question" asks a model (`POST
+/api/workflows/propose`, `workflow_propose.py`) for a preset and a workflow from what the user
+wants out of the papers. The model sees the questions, the presets available on this surface
+with their fields and stamps, the workflows, the checks, the templates and the grammar — never
+a paper. It answers inside the grammar: `{"preset": {"use": id} | {"new": {…}}, "workflow":
+{…}, "notes", "unanswered"}`. The proposer resolves a reused preset's pin, normalises and
+validates a new preset document like one saved in the editor, drops steps of other kinds and
+checks not in the registry (and says so), validates the workflow with the new preset's pin
+known, and nudges the model once with the problems. The person reviews: a new preset is saved
+first (the server assigns its id, the extract step's pin follows), then the workflow goes into
+the editor and is saved like any other. Nothing is stamped by a proposal.
+
 ```jsonc
 {"format": 1, "id": "econ-regressions", "version": 1,
  "meta": {"title": "…", "tagline": "…", "authors": [...], "license": "CC-BY-4.0"},
@@ -693,6 +705,7 @@ release, run_id}`. See `REPRODUCIBILITY.md`.
 | `GET /api/workflows`, `GET /api/workflows/{id}`, `POST /api/workflows/validate` | the bundled workflows, and the caller's own and the public user workflows (`personal`, `owned`); validate answers every problem at once with the normalised document |
 | `POST /api/workflows {spec, visibility?}`, `PATCH /api/workflows/{id} {spec?, visibility?}`, `DELETE /api/workflows/{id}` | a user workflow: saved under a minted id (422 `{message, errors}` otherwise, a pin to someone else's private preset included), edited by its owner (the version moves, the contract follows), deleted when nothing runs it (409 otherwise) |
 | `GET /api/workflows/grammar`, `GET /api/checks`, `GET /api/presets/{id}/rules` | what the editor offers: the step kinds and review options this engine accepts, the checks registry with its parameters, the rules a preset's field names imply |
+| `POST /api/workflows/propose {questions, context?, feedback?, previous?, use_credits \| api_key+model \| base_url+model}` | a model proposes a preset to use (or a new preset document) and a workflow around it for what the user wants from the papers; the proposer validates both (a new preset's pin known before it is saved) and answers with the documents, path-prefixed problems, what it dropped, the calls per paper; one credit per proposal, a revision with feedback free, a failure refunded |
 | `PATCH /api/datasets/{id}` `{workflow}` | declare the dataset's workflow |
 | `GET /api/datasets/{id}/workflow` | the panel: steps with states, the active run, the gate |
 | `POST …/workflow/plan`, `POST …/workflow/runs`, `GET …/workflow/runs` | plan, start, list |

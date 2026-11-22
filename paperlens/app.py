@@ -1837,6 +1837,92 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand), who: Pr
     return {"workflows": out}
 
 
+class WorkflowProposeBody(BaseModel):
+    questions: list[str] = []
+    context: str = ""
+    feedback: str = ""
+    previous: dict | None = None         # an earlier proposal to revise (free)
+    use_credits: bool = False
+    api_key: str = ""
+    base_url: str | None = None
+    model: str | None = None
+
+
+@app.post("/api/workflows/propose")
+def workflows_propose(body: WorkflowProposeBody, b: brands.Brand = Depends(brand), who: Principal = Depends(principal_brief)) -> dict:
+    """A model proposes a workflow for what the user wants from their papers — a preset to use or
+    a new one, the steps around it — inside the grammar; the validator checks it and the person
+    reviews it in the editor before anything is saved. Own key or self-hosted model: never stored,
+    no ledger. Credits: ONE per proposal; a revision with feedback is free; a failed proposal is
+    refunded. Runs in the web process, so the server key is never queued."""
+    if not who.user_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to propose a workflow.")
+    import hashlib
+    from . import contract, workflow_propose
+    own = bool(body.api_key.strip()) or bool((body.base_url or "").strip())
+    revision = bool(body.previous and isinstance(body.previous, dict) and body.previous.get("workflow"))
+    charged = False
+    with records.pooled() as db:                 # gate, credit and prompt; the connection goes back before the model call
+        if own:
+            model, key, base_url = body.model, body.api_key, body.base_url
+        elif body.use_credits:
+            if localmode.enabled():
+                raise HTTPException(status_code=422, detail="Local mode runs on your own API key or a local model.")
+            if not credits.offered():
+                raise HTTPException(status_code=422, detail="Credits are not available on this server; add your own API key.")
+            model = credits.credit_model()
+            key, base_url = credits.server_key_for(providers.get_provider(model, None)), None
+            if not revision:
+                if not credits.try_consume(db, who.user_id, model=model, reason="workflow"):
+                    raise HTTPException(status_code=402, detail="No credits left. Add your own API key.")
+                charged = True
+        else:
+            raise HTTPException(status_code=422, detail="Choose credits, your own API key or a local model.")
+        if not model:
+            raise HTTPException(status_code=422, detail="Choose a model.")
+        questions = [{"id": f"q{k + 1}", "text": q.strip()[:400]} for k, q in enumerate(body.questions) if isinstance(q, str) and q.strip()][:workflow_propose.MAX_QUESTIONS]
+        cat = workflow_propose.catalogue(db, who, b)
+        prompt = workflow_propose.build_prompt(questions, cat, context=body.context, previous=body.previous if revision else None, feedback=body.feedback)
+    attempts, raw, proposal = 0, "", None
+    try:
+        nudge = ""
+        for _ in range(2):
+            attempts += 1
+            raw = providers.generate_text(model, key, prompt + nudge, base_url=base_url, max_tokens=16384, json_mode=True)
+            parsed = contract.parse_result_json(raw)
+            if not isinstance(parsed, dict) or not (parsed.get("workflow") or parsed.get("preset")):
+                nudge = "\n\nReturn ONLY the JSON object described above, with a \"preset\" and a \"workflow\"."; proposal = None
+                continue
+            with records.pooled() as db:
+                proposal = workflow_propose.normalize(db, parsed, who, questions=questions)
+            if not proposal["errors"]:
+                break
+            nudge = "\n\nYour last answer had these problems; return the whole corrected JSON object:\n- " + "\n- ".join(proposal["errors"][:8])
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - provider errors (bad key, quota, unreachable server)
+        if charged:
+            _refund_credit(who, model, "workflow refund")
+        return {"ok": False, "error": providers.extract_provider_message(exc)}
+    if proposal is None:
+        if charged:
+            _refund_credit(who, model, "workflow refund")
+        text = (raw or "").strip()
+        why = ("The model returned nothing." if not text
+               else "The model's answer was cut off before the JSON ended (it ran out of output tokens)." if not text.rstrip("`\n ").endswith(("}", "]"))
+               else "The model answered, but not with a preset and a workflow.")
+        return {"ok": False, "error": f"{why} Try again or rephrase what you want from the papers.", "raw": text[:_RAW_CAP], "prompt": prompt, "model": model, "attempts": attempts}
+    out = {"ok": True, **proposal, "questions": questions,
+           "proposal": {"model": model, "provider": providers.get_provider(model, base_url), "attempts": attempts, "charged": charged,
+                        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(), "registry_version": workflow_propose.REGISTRY_VERSION,
+                        "feedback": body.feedback[:400] or None, "raw": (raw or "")[:_RAW_CAP]},
+           "prompt": prompt}
+    if who.user_id and not own:
+        with records.pooled() as db:
+            out["credits"] = credits.summary(db, who.user_id)
+    return out
+
+
 @app.get("/api/workflows/grammar")
 def workflow_grammar() -> dict:
     """What a workflow document may say, for the editor: the step kinds, the review options
