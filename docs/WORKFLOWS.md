@@ -73,12 +73,44 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
 | check | reads | finds |
 |---|---|---|
 | `schema` | any preset | the declared contract on the values as stored: a required field missing, a wrong type, an option not declared |
+| `rules` | any preset | what the workflow's own rules say (`params.rules`, below): a comparison between fields, a range, a pattern, a sum across a table — each rule its own code and severity |
 | `regression-cells` | `econ-regression-tables`, `register-tables` | an se/t/p/CI row naming no coefficient (`se_dangling_ref`; a p or t row with a label of its own that names no coefficient is a test statistic and passes) or a non-coefficient (`se_refers_noncoef`), two se rows for one coefficient (`coef_many_se`), a parsed number that is not the printed one (`numeric_mismatch`), stars against the stated level (`stars_vs_level`) or the p-value (`stars_vs_p`), t against coefficient / se (`t_vs_coef_se`), the stated N against the printed N (`n_obs_vs_sample`), columns of one table with different Ns (`n_obs_varies`, a note), row indexes not from 0 (`row_index_gap`) |
 | `claims-vs-tables` | `register-claims`, needs the dataset's companion | a cited estimate no coefficient cell of the resolved column equals (`estimate_mismatch`), a cited exhibit no column matches (`exhibit_unlinked`) |
 
 Findings reach the reviewer on the card ("✗ 2 check findings — regression-cells: …"), on the cell
 each one names, and in the "check findings first" order of the entries; the Workflow panel links
 there. Parameters are declared per check (`t_tolerance`, `star_legend`, `ignore`) and typed.
+
+### Rules
+
+A check step with `check: rules` carries its rules in `params.rules`, written against the preset's
+fields and validated with the workflow — no code:
+
+```json
+{"id": "plausible", "kind": "check", "check": "rules", "over": ["tables"], "on_fail": "flag", "params": {"rules": [
+  {"code": "ci_order", "require": {"ci_low": {"lte": {"field": "ci_high"}}}},
+  {"code": "p_in_range", "severity": "warn", "require": {"p_value": {"between": [0, 1]}}},
+  {"code": "star_level", "unit": "cells", "where": {"significance_stars": {"gte": 1}}, "require": {"significance_level": {"lte": 0.1}}},
+  {"code": "shares_sum", "unit": "paper", "require": {"sum(arms.share)": {"eq": 1, "tol": 0.01}}},
+  {"code": "too_many", "unit": "paper", "when": {"count(regressions)": {"gt": 40}}, "message": "more columns than any paper prints"}
+]}}
+```
+
+A rule names a `code` and a `severity` (`error`, the default, `warn` or `info`), the `unit` it
+reads — an entry (the default), the `paper`, the rows of an entry's child table (`"cells"`) or of
+a paper table (`"paper.<table>"`) — and either what must hold (`require`: a finding when it does
+not) or what is a finding when it holds (`when`); `where` narrows the units the rule applies to.
+A condition is the review grammar's `where` form, extended: `{<term>: value}` is equality,
+`{<term>: {op: arg, …}}` combines operators — `eq ne in not_in null not_null gt gte lt lte
+between matches`, `tol` beside a numeric `eq` or `ne` — several terms are AND, and `$all`, `$any`,
+`$not` nest. A term is a field of the unit, `paper.<field>`, `entry.<field>` from a child row, or
+an aggregate over a collection: `sum(cells.numeric_value)`, `count(cells)`, `min`, `max`, `mean`,
+`len(<field>)`; an argument may refer to another term (`{"lte": {"field": "ci_high"}}`). A value
+that is missing makes a comparison undecided, never a finding (the `schema` check says what is
+required). Findings name the record and the cell, so they reach the review card and `on_fail:
+flag` puts the record in front of a reviewer like any other check's. `rules.suggest(preset)`
+offers rules the field names imply (an ordered `_low`/`_high` pair, a probability in [0, 1], a
+count of at least one, a plausible year) for a builder to show; nothing applies them by itself.
 
 ## The contract
 

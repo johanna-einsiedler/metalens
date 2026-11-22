@@ -20,6 +20,7 @@ from psycopg.types.json import Json
 
 from .chains.genai_work.codes import CODES as GENAI_PASS_CODES
 from .checks_genai import CODES as GENAI_CODES, check_genai_record
+from .rules import check_rules
 
 ON_FAIL = ("note", "flag", "fail")
 SEVERITIES = ("error", "warn", "info")
@@ -285,6 +286,10 @@ REGISTRY: dict[str, dict] = {
     "genai-work-passes": {"label": "the GenAI-at-work chain's checks over its passes: the record assembled from the four passes, the exhibits, estimands and estimates, the readings' disagreements",
                           "applies_to": {"unit": "papers", "passes": ["genai_work.exhibits", "genai_work.estimands", "genai_work.estimates", "genai_work.design"]},
                           "inputs": 4, "params": {}, "codes": GENAI_PASS_CODES, "fn": lambda inputs, params: _genai_passes(inputs, params)},
+    "rules": {"label": "rules the workflow declares over the preset's fields: comparisons, ranges, patterns, sums across a table",
+              "applies_to": {"presets": "*", "unit": "entries"}, "inputs": 1,
+              "params": {"rules": {"type": "table", "default": []}},
+              "codes": {}, "fn": check_rules},                       # the codes are the rules' own (params.rules[].code)
     "claims-vs-tables": {"label": "point estimates against the transcribed table cells of the companion dataset",
                          "applies_to": {"presets": ["register-claims"], "unit": "results", "companion": ["register-tables", "econ-regression-tables"]},
                          "inputs": 1, "needs_companion": True, "params": {},
@@ -327,6 +332,11 @@ def validate_step(st: dict, at: str, E, W, *, presets_of: dict[str, dict | None]
         want = _PARAM_TYPES.get(decl.get("type"), object)
         if not isinstance(v, want) or (decl.get("type") == "number" and isinstance(v, bool)):
             E(f"{at}.params.{k} must be a {decl.get('type')}")
+    if name == "rules":                                          # each rule against the preset it reads
+        from . import rules as _rules
+        pspec = presets_of.get(over[0]) if over else None
+        for e in _rules.validate(params.get("rules", []), pspec):
+            E(f"{at}.params.rules{e}" if e.startswith("[") else f"{at}.params.rules: {e}")
 
 
 def params_for(st: dict) -> dict:
