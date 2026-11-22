@@ -176,6 +176,12 @@ def test_a_supplied_output_stands_in_for_the_call_and_a_failed_paper_stops_its_c
     # gamma's title comes from outside (the pipeline's own file): the words pass reads it, no title call is made
     r = c.post(f"/api/workflow-runs/{rid}/passes/title/{sha['gamma']}", headers=H, json={"output": {"title": "Supplied title", "n_pages": 1, "words": [{"id": "w1", "word": "s"}]}, "prompt_sha256": "810861b1ac"})
     assert r.status_code == 200 and r.json()["supplied"] is True and r.json()["prompt_sha256"] == "810861b1ac"
+    # a NUL in a supplied output (PDF text debris) is dropped, not a 500: jsonb cannot hold \u0000
+    r = c.post(f"/api/workflow-runs/{rid}/passes/title/{sha['omega']}", headers=H,
+               json={"output": {"title": "A\u0000B", "n_pages": 1, "words": [{"id": "w1", "word": "x\u0000"}], "k\u0000ey": ["\u0000"]}, "role": "run", "pass_index": 1})
+    assert r.status_code == 200, r.text
+    got = c.get(f"/api/workflow-runs/{rid}/passes/title/{sha['omega']}", headers=H, params={"role": "run", "pass_index": 1}).json()["output"]
+    assert got["title"] == "AB" and got["words"][0]["word"] == "x" and got["key"] == [""]
     r = c.post(f"/api/workflow-runs/{rid}/papers", headers=H, files={"pdf": ("gamma.pdf", pdfs["gamma"], "application/pdf")}, data={"api_key": "k", "model": "m"})
     assert r.status_code == 200 and r.json()["skipped"] == ["title"] and r.json()["done"] == ["words"] and len(fake.calls) == 1
     words = c.get(f"/api/workflow-runs/{rid}/passes/words/{sha['gamma']}", headers=H).json()

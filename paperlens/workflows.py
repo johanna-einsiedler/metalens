@@ -908,9 +908,28 @@ def gate_report(conn, dataset_id: str, spec: dict | None = None) -> dict:
 
 # ── planning ──────────────────────────────────────────────────────────────────
 
+def _one_per_pdf(new_pdfs: list[dict] | None) -> tuple[list[dict] | None, list[dict]]:
+    """The staged PDFs, each file once: the same PDF under a second name (two records of one paper)
+    is one paper of a run — the first name kept, the others returned to be said."""
+    if not new_pdfs:
+        return new_pdfs, []
+    seen: dict[str, dict] = {}
+    kept, dropped = [], []
+    for p in new_pdfs:
+        sha = p.get("sha256") if isinstance(p, dict) else None
+        if sha and sha in seen:
+            dropped.append({"sha256": sha, "filename": p.get("filename"), "same_as": seen[sha].get("filename")})
+            continue
+        if sha:
+            seen[sha] = p
+        kept.append(p)
+    return kept, dropped
+
+
 def plan(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, reextract: bool = False,
          use_credits: bool = False, model: str | None = None) -> dict:
     from . import credits
+    new_pdfs, same_pdf = _one_per_pdf(new_pdfs)
     d = records.get_dataset(conn, dataset_id)
     if d is None:
         raise LookupError("Dataset not found.")
@@ -941,7 +960,8 @@ def plan(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, reex
             "credits": {"needed": n_calls if use_credits else 0, "balance": balance, "use_credits": bool(use_credits), "model": cmodel},
             "active_run": run_view(conn, active) if active else None,
             "inputs": {"new_pdfs": [{"sha256": p.get("sha256"), "filename": p.get("filename")} for p in (new_pdfs or []) if isinstance(p, dict)],
-                       "reextract": bool(reextract), "use_credits": bool(use_credits), "model": model}}
+                       "reextract": bool(reextract), "use_credits": bool(use_credits), "model": model,
+                       **({"same_pdf": same_pdf} if same_pdf else {})}}
 
 
 class RunRefused(ValueError):
@@ -956,6 +976,7 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
     """Plan again from the inputs, refuse what cannot run, consume the credits, insert the run
     with its step-runs and jobs, attach what the caller already has, and advance."""
     from . import __version__, credits, exporter
+    new_pdfs, _same = _one_per_pdf(new_pdfs)
     p = plan(conn, dataset_id, who=who, new_pdfs=new_pdfs, reextract=reextract, use_credits=use_credits, model=model)
     if p["workflow"]["problems"]:
         raise RunRefused("This workflow cannot run yet: " + "; ".join(p["workflow"]["problems"][:4]), 422, {"problems": p["workflow"]["problems"]})
@@ -1002,10 +1023,12 @@ def start(conn, dataset_id: str, *, who, new_pdfs: list[dict] | None = None, ree
                         (str(uuid.uuid4()), rid, s["id"], it["pdf_sha256"], it.get("filename"),
                          it.get("document_id") if it["action"] == "attach" else None, it.get("replaces"),
                          calls_per_paper(spec, s["id"]) if (use_credits and it["action"] in ("extract", "reextract", "pass", "compute")) else 0))
-    except psycopg.errors.UniqueViolation:
+    except psycopg.errors.UniqueViolation as exc:
         if use_credits and n_calls:
             credits.refund(conn, uid, model=cmodel, n=n_calls, reason="workflow refund")
-        raise RunRefused("A run is already in progress.", 409)
+        if getattr(exc.diag, "constraint_name", None) == "workflow_run_active_idx":
+            raise RunRefused("A run is already in progress.", 409)
+        raise RunRefused("The run could not be made: one of its papers is listed twice for a step.", 409)
     # what the caller already has under this contract joins without a model call
     for job in jobs(conn, rid):
         if job["document_id"] and job["status"] == "pending":

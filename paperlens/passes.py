@@ -359,11 +359,24 @@ def find_reusable(conn, *, pdf_sha256: str, code: str, prompt_sha256: str, input
     return _out_row(r) if r else None
 
 
+def no_nul(x):
+    """NUL characters out of every string and key (PDF text debris): Postgres' jsonb cannot hold
+    ``\u0000``, and one in a pass output used to fail the whole call."""
+    if isinstance(x, str):
+        return x.replace("\x00", "") if "\x00" in x else x
+    if isinstance(x, dict):
+        return {no_nul(k): no_nul(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [no_nul(v) for v in x]
+    return x
+
+
 def store_output(conn, *, run_id: str, step_id: str, code: str, pdf_sha256: str, output: dict, prompt_sha256: str | None,
                  inputs_sha256: str | None, model: str | None, usage: dict | None, n_calls: int, role: str = "primary", pass_index: int = 0,
                  stability: dict | None = None, status: str = "done", error: str | None = None, reused_from: str | None = None,
                  supplied: bool = False, log: list[str] | None = None, raw: list[str] | None = None, store=None) -> dict:
     oid = str(uuid.uuid4())
+    output, stability, usage, error = no_nul(output), no_nul(stability), no_nul(usage), no_nul(error)
     with conn.transaction():
         conn.execute("DELETE FROM workflow_pass_output WHERE run_id = %s::uuid AND step_id = %s AND pdf_sha256 = %s AND role = %s AND pass_index = %s",
                      (run_id, step_id, pdf_sha256, role, pass_index))

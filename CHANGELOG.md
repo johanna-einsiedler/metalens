@@ -26,6 +26,16 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   the release, and listed them twice in the workspace.
 - A dataset's and a project's page use the whole width of the window.
 
+### Seeding a full set: the same PDF twice is one paper, a NUL in an output is dropped
+
+- A run's staged PDFs are taken once each: the same file under a second name (two records of one
+  paper, an SSRN and an NBER version) is one paper of the run, the plan saying which name was
+  dropped (`inputs.same_pdf`). Before, the run's insert hit the one-job-per-PDF rule and the
+  refusal read "A run is already in progress" — the message of a different rule. A refusal now
+  names its own reason.
+- A pass output with a NUL character in a string (`\u0000`, debris of PDF text) is stored without
+  it: Postgres' jsonb cannot hold one, and the supply (or a model's answer) failed with a 500.
+
 ### The workflow diagram fits its card, in the palette's colours, with right-angled arrows
 
 The flow diagram on the Workflow card and on a workflow's page (`static/flow.js`) takes the width it
