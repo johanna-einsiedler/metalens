@@ -1201,7 +1201,8 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                     if not done:
                         return get_run(conn, run_id)
                 elif kind == "check":
-                    _advance_check(conn, run, sr, st, by_id)
+                    if not _advance_check(conn, run, sr, st, by_id):
+                        return get_run(conn, run_id)
                 elif kind == "derive":
                     if not _advance_derive(conn, run, sr, st):
                         return get_run(conn, run_id)
@@ -1219,8 +1220,8 @@ def advance(conn, run_id: str, *, complete_step: str | None = None) -> dict | No
                 elif kind == "crosscheck" and (records.get_dataset(conn, d_id) or {}).get("companion_dataset_id"):
                     # the preset-level cross-check step is the claims-vs-tables check over the extract step
                     first = next((x["id"] for x in spec["steps"] if x.get("kind") in ("extract", "agent")), None)
-                    _advance_check(conn, run, sr, {"id": sr["step_id"], "kind": "check", "check": "claims-vs-tables", "over": [first] if first else [],
-                                                   "on_fail": "note", "severity": "error", "params": {}}, by_id)
+                    _run_check(conn, run, sr, {"id": sr["step_id"], "kind": "check", "check": "claims-vs-tables", "over": [first] if first else [],
+                                               "on_fail": "note", "severity": "error", "params": {}}, by_id)
                 elif kind in ws.UPDATE_KINDS:
                     state = update_step_state(conn, d_id, st)
                     _set_sr(conn, sr["id"], status="done", outputs=state, inputs=basis(conn, d_id), finished_at=_now())
@@ -1761,14 +1762,19 @@ def run_step_job(conn, run_id: str, step_id: str, *, api_key: str | None = None,
                  model: str | None = None, generate=None) -> dict | None:
     """Run one derive step of a run — on the worker with the server key (a credit run), or here
     with the key the owner just gave (``resume``) — then advance the run. A failure fails the
-    run and gives the step's planned credits back."""
+    run and gives the step's planned credits back. A check step's job runs here too
+    (``_run_check_job``)."""
     from . import credits, derived, providers
     run = get_run(conn, run_id)
     if run is None or run["status"] in TERMINAL:
         return run
     sr = next((s for s in step_runs(conn, run_id) if s["step_id"] == step_id), None)
     st = ws.steps_by_id(run["workflow"]).get(step_id)
-    if sr is None or st is None or st.get("kind") != "derive" or sr["status"] in ("done", "skipped", "failed"):
+    if sr is None or st is None or sr["status"] in ("done", "skipped", "failed"):
+        return run
+    if st.get("kind") == "check":
+        return _run_check_job(conn, run, sr, st)
+    if st.get("kind") != "derive":
         return run
     model = model or run.get("model") or (derived.llm_calls(st)[0].get("model") if derived.llm_calls(st) else None)
     key = api_key
@@ -1795,10 +1801,10 @@ def run_step_job(conn, run_id: str, step_id: str, *, api_key: str | None = None,
 
 
 def step_job_candidates(conn) -> list[tuple[dict, dict]]:
-    """Derive steps whose worker job has not reported for a while: (run, step-run) pairs."""
+    """Derive and check steps whose worker job has not reported for a while: (run, step-run) pairs."""
     rows = conn.execute(
         """SELECT sr.id::text FROM workflow_step_run sr JOIN workflow_run r ON r.id = sr.run_id
-           WHERE r.status = 'running' AND sr.kind = 'derive' AND sr.status = 'running' AND sr.outputs ? 'job_id'
+           WHERE r.status = 'running' AND sr.kind IN ('derive', 'check') AND sr.status = 'running' AND sr.outputs ? 'job_id'
              AND r.updated_at < now() - interval '10 minutes'""").fetchall()
     out = []
     for (srid,) in rows:
@@ -1810,8 +1816,10 @@ def step_job_candidates(conn) -> list[tuple[dict, dict]]:
 
 
 def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str:
-    """What the queue says about a derive step's job: still at it, finished (the step-run already
-    moved on — nothing to do), or forgotten → the step fails and the run with it."""
+    """What the queue says about a derive or check step's job: still at it, finished (the
+    step-run already moved on — nothing to do), or forgotten → a check (free, the same every
+    time) is queued again, up to ``COMPUTE_MAX_TRIES``; a derive step (model calls) fails and
+    the run with it."""
     if status and str(status.get("status")) in ("JobStatus.queued", "JobStatus.deferred", "JobStatus.in_progress", "queued", "deferred", "in_progress"):
         _touch(conn, run["id"])
         return "waiting"
@@ -1821,6 +1829,13 @@ def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str
     if status and status.get("success"):
         advance(conn, run["id"])
         return "landed"
+    outs = dict((fresh or sr).get("outputs") or {})
+    if (fresh or sr).get("kind") == "check" and int(outs.get("tries") or 0) + 1 < COMPUTE_MAX_TRIES:
+        outs.pop("job_id", None)
+        outs["tries"] = int(outs.get("tries") or 0) + 1
+        _set_sr(conn, sr["id"], outputs=outs)
+        advance(conn, run["id"])
+        return "requeued"
     with conn.transaction():
         _set_sr(conn, sr["id"], status="failed", error=(status or {}).get("error") or "the worker lost the step's job", finished_at=_now())
         _touch(conn, run["id"], status="failed", error=f"{sr['step_id']}: the worker lost the step's job", finished_at=_now())
@@ -1828,7 +1843,29 @@ def apply_step_job_status(conn, run: dict, sr: dict, status: dict | None) -> str
     return "lost"
 
 
-def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
+def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> bool:
+    """A check step goes to the worker as its own job (``workflow_step_job`` → ``run_step_job``)
+    and the run waits for it; inline when there is no queue. The GenAI-at-work passes check
+    assembles every paper's record again — some ten minutes for 114 papers — and inside the
+    advance it held the run's lock and one open transaction for all of it, on whatever process
+    advanced the run: a page's poll, or the worker's tick, whose time limit closed the
+    connection under it and threw the work away. True when the step is done here."""
+    from . import worker
+    outputs = sr.get("outputs") or {}
+    if outputs.get("job_id"):
+        return False                                        # the worker is on it
+    job_id = worker.enqueue("workflow_step_job", run["id"], sr["step_id"])
+    if job_id:
+        _set_sr(conn, sr["id"], outputs={**outputs, "job_id": job_id})
+        return False
+    _run_check(conn, run, sr, st, by_id)
+    return True
+
+
+def _run_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
+    """Run one check step: its inputs read, the rule called, the findings stored, the step done
+    (or failed, for ``on_fail: fail``), a ``flag`` opening the review gate over the flagged
+    records."""
     over = st.get("over") or []
     papers = ((checks.REGISTRY.get(st.get("check")) or {}).get("applies_to") or {}).get("unit") == "papers"
     d_id = run["dataset_id"] if papers else (dataset_for_step(conn, run, over[0]) if over else run["dataset_id"])
@@ -1846,11 +1883,27 @@ def _advance_check(conn, run: dict, sr: dict, st: dict, by_id: dict) -> None:
     res = checks.run_step(conn, run["id"], sr["id"], st, inputs)
     status = res.pop("status")
     flagged = res.pop("flagged_record_ids", [])
-    _set_sr(conn, sr["id"], status="failed" if status == "failed" else "done", outputs=res, inputs=basis(conn, d_id), finished_at=_now(),
-            error=f"{st['check']}: {res['findings']} finding(s) at or above {st.get('severity')}" if status == "failed" else None)
-    if status != "failed" and st.get("on_fail") == "flag" and flagged:
-        review_gate.open_gate(conn, get_step_run(conn, sr["id"]), {**st, "review": {"mode": "all", "unit": "entry", "blocks": "release"}},
-                              record_ids=flagged)
+    with conn.transaction():                                # on the worker the step's end lands as one write
+        _set_sr(conn, sr["id"], status="failed" if status == "failed" else "done", outputs=res, inputs=basis(conn, d_id), finished_at=_now(),
+                error=f"{st['check']}: {res['findings']} finding(s) at or above {st.get('severity')}" if status == "failed" else None)
+        if status != "failed" and st.get("on_fail") == "flag" and flagged:
+            review_gate.open_gate(conn, get_step_run(conn, sr["id"]), {**st, "review": {"mode": "all", "unit": "entry", "blocks": "release"}},
+                                  record_ids=flagged)
+
+
+def _run_check_job(conn, run: dict, sr: dict, st: dict) -> dict | None:
+    """A check step on the worker, outside the run's lock and any long transaction: the inputs
+    read query by query, the rule run, the findings and the step's end written in short
+    transactions, then the run advanced. A failure fails the step and the run, as it did inline."""
+    try:
+        _run_check(conn, run, sr, st, ws.steps_by_id(run["workflow"]))
+    except Exception as exc:  # noqa: BLE001 - the run records the failure
+        with conn.transaction():
+            _set_sr(conn, sr["id"], status="failed", error=str(exc)[:1000], finished_at=_now(),
+                    outputs={k: v for k, v in (sr.get("outputs") or {}).items() if k != "job_id"})
+            _touch(conn, run["id"], status="failed", error=f"{sr['step_id']}: {exc}"[:1000], finished_at=_now())
+        return get_run(conn, run["id"])
+    return advance(conn, run["id"])
 
 
 # ── pause, resume, cancel, retry, reconcile ───────────────────────────────────

@@ -8,6 +8,19 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Check steps run on the worker; the tick no longer closes a connection still in use
+
+- A check step ran inside the run's advance: under the run's lock, in one transaction, on whatever
+  process advanced the run. The GenAI-at-work passes check assembles every paper's record again —
+  some ten minutes for 114 papers — and on the live chain run (22 Nov, from 21:25) none of the
+  attempts got through: a page's poll waited out its two minutes on the lock, and the worker's
+  tick, which had advanced the run after the last papers failed, hit its five-minute limit, whose
+  `finally` closed the connection under the advance still running on its thread and threw the
+  work away. A check step now runs on the worker as its own job (`workflow_step_job`, as a derive
+  step does): the inputs read query by query, the findings written in a short transaction, then
+  the run advanced. A job the queue lost is queued again, up to three tries.
+- The tick's connection now closes only when its thread is done.
+
 ### The worker's two-minute tick no longer computes papers on its event loop
 
 - The tick did its database work on the worker's event loop. When it re-queued a dropped compute
