@@ -495,6 +495,8 @@ async function loadUpdateCard() {
 // the panel replaces the Update card: per step a state chip (fresh · stale · missing · draft ·
 // awaiting review · blocked), what a run would do, the review gate, and the run in progress.
 let WF = null, WF_TIMER = null;
+let WF_STEP = null;                                    // the step chosen in the diagram (its panel stays open across repaints)
+const WF_DETAIL = {};                                  // step id → its detail (GET …/workflow/steps/{id}), refetched while a run is live
 const WF_STATE = { fresh: ["tier-human_verified", "fresh"], stale: ["tier-sample_verified", "stale"], missing: ["", "not yet"],
                    draft: ["tier-sample_verified", "draft"], awaiting_review: ["tier-sample_verified", "awaiting review"],
                    blocked: ["", "blocked"], unsupported: ["", "not in this release"] };
@@ -827,13 +829,26 @@ function renderWorkflowCard(host, w) {
            ${hasPass ? `<button class="btn btn-ghost btn-sm" id="wf-upres" title="upload each PDF with a results file of the same name (<name>.json: the pass outputs made outside Metalens); no model call">Upload papers with results</button><input type="file" id="wf-upres-files" multiple accept=".pdf,.json,application/pdf,application/json" hidden>` : ""}
            <button class="btn btn-ghost btn-sm" id="wf-start" title="run the checks and the update steps over the papers already here">Update</button>`}</span>` : ""}</div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Each time papers are added, these steps run in this order. The release waits until every review below is done.</p>
-    <div class="wf-flow">${flowSvg(w.steps, { current: cur, width: flowWidth(host) })}</div>
+    <div class="wf-flow">${flowSvg(w.steps, { current: cur, selected: WF_STEP, width: flowWidth(host) })}</div>
+    <div id="wf-step" class="wf-step">${WF_STEP && (w.steps || []).some((s) => s.id === WF_STEP) ? "" : `<p class="muted wf-step-hint">Click a step in the diagram to see how it is set up and which papers it has run on.</p>`}</div>
     <div id="wf-upmsg" hidden></div>
     ${problems}${picker}${group}
-    ${(w.steps || []).map(line).join("")}
     ${runLine}
     <div class="muted" style="font-size:12.5px;margin-top:6px">Release gate: ${w.gate && w.gate.open ? `<span class="badge tier-human_verified">open</span>` : `<span class="badge tier-sample_verified">holds</span> ${esc([...(w.gate.blocking || []).filter((b) => !(w.gate.gates_blocking || []).includes(b)).map((b) => `${b} not fresh`), ...(w.gate.gates_blocking || []).map((g) => `${g} awaits review`)].join(", "))}`}
       ${(w.runs || []).length > 1 ? `· ${w.runs.length} runs so far` : ""}</div>`;
+  // the diagram's boxes: a click (or Enter) opens the step's panel under it; the same step again closes it
+  const openStep = (sid) => {
+    WF_STEP = WF_STEP === sid ? null : sid;
+    host.querySelectorAll(".flow .flow-box").forEach((r) => r.classList.remove("flow-selected"));
+    const node = WF_STEP && host.querySelector(`.flow [data-step="${CSS.escape(WF_STEP)}"] .flow-box`);
+    if (node) node.classList.add("flow-selected");
+    renderStepPanel($("#wf-step"), w, WF_STEP, line, live);
+  };
+  host.querySelectorAll(".flow [data-step]").forEach((g) => {
+    g.addEventListener("click", () => openStep(g.dataset.step));
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openStep(g.dataset.step); } });
+  });
+  if (WF_STEP && (w.steps || []).some((s) => s.id === WF_STEP)) renderStepPanel($("#wf-step"), w, WF_STEP, line, live);
   const upres = $("#wf-upres"), upfiles = $("#wf-upres-files");
   if (upres && upfiles) {
     upres.onclick = () => upfiles.click();
@@ -887,6 +902,111 @@ function renderWorkflowCard(host, w) {
   if (set) set.onclick = () => { const v = $("#wf-pick").value; if (v !== "") joinWorkflow(w.available[+v], set); };
 }
 
+// ── a step of the workflow, in detail: its state and what to do (the line it used to have in a
+// list), how it is set up (its declaration, in words), and run by run the papers it ran on ──
+const SETUP_KIND = { extract: "Extraction: a preset per paper", agent: "Agent: results supplied per paper", pass: "A registered pass over each paper",
+  compute: "Registered code over each paper", check: "A deterministic check", review: "Where a person looks", release: "The release",
+  derive: "A model call over the dataset's entries", vocabulary: "A vocabulary of a column", pages: "Pages over the dataset", crosscheck: "A cross-check against the companion",
+  loop: "A loop: re-extract until a check passes" };
+const code = (x) => `<code>${esc(typeof x === "string" ? x : JSON.stringify(x))}</code>`;
+const presetLink = (pin) => pin ? `<a href="/preset?id=${encodeURIComponent(String(pin).split("@")[0])}">${esc(String(pin).split("@")[0])}</a> <span class="muted">${code(pin)}</span>` : "—";
+function stepSetup(s, info) {
+  const rows = [];
+  const add = (k, v) => { if (v != null && v !== "" && !(Array.isArray(v) && !v.length)) rows.push([k, v]); };
+  add("Kind", esc(SETUP_KIND[s.kind] || s.kind));
+  if (s.kind === "extract" || s.kind === "agent") {
+    add("Preset", presetLink(s.preset));
+    add("Papers come in", s.source === "supplied" ? "uploaded with their results (no model call)" : "a model call per paper");
+    if ((s.k || 1) > 1) add("Readings per paper", `${s.k}${s.vote ? ` · vote ${code(s.vote)}` : ""}`);
+    const prev = s.input && s.input.previous;
+    if (Array.isArray(prev) ? prev.length : prev) add("Follows", (Array.isArray(prev) ? prev : [prev]).map(code).join(", "));
+    add("Dataset role", s.dataset ? esc(s.dataset) : "");
+    if (s.params && Object.keys(s.params).length) add("Parameters", code(s.params));
+  } else if (s.kind === "pass") {
+    add("Registered pass", code(s.pass || ""));
+    add("Reads", (s.reads || []).map(code).join(", "));
+    if ((s.k || 1) > 1) add("Readings per paper", `${s.k}${s.match ? ` · matched by ${code(s.match)}` : ""}`);
+    add("Over", (Array.isArray(s.over) ? s.over : s.over ? [s.over] : []).map(code).join(", "));
+    if (s.params && Object.keys(s.params).length) add("Parameters", code(s.params));
+    add("Model", s.model ? code(s.model) : "");
+  } else if (s.kind === "compute") {
+    add("Registered code", code(s.fn || ""));
+    add("Reads", (s.reads || []).map(code).join(", "));
+    add("Makes", s.preset ? `one document per paper under ${presetLink(s.preset)}${s.dataset ? ` into the <b>${esc(s.dataset)}</b> dataset` : ""}` : "");
+    add("Edits", s.edits ? code(s.edits) : "");
+    if (s.params && Object.keys(s.params).length) add("Parameters", code(s.params));
+  } else if (s.kind === "check") {
+    add("Check", `${code(s.check || "")}${info && info.label ? ` — ${esc(info.label)}` : ""}`);
+    add("Over", (s.over || []).map(code).join(", "));
+    add("On a finding", `${s.on_fail === "fail" ? "fail the run" : s.on_fail === "flag" ? "put the record in front of a reviewer" : "note it"} at or above ${code(s.severity || "error")}`);
+    const rules = (s.params || {}).rules;
+    if (Array.isArray(rules) && rules.length) add("Rules", `<ul class="wf-rules">${rules.map((r) => `<li>${code(r.code || "")} <span class="muted">(${esc(r.severity || "error")}${r.unit ? `, ${esc(r.unit)}` : ""})</span> ${r.require ? "requires" : "finds"} ${code(r.require || r.when)}${r.where ? ` where ${code(r.where)}` : ""}</li>`).join("")}</ul>`);
+    else if (s.params && Object.keys(s.params).length) add("Parameters", code(s.params));
+  } else if (s.kind === "review") {
+    add("Purpose", s.purpose ? `<span class="badge wf-purpose">${esc(s.purpose)}</span> <span class="muted">${esc(PURPOSE_HELP[s.purpose] || "")}</span>` : "");
+    add("Over", (s.over || []).map(code).join(", "));
+    const unit = s.unit === "row" ? `rows of ${code(s.table || "")}` : s.unit === "entry" ? "entries" : "papers";
+    add("What is checked", s.mode === "sample"
+      ? `a random draw of ${s.unit === "row" ? `${s.per_paper || 1} per paper of the ${unit}` : s.n != null ? `${s.n} ${unit}` : `${Math.round((s.share || 0) * 100)}% of the ${unit}`}${(s.stratify || []).length ? `, stratified by ${s.stratify.map(code).join(", ")}` : ""}${s.seed != null ? ` · seed ${code(s.seed)}` : ""}`
+      : `every one of the ${unit}`);
+    add("Which papers", s.where ? `those where ${code(s.where)}` : s.new_only === false ? "every paper of the sides, each run" : "the run's new papers");
+    add("Coders per paper", s.coders ? String(s.coders) : "the owner reviews");
+    add("Template", s.template ? `${code(s.template)} <span class="muted">(the questions a coder answers)</span>` : "");
+    add("Asks", s.asks && typeof s.asks === "object" ? `<ul class="wf-rules">${Object.entries(s.asks).map(([side, fs]) => `<li>${code(side)}: ${(fs || []).map(esc).join(", ")}</li>`).join("")}</ul>` : "");
+    add("Holds", s.blocks === "next" ? "the run, until done" : s.blocks === "none" ? "nothing" : "the release, until done");
+  } else if (s.kind === "release") {
+    add("Waits for", (s.gate || []).map(code).join(", "));
+  }
+  return `<table class="wf-setup">${rows.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${v}</td></tr>`).join("")}</table>
+    <details class="wf-decl"><summary class="muted">The step as declared (JSON)</summary><pre>${esc(JSON.stringify(s, null, 2))}</pre></details>`;
+}
+function paperName(p) {
+  const t = p.title || p.filename || (p.document_id ? `document ${p.document_id.slice(0, 8)}` : p.pdf_sha256 ? `PDF ${p.pdf_sha256.slice(0, 8)}` : "paper");
+  return `${esc(t)}${p.doi ? ` <span class="muted"><small>${esc(p.doi)}</small></span>` : ""}`;
+}
+function paperOutcome(kind, p) {
+  const sev = (f) => Object.entries(f || {}).map(([k, n]) => `${n} ${k === "warn" ? "warning" : k}${n === 1 ? "" : "s"}`).join(", ");
+  if (kind === "pass") return [p.how, p.n_calls ? `${p.n_calls} call${p.n_calls === 1 ? "" : "s"}` : "", p.findings ? `${p.findings} finding${p.findings === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+  if (kind === "check") return sev(p.findings) || "no findings";
+  if (kind === "review") return `${p.checked} of ${p.items} checked${p.sides > 1 ? ` on ${p.sides} sides` : ""}${p.disagreed ? `, ${p.disagreed} disagreed` : ""}${(p.coders || []).length ? ` · ${p.coders.map((c) => `${esc(c.label)} ${c.checked}/${c.items}`).join(", ")}` : ""}`;
+  if (p.n_records != null) return `${p.n_records} record${p.n_records === 1 ? "" : "s"}`;
+  return "";
+}
+function runBlock(kind, r, open) {
+  const s = r.summary || {};
+  const when = (r.finished_at || r.started_at || r.created_at || "").slice(0, 16).replace("T", " ");
+  const facts = [`${(r.papers || []).length} paper${(r.papers || []).length === 1 ? "" : "s"}`,
+    kind === "check" && s.findings != null ? `${s.n_checked || 0} checked, ${s.findings} finding${s.findings === 1 ? "" : "s"}` : "",
+    kind === "review" && s.total != null ? `${s.checked} of ${s.total} checked${s.disagreed ? `, ${s.disagreed} disagreed` : ""}${s.satisfied ? " · done" : ""}` : "",
+    r.n_calls ? `${r.n_calls} model call${r.n_calls === 1 ? "" : "s"}` : "", r.model ? esc(r.model) : ""].filter(Boolean).join(" · ");
+  const queue = kind === "review" && s.queue && s.pending ? ` <a href="${esc(s.queue)}">open its queue →</a>` : "";
+  const rows = (r.papers || []).map((p) => `<tr><td>${p.document_id ? `<a href="/workspace?dataset=${esc(id)}&doc=${esc(p.document_id)}">${paperName(p)}</a>` : paperName(p)}</td>
+      <td><span class="badge ${p.status === "failed" ? "tier-ai_only" : p.status === "open" ? "tier-sample_verified" : "tier-human_verified"}">${esc(p.status || "")}</span></td>
+      <td class="muted">${paperOutcome(kind, p)}${p.error ? ` <span class="wf-err" title="${esc(p.error)}">${esc(p.error.slice(0, 90))}</span>` : ""}</td></tr>`).join("");
+  return `<details class="wf-runblock"${open ? " open" : ""}><summary><b>Run of ${esc(when)}</b> <span class="muted">· ${esc(r.status)}${r.run_status !== r.status ? ` (run ${esc(r.run_status)})` : ""} · ${facts}</span>${queue}</summary>
+    ${rows ? `<table class="ds-cc wf-papers"><thead><tr><th>Paper</th><th>Status</th><th>Outcome</th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="muted" style="margin:4px 0">No paper in this run.</p>`}
+    ${r.error ? `<p class="wf-err">${esc(r.error)}</p>` : ""}</details>`;
+}
+async function renderStepPanel(box, w, sid, line, live) {
+  if (!box) return;
+  const st = (w.steps || []).find((s) => s.id === sid);
+  if (!st) { box.innerHTML = `<p class="muted wf-step-hint">Click a step in the diagram to see how it is set up and which papers it has run on.</p>`; return; }
+  const paint = (d) => {
+    if (WF_STEP !== sid) return;                                    // another step was chosen meanwhile
+    const runs = (d && d.runs) || [];
+    box.innerHTML = `<div class="wf-step-head">${line(st)}</div>
+      ${st.help ? `<p class="wf-step-help">${esc(st.help)}</p>` : ""}
+      <div class="wf-step-cols"><div class="wf-step-setup"><h4>How it is set up</h4>${d ? stepSetup(d.step || st, d.check_info) : `<p class="muted">Loading…</p>`}</div>
+        <div class="wf-step-runs"><h4>Papers it ran on</h4>${!d ? `<p class="muted">Loading…</p>` : runs.length
+          ? runs.map((r, k) => runBlock(st.kind, r, k === 0)).join("") + (runs.length > 1 ? `<p class="muted" style="font-size:12px;margin:4px 0 0">${runs.length} runs, newest first.</p>` : "")
+          : `<p class="muted">${st.kind === "release" ? "A release is made from the Releases card." : "This step has not run yet."}</p>`}</div></div>`;
+  };
+  paint(WF_DETAIL[sid] || null);
+  if (WF_DETAIL[sid] && !live) return;
+  try { WF_DETAIL[sid] = await api.workflowStep(id, sid); } catch (e) { box.innerHTML = `<div class="wf-step-head">${line(st)}</div><p class="muted">${esc(e.message)}</p>`; return; }
+  paint(WF_DETAIL[sid]);
+}
+
 // ── a workflow dataset: the workflow over several presets, the linked datasets, their papers side by side ──
 // It holds no records itself. Its papers are the members' papers, one row per PDF with each
 // side's document beside it; its runs and its release cover every linked dataset.
@@ -931,7 +1051,7 @@ function renderWorkflowDataset() {
       ${members.map(memberRow).join("")}<div id="wd-link-form" hidden></div></div>
     ${mine ? codersCard() : ""}
     <span id="workflow"></span><div class="ds-card" id="ds-update" hidden></div>
-    <span id="tasks"></span><div class="ds-card" id="wd-tasks"><div class="ds-card-h">Review tasks <span class="muted" style="font-weight:400;font-size:12.5px">· the review steps of the latest run: who checks what</span></div><div id="wd-tasklist" class="muted" style="font-size:13px">…</div></div>
+    <span id="tasks"></span><div class="ds-card" id="wd-tasks"><div class="ds-card-h">Review tasks <span class="muted" style="font-weight:400;font-size:12.5px">· one per review step, over every run: who checks what</span></div><div id="wd-tasklist" class="muted" style="font-size:13px">…</div></div>
     <div class="ds-card" id="wd-papers"><div class="ds-card-h">Papers <span class="muted">(${st.n_papers || 0})</span></div>${papers}</div>
     ${made ? `<div class="ds-card"><div class="ds-card-h">Made from the papers</div>${made}</div>` : ""}
     <div class="ds-card" id="wd-rel"><div class="ds-card-h">Releases <span class="muted" style="font-weight:400;font-size:12.5px">· one number for the project: its datasets, the workflow and run, the review statistics</span></div>
@@ -997,7 +1117,9 @@ async function loadTasks() {
     const g = t.gate || {};
     const what = t.unit === "row" ? `${t.mode === "sample" ? `${t.per_paper || 1} row${(t.per_paper || 1) === 1 ? "" : "s"} of ${esc(t.table || "")} per paper` : `every row of ${esc(t.table || "")}`}`
       : t.mode === "sample" ? `a sample of ${g.n_target != null ? g.n_target : ""} ${t.unit === "paper" ? "papers" : "records"}` : `every ${t.unit === "paper" ? "paper" : "record"}`;
-    const prog = g.total ? `${g.checked} of ${g.total} checked${g.disagreed ? `, ${g.disagreed} disagreed` : ""}` : g.mode ? "nothing to check" : "not opened yet";
+    const nRuns = (t.runs || []).length;
+    const prog = (g.total ? `${g.checked} of ${g.total} checked${g.disagreed ? `, ${g.disagreed} disagreed` : ""}` : g.mode ? "nothing to check" : "not opened yet")
+      + (nRuns > 1 ? ` · over ${nRuns} runs` : "");
     const mine = myId && (g.by_coder || []).find((b) => b.user_id === myId);
     const people = (g.by_coder || []).length ? ` · by coder: ${g.by_coder.map((b) => `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}` : "";
     const waits = g.needs_coders ? ` · <span class="badge tier-sample_verified">waits for ${g.needs_coders} coders per paper</span>` : "";
@@ -1006,7 +1128,7 @@ async function loadTasks() {
     const cfg = OWNER && t.coders ? ` <select class="wd-cfg" data-step="${esc(t.step_id)}" title="how many of the project's people review each paper of this task (the workflow says ${t.coders})">`
       + `<option value=""${cfgN == null ? " selected" : ""}>${t.coders} per paper (the workflow's)</option>${[1, 2, 3].filter((n) => n !== t.coders).map((n) => `<option value="${n}"${cfgN === n ? " selected" : ""}>${n} per paper</option>`).join("")}</select>` : "";
     const matrix = OWNER && (t.assignments || []).length ? `<details class="wd-matrix"><summary class="muted">who reviews which paper (${t.assignments.length})</summary><table class="ds-cc"><thead><tr><th>Paper</th><th>Coders</th></tr></thead><tbody>${t.assignments.map((a) => `<tr><td>${esc(a.title || a.document_id)}</td><td>${a.coders.map((c) => `<span class="badge${c.done ? " tier-human_verified" : ""}" title="${c.done ? "every verdict given" : "still coding"}">${esc(c.label)}${c.done ? " ✓" : ""}</span>`).join(" ")}
-        ${a.coders.some((c) => !c.done) && (OV.coders || []).length > a.coders.length ? ` <select class="wd-move" data-srid="${esc(t.step_run_id)}" data-doc="${esc(a.document_id)}" title="move this paper to another coder (the slot of the first coder who has not given a verdict)"><option value="">move to…</option>${(OV.coders || []).filter((c) => !a.coders.some((x) => x.user_id === c.user_id)).map((c) => `<option value="${esc(c.user_id)}">${esc(c.label)}</option>`).join("")}</select>` : ""}</td></tr>`).join("")}</tbody></table></details>` : "";
+        ${a.coders.some((c) => !c.done) && (OV.coders || []).length > a.coders.length ? ` <select class="wd-move" data-srid="${esc(a.step_run_id || t.step_run_id)}" data-doc="${esc(a.document_id)}" title="move this paper to another coder (the slot of the first coder who has not given a verdict)"><option value="">move to…</option>${(OV.coders || []).filter((c) => !a.coders.some((x) => x.user_id === c.user_id)).map((c) => `<option value="${esc(c.user_id)}">${esc(c.label)}</option>`).join("")}</select>` : ""}</td></tr>`).join("")}</tbody></table></details>` : "";
     return `<div class="ds-dashrow wd-task"><span class="wf-kind" title="review">👁</span> <b>${esc(t.label)}</b> ${wfChip(g.pending ? "awaiting_review" : g.satisfied ? "fresh" : t.status, g.pending ? `${g.pending} still to check` : "")}
       <span class="muted wf-what">${what}${t.template ? ` · template <code>${esc(t.template)}</code>` : ""}${t.coders ? ` · ${t.coders} coder${t.coders === 1 ? "" : "s"} per paper` : ""} · ${prog}${people}${waits}</span>
       ${mine && mine.pending ? ` <a href="${esc(t.queue)}"><b>code your ${mine.pending} →</b></a>` : OWNER && g.pending && !t.coders ? ` <a href="${esc(t.queue)}">review ${g.pending} →</a>` : ""}${cfg}${matrix}</div>`;
@@ -1015,11 +1137,11 @@ async function loadTasks() {
     try { await api.setTaskConfig(id, sel.dataset.step, { coders: sel.value ? Number(sel.value) : null }); loadTasks(); } catch (e) { alert(e.message); }
   }));
   host.querySelectorAll(".wd-move").forEach((sel) => (sel.onchange = async () => {
-    const t = tasks.find((x) => x.step_run_id === sel.dataset.srid), a = t && (t.assignments || []).find((x) => x.document_id === sel.dataset.doc);
+    const a = tasks.flatMap((x) => x.assignments || []).find((x) => (x.step_run_id || "") === sel.dataset.srid && x.document_id === sel.dataset.doc);
     if (!a || !sel.value) return;
     const slot = a.coders.findIndex((c) => !c.done); if (slot < 0) return;
     const coders = a.coders.map((c) => c.user_id); coders[slot] = sel.value;
-    try { await api.assignTaskPaper(id, t.step_run_id, { document_id: a.document_id, coders }); loadTasks(); } catch (e) { alert(e.message); sel.value = ""; }
+    try { await api.assignTaskPaper(id, sel.dataset.srid, { document_id: a.document_id, coders }); loadTasks(); } catch (e) { alert(e.message); sel.value = ""; }
   }));
 }
 

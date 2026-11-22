@@ -404,6 +404,7 @@ a.acct:hover { color: var(--accent); }
 
 /* ── landing (centered, editorial-serif hero) ─────────────────────────── */
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+.wrap.wrap-wide { max-width: none; }           /* a dataset's or a project's page: the whole width the window gives */
 .hero-c { text-align: center; max-width: 780px; margin: 0 auto; padding-top: 56px; }
 .eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: 12px; font-weight: 700;
   color: var(--accent-2); margin-bottom: 16px; }
@@ -1113,6 +1114,10 @@ textarea.masem-raw { min-height: 360px; resize: vertical; }
 .flow-kind-release { fill: var(--accent); stroke: var(--accent-dark); }
 .flow-kind-release ~ text { fill: var(--on-accent); }
 .flow-current { stroke: var(--accent); stroke-width: 2; }
+/* a box chosen to read about: its panel opens under the diagram */
+.flow-node { cursor: pointer; outline: none; }
+.flow-node:hover .flow-box, .flow-node:focus-visible .flow-box { stroke: var(--accent); }
+.flow-selected { stroke: var(--accent-dark); stroke-width: 2.5; fill: var(--accent-wash); }
 .flow-kind-release.flow-current { stroke: var(--accent-2); }
 .flow-icon { font-size: 13px; fill: var(--text-muted); }
 .flow-label { font-size: 11.5px; font-weight: 600; fill: var(--text); }
@@ -1176,3 +1181,23 @@ a.ds-next-opt:hover { border-color: var(--accent); background: var(--accent-wash
 .wf-stamp { font-size: 12px; }
 .pc-stamp { font-size: 13px; margin: 0 0 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--success-bg); }
 .pc-stamp.lapsed { background: var(--override-bg); }
+
+/* the Workflow card's step panel: the step's state and actions, how it is set up, the papers each run ran it on */
+.wf-step { margin: 6px 0 4px; }
+.wf-step-hint { font-size: 13px; margin: 2px 0 6px; }
+.wf-step-head .wf-row { border-top: 1px solid var(--border); padding-top: 8px; }
+.wf-step-help { font-size: 13px; margin: 4px 0 6px; color: var(--text-muted); }
+.wf-step-cols { display: grid; grid-template-columns: minmax(280px, 2fr) minmax(320px, 3fr); gap: 18px; align-items: start; margin-top: 6px; }
+@media (max-width: 900px) { .wf-step-cols { grid-template-columns: 1fr; } }
+.wf-step-cols h4 { margin: 4px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.wf-setup { border-collapse: collapse; font-size: 13px; width: 100%; }
+.wf-setup th { text-align: left; font-weight: 600; padding: 4px 10px 4px 0; vertical-align: top; white-space: nowrap; color: var(--text-muted); }
+.wf-setup td { padding: 4px 0; vertical-align: top; }
+.wf-setup code { font-size: 12px; word-break: break-word; }
+.wf-rules { margin: 0; padding-left: 16px; }
+.wf-decl { margin-top: 6px; font-size: 12.5px; }
+.wf-decl pre { max-height: 260px; overflow: auto; font-size: 11.5px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
+.wf-runblock { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; margin: 0 0 6px; font-size: 13px; }
+.wf-runblock summary { cursor: pointer; }
+.wf-papers { margin-top: 6px; font-size: 12.5px; }
+.wf-err { color: var(--error); font-size: 12px; }

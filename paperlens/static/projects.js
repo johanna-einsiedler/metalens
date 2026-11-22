@@ -227,7 +227,7 @@ async function renderTasks(grid) {
   sec.hidden = false;
   grid.innerHTML = list.map((t) => `<div class="proj-tile-wrap"><a class="proj-tile" href="${esc(t.queue)}" title="code your papers of this task">`
     + `<div class="pt-title">👁 ${esc(t.label)} <span class="muted" style="font-weight:400">· ${esc(t.project.title || "project")}</span></div>`
-    + `<div class="pt-meta">${t.pending ? `<b>${t.pending}</b> of ${t.total} still to check` : `✓ your ${t.total} checked`} · ${t.papers} paper${t.papers === 1 ? "" : "s"}${t.template ? ` · ${esc(t.template)}` : ""}</div></a>`
+    + `<div class="pt-meta">${t.pending ? `<b>${t.pending}</b> of ${t.total} still to check` : `✓ your ${t.total} checked`} · ${t.papers} paper${t.papers === 1 ? "" : "s"}${(t.runs || []).length > 1 ? ` · over ${t.runs.length} runs` : ""}${t.template ? ` · ${esc(t.template)}` : ""}</div></a>`
     + `<a class="pt-link" href="${t.project.kind === "workflow" ? `/project?id=${esc(t.project.id)}` : `/dataset?id=${esc(t.project.id)}`}" title="the project">project ↗</a></div>`).join("");
 }
 

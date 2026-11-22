@@ -66,23 +66,87 @@ def _task(conn: psycopg.Connection, run: dict, sr: dict, st: dict, labels: dict)
         for it in review_gate.items(conn, sr):
             k = (it.get("document_id"), it.get("coder_user_id"))
             done[k] = done.get(k, True) and bool(it.get("checked"))
-        out["assignments"] = [{"document_id": did, "title": titles.get(did, did),
+        out["assignments"] = [{"document_id": did, "title": titles.get(did, did), "step_run_id": sr["id"], "run_id": run["id"],
                                "coders": [{"user_id": uid, "label": (labels.get(uid) or {}).get("label", "former"), "done": bool(done.get((did, uid)))} for uid in uids]}
                               for did, uids in asg.items()]
     return out
 
 
-def tasks(conn: psycopg.Connection, project: dict, *, run: dict | None = None) -> list[dict]:
-    """The review tasks of a run of the project (the active run, else the latest): one per
-    review step-run — its template, the datasets it reads, its gate, its coders and who reviews
-    which paper."""
-    run = run or workflows.active_run(conn, project["id"]) or next(iter(workflows.list_runs(conn, project["id"], limit=1)), None)
-    if run is None:
-        return []
+_DEAD_RUNS = ("cancelled", "failed", "planned")
+
+
+def _run_tasks(conn: psycopg.Connection, project: dict, run: dict, labels: dict) -> list[dict]:
     by_id = ws.steps_by_id(run.get("workflow") or {})
-    labels = coders.labels_for(conn, project["id"])
     return [_task(conn, run, sr, by_id[sr["step_id"]], labels) for sr in workflows.step_runs(conn, run["id"])
             if sr["kind"] == "review" and sr["step_id"] in by_id]
+
+
+def _merge_gates(gates: list[dict]) -> dict:
+    """Several runs' gates of one review step as one: the counts summed, satisfied when every
+    one is, each coder's share summed over the runs."""
+    g = dict(gates[0])                                              # the newest run's declaration (mode, unit, template, …)
+    for k in ("total", "checked", "pending", "disagreed"):
+        g[k] = sum(int(x.get(k) or 0) for x in gates)
+    for k in ("frame_n", "n_target", "drawn"):
+        if all(x.get(k) is not None for x in gates):
+            g[k] = sum(int(x.get(k) or 0) for x in gates)
+    g["satisfied"] = all(bool(x.get("satisfied")) for x in gates)
+    g["documents"] = [d for x in gates for d in (x.get("documents") or [])]
+    if any(x.get("coders") for x in gates):
+        acc: dict[str, dict] = {}
+        for x in gates:
+            for b in x.get("by_coder") or []:
+                a = acc.setdefault(b["user_id"], {**b, "total": 0, "checked": 0, "pending": 0, "disagreed": 0, "papers": 0})
+                for k in ("total", "checked", "pending", "disagreed", "papers"):
+                    a[k] += int(b.get(k) or 0)
+        g["by_coder"] = sorted(acc.values(), key=lambda a: a.get("label") or "")
+        g["assigned"] = all(bool(x.get("assigned")) for x in gates if x.get("coders"))
+        g["n_coders"] = max(int(x.get("n_coders") or 0) for x in gates)
+        waits = [int(x["needs_coders"]) for x in gates if x.get("needs_coders")]
+        if waits:
+            g["needs_coders"] = max(waits)
+        else:
+            g.pop("needs_coders", None)
+    return g
+
+
+def _merge(ts: list[dict]) -> dict:
+    """One review step over several runs (newest first): one task, its gate summed, the papers of
+    every run in its matrix, the queue of the oldest run with papers still to check."""
+    out = dict(ts[0])
+    gates = [t["gate"] for t in ts if t.get("gate")]
+    if gates:
+        out["gate"] = _merge_gates(gates)
+    out["assignments"] = [a for t in ts for a in (t.get("assignments") or [])]
+    pending = [t for t in ts if (t.get("gate") or {}).get("pending")]
+    out["queue"] = (pending[-1] if pending else ts[0])["queue"]     # the oldest batch still open first
+    out["runs"] = [{"run_id": t["run_id"], "step_run_id": t["step_run_id"], "queue": t["queue"], "status": t["status"],
+                    **{k: (t.get("gate") or {}).get(k) for k in ("total", "checked", "pending", "disagreed", "satisfied")}} for t in ts]
+    return out
+
+
+def tasks(conn: psycopg.Connection, project: dict, *, run: dict | None = None) -> list[dict]:
+    """The review tasks of the project: one per review step of its workflow, over every run that
+    opened it (not cancelled, failed or merely planned) — the gate summed over the runs, the papers
+    of all of them, who reviews which. ``run`` names one run instead (its tasks alone: what a
+    release's statistics read)."""
+    labels = coders.labels_for(conn, project["id"])
+    if run is not None:
+        return _run_tasks(conn, project, run, labels)
+    runs = [r for r in workflows.list_runs(conn, project["id"], limit=50) if r["status"] not in _DEAD_RUNS]   # newest first
+    if not runs:                                                    # only dead runs: the latest one, as before
+        last = workflows.active_run(conn, project["id"]) or next(iter(workflows.list_runs(conn, project["id"], limit=1)), None)
+        return _run_tasks(conn, project, last, labels) if last else []
+    per_step: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for r in runs:
+        for t in _run_tasks(conn, project, r, labels):
+            if t["step_id"] not in per_step:
+                order.append(t["step_id"])
+            per_step.setdefault(t["step_id"], []).append(t)
+    spec_order = [s["id"] for s in (runs[0].get("workflow") or {}).get("steps") or [] if isinstance(s, dict)]
+    order.sort(key=lambda sid: spec_order.index(sid) if sid in spec_order else len(spec_order))
+    return [_merge(per_step[sid]) for sid in order]
 
 
 def set_task_config(conn: psycopg.Connection, project: dict, step_id: str, coders) -> dict | None:
@@ -139,6 +203,7 @@ def tasks_for(conn: psycopg.Connection, user_id: str | None) -> list[dict]:
            WHERE a.coder_user_id = %s::uuid AND r.status NOT IN ('cancelled', 'failed', 'planned')
            ORDER BY r.created_at DESC, a.step_id""", (user_id,)).fetchall()
     out = []
+    groups: dict[tuple, dict] = {}                                  # one task per project and review step, over its runs
     for run_id, step_id, srid, ds_id, title, kind, _created in rows:
         sr = workflows.get_step_run(conn, srid)
         run = workflows.get_run(conn, run_id)
@@ -147,12 +212,22 @@ def tasks_for(conn: psycopg.Connection, user_id: str | None) -> list[dict]:
         st = ws.steps_by_id(run.get("workflow") or {}).get(step_id) or {}
         header = sr.get("review") or {}
         mine = next((b for b in review_gate.by_coder(review_gate.items(conn, sr)) if b.get("user_id") == user_id), None)
-        out.append({"run_id": run_id, "step_id": step_id, "step_run_id": srid, "label": st.get("label") or step_id, "help": st.get("help"),
-                    "project": {"id": ds_id, "title": title, "kind": kind or "dataset"},
-                    "template": header.get("template"), "unit": header.get("unit"), "mode": header.get("mode"),
-                    "run_status": run.get("status"), "papers": mine["papers"] if mine else 0, "total": mine["total"] if mine else 0,
-                    "checked": mine["checked"] if mine else 0, "pending": mine["pending"] if mine else 0,
-                    "queue": f"/workspace?queue={run_id}:{step_id}"})
+        share = {"run_id": run_id, "step_run_id": srid, "queue": f"/workspace?queue={run_id}:{step_id}",
+                 **{k: (mine or {}).get(k, 0) for k in ("papers", "total", "checked", "pending")}}
+        g = groups.get((ds_id, step_id))
+        if g is None:                                               # the newest run first: its wording stands for the task
+            g = groups[(ds_id, step_id)] = {
+                "run_id": run_id, "step_id": step_id, "step_run_id": srid, "label": st.get("label") or step_id, "help": st.get("help"),
+                "project": {"id": ds_id, "title": title, "kind": kind or "dataset"},
+                "template": header.get("template"), "unit": header.get("unit"), "mode": header.get("mode"),
+                "run_status": run.get("status"), "papers": 0, "total": 0, "checked": 0, "pending": 0, "runs": []}
+            out.append(g)
+        for k in ("papers", "total", "checked", "pending"):
+            g[k] += share[k]
+        g["runs"].append(share)
+    for g in out:                                                   # the queue: the oldest batch with papers still to check
+        open_ = [s for s in g["runs"] if s["pending"]]
+        g["queue"] = (open_[-1] if open_ else g["runs"][0])["queue"]
     return out
 
 

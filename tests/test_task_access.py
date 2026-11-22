@@ -175,7 +175,8 @@ def test_the_owner_sets_how_many_of_the_people_a_task_uses_or_which(monkeypatch)
         owner.post(f"/api/workflow-runs/{run2['id']}/complete", json={"step_id": step})
     t2 = owner.get(f"/api/projects/{pid}/tasks").json()["tasks"][0]
     assert t2["run_id"] == run2["id"] and t2["named"] == ["coder_2"] and t2["gate"]["coders"] == 1 and t2["gate"]["assigned"] is True
-    assert all(c["user_id"] == b_id for x in t2["assignments"] for c in x["coders"])
+    assert all(c["user_id"] == b_id for x in t2["assignments"] if x["run_id"] == run2["id"] for c in x["coders"])   # the task spans both runs: run 2's papers went to b
+    assert {x["run_id"] for x in t2["assignments"]} == {rid, run2["id"]} and len(t2["runs"]) == 2
     assert b.get("/api/me/tasks").json()["tasks"][0]["run_id"] == run2["id"]
     # cleared: the step's own number again (and the pool), on the next run
     assert owner.patch(f"/api/projects/{pid}/tasks/two", json={"coders": None}).json()["config"] is None

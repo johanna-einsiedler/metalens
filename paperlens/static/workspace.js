@@ -825,6 +825,8 @@ function renderQueueBar() {
   bar.innerHTML = `<span class="qb-label">Review queue · <b>${esc(QUEUE.step)}</b></span>
     <span class="qb-count"><b>${p.checked}</b> of ${p.drawn} checked${p.disagreed ? ` · ${p.disagreed} disagreed` : ""} <span class="muted">· ${esc(what)}</span></span>
     <progress class="qb-progress" max="${p.drawn || 1}" value="${p.checked || 0}"></progress>
+    ${(QUEUE.more || []).length && !(QUEUE.viewer_coder ? ((QUEUE.by_coder || []).find((b) => b.user_id === QUEUE.viewer_coder) || {}).pending : p.pending)
+      ? `<a class="btn btn-primary btn-sm" href="/workspace?queue=${encodeURIComponent(QUEUE.more[0].queue)}" title="the same task's papers of another run: ${QUEUE.more[0].pending} still to check">Next papers of this task →</a>` : ""}
     ${done ? (QUEUE.next && QUEUE.next.action === "resume"
         ? `<button type="button" class="btn btn-primary btn-sm" id="qb-resume">Resume run</button>`
         : `<a class="btn btn-primary btn-sm" href="/dataset?id=${encodeURIComponent(QUEUE.dataset_id)}#workflow">Done — release →</a>`) : ""}

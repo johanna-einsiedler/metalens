@@ -103,6 +103,7 @@ export const api = {
   workflows: () => req(`/api/workflows`),
   workflow: (id) => req(`/api/workflows/${encodeURIComponent(id)}`),
   datasetWorkflow: (id) => req(`/api/datasets/${id}/workflow`),
+  workflowStep: (datasetId, stepId) => req(`/api/datasets/${encodeURIComponent(datasetId)}/workflow/steps/${encodeURIComponent(stepId)}`),
   workflowPlan: (id, body) => req(`/api/datasets/${id}/workflow/plan`, json(body || {})),
   workflowStart: (id, body) => req(`/api/datasets/${id}/workflow/runs`, json(body || {})),
   workflowRuns: (id) => req(`/api/datasets/${id}/workflow/runs`),

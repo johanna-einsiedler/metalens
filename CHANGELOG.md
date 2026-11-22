@@ -8,6 +8,22 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A step's panel under the diagram, one task per review step, the whole page width
+
+- The Workflow card shows the diagram and no list of steps under it. A click on a box opens the
+  step's panel below: its state and what to do (the line the list had: findings, the review's
+  progress and queue, coders, drafts to commit), how it is set up — preset and source, pass and
+  readings, the check and its rules, the review's purpose, draw, papers, coders, template and what
+  it holds — and, run by run, the papers it ran on with what came of each (`GET
+  /api/datasets/{id}/workflow/steps/{step}`). A second click closes it.
+- A project's review task is one per review step over every run, no longer the latest run's
+  alone: the project page sums the runs' gates and shows every run's papers in "who reviews which
+  paper"; "My review tasks" shows one tile per task with the person's share over the runs and the
+  queue of the oldest batch still open; a finished queue offers "Next papers of this task". Before,
+  a project re-run left the earlier run's open tasks off the project page while they still held
+  the release, and listed them twice in the workspace.
+- A dataset's and a project's page use the whole width of the window.
+
 ### The workflow diagram fits its card, in the palette's colours, with right-angled arrows
 
 The flow diagram on the Workflow card and on a workflow's page (`static/flow.js`) takes the width it
