@@ -146,18 +146,27 @@ function render() {
   body.innerHTML = `
     <div class="ds-head"><div><h1>${esc(c.title)}</h1>${c.tagline ? `<p class="lede">${esc(c.tagline)}</p>` : ""}
       ${authors ? `<p class="pc-authors">${authors}</p>` : ""}${kws}<div class="pc-badges">${badges}</div></div>
-      <div class="pc-actions"><a class="btn btn-ghost btn-sm" href="/workflows">All workflows</a></div></div>
-    ${citeTop(c)}
+      <div class="pc-actions"><a class="btn btn-ghost btn-sm" href="/workflows">All workflows</a>${c.personal
+        ? `${c.owned ? `<a class="btn btn-ghost btn-sm" href="/workflow-editor?id=${encodeURIComponent(c.id)}">Edit</a>` : `<a class="btn btn-ghost btn-sm ml-only" href="/workflow-editor?id=${encodeURIComponent(c.id)}">Copy</a>`}<button type="button" class="btn btn-primary btn-sm" id="wc-project">New project with it</button>`
+        : `<a class="btn btn-ghost btn-sm ml-only" href="/workflow-editor?id=${encodeURIComponent(c.id)}" title="a workflow of your own with these steps">Copy to edit</a>`}</div></div>
+    ${c.personal ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px">${c.owned ? "Your workflow" : "A workflow someone shared"} · <code>${esc(c.contract)}</code> · v${esc(String(c.version || 1))} · ${esc(c.visibility || "private")}${c.updated_at ? ` · saved ${esc(day(c.updated_at))}` : ""}. A project pins this contract; a run keeps the document it ran.</p>` : ""}
+    ${c.personal ? "" : citeTop(c)}
     <nav class="pc-toc">${toc}</nav>
     <section id="introduction"><h2>Introduction</h2>${md((sections.introduction || {}).body) || `<p class="md">${esc(c.description || "")}</p>`}</section>
     <section id="steps"><h2>Steps</h2><div class="wf-flow">${flowSvg(c.steps)}</div>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
     <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Coders</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
     <section id="checks"><h2>Checks</h2>${checksHtml(c)}</section>
     <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
-    <section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
+    ${c.personal ? "" : `<section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>`}
     <section id="used-by"><h2>Used by</h2>${(c.datasets || []).length ? (c.datasets || []).map((d) => `<div class="ds-dashrow"><a href="/dataset?id=${encodeURIComponent(d.id)}"><b>${esc(d.title || d.slug || "dataset")}</b></a> <span class="muted">· ${n(d.n_papers, "paper")} · ${n(d.n_records, "record")}</span> ${badge(d.credibility)}${(d.releases || []).filter((r) => r.doi).map((r) => ` <a class="badge" href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">v${r.number} DOI</a>`).join("")}</div>`).join("") : `<p class="muted">No public dataset declares this workflow yet.</p>`}</section>
     ${relatedMd ? `<section id="related"><h2>Related work</h2>${md(relatedMd)}</section>` : ""}
     ${extra.map((k) => `<section id="${esc(k)}"><h2>${esc(sections[k].title)}</h2>${md(sections[k].body)}</section>`).join("")}`;
+  const mk = $("#wc-project");
+  if (mk) mk.onclick = async () => {
+    mk.disabled = true;
+    try { const made = await api.createProject({ workflow: c.id, title: null }); location.href = made.kind === "workflow" ? `/project?id=${encodeURIComponent(made.id)}` : `/dataset?id=${encodeURIComponent(made.id)}#workflow`; }
+    catch (e) { alert(`Could not create it: ${e.message}`); mk.disabled = false; }
+  };
   const copy = $("#wc-cite-copy");
   if (copy) copy.onclick = async () => { try { await navigator.clipboard.writeText($("#wc-cite-text").textContent); copy.textContent = "Copied"; } catch { /* clipboard blocked */ } };
   const go = $("#wc-rel-go");

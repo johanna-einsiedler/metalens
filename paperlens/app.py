@@ -302,8 +302,14 @@ def workflows_page() -> FileResponse:
 
 @app.get("/workflow")
 def workflow_page() -> FileResponse:
-    """The public card of a curated workflow (?id=)."""
+    """The public card of a curated workflow (?id=), or a user workflow's page."""
     return _page("workflow.html")
+
+
+@app.get("/workflow-editor")
+def workflow_editor_page() -> FileResponse:
+    """The editor: a new workflow, one of the user's own (?id=), or a bundled one to copy."""
+    return _page("workflow_editor.html")
 
 
 @app.get("/presets")
@@ -1766,6 +1772,11 @@ class WorkflowValidateBody(BaseModel):
     spec: dict
 
 
+class UserWorkflowBody(BaseModel):
+    spec: dict | None = None               # the document (normalised and validated on the way in)
+    visibility: str | None = None          # private | public
+
+
 class RunResumeBody(BaseModel):
     step_id: str | None = None
     override: bool = False                 # go on although drawn records are unchecked (recorded on the gate)
@@ -1805,9 +1816,10 @@ def _refused(exc) -> HTTPException:
 
 
 @app.get("/api/workflows")
-def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict:
-    """The bundled workflows: what they run, pinned to which contracts."""
-    from . import workflow_spec as ws, workflows
+def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand), who: Principal = Depends(principal)) -> dict:
+    """The bundled workflows: what they run, pinned to which contracts — and the caller's own
+    (``personal``, ``owned``) plus everyone's public ones."""
+    from . import user_workflows, workflow_spec as ws, workflows
     out = []
     for spec in workflows.load_all().values():
         meta = spec.get("meta") or {}
@@ -1819,7 +1831,75 @@ def workflows_list(db=Depends(get_db), b: brands.Brand = Depends(brand)) -> dict
                                "review": ws.review_of(st) if st["kind"] == "review" else None, "over": st.get("over") if st["kind"] == "review" else None,
                                "check": st.get("check"), "dataset": st.get("dataset")} for st in spec["steps"]],
                     "presets": [p for _s, p in ws.pins(spec)]})
+    if who.user_id or who.session_id or localmode.enabled():
+        for row in user_workflows.list_for(db, who):
+            out.append(user_workflows.summary(row, who))
     return {"workflows": out}
+
+
+@app.get("/api/workflows/grammar")
+def workflow_grammar() -> dict:
+    """What a workflow document may say, for the editor: the step kinds, the review options
+    (purposes when this engine has them), the checks' outcomes."""
+    from . import checks, workflow_spec as ws
+    return {"kinds": list(ws.KINDS), "families": {"extract": ["extract"], "check": ["check"], "review": ["review"], "release": ["release"]},
+            "review": {"modes": [m for m in ws.REVIEW_MODES if m != "none"], "units": list(ws.REVIEW_UNITS), "blocks": list(ws.BLOCKS),
+                       "purposes": list(getattr(ws, "PURPOSES", ()))},
+            "on_fail": list(checks.ON_FAIL), "severities": list(checks.SEVERITIES), "max_k": ws.MAX_K, "sources": list(ws.SOURCES)}
+
+
+@app.get("/api/checks")
+def checks_list() -> dict:
+    """The checks registry: what each check reads and finds, its parameters with their types and
+    defaults — what the workflow editor offers."""
+    from . import checks
+    return {"checks": [{"id": cid, "label": reg.get("label"), "applies_to": reg.get("applies_to") or {}, "inputs": reg.get("inputs", 1),
+                        "params": reg.get("params") or {}, "codes": reg.get("codes") or {}, "needs_companion": bool(reg.get("needs_companion"))}
+                       for cid, reg in checks.REGISTRY.items()]}
+
+
+def _user_workflow_or_404(db, workflow_id: str, who: Principal) -> dict:
+    from . import user_workflows
+    row = user_workflows.get(db, workflow_id)
+    if row is None or not user_workflows.readable(row, who):
+        raise HTTPException(status_code=404, detail="Workflow not found.")
+    return row
+
+
+def _checked_workflow(db, doc: dict, who: Principal) -> tuple[dict, list[str]]:
+    """Normalise and validate a posted document; 422 with every error at once. A pin to a
+    personal preset the caller may not read is refused too."""
+    from . import workflow_spec as ws, workflows
+    try:
+        spec = ws.normalize(doc)
+    except ws.WorkflowError as exc:
+        raise HTTPException(status_code=422, detail={"message": "Invalid workflow", "errors": exc.errors, "warnings": []})
+    errs, warns = workflows.validate_for(db, spec)
+    for _s, pin in ws.pins(spec):
+        base = ws.preset_base(pin)
+        row = records.get_personal_preset(db, base)
+        if row is not None and row.get("visibility") != "public" and not records.is_preset_owner(db, base, who):
+            errs.append(f"preset {base!r} is someone else's private preset")
+    if errs:
+        raise HTTPException(status_code=422, detail={"message": "Invalid workflow", "errors": errs, "warnings": warns})
+    return spec, warns
+
+
+@app.post("/api/workflows")
+def workflow_create(body: UserWorkflowBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Store a workflow of the caller's own (the editor's Save): validated like a bundled one,
+    its id minted so no bundled id is ever shadowed."""
+    from . import user_workflows
+    if not who.user_id and not who.session_id and not localmode.enabled():
+        raise HTTPException(status_code=401, detail="Sign in to save a workflow.")
+    if not isinstance(body.spec, dict):
+        raise HTTPException(status_code=422, detail={"message": "Invalid workflow", "errors": ["spec: the workflow document is required"], "warnings": []})
+    if body.visibility not in (None, "private", "public"):
+        raise HTTPException(status_code=422, detail="visibility must be 'private' or 'public'.")
+    spec, warns = _checked_workflow(db, body.spec, who)
+    row = user_workflows.create(db, spec, owner_user_id=who.user_id, session_id=who.session_id, visibility=body.visibility or "private")
+    db.commit()
+    return {**user_workflows.summary(row, who), "spec": row["spec"], "warnings": warns, "spec_sha": row["spec_sha"]}
 
 
 @app.get("/api/templates")
@@ -1883,9 +1963,13 @@ def workflow_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand), wh
 def workflow_card(workflow_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Public: the card of a curated workflow — its text, every step documented, releases and
     citations, the public datasets built with it, the verification roll-up. Not gated by brand."""
-    from . import workflow_cards
+    from . import user_workflows, workflow_cards
     user = _viewer(db, who)
     out = workflow_cards.card(db, workflow_id, viewer_is_admin=admins.is_admin(user), user=user)
+    if out is None:                                        # a user workflow: a plain page, no prose, no releases
+        row = user_workflows.get(db, workflow_id)
+        if row is not None and user_workflows.readable(row, who):
+            out = workflow_cards.user_card(db, row, owned=user_workflows.is_owner(db, workflow_id, who))
     if out is None:
         raise HTTPException(status_code=404, detail="No card for this workflow.")
     return out
@@ -1968,28 +2052,73 @@ def workflow_release_doi(workflow_id: str, number: int, db=Depends(get_db), who:
 
 
 @app.get("/api/workflows/{workflow_id}")
-def workflow_detail(workflow_id: str, db=Depends(get_db)) -> dict:
-    from . import workflow_spec as ws, workflows
+def workflow_detail(workflow_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """A bundled workflow, or a user workflow the caller may read (the owner's, or a public one)."""
+    from . import user_workflows, workflow_spec as ws, workflows
     spec = workflows.get_workflow(workflow_id)
+    row = None
     if spec is None:
-        raise HTTPException(status_code=404, detail="Workflow not found.")
+        row = _user_workflow_or_404(db, workflow_id, who)
+        spec = row["spec"]
     errs, warns = workflows.validate_for(db, spec)
     return {"spec": spec, "contract": ws.workflow_id(spec), "spec_sha": ws.spec_sha(spec), "errors": errs, "warnings": warns,
-            "later": workflows.later_problems(spec), "card_md": (spec.get("card") or {}).get("text")}
+            "later": workflows.later_problems(spec), "card_md": (spec.get("card") or {}).get("text"),
+            "personal": row is not None, "owned": bool(row and user_workflows.is_owner(db, workflow_id, who)),
+            "visibility": row["visibility"] if row else None, "version": row["version"] if row else spec.get("version", 1)}
+
+
+@app.patch("/api/workflows/{workflow_id}")
+def workflow_update(workflow_id: str, body: UserWorkflowBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The owner saves a new document (the version moves, the contract follows) or changes the
+    visibility. A bundled workflow is not editable: duplicate it with POST."""
+    from . import user_workflows, workflows
+    if workflows.get_workflow(workflow_id) is not None:
+        raise HTTPException(status_code=409, detail="A bundled workflow is read-only; save a copy of your own.")
+    _user_workflow_or_404(db, workflow_id, who)
+    if not user_workflows.is_owner(db, workflow_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner edits a workflow.")
+    if body.visibility not in (None, "private", "public"):
+        raise HTTPException(status_code=422, detail="visibility must be 'private' or 'public'.")
+    spec, warns = (None, [])
+    if body.spec is not None:
+        spec, warns = _checked_workflow(db, body.spec, who)
+    row = user_workflows.update(db, workflow_id, spec=spec, visibility=body.visibility)
+    db.commit()
+    return {**user_workflows.summary(row, who), "spec": row["spec"], "warnings": warns, "spec_sha": row["spec_sha"]}
+
+
+@app.delete("/api/workflows/{workflow_id}")
+def workflow_delete(workflow_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The owner deletes a workflow nothing runs any more (409 while a dataset or project
+    declares it)."""
+    from . import user_workflows, workflows
+    if workflows.get_workflow(workflow_id) is not None:
+        raise HTTPException(status_code=409, detail="A bundled workflow cannot be deleted.")
+    _user_workflow_or_404(db, workflow_id, who)
+    if not user_workflows.is_owner(db, workflow_id, who):
+        raise HTTPException(status_code=403, detail="Only the owner deletes a workflow.")
+    using = user_workflows.declared_by(db, workflow_id)
+    if using:
+        raise HTTPException(status_code=409, detail=f"{len(using)} dataset{'s' if len(using) != 1 else ''} still run{'' if len(using) != 1 else 's'} this workflow; take them off it first.")
+    n = user_workflows.delete(db, workflow_id)
+    db.commit()
+    return {"deleted": n}
 
 
 @app.post("/api/workflows/validate")
 def workflow_validate(body: WorkflowValidateBody, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Every problem of a document at once, and — when it validates — its contract and the
+    normalised document (what the editor draws)."""
     from . import workflow_spec as ws, workflows
-    if not who.user_id and not localmode.enabled():
+    if not who.user_id and not who.session_id and not localmode.enabled():
         raise HTTPException(status_code=401, detail="Log in to validate a workflow.")
     try:
         spec = ws.normalize(body.spec)
     except ws.WorkflowError as exc:
-        return {"ok": False, "errors": exc.errors, "warnings": [], "contract": None}
+        return {"ok": False, "errors": exc.errors, "warnings": [], "contract": None, "spec": None}
     errs, warns = workflows.validate_for(db, spec)
     return {"ok": not errs, "errors": errs, "warnings": warns, "later": workflows.later_problems(spec),
-            "contract": ws.workflow_id(spec) if not errs else None}
+            "contract": ws.workflow_id(spec) if not errs else None, "spec": spec}
 
 
 @app.get("/api/datasets/{dataset_id}/workflow")
@@ -2053,6 +2182,10 @@ def workflow_dataset_create(body: WorkflowDatasetBody, db=Depends(get_db), who: 
     if not who.user_id and not who.session_id:
         raise HTTPException(status_code=401, detail="Sign in to make a project.")
     spec = workflows.get_workflow(body.workflow)
+    if spec is None:                                      # a user workflow: the caller's own, or a public one
+        from . import user_workflows
+        row = user_workflows.get(db, body.workflow)
+        spec = row["spec"] if row and user_workflows.readable(row, who) else None
     if spec is None:
         raise HTTPException(status_code=404, detail="Workflow not found.")
     errs, _w = workflows.validate_for(db, spec)
@@ -3168,6 +3301,10 @@ def patch_dataset(dataset_id: str, body: DatasetPatch, db=Depends(get_db),
         wid = (body.workflow or "").strip() or None
         if wid:
             spec = workflows.get_workflow(wid)
+            if spec is None:                              # a user workflow the caller may read
+                from . import user_workflows
+                row = user_workflows.get(db, wid)
+                spec = row["spec"] if row and user_workflows.readable(row, who) else None
             if spec is None:
                 raise HTTPException(status_code=404, detail="Workflow not found.")
             errs, _w = workflows.validate_for(db, spec)
@@ -4471,6 +4608,24 @@ def preset_cards_list(db=Depends(get_db), b: brands.Brand = Depends(brand), who:
     return out
 
 
+@app.get("/api/presets/{preset_id}/rules")
+def preset_rules(preset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The rules a preset's field names imply (``rules.suggest``), for the workflow editor to
+    offer; nothing applies them by itself."""
+    from . import presets
+    try:
+        from . import rules
+    except ImportError:                                      # an engine without the rules check: nothing to suggest
+        rules = None
+    meta = presets.get(preset_id, db)
+    if not meta or not meta.get("spec"):
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    row = records.get_personal_preset(db, preset_id)
+    if row is not None and row.get("visibility") != "public" and not records.is_preset_owner(db, preset_id, who):
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    return {"preset": meta.get("preset_id") or preset_id, "schema_id": meta.get("schema_id"), "rules": rules.suggest(meta["spec"]) if rules else []}
+
+
 @app.get("/api/presets/{preset_id}/card")
 def preset_card(preset_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
     """Public: the card of a curated preset — its text, every field documented, releases and
@@ -4747,7 +4902,7 @@ def project_task_config(project_id: str, step_id: str, body: TaskConfigBody, db=
     p, role = _project_or_404(db, project_id, who)
     if role != "owner":
         raise HTTPException(status_code=403, detail="Only the owner configures a task.")
-    spec = workflows.get_workflow(p.get("workflow"))
+    spec = workflows.get_workflow(p.get("workflow"), db)
     st = ws.steps_by_id(spec).get(step_id) if spec else None
     if st is None or st.get("kind") != "review":
         raise HTTPException(status_code=404, detail="No review step with that id in the project's workflow.")

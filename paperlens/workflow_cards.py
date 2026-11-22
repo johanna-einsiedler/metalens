@@ -142,5 +142,21 @@ def card(conn: psycopg.Connection, workflow_id: str, *, viewer_is_admin: bool = 
     return out
 
 
+def user_card(conn: psycopg.Connection, row: dict, *, owned: bool) -> dict:
+    """A user workflow's page: the document's steps and diagram, the datasets that run it, no
+    prose, no releases — and whose it is."""
+    spec = row["spec"]; meta = spec.get("meta") or {}
+    datasets = datasets_for(conn, row["id"])
+    errs, warns = workflows.validate_for(conn, spec)
+    return {"id": row["id"], "title": meta.get("title") or row["title"], "tagline": meta.get("tagline"), "description": meta.get("description"),
+            "hidden": False, "brands": [], "authors": [], "keywords": [], "license": None, "related": [], "card_md": "",
+            "contract": row["contract"], "version": row["version"], "card_url": card_url(row["id"]),
+            "steps": _steps(conn, spec), "later": workflows.later_problems(spec), "errors": errs, "warnings": warns,
+            "steps_md": "", "releases": [], "latest": None, "concept_doi": None, "cite_as": None, "cite_this_version": None, "changed_since_release": None,
+            "datasets": datasets, "verification": preset_cards.rollup(datasets),
+            "personal": True, "owned": bool(owned), "visibility": row["visibility"], "updated_at": row["updated_at"],
+            "viewer": {"is_admin": False}}
+
+
 def dataset_dois_for(conn: psycopg.Connection, wid: str) -> list[str]:
     return [r["doi"] for d in datasets_for(conn, wid) for r in d["releases"] if r.get("doi")]

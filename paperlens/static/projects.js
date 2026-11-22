@@ -133,7 +133,7 @@ async function renderWorkflows(grid) {
     form.hidden = false;
     form.innerHTML = `<div class="ds-card-h">New project</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px">
-        <select id="wf-new-pick">${avail.map((w, i) => `<option value="${i}">${esc(w.title || w.id)}</option>`).join("")}</select>
+        <select id="wf-new-pick">${avail.map((w, i) => `<option value="${i}">${esc(w.title || w.id)}${w.personal ? (w.owned ? " (mine)" : " (shared)") : ""}</option>`).join("")}</select>
         <input id="wf-new-title" placeholder="name (optional)" style="min-width:220px"/>
         <button class="btn btn-primary btn-sm" id="wf-new-go" type="button">Create</button></div>
       <p class="muted" id="wf-new-help" style="font-size:12.5px;margin:6px 0 0"></p>`;
