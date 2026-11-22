@@ -110,16 +110,19 @@ def _run_papers(conn, run: dict, sr: dict, st: dict, srs: dict, *, owner: bool) 
     if kind == "review":
         if not sr.get("review"):
             return [], {}
-        per: dict[str, dict] = {}
+        per: dict[str, dict] = {}                                    # by paper: a joint review's two sides are one paper
         for it in review_gate.items(conn, sr):
-            p = per.setdefault(it.get("document_id") or "", {"items": 0, "checked": 0, "disagreed": 0, "coders": {}})
+            p = per.setdefault(it.get("paper_id") or it.get("document_id") or "", {"items": 0, "checked": 0, "disagreed": 0, "coders": {}, "docs": []})
+            if it.get("document_id") and it["document_id"] not in p["docs"]:
+                p["docs"].append(it["document_id"])
             p["items"] += 1; p["checked"] += 1 if it["checked"] else 0; p["disagreed"] += 1 if it["checked"] and it["disagreed"] else 0
             if it.get("coder"):
                 c = p["coders"].setdefault(it["coder"], {"label": it["coder"], "items": 0, "checked": 0})
                 c["items"] += 1; c["checked"] += 1 if it["checked"] else 0
-        by_doc, _s = _labels(conn, run["id"], [d for d in per if d], [])
-        papers = [_paper(by_doc.get(d), document_id=d or None, status="done" if p["checked"] >= p["items"] else "open",
-                         items=p["items"], checked=p["checked"], disagreed=p["disagreed"], coders=list(p["coders"].values())) for d, p in per.items()]
+        by_doc, _s = _labels(conn, run["id"], [d for p in per.values() for d in p["docs"]], [])
+        papers = [_paper(next((by_doc[d] for d in p["docs"] if (by_doc.get(d) or {}).get("title")), by_doc.get((p["docs"] or [None])[0])),
+                         document_id=(p["docs"] or [None])[0], status="done" if p["checked"] >= p["items"] else "open", sides=len(p["docs"]),
+                         items=p["items"], checked=p["checked"], disagreed=p["disagreed"], coders=list(p["coders"].values())) for p in per.values()]
         g = review_gate.state(conn, sr)
         summary = {k: g.get(k) for k in ("mode", "unit", "total", "checked", "pending", "disagreed", "satisfied", "overridden_by", "n_target", "frame_n") if g.get(k) is not None}
         summary["queue"] = f"/workspace?queue={run['id']}:{st['id']}"

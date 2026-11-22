@@ -918,7 +918,8 @@ function stepSetup(s, info) {
     add("Preset", presetLink(s.preset));
     add("Papers come in", s.source === "supplied" ? "uploaded with their results (no model call)" : "a model call per paper");
     if ((s.k || 1) > 1) add("Readings per paper", `${s.k}${s.vote ? ` · vote ${code(s.vote)}` : ""}`);
-    if (s.input && s.input.previous) add("Follows", code(s.input.previous));
+    const prev = s.input && s.input.previous;
+    if (Array.isArray(prev) ? prev.length : prev) add("Follows", (Array.isArray(prev) ? prev : [prev]).map(code).join(", "));
     add("Dataset role", s.dataset ? esc(s.dataset) : "");
     if (s.params && Object.keys(s.params).length) add("Parameters", code(s.params));
   } else if (s.kind === "pass") {
@@ -951,7 +952,7 @@ function stepSetup(s, info) {
     add("Which papers", s.where ? `those where ${code(s.where)}` : s.new_only === false ? "every paper of the sides, each run" : "the run's new papers");
     add("Coders per paper", s.coders ? String(s.coders) : "the owner reviews");
     add("Template", s.template ? `${code(s.template)} <span class="muted">(the questions a coder answers)</span>` : "");
-    add("Asks", s.asks ? code(s.asks) : "");
+    add("Asks", s.asks && typeof s.asks === "object" ? `<ul class="wf-rules">${Object.entries(s.asks).map(([side, fs]) => `<li>${code(side)}: ${(fs || []).map(esc).join(", ")}</li>`).join("")}</ul>` : "");
     add("Holds", s.blocks === "next" ? "the run, until done" : s.blocks === "none" ? "nothing" : "the release, until done");
   } else if (s.kind === "release") {
     add("Waits for", (s.gate || []).map(code).join(", "));
@@ -967,7 +968,7 @@ function paperOutcome(kind, p) {
   const sev = (f) => Object.entries(f || {}).map(([k, n]) => `${n} ${k === "warn" ? "warning" : k}${n === 1 ? "" : "s"}`).join(", ");
   if (kind === "pass") return [p.how, p.n_calls ? `${p.n_calls} call${p.n_calls === 1 ? "" : "s"}` : "", p.findings ? `${p.findings} finding${p.findings === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
   if (kind === "check") return sev(p.findings) || "no findings";
-  if (kind === "review") return `${p.checked} of ${p.items} checked${p.disagreed ? `, ${p.disagreed} disagreed` : ""}${(p.coders || []).length ? ` · ${p.coders.map((c) => `${esc(c.label)} ${c.checked}/${c.items}`).join(", ")}` : ""}`;
+  if (kind === "review") return `${p.checked} of ${p.items} checked${p.sides > 1 ? ` on ${p.sides} sides` : ""}${p.disagreed ? `, ${p.disagreed} disagreed` : ""}${(p.coders || []).length ? ` · ${p.coders.map((c) => `${esc(c.label)} ${c.checked}/${c.items}`).join(", ")}` : ""}`;
   if (p.n_records != null) return `${p.n_records} record${p.n_records === 1 ? "" : "s"}`;
   return "";
 }
