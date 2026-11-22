@@ -78,7 +78,7 @@ def _steps(conn: psycopg.Connection, spec: dict) -> list[dict]:
     from . import presets
     out = []
     for st in spec.get("steps") or []:
-        item = {k: st.get(k) for k in ("id", "kind", "label", "help", "preset", "source", "k", "check", "over", "on_fail", "severity", "params", "gate", "column", "unit", "group", "keyed_by", "dataset")}
+        item = {k: st.get(k) for k in ("id", "kind", "label", "help", "preset", "source", "k", "check", "over", "on_fail", "severity", "params", "gate", "column", "unit", "group", "keyed_by", "dataset", "reads", "edits")}   # reads, edits: the diagram's arrows
         item = {k: v for k, v in item.items() if v is not None}
         if st.get("kind") == "review" or (st.get("kind") in ws.REVIEWED_KINDS and ws.review_of(st).get("mode", "none") != "none"):
             item["review"] = ws.review_of(st)
