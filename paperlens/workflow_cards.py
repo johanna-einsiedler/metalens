@@ -17,6 +17,7 @@ from . import (
 )
 from . import preset_spec as ps
 from . import workflow_spec as ws
+from . import validation
 
 
 def card_workflows(brand: brands.Brand | None = None) -> dict[str, dict]:
@@ -134,7 +135,7 @@ def card(conn: psycopg.Connection, workflow_id: str, *, viewer_is_admin: bool = 
            "steps": _steps(conn, spec), "later": workflows.later_problems(spec), "errors": errs, "warnings": warns,
            "steps_md": workflow_bundle.steps_markdown(spec, workflow_releases.pinned_presets(conn, spec)),
            **_release_summary(conn, wid, spec),
-           "datasets": datasets, "verification": preset_cards.rollup(datasets),
+           "datasets": datasets, "verification": preset_cards.rollup(datasets), "stamps": validation.for_workflow(conn, wid),
            "viewer": {"is_admin": bool(viewer_is_admin)}}
     if viewer_is_admin:
         from . import zenodo

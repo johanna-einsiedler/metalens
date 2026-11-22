@@ -66,6 +66,7 @@
     {
       "id": "review_claims",
       "kind": "review",
+      "purpose": "audit",
       "label": "Review of the claims",
       "over": [
         "claims"
@@ -196,6 +197,7 @@
     {
       "id": "review_edges",
       "kind": "review",
+      "purpose": "audit",
       "label": "Review of the corpus edges",
       "over": [
         "edges"

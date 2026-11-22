@@ -516,6 +516,18 @@ async function loadWorkflowCard() {
   }
 }
 
+const PURPOSE_HELP = { audit: "a first look at a model step: how often a person agrees with it feeds the preset's stamp",
+  routed: "the papers a rule sends on — the uncertain ones; never counted in the stamp",
+  monitor: "a draw of each run's new papers that extends the stamp and holds nothing",
+  calibrate: "two or more coders on the same units, so the coders' own agreement is known",
+  adjudicate: "the units an earlier coders' review disagreed on, settled by a further verdict" };
+// what a review wrote for the stamp when its gate closed: papers, agreement with its interval, the coders' own agreement
+function stampText(v) {
+  const pc = (x) => `${Math.round(100 * x)}%`;
+  const ci = v.agreement_ci ? ` (${pc(v.agreement_ci[0])}–${pc(v.agreement_ci[1])})` : "";
+  return `${v.n_papers} paper${v.n_papers === 1 ? "" : "s"} checked${v.agreement != null ? ` · ${pc(v.agreement)} agree${ci}` : ""}${v.human_agreement != null ? ` · coders agree ${pc(v.human_agreement)}` : ""}`;
+}
+
 function wfChip(state, title) {
   const [cls, label] = WF_STATE[state] || ["", state];
   return `<span class="badge ${cls}"${title ? ` title="${esc(title)}"` : ""}>${esc(label)}</span>`;
@@ -762,7 +774,9 @@ function renderWorkflowCard(host, w) {
     const rv = st.review && st.review.mode !== "none" ? st.review : null;
     const rvWhat = !rv ? "" : rv.unit === "row" ? (rv.mode === "sample" ? `${rv.per_paper || 1} row${(rv.per_paper || 1) === 1 ? "" : "s"} of <code>${esc(rv.table || "")}</code> per paper` : `every row of <code>${esc(rv.table || "")}</code>${rv.where ? " that meets the filter" : ""}`)
       : rv.mode === "sample" ? `a sample of ${rv.n != null ? `${rv.n} ${rv.unit === "paper" ? "papers" : "records"}` : `${Math.round((rv.share || 0) * 100)}%`}${(rv.stratify || []).length ? ` by ${rv.stratify.join(", ")}` : ""}` : st.draft_of ? "the whole draft" : `every ${rv.unit === "paper" ? "paper" : "record"}${rv.where ? " that meets the filter" : ""}`;
-    const review = rv ? ` <span class="muted">· ${rvWhat}${rv.template ? ` · template <code>${esc(rv.template)}</code>` : ""}${rv.coders ? `, ${rv.coders} coder${rv.coders === 1 ? "" : "s"} per paper` : ""}${rv.blocks === "next" ? ", holds the run" : ""}</span>` : "";
+    const review = rv ? ` <span class="muted">· ${rvWhat}${rv.template ? ` · template <code>${esc(rv.template)}</code>` : ""}${rv.coders ? `, ${rv.coders} coder${rv.coders === 1 ? "" : "s"} per paper` : ""}${rv.blocks === "next" ? ", holds the run" : rv.blocks === "none" ? ", holds nothing" : ""}</span>` : "";
+    const purpose = st.purpose ? ` <span class="badge wf-purpose" title="${esc(PURPOSE_HELP[st.purpose] || "")}">${esc(st.purpose)}</span>` : "";
+    const stamp = st.validation ? ` <span class="muted wf-stamp" title="the record this review wrote for the stamp when its gate last closed${st.validation.model ? ` · model ${esc(st.validation.model)}` : ""}">· ${stampText(st.validation)}</span>` : "";
     const gate = st.gate && st.gate.draft ? (st.gate.pending ? ` <span class="muted">· the draft awaits its commit</span>${mine ? ` <a href="/derived?dataset=${esc(st.dataset_id || id)}&step=${esc(st.gate.draft.step || st.draft_of || st.id)}&id=${esc(st.gate.draft.id)}&run=${esc(st.gate.run_id)}">review →</a>` : ""}` : "")
       : st.gate && st.gate.total ? ` <span class="muted">· ${st.gate.checked} of ${st.gate.total} checked${st.gate.mode === "sample" ? " (drawn at random)" : ""}${st.gate.disagreed ? `, ${st.gate.disagreed} disagreed` : ""}</span>${mine && st.gate.pending && !st.gate.coders ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}">review ${st.gate.pending} →</a>` : ""}` : "";
     // a gate reviewed by coders: who has how much left (the owner may open one coder's queue); a coder sees their own share
@@ -773,7 +787,7 @@ function renderWorkflowCard(host, w) {
     const me = w.viewer_coder, mineGate = me && st.gate && st.gate.coders ? (st.gate.by_coder || []).find((b) => b.user_id === me.user_id) : null;
     const codeNow = mineGate && mineGate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}"><b>code your ${mineGate.pending} →</b></a>` : "";
     const now = st.id === cur ? ` <span class="badge wf-nowchip" title="the step the run is on">${(run.now || {}).waiting_for_you ? "waiting for you" : `<span class="spin"></span> running`}</span>` : "";
-    return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${gate}${coders}${codeNow}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
+    return `<div class="ds-dashrow wf-row${st.id === cur ? " wf-current" : ""}"><span class="wf-kind" title="${esc(st.kind)}">${WF_KIND[st.kind] || "·"}</span> <b>${esc(st.label || st.id)}</b>${purpose}${now} ${wfChip(st.state, because)} <span class="muted wf-what">${what}</span>${review}${stamp}${gate}${coders}${codeNow}${because && st.state !== "fresh" ? ` <span class="muted wf-why">— ${esc(because)}</span>` : ""}</div>`;
   };
   const runLine = run ? (() => {
     const pr = run.progress || {}, pp = pr.papers || {};

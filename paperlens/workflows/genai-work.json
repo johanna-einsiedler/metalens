@@ -59,6 +59,7 @@
     {
       "id": "review_judgment",
       "kind": "review",
+      "purpose": "audit",
       "label": "Judgment",
       "over": [
         "extraction"
@@ -73,6 +74,7 @@
     {
       "id": "review_check",
       "kind": "review",
+      "purpose": "audit",
       "label": "Extraction check",
       "over": [
         "extraction"
@@ -95,6 +97,7 @@
     {
       "id": "review_routed",
       "kind": "review",
+      "purpose": "routed",
       "label": "Routed papers",
       "over": [
         "extraction"

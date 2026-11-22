@@ -37,7 +37,8 @@ load. Directories in `PAPERLENS_WORKFLOW_DIRS` are read too; bundled ids win.
   steps are fine when each names its dataset role (linked datasets, below); `k` runs with a
   `vote`, `input.previous` and loops run.
 - **A review is a step.** `{"kind": "review", "over": [steps], "template": "<id>", "mode": "all" | "sample", "unit":
-  "entry" | "paper" | "row", "blocks": "next" | "release", "coders": N, "new_only": true, "where": {…}}`: `over` names
+  "entry" | "paper" | "row", "blocks": "next" | "release" | "none", "coders": N, "new_only": true, "where": {…},
+  "purpose": "audit" | "routed" | "monitor" | "calibrate" | "adjudicate"}`: `over` names
   the earlier extract steps it reads (several: a joint review, each paper's documents of those
   steps in one worklist), or one derive step (the review is the draft's commit). `blocks`
   (default `release`) says whether an unsatisfied gate holds the next step or only the release.
@@ -351,6 +352,40 @@ Exports carry every coding (`codings` per record, `paper_codings` per paper, cod
 `coder_1`, `coder_2` … — with emails for the owner alone, each with its `answers`); a release
 freezes them (`codings` in the snapshot, `codings.json` in the zip) next to the paper-level
 values, and a new coding counts as a change since the last release.
+
+## Review purposes and the stamp
+
+A review step may say what it is for. `purpose` is read by the stamp, not by the contract: adding
+it moves no workflow id, and the defaults it sets (below) are what is hashed.
+
+- `audit` — a first look at a model step. Its size is the review's own: every paper (`mode:
+  all`), or a random draw (`mode: sample`, `n` or `share`, `seed`, `stratify`) of papers (`unit:
+  paper`), of entries (`unit: entry`) or of a paper table's rows (`unit: row`, `per_paper`). When
+  its gate closes, the agreement a person had with the model feeds the preset's stamp.
+- `routed` — the papers a rule sends on, named by `where` (the chain's `route` compute writes
+  `paper.routed`; `{"paper_metadata.routed": true}` picks them up). Never stamped: these papers
+  were chosen, not drawn.
+- `monitor` — a draw of each run's new papers (`mode: sample`, `new_only: true`) that extends the
+  stamp's count and holds nothing: `blocks: none`, and the step stays out of the release gate.
+- `calibrate` — two or more coders per paper (`coders: 2`), so the coders' own agreement is known —
+  the baseline an audit's "X% agree with the model" is read against. Sized like an audit: every
+  paper, or a random draw of papers, entries or rows. A template with `blind`
+  keeps the model's values from the coders; without one the validator warns.
+- `adjudicate` — the units an earlier coders' review of the same step disagreed on (one took the
+  model's value, another flagged or changed it), each settled by a further verdict. The earlier
+  review must hold the run (`blocks: next`) so its disagreements are known when this step opens;
+  `mode: all`. Never stamped.
+
+The **stamp**: when an `audit`, `monitor` or `calibrate` gate first closes (not when the owner
+overrides it), one row per dataset the units belong to goes into `validation`: the preset pin
+(`schema_id`), the model, the workflow contract, the step, how many papers and units were checked,
+how many disagreed, the agreement with its Wilson interval, the number of coders and — with two or
+more — how often the coders answered alike (`human_agreement`), the fields the step's `asks` named,
+the template. A preset's card (`stamp`) shows the rows at its newest pin: the latest audit, the
+monitoring since it (pooled), the calibration; `lapsed` when that pin is no longer the preset's
+current one — an audit at the new pin renews it. A workflow's card lists the stamp per review step
+(`stamps.steps`), the dataset page's Workflow card the row each review last wrote here, and a
+release freezes the dataset's rows with its badge (`credibility.validations`).
 
 ## Chains: pass steps
 

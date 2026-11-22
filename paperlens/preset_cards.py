@@ -17,6 +17,7 @@ import os
 import psycopg
 
 from . import brands, dashboards, external_dashboards, preset_releases, preset_spec as ps, presets, presets_legacy, records, releases
+from . import validation
 
 
 def bases_for(preset_id: str) -> list[str]:
@@ -285,6 +286,7 @@ def card(conn: psycopg.Connection, preset_id: str, *, viewer_is_admin: bool = Fa
            "papers": {"related": [r for r in cm["related"] if r.get("kind") in ("paper", "preregistration")],
                       "n_primary": sum(d["n_papers"] for d in datasets), "catalogue_url": f"/catalog?preset={pid}"},
            "verification": rollup(datasets),
+           "stamp": validation.for_preset(conn, pid, current_schema_id=ps.schema_id(spec)),
            "models": models_for(conn, bases_for(pid), cm["evaluated_with"]),
            "viewer": {"is_admin": bool(viewer_is_admin)}}
     if viewer_is_admin:

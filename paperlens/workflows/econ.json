@@ -99,6 +99,7 @@
     {
       "id": "joint",
       "kind": "review",
+      "purpose": "audit",
       "label": "Joint review",
       "over": [
         "tables",

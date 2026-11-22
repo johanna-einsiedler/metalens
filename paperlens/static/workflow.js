@@ -81,6 +81,13 @@ function checksHtml(c) {
 
 function badge(cr) { cr = cr || {}; return `<span class="badge tier-${esc(cr.tier || "ai_only")}" title="${esc(cr.label_long || "")}">${esc(cr.label || "")}</span>`; }
 
+// the stamp: what the reviews with a purpose recorded when their gates closed (validation rows), at the newest preset version
+function stampHtml(st, title) {
+  if (!st) return "";
+  const models = (st.models || []).length ? ` · ${st.models.map(esc).join(", ")}` : "";
+  return `<p class="pc-stamp${st.lapsed ? " lapsed" : ""}" title="${st.lapsed ? "recorded at an earlier version of the preset; an audit at the current version renews it" : "recorded at the current version"}">` +
+    `<b>${esc(title || "Stamp")}:</b> ${esc(st.label || "")}${models}${st.coders ? ` · ${st.coders} coders per paper` : ""}</p>`;
+}
 function verificationLive(c) {
   const v = c.verification || {};
   if (!v.n_datasets) return `<p class="muted">No public dataset declares this workflow yet.</p>`;
@@ -153,7 +160,7 @@ function render() {
     <section id="steps"><h2>Steps</h2><div class="wf-flow">${flowSvg(c.steps, { width: flowWidth(body) })}</div>${md((sections.steps || {}).body)}${stepsHtml(c)}</section>
     <section id="review"><h2>Review policy</h2>${md((sections.review || {}).body)}${reviewRows ? `<table class="ds-cc"><thead><tr><th>Step</th><th>Mode</th><th>Size</th><th>Unit</th><th>Strata</th><th>Coders</th><th>Holds</th></tr></thead><tbody>${reviewRows}</tbody></table>` : `<p class="muted">No step declares a review.</p>`}</section>
     <section id="checks"><h2>Checks</h2>${checksHtml(c)}</section>
-    <section id="verification"><h2>Verification</h2>${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
+    <section id="verification"><h2>Verification</h2>${Object.entries(((c.stamps || {}).steps) || {}).map(([sid, st]) => stampHtml(st, `Stamp · ${sid}`)).join("")}${md((sections.verification || {}).body)}${verificationLive(c)}${sections.limitations ? `<h3 class="pc-section-h">Limitations</h3>${md(sections.limitations.body)}` : ""}</section>
     <section id="versions"><h2>Versions and citation</h2>${md((sections.versions || {}).body)}${versions(c)}${sections.changelog ? `<h3 class="pc-section-h">Changelog</h3>${md(sections.changelog.body)}` : ""}</section>
     <section id="used-by"><h2>Used by</h2>${(c.datasets || []).length ? (c.datasets || []).map((d) => `<div class="ds-dashrow"><a href="/dataset?id=${encodeURIComponent(d.id)}"><b>${esc(d.title || d.slug || "dataset")}</b></a> <span class="muted">· ${n(d.n_papers, "paper")} · ${n(d.n_records, "record")}</span> ${badge(d.credibility)}${(d.releases || []).filter((r) => r.doi).map((r) => ` <a class="badge" href="https://doi.org/${encodeURIComponent(r.doi)}" target="_blank" rel="noopener">v${r.number} DOI</a>`).join("")}</div>`).join("") : `<p class="muted">No public dataset declares this workflow yet.</p>`}</section>
     ${relatedMd ? `<section id="related"><h2>Related work</h2>${md(relatedMd)}</section>` : ""}
