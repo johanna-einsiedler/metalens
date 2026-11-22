@@ -430,6 +430,7 @@ def run_step(conn: psycopg.Connection, run_id: str, step_run_id: str, st: dict, 
     findings = reg["fn"](inputs, params_for(st))
     rank = SEV_RANK[st.get("severity") or "error"]
     with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"step-findings:{step_run_id}",))   # a second job of the same step waits, then replaces
         conn.execute("DELETE FROM workflow_finding WHERE step_run_id = %s::uuid", (step_run_id,))
         with conn.cursor() as cur:                          # one pipelined batch, not a round trip per finding
             cur.executemany(

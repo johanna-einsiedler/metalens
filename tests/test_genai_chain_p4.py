@@ -325,3 +325,72 @@ def test_a_check_over_pass_steps_runs_when_the_passes_land(tmp_path, monkeypatch
     assert st["status"] == "done" and st["outputs"]["findings"] >= 2 and st["outputs"]["by_code"].get("source_exhibit_unknown") == 1 and st["outputs"]["n_checked"] == 1
     rows = conn.execute("""SELECT f.pdf_sha256, f.code, f.severity, f.path FROM workflow_finding f WHERE f.run_id = %s::uuid AND f.step_id = 'passes_check' ORDER BY f.code""", (rid,)).fetchall()
     assert rows and all(r_[0] == sha for r_ in rows) and ("source_exhibit_unknown", "error", "estimates[x1]") in {(r_[1], r_[2], r_[3]) for r_ in rows}
+
+
+def test_a_check_step_runs_as_a_worker_job_outside_the_advance(tmp_path, monkeypatch) -> None:
+    """On the live chain (114 papers) the passes check assembles every paper's record again —
+    some ten minutes — and it ran inside the advance: under the run's lock, in one transaction,
+    on whatever process advanced the run (a page's poll, the worker's tick), and none of them got
+    through. With a queue the check goes to the worker as a step job and the run waits for it;
+    a job the queue lost is queued again; the job's run advances the run."""
+    import uuid
+
+    from test_analysis_table import _db_ok
+    from test_passes import _dataset
+    from test_workflows import _client, _force_local, _pdf, _sha
+
+    from paperlens import records, worker, workflows
+    if not _db_ok():
+        pytest.skip("no Postgres")
+    _force_local(monkeypatch)
+    queued: list[tuple] = []
+    monkeypatch.setattr(worker, "enqueue", lambda task, *a, **k: (queued.append((task, a)) or f"step-job-{len(queued)}") if task == "workflow_step_job" else None)
+    conn = records.connect(); records.init_db(conn)
+    chains.load()
+    wdir = tmp_path / "wf"; wdir.mkdir(exist_ok=True)
+    spec = {"format": 1, "id": "gw-check-job", "meta": {"title": "GenAI passes + check as a job"},
+            "steps": [{"id": "exhibits", "kind": "pass", "pass": chains.pin("genai_work.exhibits")},
+                      {"id": "estimands", "kind": "pass", "pass": chains.pin("genai_work.estimands"), "reads": ["exhibits"]},
+                      {"id": "estimates", "kind": "pass", "pass": chains.pin("genai_work.estimates"), "reads": ["exhibits", "estimands"]},
+                      {"id": "design", "kind": "pass", "pass": chains.pin("genai_work.design"), "reads": ["estimands"]},
+                      {"id": "passes_check", "kind": "check", "check": "genai-work-passes", "over": ["exhibits", "estimands", "estimates", "design"], "on_fail": "note", "severity": "error"},
+                      {"id": "release", "kind": "release", "gate": []}]}
+    (wdir / "gw-check-job.json").write_text(json.dumps(spec))
+    monkeypatch.setenv("PAPERLENS_WORKFLOW_DIRS", str(wdir))
+    sess = f"gwj-{uuid.uuid4().hex[:6]}"
+    ds = _dataset(conn, sess)
+    c, H = _client(sess)
+    assert c.patch(f"/api/datasets/{ds}", headers=H, json={"workflow": "gw-check-job"}).status_code == 200
+    pdf = _pdf("iota"); sha = _sha(pdf)
+    run = c.post(f"/api/datasets/{ds}/workflow/runs", headers=H, json={"new_pdfs": [{"sha256": sha, "filename": "iota.pdf"}]}).json(); rid = run["id"]
+    ex, es, em, de, _pages = _synthetic()
+    for sid, out, code in (("exhibits", ex, "genai_work.exhibits"), ("estimands", es, "genai_work.estimands"), ("estimates", em, "genai_work.estimates"), ("design", de, "genai_work.design")):
+        r = c.post(f"/api/workflow-runs/{rid}/passes/{sid}/{sha}", headers=H, json={"output": out, "prompt_sha256": chains.prompt_sha(code)})
+        assert r.status_code == 200, r.text
+
+    def step():
+        return next(s_ for s_ in workflows.step_runs(conn, rid) if s_["step_id"] == "passes_check")
+
+    def n_findings():
+        return conn.execute("SELECT count(*) FROM workflow_finding WHERE run_id = %s::uuid AND step_id = 'passes_check'", (rid,)).fetchone()[0]
+
+    view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
+    assert view["status"] == "running" and view["current_step"] == "passes_check"
+    assert queued == [("workflow_step_job", (rid, "passes_check"))]
+    assert step()["status"] == "running" and step()["outputs"]["job_id"] == "step-job-1" and n_findings() == 0
+    c.get(f"/api/workflow-runs/{rid}", headers=H)                                # a poll while the job runs: no second job
+    assert len(queued) == 1
+    # the queue lost the job: the tick queues it again
+    assert workflows.step_job_candidates(conn) == []                             # the run moved a moment ago
+    what = workflows.apply_step_job_status(conn, workflows.get_run(conn, rid), step(), {"status": "JobStatus.not_found"})
+    assert what == "requeued" and len(queued) == 2 and step()["outputs"]["job_id"] == "step-job-2" and step()["outputs"]["tries"] == 1
+    # the job: the check runs, the findings land, the run goes on
+    out = workflows.run_step_job(conn, rid, "passes_check")
+    assert out["status"] == "done", (out["status"], out.get("error"))
+    st = step()
+    assert st["status"] == "done" and "job_id" not in st["outputs"] and st["outputs"]["by_code"].get("source_exhibit_unknown") == 1
+    first = n_findings()
+    assert first >= 2
+    assert workflows.run_step_job(conn, rid, "passes_check")["status"] == "done"  # a late duplicate of the job does nothing
+    assert n_findings() == first
+    conn.close()

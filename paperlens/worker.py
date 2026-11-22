@@ -11,6 +11,7 @@ the "ingest -> records change -> enrich" pipeline, now durable.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import dataclasses
 import functools
 import json
@@ -222,9 +223,9 @@ async def extract_chain_job(ctx: dict, pdf_b64: str, prompt: str, **kw) -> dict:
 
 
 async def workflow_step_job(ctx: dict, run_id: str, step_id: str) -> dict:
-    """A workflow's derive step (dataset-level model calls) as a durable job: the server key is
-    resolved on the worker from the run's model, never carried in the payload. The step runs in
-    a thread so the loop stays free; it advances the run when it is done."""
+    """A workflow's derive step (dataset-level model calls) or check step as a durable job: the
+    server key is resolved on the worker from the run's model, never carried in the payload. The
+    step runs in a thread so the loop stays free; it advances the run when it is done."""
     from . import workflows
     loop = asyncio.get_running_loop()
 
@@ -341,6 +342,9 @@ async def sweep_anonymous_task(ctx: dict) -> dict:
         conn.close()
 
 
+_TICK_THREADS = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="workflow-tick")
+
+
 async def workflow_tick_task(ctx: dict) -> dict:
     """Every few minutes: a workflow run that has not moved for a while asks the queue about
     the jobs it still waits for — landed, failed, or forgotten (results expire after an hour).
@@ -351,26 +355,32 @@ async def workflow_tick_task(ctx: dict) -> dict:
     loop = asyncio.get_running_loop()
     conn = records.connect()
     out = {"checked": 0, "landed": 0, "failed": 0, "lost": 0, "recovered": 0, "waiting": 0}
+    busy: list = []                                         # the database call on a thread, if one is out
+
+    def on_thread(fn, *args):
+        cf = _TICK_THREADS.submit(fn, conn, *args)
+        busy[:] = [cf]
+        return asyncio.wrap_future(cf, loop=loop)
     try:
-        for run, job in await loop.run_in_executor(None, workflows.reconcile_candidates, conn):
+        for run, job in await on_thread(workflows.reconcile_candidates):
             out["checked"] += 1
             try:
                 status = await _job_status(job["job_id"])
             except Exception:  # noqa: BLE001
                 status = None
             try:
-                what = await loop.run_in_executor(None, workflows.apply_job_status, conn, run, job, status)
+                what = await on_thread(workflows.apply_job_status, run, job, status)
                 out[what] = out.get(what, 0) + 1
             except Exception as exc:  # noqa: BLE001
                 print(f"[workflow] reconcile {run['id']}/{job['pdf_sha256'][:8]}: {exc}", flush=True)
-        for run, sr in await loop.run_in_executor(None, workflows.step_job_candidates, conn):
+        for run, sr in await on_thread(workflows.step_job_candidates):
             out["checked"] += 1
             try:
                 status = await _job_status((sr.get("outputs") or {}).get("job_id"))
             except Exception:  # noqa: BLE001
                 status = None
             try:
-                what = await loop.run_in_executor(None, workflows.apply_step_job_status, conn, run, sr, status)
+                what = await on_thread(workflows.apply_step_job_status, run, sr, status)
                 out[what] = out.get(what, 0) + 1
             except Exception as exc:  # noqa: BLE001
                 print(f"[workflow] reconcile step {run['id']}/{sr['step_id']}: {exc}", flush=True)
@@ -378,7 +388,13 @@ async def workflow_tick_task(ctx: dict) -> dict:
             print(f"[workflow] reconciled {out}", flush=True)
         return out
     finally:
-        conn.close()
+        # The tick's time limit cancels this coroutine, not the thread: an advance still running
+        # there keeps its transaction, and the connection closes when it is done. Closed here, it
+        # went from under the advance and everything the advance had done was rolled back.
+        if busy and not busy[0].done():
+            busy[0].add_done_callback(lambda _f: conn.close())
+        else:
+            conn.close()
 
 
 async def github_sync_task(ctx: dict) -> dict:
@@ -400,7 +416,7 @@ async def github_sync_task(ctx: dict) -> dict:
 
 class WorkerSettings:
     functions = [enrich_paper_task, ingest_task, extract_job, func(extract_chain_job, timeout=1800), ingest_pdf_job,
-                 publish_dataset_task, func(workflow_step_job, timeout=1800), func(pass_job, timeout=3600), func(compute_job, timeout=3600)]
+                 publish_dataset_task, func(workflow_step_job, timeout=3600), func(pass_job, timeout=3600), func(compute_job, timeout=3600)]
     cron_jobs = [cron(sweep_anonymous_task, minute=set(range(0, 60, 5)), run_at_startup=True),
                  cron(workflow_tick_task, minute=set(range(1, 60, 2)), run_at_startup=False),
                  cron(github_sync_task, minute={17}, run_at_startup=True)]
@@ -445,7 +461,6 @@ def enqueue(task: str, *args, **kwargs) -> str | None:
         on_loop = True
     try:
         if on_loop:
-            import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 return ex.submit(lambda: asyncio.run(_enqueue(task, *args, **kwargs))).result(timeout=60)
         return asyncio.run(_enqueue(task, *args, **kwargs))

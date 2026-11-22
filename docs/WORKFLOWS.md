@@ -149,11 +149,18 @@ From the dataset page: **Update** plans the run over the staged PDFs — per ste
 how many model calls — then starts it. Credits for every planned call are spent at start and
 given back per paper that never ran. The page posts each PDF to `POST /api/extract` with
 `run_id` and `step_id`; a pipeline posts its files to `POST /api/ingest-pdf` the same way. The
-run advances as papers land: checks run, gates open, the release step closes the run. One run
+run advances as papers land: checks run, gates open, the release step closes the run. A check
+step runs on the worker as its own job (`workflow_step_job`, as a derive step does) and the run
+waits for it; without a queue (local mode) it runs in the advance. Inside the advance a long
+check held the run's lock and one transaction for all of it: the GenAI-at-work passes check over
+114 papers never got through. One run
 per dataset at a time; every two minutes (`workflow_tick_task`) the jobs of a run that has not
 moved for ten minutes, and any job that has itself waited ten minutes, are reconciled with the
 queue — the second because every poll of the run's page touches the run, so a watched run never
-looked idle while the queue had dropped its jobs.
+looked idle while the queue had dropped its jobs. A check step's job the queue lost is queued
+again (up to three tries); a derive step's fails the run. The tick runs for at most five
+minutes; a call it has on a thread when that time runs out finishes there, and the tick's
+connection closes after it.
 
 A gate's items are a worklist: `GET /api/workflow-runs/{rid}/queue/{step}` lists them in draw
 order with their verdicts; `/workspace?queue=<run>:<step>` works through them — the sidebar lists
