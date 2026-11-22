@@ -343,30 +343,34 @@ async def sweep_anonymous_task(ctx: dict) -> dict:
 
 async def workflow_tick_task(ctx: dict) -> dict:
     """Every few minutes: a workflow run that has not moved for a while asks the queue about
-    the jobs it still waits for — landed, failed, or forgotten (results expire after an hour)."""
+    the jobs it still waits for — landed, failed, or forgotten (results expire after an hour).
+    The database work runs on a worker thread, as every job's does: on the event loop it held
+    the whole worker while an advance ran (and an advance that queues a paper could not reach
+    the queue from inside the loop, so it computed the papers itself, under the run's lock)."""
     from . import workflows
+    loop = asyncio.get_running_loop()
     conn = records.connect()
     out = {"checked": 0, "landed": 0, "failed": 0, "lost": 0, "recovered": 0, "waiting": 0}
     try:
-        for run, job in workflows.reconcile_candidates(conn):
+        for run, job in await loop.run_in_executor(None, workflows.reconcile_candidates, conn):
             out["checked"] += 1
             try:
                 status = await _job_status(job["job_id"])
             except Exception:  # noqa: BLE001
                 status = None
             try:
-                what = workflows.apply_job_status(conn, run, job, status)
+                what = await loop.run_in_executor(None, workflows.apply_job_status, conn, run, job, status)
                 out[what] = out.get(what, 0) + 1
             except Exception as exc:  # noqa: BLE001
                 print(f"[workflow] reconcile {run['id']}/{job['pdf_sha256'][:8]}: {exc}", flush=True)
-        for run, sr in workflows.step_job_candidates(conn):
+        for run, sr in await loop.run_in_executor(None, workflows.step_job_candidates, conn):
             out["checked"] += 1
             try:
                 status = await _job_status((sr.get("outputs") or {}).get("job_id"))
             except Exception:  # noqa: BLE001
                 status = None
             try:
-                what = workflows.apply_step_job_status(conn, run, sr, status)
+                what = await loop.run_in_executor(None, workflows.apply_step_job_status, conn, run, sr, status)
                 out[what] = out.get(what, 0) + 1
             except Exception as exc:  # noqa: BLE001
                 print(f"[workflow] reconcile step {run['id']}/{sr['step_id']}: {exc}", flush=True)
@@ -426,11 +430,24 @@ async def _enqueue(task: str, *args, **kwargs) -> str | None:
 def enqueue(task: str, *args, **kwargs) -> str | None:
     """Enqueue a job from sync code. Returns job id, or None if Redis is down or the
     process runs jobs inline (PAPERLENS_INLINE_JOBS — the single-user local mode);
-    callers fall back to running synchronously."""
+    callers fall back to running synchronously. Sync code called on a running event loop
+    (the worker's cron) gets its own loop on a helper thread: ``asyncio.run`` refuses a
+    running loop, and the None that came back read as "no queue", so the caller ran the job
+    itself."""
     from . import localmode
     if localmode.inline_jobs():
         return None
     try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        on_loop = False
+    else:
+        on_loop = True
+    try:
+        if on_loop:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                return ex.submit(lambda: asyncio.run(_enqueue(task, *args, **kwargs))).result(timeout=60)
         return asyncio.run(_enqueue(task, *args, **kwargs))
     except Exception:
         return None
