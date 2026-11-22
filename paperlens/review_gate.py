@@ -732,6 +732,7 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | N
            "progress": {"drawn": len(its), "checked": checked, "pending": len(its) - checked,
                         "disagreed": sum(1 for i in its if i["checked"] and i["disagreed"]), "papers": len(papers), "papers_done": n_papers_done},
            "satisfied": st["satisfied"], "next": nxt, "run_status": run["status"]}
+    out["more"] = _other_batches(conn, run, step_run, coder)
     if header.get("coders"):
         out.update({"coders": header.get("coders"), "assigned": bool((step_run.get("review") or header).get("assigned")),
                     **({"needs_coders": st["needs_coders"]} if st.get("needs_coders") else {}),
@@ -741,6 +742,26 @@ def queue(conn: psycopg.Connection, run: dict, step_run: dict, *, coder: str | N
 
 
 # ── the dataset's sample estimate (for the badge) ─────────────────────────────
+
+def _other_batches(conn: psycopg.Connection, run: dict, step_run: dict, coder: str | None) -> list[dict]:
+    """The same review step in the project's other runs, with items still to check — for this
+    coder when one is named, else for anyone: what "next papers of this task" opens."""
+    from . import workflows
+    out = []
+    for r in workflows.list_runs(conn, run["dataset_id"], limit=50):
+        if r["id"] == run["id"] or r["status"] in ("cancelled", "failed", "planned"):
+            continue
+        sr = next((x for x in workflows.step_runs(conn, r["id"]) if x["step_id"] == step_run["step_id"] and x.get("review")), None)
+        if sr is None:
+            continue
+        its = items(conn, sr)
+        if coder:
+            its = [i for i in its if i.get("coder_user_id") == coder]
+        pending = sum(1 for i in its if not i["checked"])
+        if pending:
+            out.append({"run_id": r["id"], "created_at": r.get("created_at"), "pending": pending, "queue": f"{r['id']}:{step_run['step_id']}"})
+    return sorted(out, key=lambda x: str(x.get("created_at") or ""))
+
 
 def dataset_sample(conn: psycopg.Connection, dataset_id: str) -> dict | None:
     """Over every random draw of the dataset's runs (not cancelled or failed, step-runs not
