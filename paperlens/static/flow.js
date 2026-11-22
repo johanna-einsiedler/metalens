@@ -106,8 +106,9 @@ export function flowLayout(steps, opts = {}) {
 }
 
 // the SVG: boxes coloured by kind, a dot for the step's state, the step a run is on outlined;
-// opts.current names that step, opts.href(step) may give each box a link, opts.width (pixels)
-// or opts.maxCols says how many columns fit side by side
+// opts.current names that step, opts.selected the one chosen to read about, opts.href(step) may
+// give each box a link (else every box carries data-step for a click handler), opts.width
+// (pixels) or opts.maxCols says how many columns fit side by side
 export function flowSvg(steps, opts = {}) {
   steps = (steps || []).filter((s) => s && s.id);
   if (!steps.length) return "";
@@ -137,14 +138,14 @@ export function flowSvg(steps, opts = {}) {
     const rv = s.kind === "review" ? (s.review || {}) : null;     // a review's purpose (audit, routed, …) and its coders
     const extra = s.kind === "pass" && (s.k || 1) > 1 ? ` ×${s.k}` : rv ? `${rv.purpose || s.purpose ? ` · ${rv.purpose || s.purpose}` : ""}${rv.coders ? ` · ${rv.coders} coder${rv.coders === 1 ? "" : "s"}` : ""}` : "";
     const tip = [label, s.kind + (s.k > 1 ? `, ${s.k} readings` : ""), s.state ? `state: ${s.state}` : "", s.help || ""].filter(Boolean).join("\n");
-    const inner = `<rect class="flow-box flow-kind-${esc(s.kind)}${s.id === opts.current ? " flow-current" : ""}" x="${r1(p.x)}" y="${r1(p.y)}" width="${BOX_W}" height="${BOX_H}" rx="7"/>
+    const inner = `<rect class="flow-box flow-kind-${esc(s.kind)}${s.id === opts.current ? " flow-current" : ""}${s.id === opts.selected ? " flow-selected" : ""}" x="${r1(p.x)}" y="${r1(p.y)}" width="${BOX_W}" height="${BOX_H}" rx="7"/>
       <text class="flow-icon" x="${r1(p.x + 10)}" y="${r1(p.y + 25)}">${esc(KIND_ICON[s.kind] || "·")}</text>
       <text class="flow-label" x="${r1(p.x + 28)}" y="${r1(p.y + 17)}">${esc(short)}</text>
       <text class="flow-sub" x="${r1(p.x + 28)}" y="${r1(p.y + 31)}">${esc(s.kind + extra)}</text>
       ${s.state ? `<circle class="flow-state flow-state-${esc(s.state)}" cx="${r1(p.x + BOX_W - 10)}" cy="${r1(p.y + 10)}" r="4"/>` : ""}
       <title>${esc(tip)}</title>`;
     const href = opts.href ? opts.href(s) : null;
-    return href ? `<a href="${esc(href)}">${inner}</a>` : `<g>${inner}</g>`;
+    return href ? `<a href="${esc(href)}">${inner}</a>` : `<g class="flow-node" data-step="${esc(s.id)}" tabindex="0" role="button" aria-label="${esc(label)}: show this step">${inner}</g>`;
   };
   return `<svg class="flow" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="the workflow's steps and what each depends on">
     <defs><marker id="flow-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" class="flow-arrowhead"/></marker></defs>
