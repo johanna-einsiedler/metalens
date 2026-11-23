@@ -2031,16 +2031,21 @@ def _requeue_compute(conn, run: dict, job: dict, status: dict | None) -> str:
     """A compute job the queue no longer runs — dropped before it started (the hour's expiry),
     timed out, or forgotten: the paper goes back to pending and the run's advance queues it
     again. A compute step is free and deterministic and its inputs are stored, so running it
-    again costs nothing; after ``COMPUTE_MAX_TRIES`` the job fails as before."""
-    row = conn.execute("SELECT status, tries FROM workflow_job WHERE id = %s::uuid", (job["id"],)).fetchone()
-    if row is None or row[0] not in ("queued", "running"):
-        return "landed" if row and row[0] in JOB_DONE else "settled"          # it finished since the work list was made
-    if int(row[1] or 0) >= COMPUTE_MAX_TRIES:
+    again costs nothing; after ``COMPUTE_MAX_TRIES`` the job fails as before. The row is locked
+    from the check to the write: a paper landing meanwhile (``passes.run_compute`` holds the row)
+    is waited for and then seen done — before, the check read it as still queued and the write
+    put it back to pending over the landed document, which was then made a second time."""
+    with conn.transaction():
+        row = conn.execute("SELECT status, tries FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job["id"],)).fetchone()
+        if row is None or row[0] not in ("queued", "running"):
+            return "landed" if row and row[0] in JOB_DONE else "settled"      # it finished since the work list was made
+        lost = int(row[1] or 0) >= COMPUTE_MAX_TRIES
+        if not lost:
+            _set_job(conn, job["id"], status="pending", job_id=None, tries=int(row[1] or 0) + 1, error=None)
+    if lost:
         why = str((status or {}).get("error") or "the queue lost this job")
         on_job_failed(conn, run["id"], job_id=job["job_id"], error=f"{why} (after {row[1]} tries)", final=True)
         return "lost"
-    _set_job(conn, job["id"], status="pending", job_id=None, tries=int(row[1] or 0) + 1, error=None)
-    conn.commit()
     advance(conn, run["id"])
     return "requeued"
 

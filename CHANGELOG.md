@@ -27,6 +27,11 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   (``passes.prepare_document``, ``extract.locate``); the job row is locked and the document written
   in a transaction of about a second. A second attempt that lands the paper meanwhile still
   wins: the first finds it done and writes nothing.
+- The reconcile that queues a dropped compute job again read the job's status without a lock and
+  then wrote "pending": a paper landing in between (its transaction holding the row) was put back
+  to pending over its document, queued again and made a second time — the 54-page paper above
+  had its document and a job still "queued" on both live runs. The check and the write now hold
+  the row; a landing paper is waited for and seen done.
 
 ### The extraction check is worked on the table: a click per error, then "everything else correct"
 

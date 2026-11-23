@@ -641,8 +641,24 @@ def test_a_compute_step_keeps_a_few_papers_in_the_queue_and_a_job_the_queue_drop
     # the dropped job's paper runs once: the new job makes it, a late run of the old one is skipped
     assert passes.run_compute(conn, *queued[3][1])["status"] == "done"
     assert passes.run_compute(conn, *lost)["status"] == "skipped"
-    # a job the queue keeps losing fails after COMPUTE_MAX_TRIES, as a lost job did before
+    # a reconcile that reads a job while its paper is landing waits for the landing and leaves the job done: before, it
+    # read the job as still queued and wrote "pending" over the landed paper, which was then made a second time
+    import threading
     third = queued[2][1]
+    run_ = workflows.get_run(conn, rid)
+    job_ = next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == third[2])
+    lander, checker, out = records.connect(), records.connect(), []
+    with lander.transaction():
+        lander.execute("SELECT 1 FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job_["id"],))
+        lander.execute("UPDATE workflow_job SET status = 'done' WHERE id = %s::uuid", (job_["id"],))
+        t = threading.Thread(target=lambda: out.append(workflows.apply_job_status(checker, run_, job_, expired)))
+        t.start(); t.join(0.5)
+        assert t.is_alive()                                                     # it waits on the landing paper's lock
+    t.join(10)
+    assert out == ["landed"] and next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == third[2])["status"] == "done"
+    conn.execute("UPDATE workflow_job SET status = 'queued' WHERE id = %s::uuid", (job_["id"],)); conn.commit()   # as it was, for the next case
+    lander.close(); checker.close()
+    # a job the queue keeps losing fails after COMPUTE_MAX_TRIES, as a lost job did before
     conn.execute("UPDATE workflow_job SET tries = %s, updated_at = now() - interval '1 hour' WHERE run_id = %s::uuid AND step_id = 'assemble' AND pdf_sha256 = %s",
                  (workflows.COMPUTE_MAX_TRIES, rid, third[2])); conn.commit()
     run, job = next((r, j) for r, j in workflows.reconcile_candidates(conn) if r["id"] == rid)
