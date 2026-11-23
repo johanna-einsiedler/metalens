@@ -608,8 +608,12 @@ the papers land. At most twenty papers of a compute step wait in the queue at on
 queue drops a job not started within the hour, and a step that queued a hundred papers at once
 lost most of them. A compute job the queue no longer has (dropped, timed out, forgotten) goes back
 to pending and is queued again, up to three tries (`COMPUTE_MAX_TRIES`), then fails; a second
-attempt at a paper waits on the first and is skipped once it landed. A retry re-pends a failed
-compute job; advance dispatches it once its inputs are there.
+attempt at a paper waits on the first and is skipped once it landed. A document step's job
+prepares the costly part first, writing nothing and holding no lock (`passes.prepare_document`:
+the record built, its quotes located in the PDF, the pages rendered), then locks the job row,
+checks it is still pending or queued and writes the document in one short transaction — so a
+paper never gets two documents, and no transaction stays open for the minutes a long or scanned
+paper takes. A retry re-pends a failed compute job; advance dispatches it once its inputs are there.
 
 ### References across passes
 

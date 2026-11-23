@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A scanned paper's quotes are located in seconds; a compute holds no transaction while it works
+
+- Locating a paper's quotes read the page's text layer afresh for every search: each fitz
+  ``search_for`` and ``get_text`` builds a new TextPage from the page's content, some 25 ms on a
+  page drawn with many vector paths, and the locator makes thousands of them (each quote's
+  candidates on its page, plain and dehyphenated; the fallbacks across every page for a quote no
+  page prints — all of them, on a scanned paper). Three papers of the GenAI-at-work chain —
+  two scans (c4bdd4aa4c5a, 8 pages, 896 quotes; 499475fb7ae5, 19 pages, 410 quotes) and a 54-page
+  paper — never finished their extraction compute: more than an hour each on the worker, three
+  tries, then "the queue lost this job". Each page's text layer is now built once per set of flags
+  and reused (``pdf_utils._CachedPage``); what is found, where, and the rendered pages are
+  unchanged. The three papers compute in 4, 7 and 26 s (locally, with the pages rendered).
+- A document compute step held its job row locked, in one transaction, for the whole compute —
+  record, located quotes, rendered pages — so a slow paper kept a transaction open for its
+  minutes: the release's schema migration waited on it (``LockNotAvailable``) and every poll of
+  the run timed out on the run's lock. The costly part now runs first, writing nothing
+  (``passes.prepare_document``, ``extract.locate``); the job row is locked and the document written
+  in a transaction of about a second. A second attempt that lands the paper meanwhile still
+  wins: the first finds it done and writes nothing.
+
 ### The extraction check is worked on the table: a click per error, then "everything else correct"
 
 - The coder works on the drawn table itself (template block `layout: "flags"`). A click on a cited
