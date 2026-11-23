@@ -4012,8 +4012,8 @@ function wireTaskPanel(panel, recs) {
     b.disabled = true;
     saveAnswers(items, "confirm").then(() => rerenderKeep()).catch((e) => { b.disabled = false; failed("confirm")(e); });
   }));
-  // a unit's page tag opens its passage
-  panel.querySelectorAll(".tq-title .ev-cite[data-eids], .tq-row .tq-n .ev-cite[data-eids]").forEach((b) => {
+  // a unit's page tag opens its passage (and a legend line's, under a mapping grid)
+  panel.querySelectorAll(".tq-title .ev-cite[data-eids], .tq-row .tq-n .ev-cite[data-eids], .tq-legend .ev-cite[data-eids]").forEach((b) => {
     const ids = b.dataset.eids.split(",").map(Number);
     b.onclick = (e) => { e.stopPropagation(); if (!stagePdfOpen()) togglePdf(true, false); jumpToEvidence(+b.dataset.page, ids); };
     b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);

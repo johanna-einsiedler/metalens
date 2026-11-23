@@ -63,9 +63,12 @@ _ALLOWED = {
     "block": {"unit", "label", "help", "show", "title", "marks", "group_by_entry", "where", "only_sampled", "mask_numbers",
               "stack", "questions", "add", "sections", "inline", "layout", "columns", "grid", "confirm"},
     "column": {"label", "fields", "wide"},
-    "grid": {"of", "panel", "row", "column", "tip", "value", "flag", "mapping"},
+    "grid": {"of", "panel", "row", "column", "tip", "value", "flag", "mapping", "legend"},
     "grid_flag": {"question", "answer"},
-    "grid_mapping": {"field", "sep", "question", "answer", "note"},
+    "grid_mapping": {"field", "sep", "question", "answer", "note", "parts"},
+    "grid_mapping_part": {"label", "help"},
+    "grid_legend": {"label", "help", "open", "sections"},
+    "grid_legend_section": {"label", "help", "child", "by", "of", "title", "text", "more"},
     "confirm": {"label", "answers", "paper"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
@@ -446,6 +449,47 @@ def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: li
                     E(f"{at}.grid.mapping.sep must be the text between the mapping's parts (\" · \")")
                 if g.get("note") is not None and (questions.get(g["note"]) or {}).get("type") not in ("string", "text"):
                     E(f"{at}.grid.mapping.note: {g['note']!r} must be a string or text question of the block (where the flagged part is written)")
+                parts = g.get("parts")
+                if parts is not None:                     # what each part of the mapping is, by position: {label, help?}
+                    if not isinstance(parts, list) or not parts:
+                        E(f"{at}.grid.mapping.parts must list the mapping's parts in order, each {{label, help?}}")
+                    else:
+                        for i, pt in enumerate(parts):
+                            if not isinstance(pt, dict) or not (isinstance(pt.get("label"), str) and pt["label"]):
+                                E(f"{at}.grid.mapping.parts[{i}] must be {{label, help?}} with a label"); continue
+                            for kk in pt:
+                                if kk not in _ALLOWED["grid_mapping_part"]:
+                                    E(f"{at}.grid.mapping.parts[{i}]: unknown key {kk!r}")
+                            if pt.get("help") is not None and not isinstance(pt["help"], str):
+                                E(f"{at}.grid.mapping.parts[{i}].help must be a string")
+        lg = grid.get("legend")
+        if lg is not None:                                    # what the mapping's codes stand for in this paper, from its entries
+            if layout != "flags":
+                E(f"{at}.grid.legend applies to layout 'flags'")
+            if not isinstance(lg, dict):
+                E(f"{at}.grid.legend must be {{label?, help?, open?, sections}}")
+            else:
+                for kk in lg:
+                    if kk not in _ALLOWED["grid_legend"]:
+                        E(f"{at}.grid.legend: unknown key {kk!r}")
+                for kk in ("label", "help"):
+                    if lg.get(kk) is not None and not isinstance(lg[kk], str):
+                        E(f"{at}.grid.legend.{kk} must be a string")
+                secs = lg.get("sections")
+                if not isinstance(secs, list) or not secs:
+                    E(f"{at}.grid.legend.sections must list what to explain, each {{label, of, child?, by?, title?, text?, more?}}")
+                else:
+                    for i, sc in enumerate(secs):
+                        if not isinstance(sc, dict) or not (isinstance(sc.get("of"), str) and sc["of"]):
+                            E(f"{at}.grid.legend.sections[{i}] must name the field each line is about ({{of}})"); continue
+                        for kk in sc:
+                            if kk not in _ALLOWED["grid_legend_section"]:
+                                E(f"{at}.grid.legend.sections[{i}]: unknown key {kk!r}")
+                        for kk in ("label", "help", "child", "by", "title", "text"):
+                            if sc.get(kk) is not None and not isinstance(sc[kk], str):
+                                E(f"{at}.grid.legend.sections[{i}].{kk} must be a string")
+                        if sc.get("more") is not None and not (isinstance(sc["more"], list) and all(isinstance(x, str) for x in sc["more"])):
+                            E(f"{at}.grid.legend.sections[{i}].more must be a list of field names")
     conf = bl.get("confirm")
     if conf is not None:
         if not tabular:

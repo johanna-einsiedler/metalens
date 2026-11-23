@@ -314,10 +314,10 @@ export function consolidateMapping(cells, sep) {
   const panels = groupBy((c) => `${c.pi}`), cols = groupBy((c) => `${c.pi}:${c.ci}`), rows = groupBy((c) => `${c.pi}:${c.ri}`);
   const shares = (groups, k) => [...groups.values()].every((ix) => ix.every((i) => (parts[i][k] || "") === (parts[ix[0]][k] || "")));
   const busy = (groups) => [...groups.values()].some((ix) => ix.length > 1);
-  const put = (bucket, key, k, ix) => { const t = parts[ix[0]][k] || ""; if (!t) return; (bucket[key] = bucket[key] || []).push({ text: t, keys: ix.map((i) => cells[i].key) }); };
+  const put = (bucket, key, k, ix) => { const t = parts[ix[0]][k] || ""; if (!t) return; (bucket[key] = bucket[key] || []).push({ text: t, keys: ix.map((i) => cells[i].key), k }); };
   for (let k = 0; k < K; k++) {
     const all = cells.map((_, i) => i);
-    if (cells.length && shares(new Map([["*", all]]), k)) { const t = parts[0][k] || ""; if (t) out.global.push({ text: t, keys: cells.map((c) => c.key) }); continue; }
+    if (cells.length && shares(new Map([["*", all]]), k)) { const t = parts[0][k] || ""; if (t) out.global.push({ text: t, keys: cells.map((c) => c.key), k }); continue; }
     if (panels.size > 1 && shares(panels, k)) { for (const [key, ix] of panels) put(out.panel, key, k, ix); continue; }
     const colOK = shares(cols, k), rowOK = shares(rows, k);
     if (colOK && (!rowOK || !(busy(rows) && !busy(cols)))) { for (const [key, ix] of cols) put(out.column, key, k, ix); continue; }
@@ -363,12 +363,15 @@ function gridHtml(block, units, num, ctx) {
     pos.forEach((_, k) => placedAll.add(k));
     const mp = flags && g.mapping ? consolidateMapping([...pos].map(([k, p]) => ({ key: k, ...p, text: (byKey.get(k).row || {})[g.mapping.field] })).filter((c) => given(c.text)), g.mapping.sep) : null;
     const mq = g.mapping && g.mapping.question, mBad = g.mapping && g.mapping.answer;
+    const kinds = (g.mapping && g.mapping.parts) || [];
     const chip = (part) => {
       const bad = !!mq && part.keys.every((k) => partFlagged(block, ans(byKey.get(k)), part.text));     // every cell it covers flagged for this part
-      const n = part.keys.length;
-      if (!live) return `<span class="tq-part${bad ? " tq-part-bad" : ""}">${esc(part.text)}</span>`;
+      const n = part.keys.length, kind = kinds[part.k];
+      const tag = kind ? `<span class="tq-part-k">${esc(kind.label)}</span>` : "";
+      const about = kind ? `${kind.label}${kind.help ? `: ${kind.help}` : ""}\n` : "";
+      if (!live) return `<span class="tq-part${bad ? " tq-part-bad" : ""}"${about ? ` title="${esc(about.trim())}"` : ""}>${tag}${esc(part.text)}</span>`;
       const units_ = JSON.stringify(part.keys.map((k) => [byKey.get(k).record_id || "", k]));
-      return `<button type="button" class="tq-part${bad ? " tq-part-bad" : ""}" data-units="${esc(units_)}" data-part="${esc(part.text)}" title="${esc(bad ? `flagged as a wrong mapping for ${n} cell${n === 1 ? "" : "s"} — click to take the flag back` : `click if this mapping is wrong — flags the ${n} cell${n === 1 ? "" : "s"} it covers`)}">${esc(part.text)}</button>`;
+      return `<button type="button" class="tq-part${bad ? " tq-part-bad" : ""}" data-units="${esc(units_)}" data-part="${esc(part.text)}" title="${esc(about + (bad ? `flagged as a wrong mapping for ${n} cell${n === 1 ? "" : "s"} — click to take the flag back` : `click if this mapping is wrong — flags the ${n} cell${n === 1 ? "" : "s"} it covers`))}">${tag}${esc(part.text)}</button>`;
     };
     const chips = (list) => (list || []).map(chip).join("");
     const width = Math.max(...t.panels.map((p) => Math.max(p.header ? p.header.length : 0, ...p.rows.map((r) => r.length))));
@@ -412,9 +415,50 @@ function gridHtml(block, units, num, ctx) {
       + (mp && mp.global.length ? `<div class="tq-map-all"><span class="muted">every cited cell is mapped to</span> ${chips(mp.global)}</div>` : "")
       + `<div class="tq-gridwrap"><table class="tq-gridt"><tbody>${body}</tbody></table></div>`
       + (lost.length ? `<div class="tq-grid-note muted">row${lost.length === 1 ? "" : "s"} ${lost.join(", ")} not found in the transcription's grid (check ${lost.length === 1 ? "it" : "them"} against the PDF${flags ? ", below" : ""})</div>` : "")
+      + (flags && g.legend ? legendHtml(g.legend, ctx) : "")
       + `</div>`;
   }
   return { html, placed: placedAll };
+}
+
+// A mapping grid's legend (`grid.legend`): what the mapping's codes stand for in this paper. Per section one line per entry
+// of the paper (`of` an entry field) or per child row of every entry (`child`, its entry's `by` in front): the code, its
+// `title`, its `text`, the `more` fields in brackets, and a page tag to the passage it rests on. Built from every entry of
+// the paper (the queue's undrawn ones too), never from a cell's mapping: it shows nothing an attention check alters.
+function legendHtml(lg, ctx) {
+  const data = ctx.data || {}, ekey = ctx.vm && ctx.vm.entries && ctx.vm.entries.key;
+  const recs = data._all || data.records || [], ev = ctx.evidence || [];
+  const cite = (path, field) => {               // the passage of the line itself, else of its text field
+    let i = ev.findIndex((e) => e.field_path === path);
+    if (i < 0 && field) i = ev.findIndex((e) => e.field_path === `${path}.${field}`);
+    if (i < 0) return "";
+    const e = ev[i];
+    return ` <button type="button" class="ev-cite" data-eids="${i}" data-page="${e.page || 1}" title="${esc(`open the passage, p. ${e.page || "?"}${e.snippet ? "\n" + e.snippet : ""}`)}">p.${e.page || "?"}</button>`;
+  };
+  const secs = (lg.sections || []).map((sc) => {
+    const seen = new Set(), lines = [];
+    for (const r of recs) {
+      const fv = r.field_values || {};
+      const rows = sc.child ? (Array.isArray(fv[sc.child]) ? fv[sc.child] : []).map((row, j) => ({ row, path: ekey ? `${ekey}[${r.entry_index}].${sc.child}[${j}]` : null }))
+        : [{ row: fv, path: ekey ? `${ekey}[${r.entry_index}]` : null }];
+      for (const { row, path } of rows) {
+        const code = row && row[sc.of];
+        if (!given(code)) continue;
+        const by = sc.child && sc.by && given(fv[sc.by]) ? `${fv[sc.by]} · ` : "";
+        const title = sc.title && given(row[sc.title]) && row[sc.title] !== code ? String(row[sc.title]) : "";
+        const text = sc.text && given(row[sc.text]) ? String(row[sc.text]) : "";
+        const more = (sc.more || []).map((f) => row[f]).filter(given).map((v) => (Array.isArray(v) ? v.join(", ") : String(v)));
+        const key = [by, code, title, text, ...more].join("|");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        lines.push(`<li><span class="tq-legend-code">${esc(by)}${esc(String(code))}</span>${title ? ` · ${esc(title)}` : ""}${text ? ` — ${esc(text)}` : ""}`
+          + `${more.length ? ` <span class="muted">(${esc(more.join("; "))})</span>` : ""}${path ? cite(path, sc.text) : ""}</li>`);
+      }
+    }
+    return lines.length ? `<div class="tq-legend-s"><div class="tq-legend-h">${esc(sc.label || sc.of)}${sc.help ? ` <span class="muted">— ${esc(sc.help)}</span>` : ""}</div><ul>${lines.join("")}</ul></div>` : "";
+  }).join("");
+  return secs ? `<details class="tq-legend"${lg.open ? " open" : ""}><summary>${esc(lg.label || "What the codes stand for")}</summary>`
+    + `${lg.help ? `<div class="tq-legend-help muted">${esc(lg.help)}</div>` : ""}${secs}</details>` : "";
 }
 
 // layout "flags": the grid, then "everything else correct" with the tally, then as rows only what

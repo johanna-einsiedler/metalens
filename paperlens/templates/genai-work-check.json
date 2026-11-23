@@ -63,7 +63,19 @@
           ],
           "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "value": "value_as_printed", "tip": "{estimate_id} · {estimand_text}",
                    "flag": {"question": "value_ok", "answer": "no"},
-                   "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no", "note": "note"}},
+                   "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no", "note": "note",
+                               "parts": [
+                                 {"label": "task", "help": "the work the people did, numbered T1, T2 … in this paper; what each one is: under the table"},
+                                 {"label": "arms", "help": "the group that worked with the AI, against the reference group it is compared with (people without the AI, or the same people before or after it)"},
+                                 {"label": "outcome", "help": "what was measured on the work"},
+                                 {"label": "subgroup", "help": "the part of the sample the estimate is for; full sample when it is for everyone"},
+                                 {"label": "timing", "help": "when the outcome was measured, relative to getting the AI; post-treatment when the paper names no particular time"}]},
+                   "legend": {"label": "What the task, arm and outcome names stand for in this paper",
+                              "help": "As the extraction describes them, each with the passage it rests on (p. opens it). Judge the mapping against the table and the paper itself, not against these descriptions.",
+                              "sections": [
+                                {"label": "Tasks", "help": "the work the people did", "of": "task_id", "title": "task_name", "text": "task_description"},
+                                {"label": "Arms", "help": "what each group had", "child": "arms", "by": "task_id", "of": "arm_label", "text": "treatment", "more": ["sample_population"]},
+                                {"label": "Outcomes", "help": "what was measured, and how", "child": "outcomes", "by": "task_id", "of": "outcome_name", "text": "how_measured", "more": ["outcome_unit"]}]}},
           "confirm": {"label": "Everything else correct", "answers": {"value_ok": "yes", "mapping_ok": "yes"}, "paper": {"full_review": "no"}},
           "questions": [
             {

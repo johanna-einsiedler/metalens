@@ -8,6 +8,20 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The extraction check names the parts of a mapping and says what they stand for
+
+- A cell's mapping is shown as its parts (task · arms · outcome · subgroup · timing), and a coder saw "T1" or
+  "Italy Pre-Ban vs Italy Post-Ban (Reference)" with nothing to say what kind of thing each was or what it meant
+  in the paper. A template can now name the parts in order (`grid.mapping.parts`: `{label, help}`): each chip
+  carries its kind as a small label and the kind's meaning in its tooltip. A part keeps its position through
+  `consolidateMapping`, so the label follows it wherever it is shown (once for all cells, per panel, column, row
+  or cell).
+- Under the table, a fold lists what the paper's task, arm and outcome names stand for (`grid.legend`): each task
+  with its description, each arm with what it had and its sample, each outcome with how it was measured, as the
+  extraction describes them, each with a page tag that opens the passage it rests on. The lines come from every
+  entry of the paper, never from a cell's mapping, so they show nothing an attention check alters. The extraction
+  check declares both; display only, the template's id is unchanged.
+
 ### A review queue says it is opening, and opens its first paper sooner
 
 - A coder following a queue link (`/workspace?queue=<run>:<step>`) saw an empty panel and a PDF pane

@@ -364,3 +364,42 @@ def test_a_block_may_be_worked_on_its_grid_with_flags_and_a_confirm() -> None:
         bl = {k: v for k, v in bl.items() if v is not None}
         e = errs(bl)
         assert any(msg in x for x in e), (name, e)
+
+
+def test_a_mapping_grid_may_name_its_parts_and_carry_a_legend() -> None:
+    """``grid.mapping.parts`` names the mapping's parts in order ({label, help?}) and ``grid.legend`` lists what the
+    paper's codes stand for, read from its entries ({label?, help?, open?, sections: [{of, child?, by?, title?, text?,
+    more?}]}). Both are display: the template's id does not change."""
+    qs = [{"name": "value_ok", "type": "enum", "options": ["yes", "no"]}, {"name": "mapping_ok", "type": "enum", "options": ["yes", "no"]},
+          {"name": "note", "type": "string"}]
+    base = {"unit": "paper_metadata.exhibit_cells", "show": ["row_label", "column", "panel", "value_as_printed", "estimand_text"],
+            "questions": qs, "layout": "flags",
+            "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column",
+                     "flag": {"question": "value_ok", "answer": "no"},
+                     "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no", "note": "note"}}}
+    parts = [{"label": "task", "help": "the work"}, {"label": "arms"}]
+    legend = {"label": "What the codes stand for", "sections": [{"label": "Tasks", "of": "task_id", "title": "task_name"},
+                                                               {"child": "arms", "by": "task_id", "of": "arm_label", "text": "treatment", "more": ["sample_population"]}]}
+    named = {**base, "grid": {**base["grid"], "mapping": {**base["grid"]["mapping"], "parts": parts}, "legend": legend}}
+
+    def errs(bl: dict) -> list[str]:
+        d = copy.deepcopy(GOOD); d["stages"][0]["blocks"].append(bl)
+        return tp.validate(tp.normalize(d), EXT)[0]
+
+    assert errs(named) == []
+    d0, d1 = copy.deepcopy(GOOD), copy.deepcopy(GOOD); d0["stages"][0]["blocks"].append(base); d1["stages"][0]["blocks"].append(named)
+    assert tp.template_id(tp.normalize(d0)) == tp.template_id(tp.normalize(d1))
+    g, m = named["grid"], named["grid"]["mapping"]
+    bad = {
+        "parts empty": ({**named, "grid": {**g, "mapping": {**m, "parts": []}}}, "grid.mapping.parts must list"),
+        "part label": ({**named, "grid": {**g, "mapping": {**m, "parts": [{"help": "x"}]}}}, "parts[0] must be {label, help?}"),
+        "part key": ({**named, "grid": {**g, "mapping": {**m, "parts": [{"label": "t", "colour": "red"}]}}}, "parts[0]: unknown key 'colour'"),
+        "legend sections": ({**named, "grid": {**g, "legend": {"label": "x"}}}, "grid.legend.sections must list"),
+        "legend of": ({**named, "grid": {**g, "legend": {"sections": [{"label": "Tasks"}]}}}, "sections[0] must name the field"),
+        "legend key": ({**named, "grid": {**g, "legend": {**legend, "colour": 1}}}, "grid.legend: unknown key 'colour'"),
+        "legend more": ({**named, "grid": {**g, "legend": {"sections": [{"of": "x", "more": "y"}]}}}, "more must be a list of field names"),
+        "legend on rows": ({**named, "layout": "rows", "grid": {k: v for k, v in g.items() if k not in ("flag", "mapping")}}, "grid.legend applies to layout 'flags'"),
+    }
+    for name, (bl, msg) in bad.items():
+        e = errs(bl)
+        assert any(msg in x for x in e), (name, e)
