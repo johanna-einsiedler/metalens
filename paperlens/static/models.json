@@ -950,8 +950,8 @@
       "out": 2.1
     },
     "mistral-large-latest": {
-      "in": 0.5,
-      "out": 1.5
+      "in": 0.7,
+      "out": 2.1
     },
     "mistral-large-3": {
       "in": 0.5,
@@ -1322,8 +1322,8 @@
       "out": 5.0
     },
     "gpt-6-rosalind": {
-      "in": 15.0,
-      "out": 75.0
+      "in": 10.0,
+      "out": 50.0
     },
     "gpt-6-cyber": {
       "in": 20.0,
@@ -1352,6 +1352,30 @@
     "gemini-4-hydrogen": {
       "in": 1.5,
       "out": 7.5
+    },
+    "omni-moderation-csam-latest": {
+      "in": 0.0,
+      "out": 0.0
+    },
+    "gpt-6.2-astra": {
+      "in": 8.0,
+      "out": 40.0
+    },
+    "gpt-6.2-sol": {
+      "in": 2.0,
+      "out": 10.0
+    },
+    "gpt-6.2-astra-law": {
+      "in": 8.0,
+      "out": 40.0
+    },
+    "gemini-4-neon": {
+      "in": 3.0,
+      "out": 15.0
+    },
+    "genie-4": {
+      "in": 1.5,
+      "out": 9.0
     },
     "gemini-2.0-flash-exp-image-generation": {
       "in": 0.0,
@@ -1610,5 +1634,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-11-16T06:46:18Z"
+  "generated_at": "2026-11-23T06:41:30Z"
 }
