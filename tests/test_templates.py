@@ -303,6 +303,7 @@ def test_a_block_lays_its_units_out_as_rows_with_the_exhibit_as_a_grid() -> None
         "column not shown": ({**rows, "columns": ["role"]}, "'role' is not among the block's shown fields"),
         "column shape": ({**rows, "columns": [{"label": "X"}]}, "must be a shown field's name"),
         "column key": ({**rows, "columns": [{"label": "X", "fields": ["panel"], "width": 3}]}, "unknown key 'width'"),
+        "column wide": ({**rows, "columns": [{"label": "X", "fields": ["panel"], "wide": "yes"}]}, "wide must be a boolean"),
         "grid field": ({**rows, "grid": {**rows["grid"], "row": "row_name"}}, "grid.row: 'row_name' is not a field of the unit"),
         "grid of": ({**rows, "grid": {"row": "row_label", "column": "column"}}, "grid.of must name a field of the unit"),
         "grid tip": ({**rows, "grid": {**rows["grid"], "tip": "{nope}"}}, "grid.tip: {nope} is not a field of the unit"),

@@ -54,7 +54,7 @@ _ALLOWED = {
     "stage": {"id", "label", "help", "evidence", "blocks"},
     "block": {"unit", "label", "help", "show", "title", "marks", "group_by_entry", "where", "only_sampled", "mask_numbers",
               "stack", "questions", "add", "sections", "inline", "layout", "columns", "grid"},
-    "column": {"label", "fields"},
+    "column": {"label", "fields", "wide"},
     "grid": {"of", "panel", "row", "column", "tip"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
@@ -335,11 +335,13 @@ def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: li
                         E(f"{cat}: unknown key {k!r}")
                 if col.get("label") is not None and not isinstance(col["label"], str):
                     E(f"{cat}.label must be a string")
+                if not isinstance(col.get("wide", False), bool):
+                    E(f"{cat}.wide must be a boolean")
                 names = col.get("fields")
             else:
                 names = [col] if isinstance(col, str) else col
             if not isinstance(names, list) or not names or any(not isinstance(n, str) for n in names):
-                E(f"{cat} must be a shown field's name, a list of them, or {{label, fields}}"); continue
+                E(f"{cat} must be a shown field's name, a list of them, or {{label, fields, wide?}}"); continue
             for n in names:
                 if n not in show:
                     E(f"{cat}: {n!r} is not among the block's shown fields")

@@ -57,8 +57,7 @@
           "columns": [
             {"label": "Cell", "fields": ["row_label", "column", "panel"]},
             {"label": "As printed", "fields": ["value_as_printed", "se_as_printed"]},
-            {"label": "Estimate", "fields": ["estimate_id", "estimand_text"]},
-            "role"
+            {"label": "Estimate", "fields": ["estimate_id", "estimand_text", "role"], "wide": true}
           ],
           "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "tip": "{estimate_id} · {estimand_text}"},
           "questions": [

@@ -140,7 +140,7 @@ def test_the_check_tasks_cells_are_rows_under_the_drawn_exhibit_as_printed() -> 
     assert [a for a, _ in rows] == ["", "", "", " tq-added"]
     assert html.count('<td class="tq-q rv-root">') == 4 * 3                                  # value_ok, mapping_ok, note per row
     assert re.search(r'<td class="tq-q rv-root"><span class="rv-selwrap" data-path="value_ok"><select[^>]*>.*?<option value="yes" selected>', html)
-    assert '<th>Cell</th><th>As printed</th><th>Estimate</th><th>Role</th>' in html
+    assert '<th>Cell</th><th>As printed</th><th class="tq-wide">Estimate</th><th class="tq-qh"' in html
     assert 'data-path="exhibit_cells[0].value_as_printed"' in html                             # a shown cell saves into the coding as a card's does
     added = html[html.index('data-unit="exhibit_cells#+c1"'):]
     assert 'data-scope="answers"' in added and 'class="tq-del"' in added and 'data-path="row_label"' in added

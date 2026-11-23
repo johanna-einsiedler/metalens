@@ -275,14 +275,16 @@ function gridHtml(block, units, num, ctx) {
   return html;
 }
 
-// The block's `columns` as [{label, fields}]: a name, a list of names (stacked in one cell), or
-// {label, fields}; without `columns`, one column per shown field.
+// The block's `columns` as [{label, fields, wide}]: a name, a list of names (stacked in one cell),
+// or {label, fields, wide} (`wide`: a long text that needs room to read); without `columns`, one
+// column per shown field.
 function rowColumns(block, fields) {
   const lab = (n) => { const f = fields.get(n); return (f && f.label) || formatKey(n); };
   const cols = Array.isArray(block.columns) && block.columns.length ? block.columns : (block.show || []);
   return cols.map((c) => {
     const names = typeof c === "string" ? [c] : Array.isArray(c) ? c : (c && Array.isArray(c.fields) ? c.fields : []);
-    return { label: c && typeof c === "object" && !Array.isArray(c) && c.label ? c.label : names.map(lab).join(" · "), fields: names };
+    const obj = c && typeof c === "object" && !Array.isArray(c);
+    return { label: obj && c.label ? c.label : names.map(lab).join(" · "), fields: names, wide: !!(obj && c.wide) };
   }).filter((c) => c.fields.length);
 }
 
@@ -296,8 +298,8 @@ function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
   const placedAdd = new Set(cols.flatMap((c) => c.fields));
   const strayAdd = addDefs.filter((f) => !placedAdd.has(f.name));   // an add field no column names: in the first column
   const tip = (f) => (f && f.help ? ` title="${esc(f.help)}"` : "");
-  const head = `<tr><th class="tq-n">#</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}`
-    + qdefs.map((q) => `<th class="tq-qh"${tip(q)}>${esc(q.label || formatKey(q.name))}${q.required ? "" : q.required_when ? "" : ` <span class="muted">(optional)</span>`}</th>`).join("")
+  const head = `<tr><th class="tq-n">#</th>${cols.map((c) => `<th${c.wide ? ` class="tq-wide"` : ""}>${esc(c.label)}</th>`).join("")}`
+    + qdefs.map((q) => `<th class="tq-qh"${tip(q)}>${esc(q.label || formatKey(q.name))}</th>`).join("")
     + (ctx.owner && qdefs.length ? `<th>Answers</th>` : "") + `</tr>`;
   const body = units.map((u) => {
     const a = { ...Object.fromEntries(qdefs.map((q) => [q.name, null])), ...answersAt(ctx.answers, u.record_id, u.key) };
@@ -306,10 +308,10 @@ function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
       if (u.added) {
         const defs = [...c.fields.map((n) => addBy.get(n)).filter(Boolean), ...(ci === 0 ? strayAdd : [])];
         const row = u.row || {};
-        return `<td class="tq-shown rv-root" data-scope="answers">${defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}"${tip(f)}>${renderFieldControl(f, row[f.name] === undefined ? null : row[f.name], f.name, { editable: ctx.editable })}</div>`).join("")}</td>`;
+        return `<td class="tq-shown rv-root${c.wide ? " tq-wide" : ""}" data-scope="answers">${defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}"${tip(f)}>${renderFieldControl(f, row[f.name] === undefined ? null : row[f.name], f.name, { editable: ctx.editable })}</div>`).join("")}</td>`;
       }
       const defs = c.fields.map((n) => byName.get(n)).filter(Boolean);
-      return `<td class="tq-shown rv-root" data-scope="${u.scope}"${u.rec ? ` data-rid="${esc(u.rec.id)}"` : ""}>`
+      return `<td class="tq-shown rv-root${c.wide ? " tq-wide" : ""}" data-scope="${u.scope}"${u.rec ? ` data-rid="${esc(u.rec.id)}"` : ""}>`
         + defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}">${renderFieldControl(f, (u.row || {})[f.name], u.base ? `${u.base}.${f.name}` : f.name, { editable: shownEditable })}</div>`).join("") + `</td>`;
     };
     return `<tr class="tq-unit tq-row${u.added ? " tq-added" : ""}" data-unit="${esc(u.key)}"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}>`
