@@ -716,7 +716,7 @@ leaves out. `plants` is outside the template's id. The extraction check plants i
 papers (`share: 0.33`), values and mappings. `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
-no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
+no block shows. `evidence: "none"` on a stage lists no items (the PDF still opens at the stage's first drawn unit — a block with `only_sampled` — at its located passage). A question may carry a field's name
 only when the block does not show that field — a blind answer to the question the model answered.
 A block's `title` may not name a field in `blind.fields`; a head inherited from the preset's child
 that names one falls back to the shown fields, so a head never prints what the coder is to answer.

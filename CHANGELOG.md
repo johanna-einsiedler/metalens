@@ -23,6 +23,13 @@ app (last release 1.1.0), which this engine replaces; its source is tagged `lega
   paper in the owner's view, and all of them through `GET /api/workflow-runs/{id}/plants` — the
   units an analysis of the answers leaves out. Coders never see the tally.
 
+### The extraction check without the evidence pane
+
+- The check's stage lists no evidence items (`evidence: "none"`): the drawn table's transcription
+  was shown twice, as the grid the coder works on and again in the pane above the PDF. The PDF now
+  takes the right column and still opens at the drawn exhibit — at its caption as the extraction
+  located it (a stage without items used to leave the PDF at the paper's first page).
+
 ### The extraction check is worked on the table: a click per error, then "everything else correct"
 
 - The coder works on the drawn table itself (template block `layout: "flags"`). A click on a cited

@@ -19,7 +19,8 @@
     {
       "id": "cells",
       "label": "Cells",
-      "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from, laid out as a table from its transcription; the pane and its page tag show it in the PDF. Compare the two. Click a value that is not exactly as printed (it is listed below: type it as printed), a mapping that is wrong (the outcome, subgroup, arms or horizon a cell is read into — shown once where it holds for several cells; a click flags every cell it covers), or a cell of this exhibit that estimates an AI-versus-reference contrast and is not cited (it is added below: give the estimate it should feed, or leave that blank). Then press *Everything else correct*, set *Full review needed* when what you saw makes the paper's whole extraction doubtful, and press done.",
+      "evidence": "none",
+      "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from, laid out as a table from its transcription; the PDF on the right opens at it. Compare the two. Click a value that is not exactly as printed (it is listed below: type it as printed), a mapping that is wrong (the outcome, subgroup, arms or horizon a cell is read into — shown once where it holds for several cells; a click flags every cell it covers), or a cell of this exhibit that estimates an AI-versus-reference contrast and is not cited (it is added below: give the estimate it should feed, or leave that blank). Then press *Everything else correct*, set *Full review needed* when what you saw makes the paper's whole extraction doubtful, and press done.",
       "blocks": [
         {
           "unit": "paper_metadata.exhibits",
