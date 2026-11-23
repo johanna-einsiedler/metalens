@@ -15,7 +15,7 @@ import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
-import { blockHtml, unitKind, unitFields, unitLabel, completeness as taskCompleteness, itemRows, gridIds, blockUnits, confirmItems, partFlagItems } from "/static/template.js";
+import { blockHtml, unitKind, unitFields, unitLabel, unitRows, completeness as taskCompleteness, itemRows, gridIds, blockUnits, confirmItems, partFlagItems } from "/static/template.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
@@ -3997,6 +3997,22 @@ function wireTaskPanel(panel, recs) {
     b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
   });
 }
+// The first drawn unit of a stage (a block with only_sampled) that has a located passage: {page, ids}
+// shaped as an evidence group, for stageShowItem to move the PDF there.
+function drawnAnchor(st) {
+  const sampled = (DATA.task || {}).sampled || null;
+  if (!sampled) return null;
+  for (const bl of st.blocks || []) {
+    if (!bl || !bl.only_sampled) continue;
+    for (const u of unitRows(bl, DATA, VM, sampled)) {
+      if (!u.path) continue;
+      const ids = (DATA.evidence || []).map((ev, i) => [ev, i]).filter(([ev]) => ev.field_path === u.path).map(([, i]) => i);
+      const page = ids.length ? (DATA.evidence[ids[0]] || {}).page : (u.row || {}).page;
+      if (ids.length || page) return { n: 0, kind: "anchor", page: page || null, ids, snippet: "", paper: [], entry: new Map(), lower: [], names: new Set() };
+    }
+  }
+  return null;
+}
 function stageShowItem() {
   const where = STAGE_ITEMS.length ? `item ${STAGE_CUR + 1} of ${STAGE_ITEMS.length}` : "no items";
   document.querySelectorAll(".stg-pane-nav .stg-pane-k, .stg-pdf-strip .stg-pdf-k").forEach((k) => (k.textContent = where));
@@ -4399,6 +4415,9 @@ function renderStagesPanel(panel, rv) {
   const key = `${DOCID}|${STAGE}`;
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }
   STAGE_ITEMS = inStage;
+  // a template stage without evidence items: the PDF still opens at what the task drew (the drawn
+  // exhibit's own passage — its caption as the extraction located it), not at the paper's first page
+  if (noEv && Array.isArray(st.blocks) && taskMode()) { const a = drawnAnchor(st); if (a) STAGE_ITEMS = [a]; }
   STAGE_CUR = Math.max(0, Math.min(inStage.length - 1, STAGE_CUR));
   // EVIDENCE in the right column's upper pane, FIELDS in the panel
   const evbox = document.createElement("div"); evbox.className = "stg-evidence";
