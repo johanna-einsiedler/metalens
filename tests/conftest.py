@@ -83,3 +83,12 @@ def _fresh_test_db():
     finally:
         conn.close()
     yield
+
+
+@pytest.fixture
+def no_queue(monkeypatch):
+    """No job queue, whatever runs on this machine: a step the worker would take (a check, a
+    compute paper) runs in the advance, as in CI and in local mode. With a Redis on the machine
+    the job went to it and waited for a worker that is not running."""
+    from paperlens import worker
+    monkeypatch.setattr(worker, "enqueue", lambda *a, **k: None)

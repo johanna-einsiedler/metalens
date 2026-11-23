@@ -174,7 +174,7 @@ SPEC = {"format": 1, "id": "ruled", "meta": {"title": "Ruled"},
                                         {"code": "star_level", "unit": "cells", "where": {"significance_stars": {"gte": 1}}, "require": {"significance_level": {"lte": 0.1}}}]}}]}
 
 
-def test_a_rules_check_runs_in_a_workflow_and_flags_the_records_it_finds(monkeypatch) -> None:
+def test_a_rules_check_runs_in_a_workflow_and_flags_the_records_it_finds(monkeypatch, no_queue) -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)
     owner, owner_id, _ = _account("rules-owner")

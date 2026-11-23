@@ -93,7 +93,7 @@ def _answer_everything(client, doc: str, task: str, tpl: dict, pspec: dict) -> i
     raise AssertionError("still owed after six rounds")
 
 
-def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_work_the_three_tasks(tmp_path) -> None:
+def test_the_seeder_feeds_the_workflow_as_the_owner_and_the_coders_work_the_three_tasks(tmp_path, no_queue) -> None:
     _skip()
     from fastapi.testclient import TestClient
     from paperlens import app as appmod

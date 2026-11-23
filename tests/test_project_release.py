@@ -49,7 +49,7 @@ def _run(owner, pid, tag):
     return rid
 
 
-def test_a_project_release_freezes_its_datasets_the_run_and_the_review_as_one(monkeypatch) -> None:
+def test_a_project_release_freezes_its_datasets_the_run_and_the_review_as_one(monkeypatch, no_queue) -> None:
     _skip()
     conn = records.connect(); records.init_db(conn)
     spec = ws.normalize(copy.deepcopy(SPEC)); assert ws.validate(spec)[0] == []
