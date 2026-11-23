@@ -642,13 +642,12 @@ def _compute_ctx(conn, run: dict, st: dict, pdf_sha256: str, entry: dict, *, doc
                           reads=reads, preset=preset, record=rec, findings=fnd), by_id
 
 
-def compute_document(conn, run: dict, st: dict, pdf_sha256: str, *, store=None) -> dict:
-    """A document-producing compute for one paper: the registered code builds the document
-    object under the step's pinned preset from the passes' outputs, and it is persisted through
-    the ordinary path (quotes located, the contract checked) with the passes as its provenance.
-    Returns ``run_extraction``'s result."""
-    from . import extract, presets
-    from .extract import LLMResult
+def prepare_document(conn, run: dict, st: dict, pdf_sha256: str, *, store=None) -> dict:
+    """Everything of a document compute that writes nothing: the registered code's document
+    object from the passes' outputs, the provenance, the stored PDF and the evidence located in
+    it (``extract.locate`` — minutes on a long or scanned paper). ``run_compute`` makes it before
+    it locks the job, so the transaction that writes the document lasts seconds."""
+    from . import extract
     code = str(st.get("fn") or "")
     entry = chains.get(code)
     if entry is None or entry.get("produces") != "document":
@@ -672,17 +671,33 @@ def compute_document(conn, run: dict, st: dict, pdf_sha256: str, *, store=None) 
     if not store.exists(key):
         raise LookupError("no stored PDF for this paper (upload it again)")
     pdf_bytes = store.get(key)
-    run_spec = presets.resolve_run(conn, schema_id=st["preset"])
     text = json.dumps(obj, ensure_ascii=False)
+    return {"code": code, "text": text, "pdf": pdf_bytes, "provenance": provenance, "record_chain": record_chain,
+            "filename": (ctx.paper or {}).get("filename"), "located": extract.locate(text, pdf_bytes, render_pages=True)}
+
+
+def compute_document(conn, run: dict, st: dict, pdf_sha256: str, *, store=None, prepared=None) -> dict:
+    """A document-producing compute for one paper: the registered code builds the document
+    object under the step's pinned preset from the passes' outputs, and it is persisted through
+    the ordinary path (quotes located, the contract checked) with the passes as its provenance.
+    ``prepared`` is ``prepare_document``'s result when the caller made it already (or the error
+    it raised, raised here). Returns ``run_extraction``'s result."""
+    from . import extract, presets
+    from .extract import LLMResult
+    store = store or storage.get_store()
+    if isinstance(prepared, Exception):
+        raise prepared
+    prep = prepared if prepared is not None else prepare_document(conn, run, st, pdf_sha256, store=store)
+    run_spec = presets.resolve_run(conn, schema_id=st["preset"])
+    code, text = prep["code"], prep["text"]
 
     def supplied(pdf_b, prompt_, **kw):
         return LLMResult(text=text, finish_reason="stop", usage={"prompt": 0, "completion": 0, "total": 0}, resolved_model=f"compute:{code}")
 
-    paper = ctx.paper or {}
-    return extract.run_extraction(conn, pdf_bytes, f"compute:{code}", complete=supplied, schema_id=run_spec.schema_id, spec=run_spec.spec,
-                                  params=run_spec.params, step_id=st["id"], role="final", chain=provenance, record_chain=record_chain,
-                                  session_id=run.get("session_id"), owner_user_id=run.get("started_by"), filename=paper.get("filename"),
-                                  run_id=run["id"], store=store)
+    return extract.run_extraction(conn, prep["pdf"], f"compute:{code}", complete=supplied, schema_id=run_spec.schema_id, spec=run_spec.spec,
+                                  params=run_spec.params, step_id=st["id"], role="final", chain=prep["provenance"], record_chain=prep["record_chain"],
+                                  session_id=run.get("session_id"), owner_user_id=run.get("started_by"), filename=prep["filename"],
+                                  run_id=run["id"], store=store, located=prep["located"])
 
 
 def _write_allowed(path: str, writes: list[str]) -> bool:
@@ -747,11 +762,21 @@ def run_compute(conn, run_id: str, step_id: str, pdf_sha256: str, *, advance_run
         return {"status": "skipped", "why": "not a compute job of this run"}
     if run["status"] in workflows.TERMINAL or job["status"] not in ("pending", "queued"):
         return {"status": "skipped", "why": f"run {run['status']}, job {job['status']}"}
+    # The costly part — the document object, its quotes located in the PDF, the pages rendered —
+    # writes nothing, so it runs before the lock: the transaction below lasts seconds, not the
+    # minutes a long or scanned paper takes (a transaction held that long kept the release's
+    # schema migration and every poll of the run waiting). An error is the job's, as before.
+    prepared = None
+    if st.get("preset"):
+        try:
+            prepared = prepare_document(conn, run, st, pdf_sha256)
+        except Exception as exc:  # noqa: BLE001 - compute_paper records it on the job
+            prepared = exc
     with conn.transaction():                                   # the job row and the document land together, before the run is advanced
         now = conn.execute("SELECT status FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job["id"],)).fetchone()
         if now is None or now[0] not in ("pending", "queued"):  # a second attempt (the queue's retry, a job queued again) waited on the first
             return {"status": "skipped", "why": f"job {now[0] if now else 'gone'}"}
-        workflows.compute_paper(conn, run, sr, st, job)
+        workflows.compute_paper(conn, run, sr, st, job, prepared=prepared)
     if advance_run:
         workflows.advance(conn, run_id)
     job = next(j for j in workflows.jobs(conn, run_id, step_id) if j["pdf_sha256"] == pdf_sha256)

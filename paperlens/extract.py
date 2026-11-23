@@ -86,6 +86,17 @@ def _default_complete(pdf_bytes: bytes, prompt: str, *, model: str, api_key: str
     return LLMResult(result, finish, usage, resolved)
 
 
+def locate(llm_text: str, pdf_bytes: bytes, *, render_pages: bool = True) -> tuple[list, list, list]:
+    """The evidence of an answer located in its PDF: ``(page images, highlights, scanned
+    pages)`` — PyMuPDF over every page, the costly part of persisting an extraction, and free of
+    any database write, so a caller holding a lock can do it first (``passes.run_compute``)."""
+    evidence_items = pdf_utils.evidence_items_from_result(llm_text)
+    for page, snippets in pdf_utils.recover_orphan_pages(llm_text, pdf_bytes).items():
+        for s in snippets:
+            evidence_items.append({"page": page, "snippet": s, "field": None, "source": None})
+    return pdf_utils.pdf_to_pages_with_rects(pdf_bytes, evidence_items, render_pages=render_pages)
+
+
 def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                    api_key: str = "", base_url: str | None = None, use_text: bool = False,
                    schema_id: str | None = None, session_id: str | None = None,
@@ -97,7 +108,7 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
                    run_id: str | None = None, step_id: str | None = None,
                    role: str = "final", group_id: str | None = None, pass_index: int | None = None,
                    chain: dict | None = None, record_chain: dict | None = None,
-                   store_artifacts: bool = True) -> dict:
+                   store_artifacts: bool = True, located: tuple | None = None) -> dict:
     """``spec`` is the preset declaration the run was made with (gives ingest the declared
     core array and lets the result be validated for triage); ``params`` the parameter
     values it used (stored for provenance); ``prompt_edited`` whether the caller replaced
@@ -107,7 +118,8 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
     A pipeline (chain.py) persists each of its documents through here: a run has
     ``role="run"`` and ``store_artifacts=False`` (its quotes are located, but the PDF and page
     images are stored once, under the final), the final carries the pipeline's provenance
-    (``chain``) and what the engine knows per entry (``record_chain``)."""
+    (``chain``) and what the engine knows per entry (``record_chain``). ``located`` is
+    ``locate``'s result for this answer and PDF when the caller made it already."""
     store = store or storage.get_store()
     if spec is None and schema_id:
         try:
@@ -131,11 +143,7 @@ def run_extraction(conn, pdf_bytes: bytes, prompt: str, *, model: str = "",
             f"chars of the model response:\n{snippet}")
 
     # evidence + highlight geometry (real PyMuPDF text search, vendored pdf_utils)
-    evidence_items = pdf_utils.evidence_items_from_result(llm.text)
-    for page, snippets in pdf_utils.recover_orphan_pages(llm.text, pdf_bytes).items():
-        for s in snippets:
-            evidence_items.append({"page": page, "snippet": s, "field": None, "source": None})
-    page_images, highlights, scanned = pdf_utils.pdf_to_pages_with_rects(pdf_bytes, evidence_items, render_pages=store_artifacts)
+    page_images, highlights, scanned = located if located is not None else locate(llm.text, pdf_bytes, render_pages=store_artifacts)
 
     # normalize -> records
     res = ingest(llm.text, entries_key=entries_key)

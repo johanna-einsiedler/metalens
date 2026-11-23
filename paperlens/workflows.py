@@ -1477,18 +1477,19 @@ def _attach_document(conn, run: dict, step_id: str, job: dict, document_id: str)
     _set_job(conn, job["id"], status="done", document_id=document_id, error=None)
 
 
-def compute_paper(conn, run: dict, sr: dict, st: dict, job: dict) -> None:
+def compute_paper(conn, run: dict, sr: dict, st: dict, job: dict, *, prepared=None) -> None:
     """One paper of a compute step, free: a document step persists one document through the
     ordinary path (quotes located, the contract checked) and attaches it to the step's dataset,
     a fields step writes through the audited edit path and notes what it edited on the step-run.
     The job row ends done or failed; the caller's transaction commits. Runs on the worker
-    (``compute_job``) or inline when there is no queue."""
+    (``compute_job``) or inline when there is no queue; ``prepared`` is the document's costly
+    part made before the caller's lock (``passes.prepare_document``)."""
     from . import passes
     doc_step = bool(st.get("preset"))
     _set_job(conn, job["id"], status="running", tries=int(job.get("tries") or 0) + 1, error=None)
     try:
         if doc_step:
-            res = passes.compute_document(conn, run, st, job["pdf_sha256"])
+            res = passes.compute_document(conn, run, st, job["pdf_sha256"], prepared=prepared)
             _attach_document(conn, run, sr["step_id"], job, res["document_id"])
         else:
             did = passes.document_of(conn, run["id"], st["edits"], job["pdf_sha256"])
