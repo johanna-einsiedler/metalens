@@ -3869,12 +3869,12 @@ async function noteCaught(caught) {
   const units = new Set(caught.map((c) => c.unit));
   DATA.task.shown = (DATA.task.shown || []).filter((s) => !units.has(s.unit));
   DATA.task.caught = [...(DATA.task.caught || []).filter((c) => !units.has(c.unit)), ...caught];
+  toast("✓ Well spotted — that was one of the planted checks. Nothing to correct there.");
   try {
     const fresh = await api.documentView(DOCID, VIEW_AS, QUEUE && QUEUE.task ? QUEUE.task : null);
     const items = (DATA.template || {}).items;
     if (items && fresh && fresh.paper_metadata && DATA.document_id === fresh.document_id) DATA.paper_metadata = { ...DATA.paper_metadata, [items]: fresh.paper_metadata[items] };
   } catch { /* the cell already shows truly; the pane follows on the next load */ }
-  toast("✓ Well spotted — that was one of the planted checks. Nothing to correct there.");
   rerenderKeep();
 }
 function toast(text) {

@@ -8,6 +8,21 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### Planted errors: attention checks in the extraction check
+
+- About a third of each coder's papers in the extraction check show one deliberate error on the
+  table: a cited value slightly altered (digits swapped, the last digit moved, the sign flipped,
+  the stars changed) or one part of a cell's mapping swapped for another cell's (an outcome, a
+  subgroup). The draw is fixed per paper and coder and never lands on a paper the coder has
+  already answered on (template key `plants: {share, seed, kinds}`, `paperlens/plants.py`).
+- The record is never touched: the plant travels beside the data in the coder's view and is drawn
+  from there, never saved into a coding. A catch — the coder's first answer flags the planted
+  value or mapping — is told at once ("well spotted"), and the cell is shown as it truly is; a
+  miss — the first answer confirms it — is not told.
+- The owner reads the checks: per coder on the task ("attention checks: coder_4 3/4 caught"), per
+  paper in the owner's view, and all of them through `GET /api/workflow-runs/{id}/plants` — the
+  units an analysis of the answers leaves out. Coders never see the tally.
+
 ### The extraction check is worked on the table: a click per error, then "everything else correct"
 
 - The coder works on the drawn table itself (template block `layout: "flags"`). A click on a cited
