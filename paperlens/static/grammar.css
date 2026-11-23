@@ -792,6 +792,17 @@ button.tq-part { cursor: pointer; }
 button.tq-part:hover { border-color: var(--accent); }
 button.tq-part:hover::after { content: " ⚑"; color: var(--error); }
 .tq-part.tq-part-bad { background: var(--error-bg); color: var(--error); border-color: var(--error); }
+.tq-part-k { font-size: 9.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); margin-right: 5px; }
+.tq-part-bad .tq-part-k { color: inherit; }
+.tq-legend { margin: 10px 0 2px; font-size: 12.5px; }
+.tq-legend > summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.tq-legend-help { margin: 6px 0 4px; }
+.tq-legend-s { margin-top: 8px; }
+.tq-legend-h { font-weight: 600; }
+.tq-legend ul { margin: 3px 0 0; padding-left: 18px; }
+.tq-legend li { margin: 3px 0; line-height: 1.4; }
+.tq-legend-code { font-weight: 600; }
+.tq-legend .ev-cite { margin-left: 4px; }
 .tq-part.tq-part-bad::before { content: "⚑ "; }
 .tq-map-all { font-size: 12px; margin: 0 0 6px; }
 .tq-gridt td.tq-gmap, .tq-gridt td.tq-grmap { text-align: left; white-space: normal; min-width: 7em; max-width: 13em; vertical-align: top; background: var(--bg); }
