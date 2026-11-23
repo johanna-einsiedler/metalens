@@ -8,6 +8,17 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A review queue says it is opening, and opens its first paper sooner
+
+- A coder following a queue link (`/workspace?queue=<run>:<step>`) saw an empty panel and a PDF pane
+  reading "Loading…" for about fifteen seconds while the queue, the dataset and the paper lists loaded
+  one after another, which read as a broken page. The panel and the PDF pane now say what is happening
+  ("Opening the review queue…", then "Opening <the paper's title>…").
+- The paper to open is known as soon as the queue answers, so its view is fetched then, alongside the
+  dataset's paper lists instead of after them; the paper shows about three seconds sooner (12.6 s
+  against 15.6 s on a live check queue). The rest of the wait is the server's: the queue and the
+  paper's view take about five seconds each.
+
 ### Planted errors: attention checks in the extraction check
 
 - About a third of each coder's papers in the extraction check show one deliberate error on the

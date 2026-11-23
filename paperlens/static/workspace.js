@@ -43,6 +43,7 @@ let CHAIN_RUNS = null;      // the drill-down payload of the open document's pip
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 let QUEUE = null;                                        // ?queue=<run>:<step>: a review gate's worklist — the drawn records, in draw order
+let PREFETCH = null;                                     // a queue's first paper, fetched while the sidebar's lists still load: {docId, task, as, p}
 let QUEUE_ALL = false;                                   // show every entry of the open paper, not only the drawn ones
 let CODER = false;                                       // the viewer codes this dataset (paperlens/coders.py): what they see and change is their own coding
 let VIEW_AS = null;                                      // the owner looking at one coder's coding (?coder=<user id>), read-only
@@ -452,13 +453,23 @@ async function init() {
   const queueParam = q.get("queue");
   if (queueParam && queueParam.includes(":")) {
     const [qr, qs] = queueParam.split(":");
+    queueWaiting("Opening the review queue…");             // the queue, the dataset and the paper take a while: say so, not a blank page
     try {
       QUEUE = await api.workflowQueue(qr, qs, VIEW_AS);
       QUEUE.byDoc = new Map();
       for (const it of QUEUE.items || []) { if (!QUEUE.byDoc.has(it.document_id)) QUEUE.byDoc.set(it.document_id, []); QUEUE.byDoc.get(it.document_id).push(it); }
       QUEUE.ids = new Set((QUEUE.items || []).map((it) => it.record_id));
       if (!PROJECT) PROJECT = QUEUE.dataset_id;
-    } catch (e) { $("#pages").innerHTML = `<p class="muted">could not load the review queue: ${esc(e.message)}</p>`; return; }
+    } catch (e) { $("#pages").innerHTML = `<p class="muted">could not load the review queue: ${esc(e.message)}</p>`; queueWaiting(""); return; }
+    // the paper to open is known now (the one asked for, else the first with drawn entries still to check): fetch it while
+    // the dataset's paper lists load, instead of after them; load() takes this request when it opens that paper
+    const first = wantDoc || ((QUEUE.documents || []).find((d) => d.n_checked < d.n_items) || {}).document_id;
+    if (first) {
+      PREFETCH = { docId: first, task: QUEUE.task || null, as: VIEW_AS, p: api.documentView(first, VIEW_AS, QUEUE.task || null) };
+      PREFETCH.p.catch(() => {});                          // a failure surfaces when load() awaits it
+      const qd = (QUEUE.documents || []).find((d) => d.document_id === first);
+      queueWaiting(`Opening ${qd ? (qd.title || qd.filename || "the paper") : "the paper"}…`);
+    }
   }
   // ?rec without ?doc (a chart deep-link) → resolve the record's document first
   if (FOCUS_REC && !wantDoc && !PROJECT && !docsParam && !sinceParam) {
@@ -805,6 +816,17 @@ function renderDocTabs() {
 }
 
 // ── the review queue: a gate's drawn records as a worklist ────────────────────────────────────
+// while a queue opens: one line in the panel and the PDF pane, so the page reads as loading, not broken ("" clears the panel)
+function queueWaiting(text) {
+  const pb = $("#panelbody"); if (pb) pb.innerHTML = text ? `<p class="muted">${esc(text)}</p>` : "";
+  if (text) $("#pages").innerHTML = `<p class="muted">${esc(text)}</p>`;
+}
+// the prefetched view of a queue's first paper, once, when load() opens that same paper through the same task as the same reader
+function takePrefetch(docId, task) {
+  const hit = PREFETCH && PREFETCH.docId === docId && PREFETCH.task === task && PREFETCH.as === VIEW_AS ? PREFETCH.p : null;
+  PREFETCH = null;
+  return hit;
+}
 function queueDoc(docId) { return QUEUE && (QUEUE.documents || []).find((d) => d.document_id === docId); }
 // a sidebar entry's share of the queue: its own document's and, in a joint review, its partners'
 function queuePaper(d) {
@@ -942,7 +964,7 @@ async function load(docId) {
   if (DOCID !== docId) return;      // the coder moved on again meanwhile
   const partner = ((DOCS.find((d) => d.document_id === docId) || {}).partners || [])[0] || null;   // only a joint review groups partners
   const task = QUEUE && QUEUE.task ? QUEUE.task : null;      // a task's queue: the document through its template
-  const [view, pview] = await Promise.all([api.documentView(docId, VIEW_AS, task), partner ? api.documentView(partner.document_id, VIEW_AS, task).catch(() => null) : null]);
+  const [view, pview] = await Promise.all([takePrefetch(docId, task) || api.documentView(docId, VIEW_AS, task), partner ? api.documentView(partner.document_id, VIEW_AS, task).catch(() => null) : null]);
   if (DOCID !== docId) return;
   DATA = view;
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
