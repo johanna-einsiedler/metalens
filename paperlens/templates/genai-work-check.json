@@ -18,7 +18,7 @@
     {
       "id": "cells",
       "label": "Cells",
-      "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from; its transcription is in the pane, its page tag opens it in the PDF. For every row: is the value exactly as printed, and is the cell an estimate of the unit named? Add a row (＋) for a cell of this exhibit that estimates an AI-versus-reference contrast and is not listed (leave its Estimate blank). Press done; set *Full review needed* when what you saw makes the paper's whole extraction doubtful.",
+      "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from; its transcription is laid out as a table above the rows (each cited cell numbered as its row — click one to go to it) and in the pane, its page tag opens it in the PDF. For every row: is the value exactly as printed, and is the cell an estimate of the unit named? Add a row (＋) for a cell of this exhibit that estimates an AI-versus-reference contrast and is not listed (leave its Estimate blank). Press done; set *Full review needed* when what you saw makes the paper's whole extraction doubtful.",
       "blocks": [
         {
           "unit": "paper_metadata.exhibits",
@@ -53,6 +53,13 @@
             "estimand_text",
             "role"
           ],
+          "layout": "rows",
+          "columns": [
+            {"label": "Cell", "fields": ["row_label", "column", "panel"]},
+            {"label": "As printed", "fields": ["value_as_printed", "se_as_printed"]},
+            {"label": "Estimate", "fields": ["estimate_id", "estimand_text", "role"], "wide": true}
+          ],
+          "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "tip": "{estimate_id} · {estimand_text}"},
           "questions": [
             {
               "name": "value_ok",

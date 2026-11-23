@@ -8,6 +8,24 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The extraction check shows the drawn table as printed, its cells as rows
+
+- A review template's block may say `layout: "rows"`: its units drawn as one table, a row each, the
+  shown fields in the block's `columns` (a field, several stacked in one cell, or `{label, fields,
+  wide}`) and a control per question, instead of a card per unit. `grid` (`{of, row, column, panel,
+  tip}`) draws above it the exhibit the units sit in, laid out from its transcription in the
+  template's items table — a header row per panel, the row labels down the side — each cited cell
+  numbered as its row (a click goes to the row, a row lights its cell) and its "(SE)" line beneath
+  marked; a cell the transcription has no place for is named under the grid. Layout only: the
+  template's id is unchanged, and so are the answers and the gates that recorded it.
+- The GenAI-at-work extraction check (`genai-work-check`) uses both: the drawn exhibit as a table,
+  its cited cells beneath with value, mapping and note answered on one line each. Before, every
+  cell was a card of eight fields.
+- The task's evidence pane and the PDF open on the drawn exhibit; the paper's other tables are under
+  "other evidence". Before, the pane opened on the paper's first cited table.
+- A transcription with panels keeps them apart in the pane: the caption is its first bold line and
+  each panel's label a row of its own. Before, the last panel's label stood in for the caption.
+
 ### Check steps run on the worker; the tick no longer closes a connection still in use
 
 - A check step ran inside the run's advance: under the run's lock, in one transaction, on whatever

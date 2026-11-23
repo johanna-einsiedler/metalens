@@ -668,7 +668,18 @@ preset, or several with a value `prefix` and a `label_prefix`), `allow_other`, `
 `required_when` (the same small grammar, over the unit's values and its answers). `add` lets the
 coder add a unit the paper has and the list lacks: its `fields` are answered like questions, under
 a key of the coder's own. `sections` and `inline` lay the block out as a stage does; `stack: true`
-draws the shown fields one under the other — a task's name, its description beneath — not side by side. `blind.fields`
+draws the shown fields one under the other — a task's name, its description beneath — not side by side.
+`layout: "rows"` draws the block's units as one table instead of a card each: a row per unit (its
+number and page tag first), the shown fields in `columns` — a field's name, a list of names stacked
+in one cell, or `{"label", "fields", "wide"}` (`wide`: a long text gets room) — then a control per
+question; the owner reads every coder's answers in a last column. `grid` (rows only: `{"of",
+"row", "column", "panel"?, "tip"?}`, fields of the unit) draws above the rows the exhibit the units
+sit in, as printed: the row of the template's `items` table whose caption line names the unit's
+`of` value (`**Table 2. Caption**` names `Table 2`), its pipe tables one per panel; each unit is
+placed by its panel, row label and column (case and spacing aside), its cell numbered as its row
+and its `(SE)` line beneath marked, and a unit with no place is named under the grid. A stage with
+a grid opens its evidence pane on that exhibit. The extraction check (`genai-work-check`) draws
+its cells so: the drawn table above, a row per cited cell with value, mapping and note. `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
