@@ -537,9 +537,24 @@ def test_a_compute_steps_papers_run_as_worker_jobs_and_the_step_waits_for_them(t
     # a second poll dispatches nothing twice
     c.get(f"/api/workflow-runs/{rid}", headers=H)
     assert len(queued) == 2
-    # the worker: one paper lands, the step still waits; the second lands, the step is done and the next compute is queued
+    # the worker: one paper lands, the step still waits; the second lands, the step is done and the next compute is queued.
+    # The costly part (the record, its quotes located, the pages) is prepared before the job is locked, outside any
+    # transaction; a second attempt at the paper that lands it meanwhile wins, and the first, finding it done, writes nothing.
+    import psycopg
+    real_prepare, seen = passes.prepare_document, []
+
+    def prepare_then_race(conn_, *a, **k):
+        seen.append(conn_.info.transaction_status)
+        out = real_prepare(conn_, *a, **k)
+        if len(seen) == 1:
+            seen.append(passes.run_compute(conn, *queued[0][1]))
+        return out
+    monkeypatch.setattr(passes, "prepare_document", prepare_then_race)
     r1 = passes.run_compute(conn, *queued[0][1])
-    assert r1["status"] == "done" and r1["error"] is None, r1
+    monkeypatch.setattr(passes, "prepare_document", real_prepare)
+    assert seen[0] == seen[1] == psycopg.pq.TransactionStatus.IDLE, seen
+    assert seen[2]["status"] == "done" and seen[2]["error"] is None, seen[2]
+    assert r1["status"] == "skipped" and r1["why"] == "job done", r1
     view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
     assert view["now"]["phase"] == "computing" and view["now"]["done"] == 1 and len(queued) == 2
     assert passes.run_compute(conn, *queued[1][1])["status"] == "done"
@@ -626,8 +641,24 @@ def test_a_compute_step_keeps_a_few_papers_in_the_queue_and_a_job_the_queue_drop
     # the dropped job's paper runs once: the new job makes it, a late run of the old one is skipped
     assert passes.run_compute(conn, *queued[3][1])["status"] == "done"
     assert passes.run_compute(conn, *lost)["status"] == "skipped"
-    # a job the queue keeps losing fails after COMPUTE_MAX_TRIES, as a lost job did before
+    # a reconcile that reads a job while its paper is landing waits for the landing and leaves the job done: before, it
+    # read the job as still queued and wrote "pending" over the landed paper, which was then made a second time
+    import threading
     third = queued[2][1]
+    run_ = workflows.get_run(conn, rid)
+    job_ = next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == third[2])
+    lander, checker, out = records.connect(), records.connect(), []
+    with lander.transaction():
+        lander.execute("SELECT 1 FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job_["id"],))
+        lander.execute("UPDATE workflow_job SET status = 'done' WHERE id = %s::uuid", (job_["id"],))
+        t = threading.Thread(target=lambda: out.append(workflows.apply_job_status(checker, run_, job_, expired)))
+        t.start(); t.join(0.5)
+        assert t.is_alive()                                                     # it waits on the landing paper's lock
+    t.join(10)
+    assert out == ["landed"] and next(j for j in workflows.jobs(conn, rid, "assemble") if j["pdf_sha256"] == third[2])["status"] == "done"
+    conn.execute("UPDATE workflow_job SET status = 'queued' WHERE id = %s::uuid", (job_["id"],)); conn.commit()   # as it was, for the next case
+    lander.close(); checker.close()
+    # a job the queue keeps losing fails after COMPUTE_MAX_TRIES, as a lost job did before
     conn.execute("UPDATE workflow_job SET tries = %s, updated_at = now() - interval '1 hour' WHERE run_id = %s::uuid AND step_id = 'assemble' AND pdf_sha256 = %s",
                  (workflows.COMPUTE_MAX_TRIES, rid, third[2])); conn.commit()
     run, job = next((r, j) for r, j in workflows.reconcile_candidates(conn) if r["id"] == rid)

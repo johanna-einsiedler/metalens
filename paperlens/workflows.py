@@ -1477,18 +1477,19 @@ def _attach_document(conn, run: dict, step_id: str, job: dict, document_id: str)
     _set_job(conn, job["id"], status="done", document_id=document_id, error=None)
 
 
-def compute_paper(conn, run: dict, sr: dict, st: dict, job: dict) -> None:
+def compute_paper(conn, run: dict, sr: dict, st: dict, job: dict, *, prepared=None) -> None:
     """One paper of a compute step, free: a document step persists one document through the
     ordinary path (quotes located, the contract checked) and attaches it to the step's dataset,
     a fields step writes through the audited edit path and notes what it edited on the step-run.
     The job row ends done or failed; the caller's transaction commits. Runs on the worker
-    (``compute_job``) or inline when there is no queue."""
+    (``compute_job``) or inline when there is no queue; ``prepared`` is the document's costly
+    part made before the caller's lock (``passes.prepare_document``)."""
     from . import passes
     doc_step = bool(st.get("preset"))
     _set_job(conn, job["id"], status="running", tries=int(job.get("tries") or 0) + 1, error=None)
     try:
         if doc_step:
-            res = passes.compute_document(conn, run, st, job["pdf_sha256"])
+            res = passes.compute_document(conn, run, st, job["pdf_sha256"], prepared=prepared)
             _attach_document(conn, run, sr["step_id"], job, res["document_id"])
         else:
             did = passes.document_of(conn, run["id"], st["edits"], job["pdf_sha256"])
@@ -2030,16 +2031,21 @@ def _requeue_compute(conn, run: dict, job: dict, status: dict | None) -> str:
     """A compute job the queue no longer runs — dropped before it started (the hour's expiry),
     timed out, or forgotten: the paper goes back to pending and the run's advance queues it
     again. A compute step is free and deterministic and its inputs are stored, so running it
-    again costs nothing; after ``COMPUTE_MAX_TRIES`` the job fails as before."""
-    row = conn.execute("SELECT status, tries FROM workflow_job WHERE id = %s::uuid", (job["id"],)).fetchone()
-    if row is None or row[0] not in ("queued", "running"):
-        return "landed" if row and row[0] in JOB_DONE else "settled"          # it finished since the work list was made
-    if int(row[1] or 0) >= COMPUTE_MAX_TRIES:
+    again costs nothing; after ``COMPUTE_MAX_TRIES`` the job fails as before. The row is locked
+    from the check to the write: a paper landing meanwhile (``passes.run_compute`` holds the row)
+    is waited for and then seen done — before, the check read it as still queued and the write
+    put it back to pending over the landed document, which was then made a second time."""
+    with conn.transaction():
+        row = conn.execute("SELECT status, tries FROM workflow_job WHERE id = %s::uuid FOR UPDATE", (job["id"],)).fetchone()
+        if row is None or row[0] not in ("queued", "running"):
+            return "landed" if row and row[0] in JOB_DONE else "settled"      # it finished since the work list was made
+        lost = int(row[1] or 0) >= COMPUTE_MAX_TRIES
+        if not lost:
+            _set_job(conn, job["id"], status="pending", job_id=None, tries=int(row[1] or 0) + 1, error=None)
+    if lost:
         why = str((status or {}).get("error") or "the queue lost this job")
         on_job_failed(conn, run["id"], job_id=job["job_id"], error=f"{why} (after {row[1]} tries)", final=True)
         return "lost"
-    _set_job(conn, job["id"], status="pending", job_id=None, tries=int(row[1] or 0) + 1, error=None)
-    conn.commit()
     advance(conn, run["id"])
     return "requeued"
 
