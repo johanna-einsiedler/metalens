@@ -229,6 +229,10 @@ export function rowTitleOf(child, r, k) {
   return t || `${child.label || child.key} ${k + 1}`;
 }
 
+// One field's control alone, without its label row: a review template's rows layout puts it in a
+// table cell (same classes and data-path as in renderFields, so the same wiring saves it).
+export function renderFieldControl(f, v, path, opts = {}) { return renderTypedValue(f, v, path, opts); }
+
 function renderTypedValue(f, v, path, opts) {
   const t = f.type || "string";
   const editable = !!opts.editable;
@@ -504,6 +508,75 @@ export function renderEvidenceList(evidence) {
     + (e.source ? `<span class="ev-tag ev-source">${esc(e.source)}</span>` : "")
     + (e.field_path ? `<span class="ev-tag">${esc(e.field_path)}</span>` : "")
     + `</div></div>`).join("");
+}
+
+// ── a transcribed table (an evidence item's markdown) ─────────────────────────────────────────
+// The shape the extraction chain writes (chains/genai_work/document.py exhibit_item): the caption
+// as the first bold line ("**Table 1. Caption**"), then per panel its bold label lines ("**Panel
+// A: …**", "**A: …**") and a pipe table, notes in italics last. → {caption, notes, panels: [{label,
+// labels, header, rows}]}: a panel per pipe table, `labels` every bold line since the previous
+// table (`label` the first of them), `header` the row above the |---| line (null without one),
+// `rows` the cells as printed (the row label first).
+export function parseTableMarkdown(text) {
+  const out = { caption: "", notes: "", panels: [] };
+  let labels = [], cur = null;
+  for (const raw of String(text == null ? "" : text).split("\n")) {
+    const t = raw.trim();
+    if (/^\|.*\|$/.test(t)) {
+      if (!cur) { cur = { label: labels[0] || "", labels, header: null, rows: [] }; out.panels.push(cur); labels = []; }
+      if (/^\|[\s:|-]+\|$/.test(t)) { if (!cur.header && cur.rows.length === 1) cur.header = cur.rows.shift(); continue; }
+      cur.rows.push(t.slice(1, -1).split("|").map((c) => c.trim()));
+      continue;
+    }
+    cur = null;                                               // a table ends at any other line
+    if (!t) continue;
+    const b = /^\*\*(.+)\*\*$/.exec(t);
+    if (b) { if (!out.caption && !out.panels.length && !labels.length) out.caption = b[1].trim(); else labels.push(b[1].trim()); continue; }
+    const i = /^\*(.+)\*$/.exec(t);
+    if (i) out.notes = out.notes ? `${out.notes} ${i[1].trim()}` : i[1].trim();
+  }
+  return out;
+}
+
+// Does a transcription's caption name this exhibit? "**Table A.2. Placebo Test**" names "Table A.2"
+// (not "Table A"), as do "**Table A.2**" and "**Table A.2: …**".
+export function captionNames(text, id) {
+  const want = String(id == null ? "" : id).trim().toLowerCase();
+  if (!want) return false;
+  const first = String(text == null ? "" : text).split("\n").map((l) => l.trim()).find(Boolean) || "";
+  const b = /^\*\*(.+?)\*\*$/.exec(first);
+  const cap = (b ? b[1] : first).trim().toLowerCase();
+  return cap === want || [".", ":", " ", ","].some((s) => cap.startsWith(want + s));
+}
+
+// Where cells sit in a parsed transcription: cells [{key, panel, row, column}] → {at: {"p:r:c":
+// key}, se: {"p:r:c": key} (the "<row> (SE)" line under a placed cell), unplaced: [key]}. Labels
+// compare without case, spacing or a leading "Panel "; with several panels a cell's panel must
+// name one of them (else it is unplaced, never guessed into another panel).
+export function placeCells(parsed, cells) {
+  const norm = (s) => String(s == null ? "" : s).toLowerCase().replace(/\s+/g, " ").trim().replace(/^panel\s+/, "");
+  const panels = (parsed && parsed.panels) || [];
+  const at = {}, se = {}, unplaced = [];
+  for (const c of cells || []) {
+    const want = norm(c.panel);
+    let pis = panels.map((_, i) => i);
+    if (panels.length > 1 && want) pis = pis.filter((i) => panels[i].labels.some((l) => norm(l) === want) || norm(panels[i].label) === want);
+    let spot = null;
+    for (const pi of pis) {
+      const p = panels[pi];
+      if (!p.header) continue;
+      const ci = p.header.findIndex((h, j) => j > 0 && norm(h) === norm(c.column));
+      const ri = p.rows.findIndex((r) => norm(r[0]) === norm(c.row));
+      if (ci > 0 && ri >= 0 && !at[`${pi}:${ri}:${ci}`]) {
+        spot = `${pi}:${ri}:${ci}`;
+        const si = p.rows.findIndex((r) => norm(r[0]) === `${norm(c.row)} (se)`);
+        if (si >= 0) se[`${pi}:${si}:${ci}`] = c.key;
+        break;
+      }
+    }
+    if (spot) at[spot] = c.key; else unplaced.push(c.key);
+  }
+  return { at, se, unplaced };
 }
 
 export function formatKey(k) {

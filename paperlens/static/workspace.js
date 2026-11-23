@@ -9,13 +9,13 @@
 // only because presets could not declare them (constant hoisting, shape-driven layout).
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
-import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow } from "/static/grammar.js";
+import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow, parseTableMarkdown, captionNames } from "/static/grammar.js";
 import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, clearSelection, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
-import { blockHtml, unitKind, unitFields, completeness as taskCompleteness } from "/static/template.js";
+import { blockHtml, unitKind, unitFields, completeness as taskCompleteness, itemRows, gridIds } from "/static/template.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
@@ -3500,23 +3500,25 @@ function itemsFromRows(rows) {
   return out;
 }
 
-// A table item's markdown (caption, header, rows) as an HTML table.
+// A table item's markdown as an HTML table: the caption from its first bold line, each panel's
+// label (a later bold line) as a row of its own above its header — before, the last panel's label
+// stood in for the caption and the panels ran together.
 function eviTableHtml(lines, fallbackCaption) {
-  let cap = "", headed = false; const rows = [];
-  for (const ln of lines) {
-    const t = ln.trim();
-    if (/^\*\*.+\*\*$/.test(t)) cap = t.slice(2, -2);
-    else if (/^\|.*\|$/.test(t)) {
-      if (/^\|[\s:|-]+\|$/.test(t)) { headed = rows.length === 1; continue; }
-      rows.push(t.slice(1, -1).split("|").map((c) => c.trim()));
-    }
+  const t = parseTableMarkdown(lines.join("\n"));
+  const cap = t.caption || fallbackCaption;
+  const capHtml = cap ? `<div class="evi-cap">${esc(cap)}</div>` : "";
+  const panels = t.panels.filter((p) => p.header || p.rows.length);
+  if (!panels.length) return capHtml || `<span class="muted">table body not available</span>`;
+  const row = (r, tag) => `<tr>${r.map((c) => `<${tag}>${esc(c)}</${tag}>`).join("")}</tr>`;
+  if (panels.length === 1 && !(panels[0].label && panels[0].label !== t.caption)) {
+    const p = panels[0];
+    return capHtml + `<div class="evi-tablewrap"><table class="evi-table">` + (p.header ? `<thead>${row(p.header, "th")}</thead>` : "")
+      + `<tbody>${p.rows.map((r) => row(r, "td")).join("")}</tbody></table></div>`;
   }
-  const capHtml = cap || fallbackCaption ? `<div class="evi-cap">${esc(cap || fallbackCaption)}</div>` : "";
-  if (!rows.length) return capHtml || `<span class="muted">table body not available</span>`;
-  const head = headed ? rows.shift() : null;
-  return capHtml + `<div class="evi-tablewrap"><table class="evi-table">`
-    + (head ? `<thead><tr>${head.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>` : "")
-    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const width = Math.max(...panels.map((p) => Math.max(p.header ? p.header.length : 0, ...p.rows.map((r) => r.length))));
+  return capHtml + `<div class="evi-tablewrap"><table class="evi-table"><tbody>` + panels.map((p, i) =>
+    `<tr class="evi-panel"><td colspan="${width}">${esc(p.label || `Panel ${i + 1}`)}</td></tr>` + (p.header ? row(p.header, "th") : "") + p.rows.map((r) => row(r, "td")).join("")).join("")
+    + `</tbody></table></div>`;
 }
 
 function eviCite(g) {
@@ -3844,7 +3846,8 @@ function taskCellsBlock(st, recs) {
   const box = document.createElement("div"); box.className = "stg-cells tq-cells";
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>` + (st.blocks || []).map((bl) => blockHtml(bl, {
     data: DATA, vm: VM, answers: DATA.answers || {}, byCoder: DATA.answers_by_coder || null, editable: CODER && !RO, owner: !CODER,
-    evidence: DATA.evidence || [], sampled: DATA.task.sampled || null })).join("");   // sampled: a row review's drawn rows of this paper
+    evidence: DATA.evidence || [], sampled: DATA.task.sampled || null,               // sampled: a row review's drawn rows of this paper
+    items: itemRows(DATA, (DATA.template || {}).items) })).join("");                // a grid's transcriptions
   return box;
 }
 async function saveAnswer(unitKey, recId, values) {
@@ -3891,8 +3894,24 @@ function wireTaskPanel(panel, recs) {
     try { await saveAnswer(key, rid, { [first ? first.name : "note"]: "" }); rerenderKeep(); } catch (e) { alert("could not add: " + e.message); }
     const cell = document.querySelector(`.tq-unit[data-unit="${key}"] .rv-editable, .tq-unit[data-unit="${key}"] select`); if (cell && cell.focus) cell.focus();
   }));
+  // a grid's marked cell goes to its row (and lights it); a row lights its cell in the grid
+  const rowOf = (key) => [...panel.querySelectorAll("tr.tq-unit[data-unit]")].find((tr) => tr.dataset.unit === key);
+  const cellsOf = (key) => [...panel.querySelectorAll(".tq-gc[data-unit]")].filter((td) => td.dataset.unit === key);
+  panel.querySelectorAll(".tq-gc[data-unit]").forEach((td) => {
+    td.onclick = () => {
+      const tr = rowOf(td.dataset.unit); if (!tr) return;
+      tr.scrollIntoView({ block: "center", behavior: "smooth" });
+      tr.classList.remove("tq-flash"); void tr.offsetWidth; tr.classList.add("tq-flash");
+    };
+    td.onmouseenter = () => { const tr = rowOf(td.dataset.unit); if (tr) tr.classList.add("tq-hot"); cellsOf(td.dataset.unit).forEach((c) => c.classList.add("tq-hot")); };
+    td.onmouseleave = () => { const tr = rowOf(td.dataset.unit); if (tr) tr.classList.remove("tq-hot"); cellsOf(td.dataset.unit).forEach((c) => c.classList.remove("tq-hot")); };
+  });
+  panel.querySelectorAll("tr.tq-unit[data-unit]").forEach((tr) => {
+    tr.addEventListener("mouseenter", () => cellsOf(tr.dataset.unit).forEach((c) => c.classList.add("tq-hot")));
+    tr.addEventListener("mouseleave", () => cellsOf(tr.dataset.unit).forEach((c) => c.classList.remove("tq-hot")));
+  });
   // a unit's page tag opens its passage
-  panel.querySelectorAll(".tq-title .ev-cite[data-eids]").forEach((b) => {
+  panel.querySelectorAll(".tq-title .ev-cite[data-eids], .tq-row .tq-n .ev-cite[data-eids]").forEach((b) => {
     const ids = b.dataset.eids.split(",").map(Number);
     b.onclick = (e) => { e.stopPropagation(); if (!stagePdfOpen()) togglePdf(true, false); jumpToEvidence(+b.dataset.page, ids); };
     b.onmouseenter = () => showEvidence(ids); b.onmouseleave = () => hideEvidence(ids);
@@ -4287,8 +4306,15 @@ function renderStagesPanel(panel, rv) {
   const noEv = st.evidence === "none";
   document.body.classList.toggle("stg-noev", noEv);
   const { groups, parsed, recs } = mergedItems(rv);
-  const inStage = noEv ? [] : groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
-  const rest = noEv ? [] : groups.filter((g) => !inStage.includes(g));
+  let inStage = noEv ? [] : groups.filter((g) => [...g.names].some((n) => L.names.has(n)));
+  let rest = noEv ? [] : groups.filter((g) => !inStage.includes(g));
+  // a stage whose block draws an exhibit's grid (the check task's drawn table): the pane opens on
+  // that exhibit's transcription, the paper's other items folded under "other evidence"
+  const drawn = noEv || !Array.isArray(st.blocks) || !taskMode() ? [] : gridIds(st, DATA, VM, DATA.task.sampled || null);
+  if (drawn.length) {
+    const own = inStage.filter((g) => { const it = parsed.get(g.n); return it && it.kind === "table" && drawn.some((id) => captionNames((it.lines || []).join("\n"), id)); });
+    if (own.length) { rest = [...inStage.filter((g) => !own.includes(g)), ...rest]; inStage = own; }
+  }
   // the cursor: on the first item when a stage opens (or the paper changes), else where it was
   const key = `${DOCID}|${STAGE}`;
   if (STAGE_KEY !== key) { STAGE_KEY = key; STAGE_CUR = 0; }

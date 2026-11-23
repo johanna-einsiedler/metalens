@@ -740,3 +740,38 @@ body.coder .study-ident[contenteditable="false"] ~ * { display: none !important;
 .ans-by b { color: var(--text); }
 .ans-diff { background: var(--accent-wash); border-radius: 3px; padding: 0 3px; }
 .stg-owe { font-size: 12px; color: #a8562a; margin-left: 6px; }
+/* a block with `layout: "rows"`: one table, a row per unit, the questions as columns */
+.tq-rowswrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); margin: 0 0 8px; }
+.tq-rows { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.tq-rows th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--text-muted); padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--bg); }
+.tq-rows th.tq-qh { color: var(--accent); }
+.tq-rows td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.tq-rows tr.tq-unit { border: 0; border-radius: 0; padding: 0; margin: 0; background: none; }
+.tq-rows tr.tq-unit:last-child td { border-bottom: 0; }
+.tq-rows tr.tq-added td { border-bottom-style: dashed; }
+.tq-rows td.tq-q { margin: 0; padding-top: 5px; border-top: 0; }
+.tq-rows .tq-n { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; width: 1%; }
+.tq-rows .tq-n .tq-del { border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 0 2px; }
+.tq-rows .tq-n .tq-del:hover { color: #b3261e; }
+.tq-rows .tq-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.tq-rows .rv-select { max-width: 10em; }
+.tq-rows .rv-editable.rv-text { min-width: 8em; }
+.tq-rows tr.tq-hot td { background: var(--accent-wash); }
+.tq-rows tr.tq-flash td { animation: tq-flash 1.8s ease-out; }
+@keyframes tq-flash { 0%, 40% { background: var(--accent-wash); } 100% { background: transparent; } }
+/* a block's `grid`: the exhibit as transcribed, the cited cells numbered as their rows */
+.tq-grid { margin: 2px 0 10px; }
+.tq-grid-cap { font-size: 12.5px; font-weight: 600; margin: 0 0 4px; }
+.tq-grid-cap .muted { font-weight: 400; }
+.tq-gridwrap { overflow: auto; max-height: 420px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.tq-gridt { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tq-gridt th, .tq-gridt td { padding: 2px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+.tq-gridt th.tq-grl { text-align: left; font-weight: 500; }
+.tq-gridt tr.tq-gh th { font-weight: 600; color: var(--text-muted); background: var(--bg); }
+.tq-gridt tr.tq-gp td { text-align: left; font-weight: 600; background: var(--bg); }
+.tq-gc.tq-cited { background: var(--accent-wash); color: var(--text); font-weight: 600; cursor: pointer; box-shadow: inset 0 0 0 1px var(--accent); }
+.tq-gc.tq-cited sup { color: var(--accent); font-size: 9.5px; margin-left: 2px; font-weight: 700; }
+.tq-gc.tq-cited-se { background: var(--accent-wash); }
+.tq-gc.tq-hot { box-shadow: inset 0 0 0 2px var(--accent); }
+.tq-grid-note { font-size: 11.5px; margin-top: 4px; }
+.evi-table tr.evi-panel td { font-weight: 600; background: var(--bg); padding-top: 6px; }

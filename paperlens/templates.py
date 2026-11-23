@@ -12,7 +12,10 @@ never on the record. A preset's ``display.review`` keeps working as its implicit
                     whether every paper field no block shows is dropped (``paper_fields: "unshown"``)
   * ``stages``    — ordered; each ``{id, label, help, evidence, blocks}``
   * ``blocks``    — ``{unit, label, help, show, title, marks, group_by_entry, where, only_sampled,
-                    mask_numbers, stack, questions, add, sections, inline}``
+                    mask_numbers, stack, questions, add, sections, inline, layout, columns, grid}``
+                    — ``layout: "rows"`` draws the units as one table (a row each, the questions as
+                    columns; ``columns`` groups the shown fields), ``grid`` draws the exhibit the
+                    units sit in as printed above it (its transcription in the ``items`` table)
   * ``questions`` — field declarations the coder answers: ``{name, type, label, help, options |
                     options_from, allow_other, required, required_when}``
 
@@ -50,7 +53,9 @@ _ALLOWED = {
     "blind": {"fields", "paper_fields"},
     "stage": {"id", "label", "help", "evidence", "blocks"},
     "block": {"unit", "label", "help", "show", "title", "marks", "group_by_entry", "where", "only_sampled", "mask_numbers",
-              "stack", "questions", "add", "sections", "inline"},
+              "stack", "questions", "add", "sections", "inline", "layout", "columns", "grid"},
+    "column": {"label", "fields"},
+    "grid": {"of", "panel", "row", "column", "tip"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
     "mark": {"when", "when_nonempty", "text"},
@@ -304,7 +309,62 @@ def validate(tpl: dict, pspec: dict | None = None, *, resolver: Callable[[str], 
         bf = frozenset(x for x in (tpl["blind"].get("fields") or []) if isinstance(x, str)) if isinstance(tpl.get("blind"), dict) else frozenset()
         for j, bl in enumerate(blocks):
             _validate_block(bl, f"{at}.blocks[{j}]", pspec, E, W, blind=bf)
+            if isinstance(bl, dict) and bl.get("grid") is not None and not tpl.get("items"):
+                E(f"{at}.blocks[{j}].grid reads the exhibit's transcription from the template's items table: name it in $.items")
     return errs, warns
+
+
+def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: list, E) -> None:
+    """``layout`` (cards | rows), ``columns`` (rows only: the shown fields grouped into the table's
+    columns) and ``grid`` (rows only: the fields that place a unit in its exhibit's transcription)."""
+    layout = bl.get("layout", "cards")
+    if layout not in ("cards", "rows"):
+        E(f"{at}.layout must be 'cards' (the default) or 'rows'")
+    cols = bl.get("columns")
+    if cols is not None:
+        if layout != "rows":
+            E(f"{at}.columns applies to layout 'rows'")
+        if not isinstance(cols, list) or not cols:
+            E(f"{at}.columns must list the table's columns")
+            cols = []
+        for c, col in enumerate(cols):
+            cat = f"{at}.columns[{c}]"
+            if isinstance(col, dict):
+                for k in col:
+                    if k not in _ALLOWED["column"]:
+                        E(f"{cat}: unknown key {k!r}")
+                if col.get("label") is not None and not isinstance(col["label"], str):
+                    E(f"{cat}.label must be a string")
+                names = col.get("fields")
+            else:
+                names = [col] if isinstance(col, str) else col
+            if not isinstance(names, list) or not names or any(not isinstance(n, str) for n in names):
+                E(f"{cat} must be a shown field's name, a list of them, or {{label, fields}}"); continue
+            for n in names:
+                if n not in show:
+                    E(f"{cat}: {n!r} is not among the block's shown fields")
+    grid = bl.get("grid")
+    if grid is not None:
+        if layout != "rows":
+            E(f"{at}.grid applies to layout 'rows'")
+        if not isinstance(grid, dict):
+            E(f"{at}.grid must be {{of, row, column, panel?, tip?}}"); return
+        for k in grid:
+            if k not in _ALLOWED["grid"]:
+                E(f"{at}.grid: unknown key {k!r}")
+        for k in ("of", "row", "column", "panel"):
+            v = grid.get(k)
+            if v is None and k != "panel":
+                E(f"{at}.grid.{k} must name a field of the unit"); continue
+            if v is not None and (not isinstance(v, str) or (fields is not None and v not in fields)):
+                E(f"{at}.grid.{k}: {v!r} is not a field of the unit")
+        if grid.get("tip") is not None:
+            if not isinstance(grid["tip"], str):
+                E(f"{at}.grid.tip must be a string")
+            elif fields is not None:
+                for n in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", grid["tip"]):
+                    if n not in fields:
+                        E(f"{at}.grid.tip: {{{n}}} is not a field of the unit")
 
 
 def _validate_where(where: Any, fields: dict[str, dict], pspec: dict | None, at: str, E) -> None:
@@ -365,6 +425,7 @@ def _validate_block(bl: Any, at: str, pspec: dict | None, E, W, blind: frozenset
             E(f"{at}.{k} must be a boolean")
     if bl.get("group_by_entry") and uk is not None and uk[0] != "child":
         E(f"{at}.group_by_entry only applies to a child's rows")
+    _validate_layout(bl, at, fields if uk is not None else None, show if isinstance(show, list) else [], E)
     if bl.get("where") is not None:
         _validate_where(bl["where"], fields, pspec, f"{at}.where", E)
     marks = bl.get("marks")

@@ -5,7 +5,7 @@
 // the coder answers (saved into their coding under the unit's key), and for the owner every
 // coder's answers under them. Unit keys are the server's: "" (the paper, or the entry in its
 // record), "<child>#<_rid>", "<table>#<_rid>", "<path>.<field>=<value>", "<unit>#+<id>" (added).
-import { renderFields, esc, formatKey } from "/static/grammar.js";
+import { renderFields, renderFieldControl, esc, formatKey, parseTableMarkdown, captionNames, placeCells } from "/static/grammar.js";
 import { entryTitle, childTitle } from "/static/spec.js";
 
 const IDENTITY = ["title", "doi", "year", "authors", "journal"];
@@ -204,7 +204,127 @@ function byCoderHtml(qdefs, byCoder, recordId, key) {
   return rows.map(([label, a]) => `<div class="ans-by"><b>${esc(label)}</b> · ${qdefs.filter((q) => a[q.name] !== undefined).map((q) => `<span class="${diff.has(q.name) ? "ans-diff" : ""}">${esc(q.label || q.name)}: ${esc(show(q, a[q.name]))}</span>`).join(" · ") || "—"}</div>`).join("");
 }
 
-// One block: its label and help, then a card per unit. ctx: {data, vm, answers, byCoder, editable, owner, evidence}
+// ── a block's `grid`: the exhibit its units sit in, as printed, the units marked ─────────────
+// The rows of the template's items table (`items`), on the paper and on every record.
+export function itemRows(data, items) {
+  if (!items) return [];
+  const pm = (data && data.paper_metadata) || {};
+  const out = Array.isArray(pm[items]) ? pm[items].slice() : [];
+  for (const r of (data && data.records) || []) { const rows = (r.field_values || {})[items]; if (Array.isArray(rows)) out.push(...rows); }
+  return out.filter((x) => x && typeof x === "object");
+}
+// the items-table row that transcribes an exhibit: its caption line names the id
+export function transcriptionFor(id, rows) {
+  return (rows || []).find((r) => r && r.kind !== "passage" && captionNames(r.text, id)) || null;
+}
+// The exhibits a stage's grid blocks draw (the `grid.of` values of their units): what the pane
+// opens on.
+export function gridIds(stage, data, vm, sampled = null) {
+  const ids = [];
+  for (const bl of (stage && stage.blocks) || []) {
+    if (!bl || !bl.grid || !bl.grid.of) continue;
+    for (const u of unitRows(bl, data, vm, sampled)) { const v = (u.row || {})[bl.grid.of]; if (v != null && v !== "" && !ids.includes(v)) ids.push(v); }
+  }
+  return ids;
+}
+
+// The grid above a block's rows: per exhibit its transcription laid out as printed (a header row
+// per panel, the row labels down the side), each placed unit's cell marked with its row number
+// (a click goes to that row), its "(SE)" line beneath lightly marked; a unit the transcription has
+// no cell for is named under the grid. Nothing for an exhibit without a pipe table (a figure).
+function gridHtml(block, units, num, ctx) {
+  const g = block.grid || {};
+  const byId = new Map();
+  for (const u of units) {
+    if (u.added) continue;
+    const id = (u.row || {})[g.of];
+    if (id == null || id === "") continue;
+    if (!byId.has(id)) byId.set(id, []);
+    byId.get(id).push(u);
+  }
+  let html = "";
+  for (const [id, us] of byId) {
+    const tr = transcriptionFor(id, ctx.items);
+    if (!tr) continue;
+    const t = parseTableMarkdown(tr.text);
+    if (!t.panels.some((p) => p.header && p.rows.length)) continue;
+    const { at, se, unplaced } = placeCells(t, us.map((u) => ({ key: u.key, panel: g.panel ? (u.row || {})[g.panel] : null, row: (u.row || {})[g.row], column: (u.row || {})[g.column] })));
+    const byKey = new Map(us.map((u) => [u.key, u]));
+    const width = Math.max(...t.panels.map((p) => Math.max(p.header ? p.header.length : 0, ...p.rows.map((r) => r.length))));
+    const many = t.panels.length > 1;
+    const body = t.panels.map((p, pi) => {
+      let out = many || (p.label && p.label !== t.caption) ? `<tr class="tq-gp"><td colspan="${width}">${esc(p.label || `Panel ${pi + 1}`)}</td></tr>` : "";
+      if (p.header) out += `<tr class="tq-gh">${p.header.map((h, ci) => `<th${ci ? "" : ` class="tq-grl"`}>${esc(h)}</th>`).join("")}</tr>`;
+      out += p.rows.map((r, ri) => `<tr>${r.map((c, ci) => {
+        if (!ci) return `<th class="tq-grl">${esc(c)}</th>`;
+        const k = at[`${pi}:${ri}:${ci}`], ks = se[`${pi}:${ri}:${ci}`];
+        if (k) {
+          const u = byKey.get(k), tip = g.tip ? fill(g.tip, u.row || {}) : "";
+          return `<td class="tq-gc tq-cited" data-unit="${esc(k)}" title="${esc(`row ${num.get(k)}${tip ? ` · ${tip}` : ""} — click: its answers`)}">${esc(c)}<sup>${num.get(k)}</sup></td>`;
+        }
+        return `<td class="tq-gc${ks ? " tq-cited-se" : ""}"${ks ? ` data-unit="${esc(ks)}"` : ""}>${esc(c)}</td>`;
+      }).join("")}</tr>`).join("");
+      return out;
+    }).join("");
+    const lost = unplaced.map((k) => num.get(k)).filter(Boolean);
+    html += `<div class="tq-grid" data-exhibit="${esc(id)}"><div class="tq-grid-cap">${esc(t.caption || id)} <span class="muted">· as transcribed, the cited cells numbered as their rows below</span></div>`
+      + `<div class="tq-gridwrap"><table class="tq-gridt"><tbody>${body}</tbody></table></div>`
+      + (lost.length ? `<div class="tq-grid-note muted">row${lost.length === 1 ? "" : "s"} ${lost.join(", ")} not found in the transcription's grid (check ${lost.length === 1 ? "it" : "them"} against the PDF)</div>` : "")
+      + `</div>`;
+  }
+  return html;
+}
+
+// The block's `columns` as [{label, fields}]: a name, a list of names (stacked in one cell), or
+// {label, fields}; without `columns`, one column per shown field.
+function rowColumns(block, fields) {
+  const lab = (n) => { const f = fields.get(n); return (f && f.label) || formatKey(n); };
+  const cols = Array.isArray(block.columns) && block.columns.length ? block.columns : (block.show || []);
+  return cols.map((c) => {
+    const names = typeof c === "string" ? [c] : Array.isArray(c) ? c : (c && Array.isArray(c.fields) ? c.fields : []);
+    return { label: c && typeof c === "object" && !Array.isArray(c) && c.label ? c.label : names.map(lab).join(" · "), fields: names };
+  }).filter((c) => c.fields.length);
+}
+
+// layout "rows": the units as one table — a row per unit (its number and page tag, the shown
+// fields in the block's columns, a control per question; the owner gets every coder's answers in
+// a last column); an added unit's own fields sit in the columns of the same name.
+function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
+  const cols = rowColumns(block, fields);
+  const byName = new Map(showDefs.map((f) => [f.name, f]));
+  const addBy = new Map(addDefs.map((f) => [f.name, f]));
+  const placedAdd = new Set(cols.flatMap((c) => c.fields));
+  const strayAdd = addDefs.filter((f) => !placedAdd.has(f.name));   // an add field no column names: in the first column
+  const tip = (f) => (f && f.help ? ` title="${esc(f.help)}"` : "");
+  const head = `<tr><th class="tq-n">#</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}`
+    + qdefs.map((q) => `<th class="tq-qh"${tip(q)}>${esc(q.label || formatKey(q.name))}${q.required ? "" : q.required_when ? "" : ` <span class="muted">(optional)</span>`}</th>`).join("")
+    + (ctx.owner && qdefs.length ? `<th>Answers</th>` : "") + `</tr>`;
+  const body = units.map((u) => {
+    const a = { ...Object.fromEntries(qdefs.map((q) => [q.name, null])), ...answersAt(ctx.answers, u.record_id, u.key) };
+    const shownEditable = ctx.editable && !block.mask_numbers && u.scope !== "none" && !u.added;
+    const cell = (c, ci) => {
+      if (u.added) {
+        const defs = [...c.fields.map((n) => addBy.get(n)).filter(Boolean), ...(ci === 0 ? strayAdd : [])];
+        const row = u.row || {};
+        return `<td class="tq-shown rv-root" data-scope="answers">${defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}"${tip(f)}>${renderFieldControl(f, row[f.name] === undefined ? null : row[f.name], f.name, { editable: ctx.editable })}</div>`).join("")}</td>`;
+      }
+      const defs = c.fields.map((n) => byName.get(n)).filter(Boolean);
+      return `<td class="tq-shown rv-root" data-scope="${u.scope}"${u.rec ? ` data-rid="${esc(u.rec.id)}"` : ""}>`
+        + defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}">${renderFieldControl(f, (u.row || {})[f.name], u.base ? `${u.base}.${f.name}` : f.name, { editable: shownEditable })}</div>`).join("") + `</td>`;
+    };
+    return `<tr class="tq-unit tq-row${u.added ? " tq-added" : ""}" data-unit="${esc(u.key)}"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}>`
+      + `<td class="tq-n">${num.get(u.key) || ""} ${citeTag(u, ctx.evidence)}${u.added && ctx.editable ? `<button type="button" class="tq-del" title="remove this added unit and its answers">✕</button>` : ""}</td>`
+      + cols.map(cell).join("")
+      + qdefs.map((q) => `<td class="tq-q rv-root">${renderFieldControl(q, a[q.name], q.name, { editable: ctx.editable })}</td>`).join("")
+      + (ctx.owner && qdefs.length ? `<td class="tq-by">${byCoderHtml(qdefs, ctx.byCoder, u.record_id, u.key)}</td>` : "")
+      + `</tr>`;
+  }).join("");
+  return `<div class="tq-rowswrap"><table class="tq-rows"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+// One block: its label and help, then a card per unit (layout "rows": a table, a row per unit;
+// `grid`: the exhibit as printed above it). ctx: {data, vm, answers, byCoder, editable, owner,
+// evidence, sampled, items (the items table's rows, for a grid)}
 export function blockHtml(block, ctx) {
   const { data, vm } = ctx;
   const uk = unitKind(block.unit, vm);
@@ -216,6 +336,12 @@ export function blockHtml(block, ctx) {
   const label = block.label || (uk && uk.kind === "paper" ? "" : formatKey(unitLabel(block.unit)));
   let html = `<div class="tq-block" data-unit="${esc(unitLabel(block.unit))}">${label ? `<div class="tq-block-h">${esc(label)}${units.length > 1 ? ` <span class="muted">(${units.length})</span>` : ""}</div>` : ""}${block.help ? `<div class="tq-block-help">${esc(block.help)}</div>` : ""}`;
   if (!units.length) html += `<div class="tq-empty">none in this paper</div>`;
+  if (block.layout === "rows" && units.length) {
+    const num = new Map(units.map((u, i) => [u.key, i + 1]));
+    html += (block.grid ? gridHtml(block, units, num, ctx) : "") + rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs);
+    if (block.add && ctx.editable) html += `<div class="rv-tableadd"><button type="button" class="tq-add" data-unit="${esc(unitLabel(block.unit))}" title="a unit the paper has and the list lacks — its answers are yours">＋ ${esc(block.add.label || unitLabel(block.unit).replace(/s$/, ""))}</button></div>`;
+    return html + `</div>`;
+  }
   let lastEntry = null;
   for (const u of units) {
     if (block.group_by_entry && u.rec && u.record_id !== lastEntry) { lastEntry = u.record_id; html += `<div class="tq-group-h">${esc(entryTitle(vm, u.rec, u.rec.entry_index))}</div>`; }

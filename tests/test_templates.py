@@ -278,3 +278,43 @@ def test_a_review_step_may_name_a_template_for_the_preset_it_reads() -> None:
     assert any("unknown template" in e for e in ws.validate(bad)[0])
     bad = copy.deepcopy(spec); bad["steps"][0]["preset"] = "masem-direct@eb5f0287"
     assert any("not for the preset" in e for e in ws.validate(bad)[0])
+
+
+def test_a_block_lays_its_units_out_as_rows_with_the_exhibit_as_a_grid() -> None:
+    """``layout: rows`` (a table, a row per unit), ``columns`` (the shown fields grouped) and
+    ``grid`` (the exhibit as printed above it) are layout, outside the id; each is checked against
+    the unit's fields, and a grid needs the items table its transcription sits in."""
+    cells = {"unit": "paper_metadata.exhibit_cells", "show": ["row_label", "column", "panel", "value_as_printed", "estimate_id"],
+             "questions": [{"name": "value_ok", "type": "enum", "options": ["yes", "no"], "required": True}]}
+    rows = {**cells, "layout": "rows", "columns": [{"label": "Cell", "fields": ["row_label", "column", "panel"]}, "value_as_printed", ["estimate_id"]],
+            "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "tip": "{estimate_id}"}}
+
+    def with_block(bl: dict, items: str | None = "evidence_items") -> dict:
+        d = copy.deepcopy(GOOD); d["stages"][0]["blocks"].append(bl)
+        if items is None:
+            d.pop("items")
+        return tp.normalize(d)
+
+    assert tp.validate(with_block(rows), EXT) == ([], [])
+    assert tp.template_id(with_block(rows)) == tp.template_id(with_block(cells))           # layout, not contract
+    bad = {
+        "layout": ({**rows, "layout": "grid"}, "layout must be 'cards'"),
+        "columns on cards": ({**rows, "layout": "cards", "grid": None}, "columns applies to layout 'rows'"),
+        "column not shown": ({**rows, "columns": ["role"]}, "'role' is not among the block's shown fields"),
+        "column shape": ({**rows, "columns": [{"label": "X"}]}, "must be a shown field's name"),
+        "column key": ({**rows, "columns": [{"label": "X", "fields": ["panel"], "width": 3}]}, "unknown key 'width'"),
+        "grid field": ({**rows, "grid": {**rows["grid"], "row": "row_name"}}, "grid.row: 'row_name' is not a field of the unit"),
+        "grid of": ({**rows, "grid": {"row": "row_label", "column": "column"}}, "grid.of must name a field of the unit"),
+        "grid tip": ({**rows, "grid": {**rows["grid"], "tip": "{nope}"}}, "grid.tip: {nope} is not a field of the unit"),
+    }
+    for name, (bl, msg) in bad.items():
+        bl = {k: v for k, v in bl.items() if v is not None}
+        errs = tp.validate(with_block(bl), EXT)[0]
+        assert any(msg in e for e in errs), (name, errs)
+    errs = tp.validate(with_block(rows, items=None), EXT)[0]
+    assert any("name it in $.items" in e for e in errs), errs
+    # the extraction check draws its cells this way, under the id its gates recorded
+    chk = tp.load_all()["genai-work-check"]
+    blk = next(b for b in chk["stages"][0]["blocks"] if b["unit"] == "paper_metadata.exhibit_cells")
+    assert blk["layout"] == "rows" and blk["grid"]["of"] == "exhibit_id" and tp.validate(chk, EXT) == ([], [])
+    assert tp.template_id(chk) == "genai-work-check@a0267cc9"
