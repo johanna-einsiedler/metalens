@@ -621,6 +621,12 @@ def state(conn: psycopg.Connection, step_run: dict) -> dict:
         out.update({"coders": header.get("coders"), "n_coders": header.get("n_coders", 0), "assigned": bool(header.get("assigned")),
                     **({"needs_coders": header["needs_coders"]} if header.get("needs_coders") else {}),
                     "by_coder": by_coder(its)})
+        from . import plants, templates
+        if header.get("template") and plants.config(templates.get(header["template"])):
+            try:                                                      # the attention checks: shown, caught, missed per coder
+                out["plants"] = plants.summary(conn, step_run["id"], {b["user_id"]: b["label"] for b in out["by_coder"]})
+            except Exception:  # noqa: BLE001 - a view never fails over the checks
+                _log.exception("plants: no summary for gate %s", step_run.get("id"))
     return out
 
 

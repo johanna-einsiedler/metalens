@@ -39,6 +39,9 @@ out.cards = t.blockHtml({ ...c.block, layout: undefined, columns: undefined, gri
 out.flags = t.blockHtml(c.block, ctx({ editable: true, owner: false }));
 out.flagsOwner = t.blockHtml(c.block, ctx({ editable: false, owner: true }));
 out.confirm = t.confirmItems(c.block, t.blockUnits(c.block, c.data, c.vm, c.answers, c.sampled), c.answers, c.data, c.sampled);
+out.planted = t.blockHtml(c.block, ctx({ editable: true, owner: false, shown: [{ unit: 'exhibit_cells#o0', field: 'value_as_printed', value: '0.151' }] }));
+out.caughtHtml = t.blockHtml(c.block, ctx({ editable: true, owner: false, caught: [{ unit: 'exhibit_cells#o1', field: 'value_as_printed', kind: 'value', shown: '-0.030' }] }));
+out.ownerPlants = t.blockHtml(c.block, ctx({ editable: false, owner: true, plants: [{ unit: 'exhibit_cells#o1', coder: 'coder_4', field: 'value_as_printed', planted: '-0.030', original: '-0.003', status: 'caught' }] }));
 out.consolidated = Object.fromEntries(Object.entries(c.grids).map(([name, cells]) => [name, t.consolidateMapping(cells, ' · ')]));
 out.gridIds = t.gridIds({ blocks: [c.block] }, c.data, c.vm, c.sampled);
 process.stdout.write(JSON.stringify(out));
@@ -217,3 +220,18 @@ def test_the_check_task_is_worked_on_the_table_flags_listed_beneath() -> None:
     owner = out["flagsOwner"]
     assert 'data-act=' not in owner and "tq-confirm" not in owner and "<th>Answers</th>" in owner
     assert len(re.findall(r'<tr class="tq-unit tq-row', owner)) == 5
+
+
+def test_a_planted_value_is_drawn_from_beside_the_data_and_a_catch_is_said() -> None:
+    """The task's `shown` (paperlens/plants.py) is drawn in the grid and the rows, never written into
+    the data the page saves; a caught plant carries its tag; the owner sees each plant's fate."""
+    out = _run()
+    html = out["planted"]
+    assert re.search(r'data-unit="exhibit_cells#o0" data-act="value"[^>]*>0\.151<sup>1</sup>', html)      # the grid shows the planted value
+    assert "0.115<sup>1</sup>" not in html
+    caught = out["caughtHtml"]
+    row = caught[caught.index('<tr class="tq-unit tq-row" data-unit="exhibit_cells#o1"'):].split("</tr>")[0]
+    assert 'class="tq-caught-tag"' in row and "“-0.030”" in row
+    assert re.search(r'<td class="tq-gc tq-cited tq-bad tq-caught" data-unit="exhibit_cells#o1"', caught)
+    owner = out["ownerPlants"]
+    assert 'class="tq-plant tq-plant-caught"' in owner and "planted · coder_4 ✓" in owner and "(it is “-0.003”)" in owner

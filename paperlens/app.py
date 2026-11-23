@@ -682,12 +682,20 @@ def document_view(document_id: str, coder: str | None = None, task: str | None =
             if pspec.get("id") != tpl.get("for"):
                 raise HTTPException(status_code=422, detail=f"The task's template is for {tpl.get('for')!r}; this document is under {pspec.get('id')!r}.")
             v = templates.project(v, tpl, pspec, coder=(role == "coder"), sampled=sampled)
+            from . import plants, workflows
+            sr = next((s for s in workflows.step_runs(db, run["id"]) if s["step_id"] == st["id"]), None) if plants.config(tpl) else None
             if role == "coder":
                 v["answers"] = _coders.answers_get(db, document_id, who.user_id, tpl["id"])
+                if sr is not None:                                   # an attention check: shown beside the data, never in it
+                    v = plants.into_view(db, v, tpl, pspec, sampled, run, sr, document_id, who.user_id)
             else:
                 v["answers_by_coder"] = _coders.answers_all(db, document_id, ds, tpl["id"])
                 if coder:
                     v["answers"] = _coders.answers_get(db, document_id, coder, tpl["id"])
+                if sr is not None:                                   # the owner reads the plants on this paper, with what came of them
+                    v["plants"] = [{**{k: p[k] for k in ("unit", "kind", "field", "original", "planted", "status", "first_answer")},
+                                    "coder": (labels.get(p["coder_user_id"]) or {}).get("label") or "coder", "coder_user_id": p["coder_user_id"]}
+                                   for p in plants.with_status(db, "p.step_run_id = %s::uuid AND p.document_id = %s::uuid", (sr["id"], document_id))]
     # Local backend: sign page urls so the owner's <img> tags fetch through the gate (a run of a
     # pipeline shows its final's pages, so the token is the final's).
     if isinstance(storage.get_store(), storage.LocalObjectStore):
@@ -2457,7 +2465,10 @@ def workflow_run_queue(run_id: str, step_id: str, coder: str | None = None, db=D
     sr = next((s for s in workflows.step_runs(db, run_id) if s["step_id"] == step_id), None)
     if sr is None:
         raise HTTPException(status_code=404, detail="Step not found.")
-    return review_gate.queue(db, run, sr, coder=as_coder)
+    out = review_gate.queue(db, run, sr, coder=as_coder)
+    if not workflows.is_run_owner(run, who):                         # the attention checks are the owner's to read
+        (out.get("gate") or {}).pop("plants", None)
+    return out
 
 
 class AssignBody(BaseModel):
@@ -2480,6 +2491,23 @@ def workflow_run_assign(run_id: str, body: AssignBody, db=Depends(get_db), who: 
         raise HTTPException(status_code=409, detail=str(exc))
     db.commit()
     return {**out, "gate": review_gate.state(db, workflows.get_step_run(db, sr["id"]))}
+
+
+@app.get("/api/workflow-runs/{run_id}/plants")
+def workflow_run_plants(run_id: str, step: str | None = None, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """The owner's list of the run's planted errors (paperlens/plants.py): per coder and paper the
+    unit shown altered, how, and whether the coder caught it — what an analysis leaves out."""
+    from . import coders as _coders, plants
+    run = _run_or_404(db, run_id, who)
+    labels = _coders.labels_for(db, run["dataset_id"]) if run.get("dataset_id") else {}
+    where, args = ("p.run_id = %s::uuid AND p.step_id = %s", (run_id, step)) if step else ("p.run_id = %s::uuid", (run_id,))
+    out = []
+    for p in plants.with_status(db, where, args):
+        doc = db.execute("SELECT filename FROM extraction_document WHERE id = %s::uuid", (p["document_id"],)).fetchone()
+        out.append({**{k: p[k] for k in ("step_id", "document_id", "unit", "kind", "field", "question", "original", "planted", "status", "first_answer")},
+                    "filename": doc[0] if doc else None, "coder_user_id": p["coder_user_id"],
+                    "coder": (labels.get(p["coder_user_id"]) or {}).get("label") or "coder", "created_at": p["created_at"].isoformat() if p.get("created_at") else None})
+    return {"plants": out}
 
 
 @app.get("/api/workflow-runs/{run_id}/issues")
@@ -3758,7 +3786,7 @@ def document_answers(document_id: str, body: AnswersBody, db=Depends(get_db), wh
     if role != "coder":
         raise HTTPException(status_code=403, detail="Answers belong to a coder's coding; the owner reads them.")
     _refuse_run(db, document_id)
-    _run, tpl, _st = _task_of(db, body.task, who)
+    run_, tpl, st_ = _task_of(db, body.task, who)
     if tpl is None:
         raise HTTPException(status_code=404, detail="This task has no review template: nothing to answer.")
     items = body.items if body.items is not None else [AnswerItem(record_id=body.record_id, unit=body.unit, answers=body.answers or {})]
@@ -3777,9 +3805,12 @@ def document_answers(document_id: str, body: AnswersBody, db=Depends(get_db), wh
     with db.transaction():
         outs = [coders.answers_set(db, document_id, who.user_id, tpl["id"], it.unit, it.answers, record_id=it.record_id, via=body.via) for it in items]
     db.commit()
+    from . import plants
+    caught = plants.caught_now(db, run_["id"], st_["id"], document_id, who.user_id, {it.unit for it in items}) if plants.config(tpl) else []
+    extra = {"caught": caught} if caught else {}                     # an attention check just caught: the workspace says so at once
     if body.items is None:
-        return {**outs[0], "template": tpl["id"]}
-    return {"items": outs, "template": tpl["id"]}
+        return {**outs[0], "template": tpl["id"], **extra}
+    return {"items": outs, "template": tpl["id"], **extra}
 
 
 @app.post("/api/records/{record_id}/verify")
@@ -5004,7 +5035,11 @@ def project_tasks(project_id: str, run: str | None = None, db=Depends(get_db), w
         r = workflows.get_run(db, run)
         if r is None or r.get("dataset_id") != project_id:
             raise HTTPException(status_code=404, detail="Run not found.")
-    return {"tasks": projects.tasks(db, p, run=r)}
+    tasks = projects.tasks(db, p, run=r)
+    if role != "owner":                                              # the attention checks are the owner's to read
+        for t in tasks:
+            (t.get("gate") or {}).pop("plants", None)
+    return {"tasks": tasks}
 
 
 @app.post("/api/projects/{project_id}/tasks/{step_run_id}/assign")
