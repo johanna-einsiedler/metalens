@@ -413,3 +413,30 @@ def test_a_table_row_with_cell_bars_is_found_in_a_few_page_searches(monkeypatch)
     _p, hl, _ = pdf_utils.pdf_to_pages_with_rects(pdf, [{"page": 1, "snippet": row, "field": "tasks[0].results[3]", "source": "Table 2"}], render_pages=False)
     assert len(hl) == 1 and hl[0]["rects"], hl
     assert len(calls) <= 8, (len(calls), calls[:10])                 # was ~230 (every candidate, plain and dehyphenated, twice over)
+
+
+def test_a_pages_text_layer_is_read_once_per_set_of_flags_however_many_quotes(monkeypatch) -> None:
+    """Every ``search_for`` or ``get_text`` on a fitz page builds a new TextPage from the page's
+    content — some 25 ms on a page drawn with vector paths — and the locator makes thousands of
+    them for an evidence-heavy paper (896 quotes over eight such pages: more than half an hour on
+    the worker). Each page's text layer is now built once per set of flags; what is found, where,
+    and the rendered pages are exactly what the page's own calls give."""
+    import fitz
+    pdf = _make_pdf(["Table 2. Completion by group\nFinal survey completion 83.4% 86.3% +2.9 pp\nNotes: robust errors.",
+                     "We find that the treatment raised output by twelve percent.\nThe effect is larger for novices.",
+                     "Appendix. Further results\nPlacebo outcome 0.01 (0.02)"])
+    items = ([{"page": 1, "snippet": "Final survey completion 83.4% 86.3%", "field": "tasks[0].results[0]", "source": "Table 2"},
+              {"page": 3, "snippet": "the treatment raised output by twelve percent", "field": "claims[0]", "source": "quote"},   # cited page wrong
+              {"page": 2, "snippet": "The effect is larger for novices.", "field": "claims[1]", "source": "quote"}]
+             + [{"page": 1 + i % 3, "snippet": f"a sentence number {i} that no page of this paper prints", "field": f"x[{i}]", "source": "quote"}
+                for i in range(40)])
+    builds: list = []
+    real = fitz.Page.get_textpage
+    monkeypatch.setattr(fitz.Page, "get_textpage", lambda self, *a, **k: builds.append(self.number) or real(self, *a, **k))
+    new = pdf_utils.pdf_to_pages_with_rects(pdf, items)
+    assert len(builds) <= 3 * 5, len(builds)                                     # pages × sets of flags (text, words, search, dehyphenated, blocks)
+    assert {h["field"] for h in new[1]} == {"tasks[0].results[0]", "claims[0]", "claims[1]"}
+    monkeypatch.setattr(pdf_utils, "_CachedPage", lambda page: page)               # the page's own calls, as before
+    builds.clear()
+    old = pdf_utils.pdf_to_pages_with_rects(pdf, items)
+    assert len(builds) > 200 and old == new                                        # the same pages, highlights and scanned pages

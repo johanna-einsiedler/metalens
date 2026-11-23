@@ -537,9 +537,24 @@ def test_a_compute_steps_papers_run_as_worker_jobs_and_the_step_waits_for_them(t
     # a second poll dispatches nothing twice
     c.get(f"/api/workflow-runs/{rid}", headers=H)
     assert len(queued) == 2
-    # the worker: one paper lands, the step still waits; the second lands, the step is done and the next compute is queued
+    # the worker: one paper lands, the step still waits; the second lands, the step is done and the next compute is queued.
+    # The costly part (the record, its quotes located, the pages) is prepared before the job is locked, outside any
+    # transaction; a second attempt at the paper that lands it meanwhile wins, and the first, finding it done, writes nothing.
+    import psycopg
+    real_prepare, seen = passes.prepare_document, []
+
+    def prepare_then_race(conn_, *a, **k):
+        seen.append(conn_.info.transaction_status)
+        out = real_prepare(conn_, *a, **k)
+        if len(seen) == 1:
+            seen.append(passes.run_compute(conn, *queued[0][1]))
+        return out
+    monkeypatch.setattr(passes, "prepare_document", prepare_then_race)
     r1 = passes.run_compute(conn, *queued[0][1])
-    assert r1["status"] == "done" and r1["error"] is None, r1
+    monkeypatch.setattr(passes, "prepare_document", real_prepare)
+    assert seen[0] == seen[1] == psycopg.pq.TransactionStatus.IDLE, seen
+    assert seen[2]["status"] == "done" and seen[2]["error"] is None, seen[2]
+    assert r1["status"] == "skipped" and r1["why"] == "job done", r1
     view = c.get(f"/api/workflow-runs/{rid}", headers=H).json()
     assert view["now"]["phase"] == "computing" and view["now"]["done"] == 1 and len(queued) == 2
     assert passes.run_compute(conn, *queued[1][1])["status"] == "done"
