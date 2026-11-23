@@ -211,6 +211,7 @@ def test_the_check_task_is_worked_on_the_table_flags_listed_beneath() -> None:
     assert out["confirm"] == [{"record_id": None, "unit": "exhibit_cells#o1", "answers": {"mapping_ok": "yes"}},
                               {"record_id": None, "unit": "exhibit_cells#o2", "answers": {"value_ok": "yes", "mapping_ok": "yes"}},
                               {"record_id": None, "unit": "exhibit_cells#o3", "answers": {"value_ok": "yes"}},
+                              {"record_id": None, "unit": "exhibit_cells#+c1", "answers": {"value_ok": "yes"}},     # an added cell, no estimate named
                               {"record_id": None, "unit": "", "answers": {"full_review": "no"}}]
     # the owner: the grid to read (no clicks), every unit as a row with the coders' answers
     owner = out["flagsOwner"]

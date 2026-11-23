@@ -249,16 +249,39 @@ function isConfirmed(block, a, row = {}) {
   return apply.length > 0 && apply.every((n) => String(a[n]) === String(ok[n]));
 }
 
+// A mapping part's flag: every cell it covers gets the mapping's flag answer, and — when the
+// grid names a note question (`grid.mapping.note`) — "wrong: <part>" in its note, so the record
+// says which part was wrong (and the part shows flagged, not every part of those cells). Taking
+// it back removes that line; the flag answer stays while another part of the cell is still named.
+const wrongTag = (text) => `wrong: ${text}`;
+export function partFlagItems(block, pairs, answers, text, off) {
+  const m = (block.grid || {}).mapping || {};
+  const tag = wrongTag(text);
+  return pairs.map(([rid, unit]) => {
+    const a = answersAt(answers, rid || null, unit);
+    if (!m.note) return { record_id: rid || null, unit, answers: { [m.question]: off ? null : m.answer } };
+    const lines = String(a[m.note] || "").split("\n").map((x) => x.trim()).filter(Boolean);
+    const rest = lines.filter((x) => x !== tag);
+    const note = off ? rest : (lines.includes(tag) ? lines : [...lines, tag]);
+    const still = note.some((x) => x.startsWith("wrong: "));
+    return { record_id: rid || null, unit, answers: { [m.question]: off && !still ? null : m.answer, [m.note]: note.length ? note.join("\n") : null } };
+  });
+}
+export function partFlagged(block, a, text) {
+  const m = (block.grid || {}).mapping || {};
+  if (!m.question || String(a[m.question]) !== String(m.answer)) return false;
+  return !m.note || String(a[m.note] || "").split("\n").map((x) => x.trim()).includes(wrongTag(text));
+}
+
 // What "everything else correct" sends: every unit's `confirm.answers` for the questions it has not
-// answered (a question whose `required_when` does not hold for the unit is left alone; a unit the
-// coder added keeps its own answers), and `confirm.paper` on the paper where still open.
+// answered — the coder's added units too (a question whose `required_when` does not hold for the
+// unit is left alone) — and `confirm.paper` on the paper where still open.
 export function confirmItems(block, units, answers, data, sampled = null) {
   const conf = block.confirm || {};
   const qs = new Map((block.questions || []).map((q) => [q.name, q]));
   const pm = (data && data.paper_metadata) || {};
   const items = [];
   for (const u of units) {
-    if (u.added) continue;
     const a = answersAt(answers, u.record_id, u.key), set = {};
     for (const [qn, v] of Object.entries(conf.answers || {})) {
       if (given(a[qn])) continue;
@@ -341,11 +364,11 @@ function gridHtml(block, units, num, ctx) {
     const mp = flags && g.mapping ? consolidateMapping([...pos].map(([k, p]) => ({ key: k, ...p, text: (byKey.get(k).row || {})[g.mapping.field] })).filter((c) => given(c.text)), g.mapping.sep) : null;
     const mq = g.mapping && g.mapping.question, mBad = g.mapping && g.mapping.answer;
     const chip = (part) => {
-      const bad = !!mq && part.keys.every((k) => String(ans(byKey.get(k))[mq]) === String(mBad));      // every cell it covers flagged on its mapping
+      const bad = !!mq && part.keys.every((k) => partFlagged(block, ans(byKey.get(k)), part.text));     // every cell it covers flagged for this part
       const n = part.keys.length;
       if (!live) return `<span class="tq-part${bad ? " tq-part-bad" : ""}">${esc(part.text)}</span>`;
       const units_ = JSON.stringify(part.keys.map((k) => [byKey.get(k).record_id || "", k]));
-      return `<button type="button" class="tq-part${bad ? " tq-part-bad" : ""}" data-units="${esc(units_)}" title="${esc(bad ? `flagged as a wrong mapping for ${n} cell${n === 1 ? "" : "s"} — click to take the flag back` : `click if this mapping is wrong — flags the ${n} cell${n === 1 ? "" : "s"} it covers`)}">${esc(part.text)}</button>`;
+      return `<button type="button" class="tq-part${bad ? " tq-part-bad" : ""}" data-units="${esc(units_)}" data-part="${esc(part.text)}" title="${esc(bad ? `flagged as a wrong mapping for ${n} cell${n === 1 ? "" : "s"} — click to take the flag back` : `click if this mapping is wrong — flags the ${n} cell${n === 1 ? "" : "s"} it covers`)}">${esc(part.text)}</button>`;
     };
     const chips = (list) => (list || []).map(chip).join("");
     const width = Math.max(...t.panels.map((p) => Math.max(p.header ? p.header.length : 0, ...p.rows.map((r) => r.length))));

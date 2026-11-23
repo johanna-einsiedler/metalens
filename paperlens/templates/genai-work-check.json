@@ -61,7 +61,7 @@
           ],
           "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "value": "value_as_printed", "tip": "{estimate_id} · {estimand_text}",
                    "flag": {"question": "value_ok", "answer": "no"},
-                   "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no"}},
+                   "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no", "note": "note"}},
           "confirm": {"label": "Everything else correct", "answers": {"value_ok": "yes", "mapping_ok": "yes"}, "paper": {"full_review": "no"}},
           "questions": [
             {

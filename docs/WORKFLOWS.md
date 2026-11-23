@@ -678,8 +678,20 @@ sit in, as printed: the row of the template's `items` table whose caption line n
 `of` value (`**Table 2. Caption**` names `Table 2`), its pipe tables one per panel; each unit is
 placed by its panel, row label and column (case and spacing aside), its cell numbered as its row
 and its `(SE)` line beneath marked, and a unit with no place is named under the grid. A stage with
-a grid opens its evidence pane on that exhibit. The extraction check (`genai-work-check`) draws
-its cells so: the drawn table above, a row per cited cell with value, mapping and note. `blind.fields`
+a grid opens its evidence pane on that exhibit. `layout: "flags"` makes the grid where the coder
+works: a click on a cited cell answers `grid.flag` (`{"question", "answer"}`: its value is wrong);
+`grid.mapping` (`{"field", "sep", "question", "answer", "note"?}`) splits each cell's mapping text at
+`sep` and shows each part once where it holds — over every cited cell, a panel, a column or a row,
+else in the cell — and a click on a part answers the mapping question for every cell it covers
+(with `note`, "wrong: <part>" is written into that question's answer, so the coding says which part
+was wrong); a click on any other cell adds it as a unit the extraction missed, its panel, row, column
+and value (`grid.value`) filled in. Beneath the grid only what needs words is listed as rows: the
+flagged units (✕ takes the flags back), the added ones, any the grid could not place. `confirm`
+(`{"label", "answers", "paper"?}`) is one button that gives every unit its `answers` for the
+questions still open (where their `required_when` holds) and the paper its `paper` answers; the
+cells show ✓ once confirmed. The owner reads the same grid and every unit as a row. The extraction
+check (`genai-work-check`) works so: the drawn table with its mapping, a click per error, then
+"Everything else correct". `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name
@@ -699,7 +711,10 @@ through it: a coder gets the projection — blind values gone, numbers masked, t
 their columns' values), which a block's `only_sampled` and a `where` with `sampled:
 "<table>.<column>"` read, so the check task shows the drawn exhibit and its cells alone — and
 `POST /api/documents/{id}/answers {task, record_id?, unit, answers}` writes theirs (422 for a
-value outside the options or an unknown unit). The workspace
+value outside the options or an unknown unit); `{task, items: [{record_id?, unit, answers}], via?}`
+writes several units in one transaction (every item checked first: all land or none), and `via`
+(`confirm` for the one-click confirmation) is kept on each answer's coding event, so a bulk
+confirmation stays visible in the audit trail. The workspace
 draws a template stage as its blocks, a card per unit with the questions under the shown fields,
 and says how many required answers are owed; `done` (and a verdict sent with `task`) is refused
 while any is missing. The owner reads every coder's answers under each unit (`answers_by_coder`)

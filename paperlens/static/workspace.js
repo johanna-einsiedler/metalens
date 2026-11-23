@@ -15,7 +15,7 @@ import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
-import { blockHtml, unitKind, unitFields, unitLabel, completeness as taskCompleteness, itemRows, gridIds, blockUnits, confirmItems } from "/static/template.js";
+import { blockHtml, unitKind, unitFields, unitLabel, completeness as taskCompleteness, itemRows, gridIds, blockUnits, confirmItems, partFlagItems } from "/static/template.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
@@ -3950,7 +3950,7 @@ function wireTaskPanel(panel, recs) {
     const bl = blockOf(b), m = ((bl || {}).grid || {}).mapping;
     if (!m) return;
     const off = b.classList.contains("tq-part-bad");
-    const items = JSON.parse(b.dataset.units).map(([rid, unit]) => ({ record_id: rid || null, unit, answers: { [m.question]: off ? null : m.answer } }));
+    const items = partFlagItems(bl, JSON.parse(b.dataset.units), DATA.answers || {}, b.dataset.part || "", off);
     saveAnswers(items).then(() => rerenderKeep()).catch(failed(off ? "take the flag back" : "flag the mapping"));
   }));
   panel.querySelectorAll(".tq-unflag").forEach((b) => (b.onclick = () => {

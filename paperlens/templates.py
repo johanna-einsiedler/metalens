@@ -61,7 +61,7 @@ _ALLOWED = {
     "column": {"label", "fields", "wide"},
     "grid": {"of", "panel", "row", "column", "tip", "value", "flag", "mapping"},
     "grid_flag": {"question", "answer"},
-    "grid_mapping": {"field", "sep", "question", "answer"},
+    "grid_mapping": {"field", "sep", "question", "answer", "note"},
     "confirm": {"label", "answers", "paper"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
@@ -417,6 +417,8 @@ def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: li
                     E(f"{at}.grid.mapping.field: {g.get('field')!r} is not a field of the unit")
                 if not (isinstance(g.get("sep"), str) and g["sep"]):
                     E(f"{at}.grid.mapping.sep must be the text between the mapping's parts (\" · \")")
+                if g.get("note") is not None and (questions.get(g["note"]) or {}).get("type") not in ("string", "text"):
+                    E(f"{at}.grid.mapping.note: {g['note']!r} must be a string or text question of the block (where the flagged part is written)")
     conf = bl.get("confirm")
     if conf is not None:
         if not tabular:

@@ -755,6 +755,7 @@ body.coder .study-ident[contenteditable="false"] ~ * { display: none !important;
 .tq-rows .tq-n .tq-del:hover { color: #b3261e; }
 .tq-rows .tq-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
 .tq-rows td.tq-q, .tq-rows td.tq-n { white-space: nowrap; }
+.tq-rows td.tq-q .rv-editable { display: inline-block; white-space: pre-wrap; min-width: 5em; max-width: 11em; }   /* a note wraps; a select stays on one line */
 .tq-rows .rv-select { max-width: 6.5em; }
 .tq-rows .tq-wide { min-width: 13em; }                              /* a column the template marks `wide`: a long text gets room to read */
 .tq-rows tr.tq-hot td { background: var(--accent-wash); }
