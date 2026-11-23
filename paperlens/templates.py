@@ -12,10 +12,14 @@ never on the record. A preset's ``display.review`` keeps working as its implicit
                     whether every paper field no block shows is dropped (``paper_fields: "unshown"``)
   * ``stages``    — ordered; each ``{id, label, help, evidence, blocks}``
   * ``blocks``    — ``{unit, label, help, show, title, marks, group_by_entry, where, only_sampled,
-                    mask_numbers, stack, questions, add, sections, inline, layout, columns, grid}``
-                    — ``layout: "rows"`` draws the units as one table (a row each, the questions as
-                    columns; ``columns`` groups the shown fields), ``grid`` draws the exhibit the
-                    units sit in as printed above it (its transcription in the ``items`` table)
+                    mask_numbers, stack, questions, add, sections, inline, layout, columns, grid,
+                    confirm}`` — ``layout: "rows"`` draws the units as one table (a row each, the
+                    questions as columns; ``columns`` groups the shown fields), ``grid`` draws the
+                    exhibit the units sit in as printed above it (its transcription in the ``items``
+                    table); ``layout: "flags"`` makes the grid where the coder works — a click flags
+                    a value (``grid.flag``) or a mapping (``grid.mapping``, consolidated onto the
+                    table) or adds a missed cell, the flagged units listed as rows beneath — and
+                    ``confirm`` answers every unit still open in one click
   * ``questions`` — field declarations the coder answers: ``{name, type, label, help, options |
                     options_from, allow_other, required, required_when}``
 
@@ -53,9 +57,12 @@ _ALLOWED = {
     "blind": {"fields", "paper_fields"},
     "stage": {"id", "label", "help", "evidence", "blocks"},
     "block": {"unit", "label", "help", "show", "title", "marks", "group_by_entry", "where", "only_sampled", "mask_numbers",
-              "stack", "questions", "add", "sections", "inline", "layout", "columns", "grid"},
+              "stack", "questions", "add", "sections", "inline", "layout", "columns", "grid", "confirm"},
     "column": {"label", "fields", "wide"},
-    "grid": {"of", "panel", "row", "column", "tip"},
+    "grid": {"of", "panel", "row", "column", "tip", "value", "flag", "mapping"},
+    "grid_flag": {"question", "answer"},
+    "grid_mapping": {"field", "sep", "question", "answer"},
+    "confirm": {"label", "answers", "paper"},
     "question": {"name", "type", "label", "help", "options", "options_from", "allow_other", "required", "required_when", "range"},
     "options_from": {"field", "prefix", "label_prefix"},
     "mark": {"when", "when_nonempty", "text"},
@@ -311,19 +318,40 @@ def validate(tpl: dict, pspec: dict | None = None, *, resolver: Callable[[str], 
             _validate_block(bl, f"{at}.blocks[{j}]", pspec, E, W, blind=bf)
             if isinstance(bl, dict) and bl.get("grid") is not None and not tpl.get("items"):
                 E(f"{at}.blocks[{j}].grid reads the exhibit's transcription from the template's items table: name it in $.items")
+    paper_qs = {q["name"]: q for st in stages if isinstance(st, dict) for bl in st.get("blocks") or []
+                if isinstance(bl, dict) and bl.get("unit") == "paper" for q in bl.get("questions") or [] if isinstance(q, dict) and isinstance(q.get("name"), str)}
+    for i, st in enumerate(stages):
+        for j, bl in enumerate(st.get("blocks") or [] if isinstance(st, dict) else []):
+            pc = (bl.get("confirm") or {}).get("paper") if isinstance(bl, dict) and isinstance(bl.get("confirm"), dict) else None
+            for qn, v in (pc.items() if isinstance(pc, dict) else []):
+                if not _answer_ok(paper_qs.get(qn), v):
+                    E(f"$.stages[{i}].blocks[{j}].confirm.paper: {qn!r} must be an enum question of a paper block and {v!r} one of its options")
     return errs, warns
 
 
-def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: list, E) -> None:
-    """``layout`` (cards | rows), ``columns`` (rows only: the shown fields grouped into the table's
-    columns) and ``grid`` (rows only: the fields that place a unit in its exhibit's transcription)."""
+def _answer_ok(q: dict | None, value: Any) -> bool:
+    """A fixed answer a template gives on the coder's behalf (a flag's, a confirm's): one of the
+    question's options."""
+    if not isinstance(q, dict):
+        return False
+    opts = [str(o.get("value") if isinstance(o, dict) else o) for o in q.get("options") or []]
+    return q.get("type") == "enum" and str(value) in opts
+
+
+def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: list, E, questions: dict | None = None) -> None:
+    """``layout`` (cards | rows | flags), ``columns`` (rows, flags: the shown fields grouped into
+    the table's columns), ``grid`` (rows, flags: the fields that place a unit in its exhibit's
+    transcription; for flags also the question a value click answers, the mapping text and its
+    question) and ``confirm`` (the answers one click gives every open unit)."""
+    questions = questions or {}
     layout = bl.get("layout", "cards")
-    if layout not in ("cards", "rows"):
-        E(f"{at}.layout must be 'cards' (the default) or 'rows'")
+    if layout not in ("cards", "rows", "flags"):
+        E(f"{at}.layout must be 'cards' (the default), 'rows' or 'flags'")
+    tabular = layout in ("rows", "flags")
     cols = bl.get("columns")
     if cols is not None:
-        if layout != "rows":
-            E(f"{at}.columns applies to layout 'rows'")
+        if not tabular:
+            E(f"{at}.columns applies to layout 'rows' or 'flags'")
         if not isinstance(cols, list) or not cols:
             E(f"{at}.columns must list the table's columns")
             cols = []
@@ -346,17 +374,19 @@ def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: li
                 if n not in show:
                     E(f"{cat}: {n!r} is not among the block's shown fields")
     grid = bl.get("grid")
+    if layout == "flags" and grid is None:
+        E(f"{at}: layout 'flags' needs a grid (the table the coder flags on)")
     if grid is not None:
-        if layout != "rows":
-            E(f"{at}.grid applies to layout 'rows'")
+        if not tabular:
+            E(f"{at}.grid applies to layout 'rows' or 'flags'")
         if not isinstance(grid, dict):
-            E(f"{at}.grid must be {{of, row, column, panel?, tip?}}"); return
+            E(f"{at}.grid must be {{of, row, column, panel?, tip?, value?, flag?, mapping?}}"); return
         for k in grid:
             if k not in _ALLOWED["grid"]:
                 E(f"{at}.grid: unknown key {k!r}")
-        for k in ("of", "row", "column", "panel"):
+        for k in ("of", "row", "column", "panel", "value"):
             v = grid.get(k)
-            if v is None and k != "panel":
+            if v is None and k not in ("panel", "value"):
                 E(f"{at}.grid.{k} must name a field of the unit"); continue
             if v is not None and (not isinstance(v, str) or (fields is not None and v not in fields)):
                 E(f"{at}.grid.{k}: {v!r} is not a field of the unit")
@@ -367,6 +397,46 @@ def _validate_layout(bl: dict, at: str, fields: dict[str, dict] | None, show: li
                 for n in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", grid["tip"]):
                     if n not in fields:
                         E(f"{at}.grid.tip: {{{n}}} is not a field of the unit")
+        for k, allowed in (("flag", "grid_flag"), ("mapping", "grid_mapping")):
+            g = grid.get(k)
+            if g is None:
+                if layout == "flags" and k == "flag":
+                    E(f"{at}.grid.flag must say which question a click on a value answers, and how: {{question, answer}}")
+                continue
+            if layout != "flags":
+                E(f"{at}.grid.{k} applies to layout 'flags'")
+            if not isinstance(g, dict):
+                E(f"{at}.grid.{k} must be an object"); continue
+            for kk in g:
+                if kk not in _ALLOWED[allowed]:
+                    E(f"{at}.grid.{k}: unknown key {kk!r}")
+            if not _answer_ok(questions.get(g.get("question")), g.get("answer")):
+                E(f"{at}.grid.{k}: {g.get('question')!r} must be an enum question of the block and {g.get('answer')!r} one of its options")
+            if k == "mapping":
+                if not isinstance(g.get("field"), str) or (fields is not None and g["field"] not in fields):
+                    E(f"{at}.grid.mapping.field: {g.get('field')!r} is not a field of the unit")
+                if not (isinstance(g.get("sep"), str) and g["sep"]):
+                    E(f"{at}.grid.mapping.sep must be the text between the mapping's parts (\" · \")")
+    conf = bl.get("confirm")
+    if conf is not None:
+        if not tabular:
+            E(f"{at}.confirm applies to layout 'rows' or 'flags'")
+        if not isinstance(conf, dict):
+            E(f"{at}.confirm must be {{label?, answers, paper?}}"); return
+        for k in conf:
+            if k not in _ALLOWED["confirm"]:
+                E(f"{at}.confirm: unknown key {k!r}")
+        if conf.get("label") is not None and not isinstance(conf["label"], str):
+            E(f"{at}.confirm.label must be a string")
+        ans = conf.get("answers")
+        if not isinstance(ans, dict) or not ans:
+            E(f"{at}.confirm.answers must give {{question: answer}} for the block's questions")
+        else:
+            for qn, v in ans.items():
+                if not _answer_ok(questions.get(qn), v):
+                    E(f"{at}.confirm.answers: {qn!r} must be an enum question of the block and {v!r} one of its options")
+        if conf.get("paper") is not None and not isinstance(conf["paper"], dict):
+            E(f"{at}.confirm.paper must give {{question: answer}} for a paper block's questions")
 
 
 def _validate_where(where: Any, fields: dict[str, dict], pspec: dict | None, at: str, E) -> None:
@@ -427,7 +497,8 @@ def _validate_block(bl: Any, at: str, pspec: dict | None, E, W, blind: frozenset
             E(f"{at}.{k} must be a boolean")
     if bl.get("group_by_entry") and uk is not None and uk[0] != "child":
         E(f"{at}.group_by_entry only applies to a child's rows")
-    _validate_layout(bl, at, fields if uk is not None else None, show if isinstance(show, list) else [], E)
+    _validate_layout(bl, at, fields if uk is not None else None, show if isinstance(show, list) else [], E,
+                     questions={q["name"]: q for q in (bl.get("questions") or []) if isinstance(q, dict) and isinstance(q.get("name"), str)})
     if bl.get("where") is not None:
         _validate_where(bl["where"], fields, pspec, f"{at}.where", E)
     marks = bl.get("marks")

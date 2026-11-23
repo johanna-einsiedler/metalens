@@ -15,7 +15,7 @@ import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
          undeclared, seedEntry, orderedEntries, gridColumns, gridRows, relPath, parseRel } from "/static/spec.js";
-import { blockHtml, unitKind, unitFields, completeness as taskCompleteness, itemRows, gridIds } from "/static/template.js";
+import { blockHtml, unitKind, unitFields, unitLabel, completeness as taskCompleteness, itemRows, gridIds, blockUnits, confirmItems } from "/static/template.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 let DATA = null, DOCS = [], DOCID = null, RAW = false, GRID = false, PROJECT = null, PROJECT_TITLE = "", PROJECT_MODE = null, FOCUS_REC = null;
@@ -3850,11 +3850,21 @@ function taskCellsBlock(st, recs) {
     items: itemRows(DATA, (DATA.template || {}).items) })).join("");                // a grid's transcriptions
   return box;
 }
-async function saveAnswer(unitKey, recId, values) {
-  const r = await api.answers(DATA.document_id, { task: taskKey(), record_id: recId || null, unit: unitKey, answers: values });
+function keepAnswers(unitKey, recId, answers) {                  // the server's answers on one unit, into DATA
   if (!DATA.answers) DATA.answers = { paper: {}, records: {} };
   const home = recId ? ((DATA.answers.records = DATA.answers.records || {}), (DATA.answers.records[recId] = DATA.answers.records[recId] || {})) : (DATA.answers.paper = DATA.answers.paper || {});
-  if (r.answers && Object.keys(r.answers).length) home[unitKey] = r.answers; else delete home[unitKey];
+  if (answers && Object.keys(answers).length) home[unitKey] = answers; else delete home[unitKey];
+}
+async function saveAnswer(unitKey, recId, values) {
+  const r = await api.answers(DATA.document_id, { task: taskKey(), record_id: recId || null, unit: unitKey, answers: values });
+  keepAnswers(unitKey, recId, r.answers);
+  updateTaskOwed();
+  return r;
+}
+// several units in one request (all land or none); `via` names how ("confirm": the one-click "everything else correct")
+async function saveAnswers(items, via = null) {
+  const r = await api.answers(DATA.document_id, { task: taskKey(), items, ...(via ? { via } : {}) });
+  for (const out of r.items || []) keepAnswers(out.unit, out.record_id, out.answers);
   updateTaskOwed();
   return r;
 }
@@ -3897,12 +3907,9 @@ function wireTaskPanel(panel, recs) {
   // a grid's marked cell goes to its row (and lights it); a row lights its cell in the grid
   const rowOf = (key) => [...panel.querySelectorAll("tr.tq-unit[data-unit]")].find((tr) => tr.dataset.unit === key);
   const cellsOf = (key) => [...panel.querySelectorAll(".tq-gc[data-unit]")].filter((td) => td.dataset.unit === key);
+  const goTo = (tr) => { tr.scrollIntoView({ block: "center", behavior: "smooth" }); tr.classList.remove("tq-flash"); void tr.offsetWidth; tr.classList.add("tq-flash"); };
   panel.querySelectorAll(".tq-gc[data-unit]").forEach((td) => {
-    td.onclick = () => {
-      const tr = rowOf(td.dataset.unit); if (!tr) return;
-      tr.scrollIntoView({ block: "center", behavior: "smooth" });
-      tr.classList.remove("tq-flash"); void tr.offsetWidth; tr.classList.add("tq-flash");
-    };
+    td.onclick = () => { const tr = rowOf(td.dataset.unit); if (tr) goTo(tr); };
     td.onmouseenter = () => { const tr = rowOf(td.dataset.unit); if (tr) tr.classList.add("tq-hot"); cellsOf(td.dataset.unit).forEach((c) => c.classList.add("tq-hot")); };
     td.onmouseleave = () => { const tr = rowOf(td.dataset.unit); if (tr) tr.classList.remove("tq-hot"); cellsOf(td.dataset.unit).forEach((c) => c.classList.remove("tq-hot")); };
   });
@@ -3910,6 +3917,56 @@ function wireTaskPanel(panel, recs) {
     tr.addEventListener("mouseenter", () => cellsOf(tr.dataset.unit).forEach((c) => c.classList.add("tq-hot")));
     tr.addEventListener("mouseleave", () => cellsOf(tr.dataset.unit).forEach((c) => c.classList.remove("tq-hot")));
   });
+  // layout "flags": the coder works on the grid — flag a value, a mapping, add a missed cell, confirm the rest
+  const blockOf = (el) => { const name = (el.closest(".tq-block") || {}).dataset?.unit; const st = (stagesSpec().stages || [])[STAGE] || {}; return (st.blocks || []).find((x) => unitLabel(x.unit) === name) || null; };
+  const after = (key, sel) => {                                // redraw, then bring the unit's row into view with its field ready
+    rerenderKeep();
+    const tr = [...document.querySelectorAll("#panel tr.tq-unit[data-unit], tr.tq-unit[data-unit]")].find((x) => x.dataset.unit === key);
+    if (!tr) return;
+    goTo(tr);
+    const f = (sel && tr.querySelector(sel)) || tr.querySelector(".rv-editable.rv-empty, .rv-editable, select");
+    if (f && f.focus) setTimeout(() => f.focus(), 250);
+  };
+  const failed = (what) => (e) => alert(`could not ${what}: ${e.message}`);
+  panel.querySelectorAll(".tq-gc[data-act='value']").forEach((td) => (td.onclick = () => {
+    const bl = blockOf(td), g = (bl || {}).grid || {}, key = td.dataset.unit, tr = rowOf(key);
+    if (tr) { goTo(tr); return; }                             // flagged already: its row
+    if (!g.flag) return;
+    saveAnswer(key, td.dataset.rid || null, { [g.flag.question]: g.flag.answer })
+      .then(() => after(key, g.value ? `[data-path$=".${g.value}"]` : null)).catch(failed("flag the value"));
+  }));
+  panel.querySelectorAll(".tq-gc[data-act='missed']").forEach((td) => (td.onclick = () => {
+    const bl = blockOf(td), g = (bl || {}).grid || {};
+    if (!bl) return;
+    const names = new Set(((bl.add || {}).fields || []).map((f) => f.name)), vals = {};
+    for (const [field, v] of [[g.panel, td.dataset.panel], [g.row, td.dataset.row], [g.column, td.dataset.col], [g.value, td.dataset.val]])
+      if (field && names.has(field) && v) vals[field] = v;
+    if (!Object.keys(vals).length) return;
+    const key = `${unitLabel(bl.unit)}#+c${Math.random().toString(36).slice(2, 10)}`;
+    saveAnswer(key, null, vals).then(() => after(key, ".rv-editable.rv-empty")).catch(failed("add the cell"));
+  }));
+  panel.querySelectorAll(".tq-part[data-units]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const bl = blockOf(b), m = ((bl || {}).grid || {}).mapping;
+    if (!m) return;
+    const off = b.classList.contains("tq-part-bad");
+    const items = JSON.parse(b.dataset.units).map(([rid, unit]) => ({ record_id: rid || null, unit, answers: { [m.question]: off ? null : m.answer } }));
+    saveAnswers(items).then(() => rerenderKeep()).catch(failed(off ? "take the flag back" : "flag the mapping"));
+  }));
+  panel.querySelectorAll(".tq-unflag").forEach((b) => (b.onclick = () => {
+    const bl = blockOf(b), g = (bl || {}).grid || {}, tr = b.closest("tr.tq-unit");
+    const vals = Object.fromEntries([g.flag, g.mapping].filter(Boolean).map((x) => [x.question, null]));
+    if (!tr || !Object.keys(vals).length) return;
+    saveAnswer(tr.dataset.unit, tr.dataset.rid || null, vals).then(() => rerenderKeep()).catch(failed("take the flags back"));
+  }));
+  panel.querySelectorAll(".tq-confirm").forEach((b) => (b.onclick = () => {
+    const bl = blockOf(b); if (!bl) return;
+    const sampled = DATA.task.sampled || null;
+    const items = confirmItems(bl, blockUnits(bl, DATA, VM, DATA.answers || {}, sampled), DATA.answers || {}, DATA, sampled);
+    if (!items.length) return;
+    b.disabled = true;
+    saveAnswers(items, "confirm").then(() => rerenderKeep()).catch((e) => { b.disabled = false; failed("confirm")(e); });
+  }));
   // a unit's page tag opens its passage
   panel.querySelectorAll(".tq-title .ev-cite[data-eids], .tq-row .tq-n .ev-cite[data-eids]").forEach((b) => {
     const ids = b.dataset.eids.split(",").map(Number);

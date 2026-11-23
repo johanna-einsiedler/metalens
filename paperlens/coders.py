@@ -348,11 +348,12 @@ def export_block(conn: psycopg.Connection, dataset_id: str, *, with_emails: bool
 # ── answers: what a coder says about a unit of a review template ─────────────
 
 def answers_set(conn: psycopg.Connection, document_id: str, coder_user_id: str, template: str, unit_key: str, values: dict,
-                *, record_id: str | None = None) -> dict:
+                *, record_id: str | None = None, via: str | None = None) -> dict:
     """A coder's answers on one unit of a task, merged into their coding — the record's when
     ``record_id`` is given (the entry's own unit or a child's row), else the document's (the
     paper, a paper table's row, a distinct value, an added unit). ``None`` clears a question. One
-    coding event (status ``noted``, no diff): an answer is no verdict and no disagreement."""
+    coding event (status ``noted``, no diff): an answer is no verdict and no disagreement. ``via``
+    (how the coder gave it — ``confirm``: the one-click "everything else correct") rides on the event."""
     table, idcol, idval = ("record_coding", "record_id", record_id) if record_id else ("document_coding", "document_id", document_id)
     with conn.transaction():
         conn.execute(f"INSERT INTO {table} ({idcol}, coder_user_id) VALUES (%s::uuid, %s::uuid) ON CONFLICT DO NOTHING", (idval, coder_user_id))   # noqa: S608
@@ -375,7 +376,8 @@ def answers_set(conn: psycopg.Connection, document_id: str, coder_user_id: str, 
                      (Json(every) if every else None, _now(), idval, coder_user_id))
         conn.execute("""INSERT INTO coding_event (id, coder_user_id, record_id, document_id, status, diff, answers)
                         VALUES (%s::uuid, %s::uuid, %s::uuid, %s::uuid, 'noted', NULL, %s)""",
-                     (_new_id(), coder_user_id, record_id, document_id, Json({"template": template, "unit": unit_key, "set": values, "previous": previous})))
+                     (_new_id(), coder_user_id, record_id, document_id,
+                      Json({"template": template, "unit": unit_key, "set": values, "previous": previous, **({"via": via} if via else {})})))
     return {"unit": unit_key, "record_id": record_id, "answers": out}
 
 

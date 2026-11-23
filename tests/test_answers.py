@@ -121,6 +121,19 @@ def test_a_task_projects_the_document_takes_answers_and_closes_on_them(monkeypat
     conn.rollback()
     assert conn.execute("SELECT count(*) FROM coding_event WHERE document_id = %s::uuid AND status = 'noted' AND answers IS NOT NULL", (doc,)).fetchone()[0] >= 7
     assert conn.execute("SELECT verification_status FROM record_coding WHERE record_id = %s::uuid AND coder_user_id = %s::uuid", (rec_id, c_id)).fetchone()[0] == "unverified"
+    # several units in one request — all or none land — and how they were given (via) kept on each event
+    task = f"{rid}:judgment"
+    two = [{"record_id": rec_id, "unit": f"outcomes#{out_rid}", "answers": {"verdict": "unsure"}},
+           {"unit": "model_estimands.subgroup=novices", "answers": {"verdict": "not_in_paper"}}]
+    assert c.post(f"/api/documents/{doc}/answers", json={"task": task, "items": [*two, {"unit": "zzz#1", "answers": {"x": 1}}]}).status_code == 422
+    v0 = c.get(f"/api/documents/{doc}/view?task={task}").json()["answers"]
+    assert v0["records"][rec_id][f"outcomes#{out_rid}"]["verdict"] == "ok" and v0["paper"]["model_estimands.subgroup=novices"]["verdict"] == "ok"   # nothing of it landed
+    assert c.post(f"/api/documents/{doc}/answers", json={"task": task, "items": two, "via": "Confirm!"}).status_code == 422
+    r = c.post(f"/api/documents/{doc}/answers", json={"task": task, "items": two, "via": "confirm"})
+    assert r.status_code == 200, r.text
+    assert [(x["unit"], x["answers"]["verdict"]) for x in r.json()["items"]] == [(f"outcomes#{out_rid}", "unsure"), ("model_estimands.subgroup=novices", "not_in_paper")]
+    conn.rollback()
+    assert conn.execute("SELECT count(*) FROM coding_event WHERE document_id = %s::uuid AND answers->>'via' = 'confirm'", (doc,)).fetchone()[0] == 2
     # the verdict in the task waits for the required answers (the abstract's claim, the paper's full-review flag)
     r = c.post(f"/api/records/{rec_id}/verify", json={"status": "verified", "task": f"{rid}:judgment"})
     assert r.status_code == 422, r.text
