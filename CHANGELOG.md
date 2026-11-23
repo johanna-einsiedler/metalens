@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The extraction check is worked on the table: a click per error, then "everything else correct"
+
+- The coder works on the drawn table itself (template block `layout: "flags"`). A click on a cited
+  value flags it and lists it below, its value field ready for the value as printed. A click on any
+  other cell adds it as a cell the extraction missed, with its panel, row, column and value filled
+  in. Before, a missed cell was typed in by hand.
+- The mapping is consolidated onto the table: each cell's estimand in words is split into its parts
+  (task · arms · outcome · subgroup · horizon), and each part is shown once where it holds — over
+  every cited cell, under a column's header, beside a row's label, else in the cell. A click on a
+  part flags the mapping of every cell it covers and writes "wrong: <part>" into each cell's note.
+  Before, the full estimand stood on every cell.
+- "✓ Everything else correct" answers every cell still open (value and mapping right, where an
+  estimate is named) and "Full review needed: no" unless answered — one click for a clean paper.
+  The cells show ✓, the flagged ones red, the missed ones yellow, and a tally counts them.
+- Answers are stored per cell as before, so the template id (`genai-work-check@a0267cc9`), the
+  gates and every answer given are unchanged.
+- `POST /api/documents/{id}/answers` takes `items` (several units in one transaction, all or none)
+  and `via`, kept on each answer's coding event: a one-click confirmation (`via: "confirm"`) stays
+  visible in the audit trail.
+
 ### The extraction check shows the drawn table as printed, its cells as rows
 
 - A review template's block may say `layout: "rows"`: its units drawn as one table, a row each, the

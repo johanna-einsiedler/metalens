@@ -28,7 +28,7 @@ from fastapi import (Cookie, Depends, FastAPI, File, Form, Header, HTTPException
                      Query, Response, UploadFile)
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import admins, auth, brands, credits, enrich, extract, localmode, presets, providers, quotes, records, storage, worker, retention, chain, preset_spec
 from .ingest import ingest
@@ -3732,11 +3732,19 @@ class VerifyBody(BaseModel):
     highlight_ids: list[str] | None = None # the coder's marks this verdict points at ("see here"), on the record's paper
 
 
+class AnswerItem(BaseModel):
+    record_id: str | None = None
+    unit: str = ""
+    answers: dict
+
+
 class AnswersBody(BaseModel):
     task: str                              # "<run>:<step>" — the task whose template asks
     record_id: str | None = None           # the entry's own unit or a child's row; None: the paper's units
     unit: str = ""                         # the unit key ("" the paper or the entry; "<child>#<_rid>"; "<table>#<_rid>"; "<x>.<field>=<v>"; "<unit>#+<id>")
-    answers: dict                          # {question: value}; None clears a question
+    answers: dict | None = None            # {question: value}; None clears a question
+    items: list[AnswerItem] | None = None  # several units at once (all or none land), in place of record_id/unit/answers
+    via: str | None = Field(default=None, pattern=r"^[a-z_]{1,24}$")   # how the coder gave them ("confirm": the one-click "everything else correct"), kept on the event
 
 
 @app.post("/api/documents/{document_id}/answers")
@@ -3753,17 +3761,25 @@ def document_answers(document_id: str, body: AnswersBody, db=Depends(get_db), wh
     _run, tpl, _st = _task_of(db, body.task, who)
     if tpl is None:
         raise HTTPException(status_code=404, detail="This task has no review template: nothing to answer.")
-    if body.record_id is not None:
-        rec = records.get_record(db, body.record_id)
-        if rec is None or rec.get("document_id") != document_id:
-            raise HTTPException(status_code=404, detail="Record not found in this document.")
-    try:
-        templates.validate_answers(tpl, _template_pspec(db, tpl), body.unit, body.answers, has_record=body.record_id is not None)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    out = coders.answers_set(db, document_id, who.user_id, tpl["id"], body.unit, body.answers, record_id=body.record_id)
+    items = body.items if body.items is not None else [AnswerItem(record_id=body.record_id, unit=body.unit, answers=body.answers or {})]
+    if not items or len(items) > 500:
+        raise HTTPException(status_code=422, detail="items must list 1–500 units")
+    pspec = _template_pspec(db, tpl)
+    for it in items:                                           # every unit checked before any is written: all or none land
+        if it.record_id is not None:
+            rec = records.get_record(db, it.record_id)
+            if rec is None or rec.get("document_id") != document_id:
+                raise HTTPException(status_code=404, detail="Record not found in this document.")
+        try:
+            templates.validate_answers(tpl, pspec, it.unit, it.answers, has_record=it.record_id is not None)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    with db.transaction():
+        outs = [coders.answers_set(db, document_id, who.user_id, tpl["id"], it.unit, it.answers, record_id=it.record_id, via=body.via) for it in items]
     db.commit()
-    return {**out, "template": tpl["id"]}
+    if body.items is None:
+        return {**outs[0], "template": tpl["id"]}
+    return {"items": outs, "template": tpl["id"]}
 
 
 @app.post("/api/records/{record_id}/verify")

@@ -317,5 +317,50 @@ def test_a_block_lays_its_units_out_as_rows_with_the_exhibit_as_a_grid() -> None
     # the extraction check draws its cells this way, under the id its gates recorded
     chk = tp.load_all()["genai-work-check"]
     blk = next(b for b in chk["stages"][0]["blocks"] if b["unit"] == "paper_metadata.exhibit_cells")
-    assert blk["layout"] == "rows" and blk["grid"]["of"] == "exhibit_id" and tp.validate(chk, EXT) == ([], [])
+    assert blk["layout"] == "flags" and blk["grid"]["of"] == "exhibit_id" and tp.validate(chk, EXT) == ([], [])
     assert tp.template_id(chk) == "genai-work-check@a0267cc9"
+
+
+
+def test_a_block_may_be_worked_on_its_grid_with_flags_and_a_confirm() -> None:
+    """``layout: flags``: the grid is where the coder works — ``grid.flag`` (the question a value's
+    click answers), ``grid.mapping`` (the mapping's text, its separator, its question), ``confirm``
+    (the answers one click gives every open unit, and the paper's). Each names real questions and
+    options; none of it is in the template's id."""
+    qs = [{"name": "value_ok", "type": "enum", "options": ["yes", "no", "unsure"], "required": True},
+          {"name": "mapping_ok", "type": "enum", "options": ["yes", "no", "unsure"], "required_when": {"estimate_id": {"not_null": True}}},
+          {"name": "note", "type": "string"}]
+    cells = {"unit": "paper_metadata.exhibit_cells", "show": ["row_label", "column", "panel", "value_as_printed", "estimate_id", "estimand_text"], "questions": qs}
+    flags = {**cells, "layout": "flags",
+             "grid": {"of": "exhibit_id", "panel": "panel", "row": "row_label", "column": "column", "value": "value_as_printed",
+                      "flag": {"question": "value_ok", "answer": "no"},
+                      "mapping": {"field": "estimand_text", "sep": " · ", "question": "mapping_ok", "answer": "no"}},
+             "confirm": {"label": "All right", "answers": {"value_ok": "yes", "mapping_ok": "yes"}, "paper": {"fine": "yes"}}}
+
+    def errs(bl: dict) -> list[str]:
+        d = copy.deepcopy(GOOD); d["stages"][0]["blocks"].append(bl)
+        return tp.validate(tp.normalize(d), EXT)[0]
+
+    assert errs(flags) == []                                     # GOOD's paper block asks `fine` (yes | no)
+    d0, d1 = copy.deepcopy(GOOD), copy.deepcopy(GOOD); d0["stages"][0]["blocks"].append(cells); d1["stages"][0]["blocks"].append(flags)
+    assert tp.template_id(tp.normalize(d0)) == tp.template_id(tp.normalize(d1))
+    g = flags["grid"]
+    bad = {
+        "no grid": ({**flags, "grid": None}, "layout 'flags' needs a grid"),
+        "no flag": ({**flags, "grid": {k: v for k, v in g.items() if k != "flag"}}, "grid.flag must say which question"),
+        "flag question": ({**flags, "grid": {**g, "flag": {"question": "note", "answer": "no"}}}, "'note' must be an enum question"),
+        "flag answer": ({**flags, "grid": {**g, "flag": {"question": "value_ok", "answer": "nope"}}}, "'nope' one of its options"),
+        "mapping field": ({**flags, "grid": {**g, "mapping": {**g["mapping"], "field": "nope"}}}, "grid.mapping.field: 'nope' is not a field"),
+        "mapping sep": ({**flags, "grid": {**g, "mapping": {**g["mapping"], "sep": ""}}}, "grid.mapping.sep must be"),
+        "grid value": ({**flags, "grid": {**g, "value": "nope"}}, "grid.value: 'nope' is not a field"),
+        "flag on rows": ({**flags, "layout": "rows", "confirm": None}, "grid.flag applies to layout 'flags'"),
+        "confirm answer": ({**flags, "confirm": {"answers": {"value_ok": "maybe"}}}, "'maybe' one of its options"),
+        "confirm empty": ({**flags, "confirm": {"label": "x"}}, "confirm.answers must give"),
+        "confirm key": ({**flags, "confirm": {**flags["confirm"], "also": 1}}, "unknown key 'also'"),
+        "confirm paper": ({**flags, "confirm": {**flags["confirm"], "paper": {"fine": "perhaps"}}}, "must be an enum question of a paper block"),
+        "confirm on cards": ({**cells, "confirm": flags["confirm"]}, "confirm applies to layout 'rows' or 'flags'"),
+    }
+    for name, (bl, msg) in bad.items():
+        bl = {k: v for k, v in bl.items() if v is not None}
+        e = errs(bl)
+        assert any(msg in x for x in e), (name, e)

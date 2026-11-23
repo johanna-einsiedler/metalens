@@ -228,12 +228,116 @@ export function gridIds(stage, data, vm, sampled = null) {
   return ids;
 }
 
+// ── layout "flags": the coder works on the table ──────────────────────────────────────────
+// A unit's answers to the block's flag questions (grid.flag, grid.mapping): flagged when given
+// and not what `confirm` would give (the "correct" answer; without confirm: the flag answer).
+function flagQuestions(block) {
+  const g = block.grid || {};
+  return [g.flag && g.flag.question, g.mapping && g.mapping.question].filter(Boolean);
+}
+const given = (v) => !(v === null || v === undefined || v === "");
+export function isFlagged(block, a) {
+  const ok = (block.confirm || {}).answers || {}, g = block.grid || {};
+  return flagQuestions(block).some((q) => given(a[q]) && (q in ok ? String(a[q]) !== String(ok[q]) : String(a[q]) === String(((g.flag || {}).question === q ? g.flag : g.mapping).answer)));
+}
+// every question `confirm` answers that applies to the unit (its `required_when` holds) is
+// answered as confirm would answer it
+function isConfirmed(block, a, row = {}) {
+  const ok = (block.confirm || {}).answers || {};
+  const qs = new Map((block.questions || []).map((q) => [q.name, q]));
+  const apply = Object.keys(ok).filter((n) => { const q = qs.get(n); return !(q && q.required_when) || whereMatch({ ...row, ...a }, q.required_when, {}, null); });
+  return apply.length > 0 && apply.every((n) => String(a[n]) === String(ok[n]));
+}
+
+// A mapping part's flag: every cell it covers gets the mapping's flag answer, and — when the
+// grid names a note question (`grid.mapping.note`) — "wrong: <part>" in its note, so the record
+// says which part was wrong (and the part shows flagged, not every part of those cells). Taking
+// it back removes that line; the flag answer stays while another part of the cell is still named.
+const wrongTag = (text) => `wrong: ${text}`;
+export function partFlagItems(block, pairs, answers, text, off) {
+  const m = (block.grid || {}).mapping || {};
+  const tag = wrongTag(text);
+  return pairs.map(([rid, unit]) => {
+    const a = answersAt(answers, rid || null, unit);
+    if (!m.note) return { record_id: rid || null, unit, answers: { [m.question]: off ? null : m.answer } };
+    const lines = String(a[m.note] || "").split("\n").map((x) => x.trim()).filter(Boolean);
+    const rest = lines.filter((x) => x !== tag);
+    const note = off ? rest : (lines.includes(tag) ? lines : [...lines, tag]);
+    const still = note.some((x) => x.startsWith("wrong: "));
+    return { record_id: rid || null, unit, answers: { [m.question]: off && !still ? null : m.answer, [m.note]: note.length ? note.join("\n") : null } };
+  });
+}
+export function partFlagged(block, a, text) {
+  const m = (block.grid || {}).mapping || {};
+  if (!m.question || String(a[m.question]) !== String(m.answer)) return false;
+  return !m.note || String(a[m.note] || "").split("\n").map((x) => x.trim()).includes(wrongTag(text));
+}
+
+// What "everything else correct" sends: every unit's `confirm.answers` for the questions it has not
+// answered — the coder's added units too (a question whose `required_when` does not hold for the
+// unit is left alone) — and `confirm.paper` on the paper where still open.
+export function confirmItems(block, units, answers, data, sampled = null) {
+  const conf = block.confirm || {};
+  const qs = new Map((block.questions || []).map((q) => [q.name, q]));
+  const pm = (data && data.paper_metadata) || {};
+  const items = [];
+  for (const u of units) {
+    const a = answersAt(answers, u.record_id, u.key), set = {};
+    for (const [qn, v] of Object.entries(conf.answers || {})) {
+      if (given(a[qn])) continue;
+      const q = qs.get(qn);
+      if (q && q.required_when && !whereMatch({ ...(u.row || {}), ...a }, q.required_when, pm, sampled)) continue;
+      set[qn] = v;
+    }
+    if (Object.keys(set).length) items.push({ record_id: u.record_id || null, unit: u.key, answers: set });
+  }
+  const pa = answersAt(answers, null, ""), pset = {};
+  for (const [qn, v] of Object.entries(conf.paper || {})) if (!given(pa[qn])) pset[qn] = v;
+  if (Object.keys(pset).length) items.push({ record_id: null, unit: "", answers: pset });
+  return items;
+}
+// a block's units, drawn and added, as blockHtml sees them
+export function blockUnits(block, data, vm, answers, sampled = null) {
+  return [...unitRows(block, data, vm, sampled), ...addedUnits(block, answers, vm)];
+}
+
+// The mapping consolidated onto the table: each placed cell's mapping text split into its parts
+// (`sep`), and each part shown once where it holds — over every cited cell, a panel's, a column's
+// or a row's (a column wins a tie unless only its rows hold more than one cell) — else in the cell.
+// cells [{key, pi, ri, ci, text}] → {global, panel: {pi}, column: {"pi:ci"}, row: {"pi:ri"}, cell:
+// {key}}, each a list of {text, keys}.
+export function consolidateMapping(cells, sep) {
+  const out = { global: [], panel: {}, column: {}, row: {}, cell: {} };
+  const parts = cells.map((c) => String(c.text == null ? "" : c.text).split(sep).map((x) => x.trim()));
+  const K = Math.max(0, ...parts.map((p) => p.length));
+  const groupBy = (f) => { const m = new Map(); cells.forEach((c, i) => { const k = f(c); if (!m.has(k)) m.set(k, []); m.get(k).push(i); }); return m; };
+  const panels = groupBy((c) => `${c.pi}`), cols = groupBy((c) => `${c.pi}:${c.ci}`), rows = groupBy((c) => `${c.pi}:${c.ri}`);
+  const shares = (groups, k) => [...groups.values()].every((ix) => ix.every((i) => (parts[i][k] || "") === (parts[ix[0]][k] || "")));
+  const busy = (groups) => [...groups.values()].some((ix) => ix.length > 1);
+  const put = (bucket, key, k, ix) => { const t = parts[ix[0]][k] || ""; if (!t) return; (bucket[key] = bucket[key] || []).push({ text: t, keys: ix.map((i) => cells[i].key) }); };
+  for (let k = 0; k < K; k++) {
+    const all = cells.map((_, i) => i);
+    if (cells.length && shares(new Map([["*", all]]), k)) { const t = parts[0][k] || ""; if (t) out.global.push({ text: t, keys: cells.map((c) => c.key) }); continue; }
+    if (panels.size > 1 && shares(panels, k)) { for (const [key, ix] of panels) put(out.panel, key, k, ix); continue; }
+    const colOK = shares(cols, k), rowOK = shares(rows, k);
+    if (colOK && (!rowOK || !(busy(rows) && !busy(cols)))) { for (const [key, ix] of cols) put(out.column, key, k, ix); continue; }
+    if (rowOK) { for (const [key, ix] of rows) put(out.row, key, k, ix); continue; }
+    cells.forEach((c, i) => put(out.cell, c.key, k, [i]));
+  }
+  return out;
+}
+
 // The grid above a block's rows: per exhibit its transcription laid out as printed (a header row
-// per panel, the row labels down the side), each placed unit's cell marked with its row number
-// (a click goes to that row), its "(SE)" line beneath lightly marked; a unit the transcription has
-// no cell for is named under the grid. Nothing for an exhibit without a pipe table (a figure).
+// per panel, the row labels down the side), each placed unit's cell marked with its row number,
+// its "(SE)" line beneath lightly marked; a unit the transcription has no cell for is named under
+// the grid. Nothing for an exhibit without a pipe table (a figure). Layout "rows": a click goes to
+// the unit's row. Layout "flags" (the coder's): a cited cell's click flags its value, a mapping
+// part's (`grid.mapping`, consolidated) flags every cell it covers, a click on any other cell adds
+// it as a missed unit (its panel, row, column and value filled in); a cell shows ✓ once confirmed.
+// Returns {html, placed: Set of keys drawn in a grid}.
 function gridHtml(block, units, num, ctx) {
   const g = block.grid || {};
+  const flags = block.layout === "flags", live = flags && ctx.editable;
   const byId = new Map();
   for (const u of units) {
     if (u.added) continue;
@@ -242,37 +346,94 @@ function gridHtml(block, units, num, ctx) {
     if (!byId.has(id)) byId.set(id, []);
     byId.get(id).push(u);
   }
+  const added = units.filter((u) => u.added);
+  const ans = (u) => answersAt(ctx.answers, u.record_id, u.key);
+  const placedAll = new Set();
   let html = "";
   for (const [id, us] of byId) {
     const tr = transcriptionFor(id, ctx.items);
     if (!tr) continue;
     const t = parseTableMarkdown(tr.text);
     if (!t.panels.some((p) => p.header && p.rows.length)) continue;
-    const { at, se, unplaced } = placeCells(t, us.map((u) => ({ key: u.key, panel: g.panel ? (u.row || {})[g.panel] : null, row: (u.row || {})[g.row], column: (u.row || {})[g.column] })));
+    const coords = (u) => ({ key: u.key, panel: g.panel ? (u.row || {})[g.panel] : null, row: (u.row || {})[g.row], column: (u.row || {})[g.column] });
+    const { at, se, unplaced } = placeCells(t, us.map(coords));
+    const missedAt = flags ? placeCells(t, added.map(coords)).at : {};
     const byKey = new Map(us.map((u) => [u.key, u]));
+    const pos = new Map(Object.entries(at).map(([spot, k]) => { const [pi, ri, ci] = spot.split(":").map(Number); return [k, { pi, ri, ci }]; }));
+    pos.forEach((_, k) => placedAll.add(k));
+    const mp = flags && g.mapping ? consolidateMapping([...pos].map(([k, p]) => ({ key: k, ...p, text: (byKey.get(k).row || {})[g.mapping.field] })).filter((c) => given(c.text)), g.mapping.sep) : null;
+    const mq = g.mapping && g.mapping.question, mBad = g.mapping && g.mapping.answer;
+    const chip = (part) => {
+      const bad = !!mq && part.keys.every((k) => partFlagged(block, ans(byKey.get(k)), part.text));     // every cell it covers flagged for this part
+      const n = part.keys.length;
+      if (!live) return `<span class="tq-part${bad ? " tq-part-bad" : ""}">${esc(part.text)}</span>`;
+      const units_ = JSON.stringify(part.keys.map((k) => [byKey.get(k).record_id || "", k]));
+      return `<button type="button" class="tq-part${bad ? " tq-part-bad" : ""}" data-units="${esc(units_)}" data-part="${esc(part.text)}" title="${esc(bad ? `flagged as a wrong mapping for ${n} cell${n === 1 ? "" : "s"} — click to take the flag back` : `click if this mapping is wrong — flags the ${n} cell${n === 1 ? "" : "s"} it covers`)}">${esc(part.text)}</button>`;
+    };
+    const chips = (list) => (list || []).map(chip).join("");
     const width = Math.max(...t.panels.map((p) => Math.max(p.header ? p.header.length : 0, ...p.rows.map((r) => r.length))));
     const many = t.panels.length > 1;
     const body = t.panels.map((p, pi) => {
-      let out = many || (p.label && p.label !== t.caption) ? `<tr class="tq-gp"><td colspan="${width}">${esc(p.label || `Panel ${pi + 1}`)}</td></tr>` : "";
-      if (p.header) out += `<tr class="tq-gh">${p.header.map((h, ci) => `<th${ci ? "" : ` class="tq-grl"`}>${esc(h)}</th>`).join("")}</tr>`;
+      const rowMap = mp ? p.rows.map((_, ri) => mp.row[`${pi}:${ri}`]) : [];
+      const hasRowMap = rowMap.some((x) => x && x.length);
+      const colMap = mp ? (p.header || []).map((_, ci) => mp.column[`${pi}:${ci}`]) : [];
+      const hasColMap = colMap.some((x) => x && x.length);
+      const w = width + (hasRowMap ? 1 : 0);
+      const label = p.label || `Panel ${pi + 1}`;
+      const pchips = mp ? chips(mp.panel[`${pi}`]) : "";
+      let out = many || (p.label && p.label !== t.caption) || pchips ? `<tr class="tq-gp"><td colspan="${w}">${esc(label)}${pchips ? ` <span class="tq-gp-map">→ ${pchips}</span>` : ""}</td></tr>` : "";
+      if (p.header) out += `<tr class="tq-gh">${p.header.map((h, ci) => `<th${ci ? "" : ` class="tq-grl"`}>${esc(h)}</th>${!ci && hasRowMap ? `<th class="tq-grmap-h">mapped to</th>` : ""}`).join("")}</tr>`;
+      if (hasColMap) out += `<tr class="tq-gmaprow">${(p.header || []).map((_, ci) => ci ? `<td class="tq-gmap">${chips(colMap[ci])}</td>` : `<th class="tq-grl tq-gmap-k">mapped to</th>${hasRowMap ? "<td></td>" : ""}`).join("")}</tr>`;
+      const panelName = p.labels.length ? p.labels[p.labels.length - 1] : "";
       out += p.rows.map((r, ri) => `<tr>${r.map((c, ci) => {
-        if (!ci) return `<th class="tq-grl">${esc(c)}</th>`;
-        const k = at[`${pi}:${ri}:${ci}`], ks = se[`${pi}:${ri}:${ci}`];
+        if (!ci) return `<th class="tq-grl">${esc(c)}</th>${hasRowMap ? `<td class="tq-grmap">${chips(rowMap[ri])}</td>` : ""}`;
+        const spot = `${pi}:${ri}:${ci}`, k = at[spot], ks = se[spot];
         if (k) {
-          const u = byKey.get(k), tip = g.tip ? fill(g.tip, u.row || {}) : "";
-          return `<td class="tq-gc tq-cited" data-unit="${esc(k)}" title="${esc(`row ${num.get(k)}${tip ? ` · ${tip}` : ""} — click: its answers`)}">${esc(c)}<sup>${num.get(k)}</sup></td>`;
+          const u = byKey.get(k), a = ans(u), tip = g.tip ? fill(g.tip, u.row || {}) : "";
+          const st = flags ? (isFlagged(block, a) ? " tq-bad" : isConfirmed(block, a, u.row || {}) ? " tq-ok" : "") : "";
+          const cparts = mp ? chips(mp.cell[k]) : "";
+          const what = live ? (st === " tq-bad" ? "flagged — click: its row below" : "click if this value is wrong") : "click: its answers";
+          return `<td class="tq-gc tq-cited${st}" data-unit="${esc(k)}"${live ? ` data-act="value"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}` : ""} title="${esc(`row ${num.get(k)}${tip ? ` · ${tip}` : ""} — ${what}`)}">${esc(c)}<sup>${num.get(k)}</sup>${cparts ? `<div class="tq-cparts">${cparts}</div>` : ""}</td>`;
         }
-        return `<td class="tq-gc${ks ? " tq-cited-se" : ""}"${ks ? ` data-unit="${esc(ks)}"` : ""}>${esc(c)}</td>`;
+        if (ks) return `<td class="tq-gc tq-cited-se" data-unit="${esc(ks)}"${live ? ` data-act="value"` : ""}>${esc(c)}</td>`;
+        const mk = missedAt[spot];
+        if (mk) return `<td class="tq-gc tq-missed" data-unit="${esc(mk)}" title="${esc(`added as a cell the extraction missed (row ${num.get(mk)})`)}">${esc(c)}<sup>${num.get(mk)}</sup></td>`;
+        if (live && c !== "" && !/\(se\)\s*$/i.test(r[0] || ""))
+          return `<td class="tq-gc tq-free" data-act="missed" data-panel="${esc(panelName)}" data-row="${esc(r[0])}" data-col="${esc((p.header || [])[ci] || "")}" data-val="${esc(c)}" title="click if the extraction missed this cell (an estimate it should have read)">${esc(c)}</td>`;
+        return `<td class="tq-gc">${esc(c)}</td>`;
       }).join("")}</tr>`).join("");
       return out;
     }).join("");
     const lost = unplaced.map((k) => num.get(k)).filter(Boolean);
-    html += `<div class="tq-grid" data-exhibit="${esc(id)}"><div class="tq-grid-cap">${esc(t.caption || id)} <span class="muted">· as transcribed, the cited cells numbered as their rows below</span></div>`
+    const lead = flags ? (live ? "click a wrong value, a wrong mapping or a cell the extraction missed" : "as transcribed, the cited cells numbered") : "as transcribed, the cited cells numbered as their rows below";
+    html += `<div class="tq-grid" data-exhibit="${esc(id)}"><div class="tq-grid-cap">${esc(t.caption || id)} <span class="muted">· ${lead}</span></div>`
+      + (mp && mp.global.length ? `<div class="tq-map-all"><span class="muted">every cited cell is mapped to</span> ${chips(mp.global)}</div>` : "")
       + `<div class="tq-gridwrap"><table class="tq-gridt"><tbody>${body}</tbody></table></div>`
-      + (lost.length ? `<div class="tq-grid-note muted">row${lost.length === 1 ? "" : "s"} ${lost.join(", ")} not found in the transcription's grid (check ${lost.length === 1 ? "it" : "them"} against the PDF)</div>` : "")
+      + (lost.length ? `<div class="tq-grid-note muted">row${lost.length === 1 ? "" : "s"} ${lost.join(", ")} not found in the transcription's grid (check ${lost.length === 1 ? "it" : "them"} against the PDF${flags ? ", below" : ""})</div>` : "")
       + `</div>`;
   }
-  return html;
+  return { html, placed: placedAll };
+}
+
+// layout "flags": the grid, then "everything else correct" with the tally, then as rows only what
+// needs words — the flagged units, the ones the coder added, any the grid could not place. The
+// owner (and a figure, which has no grid) gets the grid and every unit as a row.
+function flagsHtml(block, units, num, ctx, rowsArgs) {
+  const grid = gridHtml(block, units, num, ctx);
+  if (!ctx.editable || !grid.placed.size) return grid.html + rowsHtml(block, units, num, ctx, ...rowsArgs);
+  const own = units.filter((u) => !u.added);
+  const flagged = own.filter((u) => isFlagged(block, answersAt(ctx.answers, u.record_id, u.key)));
+  const done = own.filter((u) => isConfirmed(block, answersAt(ctx.answers, u.record_id, u.key), u.row || {}));
+  const added = units.filter((u) => u.added);
+  const listed = units.filter((u) => u.added || !grid.placed.has(u.key) || flagged.includes(u));
+  const open = own.length - done.length - flagged.length;
+  const conf = block.confirm;
+  const bar = `<div class="tq-flagbar">`
+    + (conf ? `<button type="button" class="btn tq-confirm"${open > 0 || (conf.paper && confirmItems(block, [], ctx.answers, ctx.data).length) ? "" : " disabled"} title="every cell you have not flagged: value and mapping right${conf.paper ? "; and the paper needs no full review, unless you said otherwise" : ""}">✓ ${esc(conf.label || "Everything else correct")}</button>` : "")
+    + `<span class="tq-flagsum muted">${own.length} cited · ${done.length} confirmed · ${flagged.length} flagged · ${added.length} missed${open > 0 ? ` · <b>${open} open</b>` : ""}</span></div>`;
+  const rows = listed.length ? `<div class="tq-flag-h">Flagged and added <span class="muted">— say what is wrong; a value: type it as printed</span></div>` + rowsHtml(block, listed, num, { ...ctx, unflag: true }, ...rowsArgs)
+    : `<div class="tq-flag-none muted">Nothing flagged. Click a wrong value or mapping in the table, or a cell the extraction missed; then ✓ ${esc((conf || {}).label || "Everything else correct")}.</div>`;
+  return grid.html + bar + rows;
 }
 
 // The block's `columns` as [{label, fields, wide}]: a name, a list of names (stacked in one cell),
@@ -315,7 +476,8 @@ function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
         + defs.map((f, k) => `<div class="${k ? "tq-sub" : ""}">${renderFieldControl(f, (u.row || {})[f.name], u.base ? `${u.base}.${f.name}` : f.name, { editable: shownEditable })}</div>`).join("") + `</td>`;
     };
     return `<tr class="tq-unit tq-row${u.added ? " tq-added" : ""}" data-unit="${esc(u.key)}"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}>`
-      + `<td class="tq-n">${num.get(u.key) || ""} ${citeTag(u, ctx.evidence)}${u.added && ctx.editable ? `<button type="button" class="tq-del" title="remove this added unit and its answers">✕</button>` : ""}</td>`
+      + `<td class="tq-n">${num.get(u.key) || ""} ${citeTag(u, ctx.evidence)}${u.added && ctx.editable ? `<button type="button" class="tq-del" title="remove this added unit and its answers">✕</button>` : ""}`
+      + `${ctx.unflag && !u.added && ctx.editable && isFlagged(block, a) ? `<button type="button" class="tq-unflag" title="not wrong after all: take the flags back">✕</button>` : ""}</td>`
       + cols.map(cell).join("")
       + qdefs.map((q) => `<td class="tq-q rv-root">${renderFieldControl(q, a[q.name], q.name, { editable: ctx.editable })}</td>`).join("")
       + (ctx.owner && qdefs.length ? `<td class="tq-by">${byCoderHtml(qdefs, ctx.byCoder, u.record_id, u.key)}</td>` : "")
@@ -325,7 +487,7 @@ function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
 }
 
 // One block: its label and help, then a card per unit (layout "rows": a table, a row per unit;
-// `grid`: the exhibit as printed above it). ctx: {data, vm, answers, byCoder, editable, owner,
+// `grid`: the exhibit as printed above it; layout "flags": the grid is where the coder works). ctx: {data, vm, answers, byCoder, editable, owner,
 // evidence, sampled, items (the items table's rows, for a grid)}
 export function blockHtml(block, ctx) {
   const { data, vm } = ctx;
@@ -338,9 +500,11 @@ export function blockHtml(block, ctx) {
   const label = block.label || (uk && uk.kind === "paper" ? "" : formatKey(unitLabel(block.unit)));
   let html = `<div class="tq-block" data-unit="${esc(unitLabel(block.unit))}">${label ? `<div class="tq-block-h">${esc(label)}${units.length > 1 ? ` <span class="muted">(${units.length})</span>` : ""}</div>` : ""}${block.help ? `<div class="tq-block-help">${esc(block.help)}</div>` : ""}`;
   if (!units.length) html += `<div class="tq-empty">none in this paper</div>`;
-  if (block.layout === "rows" && units.length) {
+  if ((block.layout === "rows" || block.layout === "flags") && units.length) {
     const num = new Map(units.map((u, i) => [u.key, i + 1]));
-    html += (block.grid ? gridHtml(block, units, num, ctx) : "") + rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs);
+    const rowsArgs = [fields, showDefs, qdefs, addDefs];
+    html += block.layout === "flags" ? flagsHtml(block, units, num, ctx, rowsArgs)
+      : (block.grid ? gridHtml(block, units, num, ctx).html : "") + rowsHtml(block, units, num, ctx, ...rowsArgs);
     if (block.add && ctx.editable) html += `<div class="rv-tableadd"><button type="button" class="tq-add" data-unit="${esc(unitLabel(block.unit))}" title="a unit the paper has and the list lacks — its answers are yours">＋ ${esc(block.add.label || unitLabel(block.unit).replace(/s$/, ""))}</button></div>`;
     return html + `</div>`;
   }
