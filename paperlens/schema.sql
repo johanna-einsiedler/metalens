@@ -892,6 +892,23 @@ CREATE TABLE IF NOT EXISTS workflow_assignment (             -- which coder revi
     UNIQUE (step_run_id, document_id, coder_user_id)
 );
 CREATE INDEX IF NOT EXISTS workflow_assignment_coder_idx ON workflow_assignment(coder_user_id);
+CREATE TABLE IF NOT EXISTS review_plant (                   -- a PLANTED ERROR: an attention check shown to one coder on one paper (paperlens/plants.py)
+    id            uuid PRIMARY KEY,
+    run_id        uuid NOT NULL REFERENCES workflow_run(id) ON DELETE CASCADE,
+    step_run_id   uuid NOT NULL REFERENCES workflow_step_run(id) ON DELETE CASCADE,
+    step_id       text NOT NULL,
+    document_id   uuid NOT NULL REFERENCES extraction_document(id) ON DELETE CASCADE,
+    coder_user_id uuid NOT NULL,
+    template      text NOT NULL,                              -- the template whose answers say whether it was caught
+    unit          text NOT NULL,                              -- the unit shown altered (exhibit_cells#<_rid>)
+    kind          text NOT NULL,                              -- value | mapping
+    field         text NOT NULL,                              -- the unit's field shown altered
+    question      text NOT NULL,                              -- the question whose first answer catches it (not the confirm answer) or misses it
+    original      text,
+    planted       text NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (step_run_id, document_id, coder_user_id)
+);
 -- a PROJECT RELEASE: every linked dataset released under its own number (members), the workflow and
 -- the run behind them, the review statistics per task and coder, one badge over all — one number per project
 CREATE TABLE IF NOT EXISTS project_release (

@@ -390,7 +390,9 @@ function gridHtml(block, units, num, ctx) {
         const spot = `${pi}:${ri}:${ci}`, k = at[spot], ks = se[spot];
         if (k) {
           const u = byKey.get(k), a = ans(u), tip = g.tip ? fill(g.tip, u.row || {}) : "";
-          const st = flags ? (isFlagged(block, a) ? " tq-bad" : isConfirmed(block, a, u.row || {}) ? " tq-ok" : "") : "";
+          if (g.value && given((u.row || {})[g.value])) c = String(u.row[g.value]);       // the value the extraction read (what is checked)
+          const caught = (ctx.caught || []).some((x) => x.unit === k);
+          const st = (flags ? (isFlagged(block, a) ? " tq-bad" : isConfirmed(block, a, u.row || {}) ? " tq-ok" : "") : "") + (caught ? " tq-caught" : "");
           const cparts = mp ? chips(mp.cell[k]) : "";
           const what = live ? (st === " tq-bad" ? "flagged — click: its row below" : "click if this value is wrong") : "click: its answers";
           return `<td class="tq-gc tq-cited${st}" data-unit="${esc(k)}"${live ? ` data-act="value"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}` : ""} title="${esc(`row ${num.get(k)}${tip ? ` · ${tip}` : ""} — ${what}`)}">${esc(c)}<sup>${num.get(k)}</sup>${cparts ? `<div class="tq-cparts">${cparts}</div>` : ""}</td>`;
@@ -477,7 +479,10 @@ function rowsHtml(block, units, num, ctx, fields, showDefs, qdefs, addDefs) {
     };
     return `<tr class="tq-unit tq-row${u.added ? " tq-added" : ""}" data-unit="${esc(u.key)}"${u.record_id ? ` data-rid="${esc(u.record_id)}"` : ""}>`
       + `<td class="tq-n">${num.get(u.key) || ""} ${citeTag(u, ctx.evidence)}${u.added && ctx.editable ? `<button type="button" class="tq-del" title="remove this added unit and its answers">✕</button>` : ""}`
-      + `${ctx.unflag && !u.added && ctx.editable && isFlagged(block, a) ? `<button type="button" class="tq-unflag" title="not wrong after all: take the flags back">✕</button>` : ""}</td>`
+      + `${ctx.unflag && !u.added && ctx.editable && isFlagged(block, a) ? `<button type="button" class="tq-unflag" title="not wrong after all: take the flags back">✕</button>` : ""}`
+      + (ctx.caught || []).filter((x) => x.unit === u.key).map((x) => `<span class="tq-caught-tag" title="${esc(`one of the planted checks: the ${x.kind === "mapping" ? "mapping" : "value"} was shown as “${x.shown}” — well spotted, nothing to correct`)}">planted check ✓</span>`).join("")
+      + (ctx.plants || []).filter((p) => p.unit === u.key).map((p) => `<span class="tq-plant tq-plant-${esc(p.status)}" title="${esc(`planted for ${p.coder}: the ${p.field} shown as “${p.planted}” (it is “${p.original}”) — ${p.status}`)}">planted · ${esc(p.coder)} ${p.status === "caught" ? "✓" : p.status === "missed" ? "✗" : "…"}</span>`).join("")
+      + `</td>`
       + cols.map(cell).join("")
       + qdefs.map((q) => `<td class="tq-q rv-root">${renderFieldControl(q, a[q.name], q.name, { editable: ctx.editable })}</td>`).join("")
       + (ctx.owner && qdefs.length ? `<td class="tq-by">${byCoderHtml(qdefs, ctx.byCoder, u.record_id, u.key)}</td>` : "")
@@ -493,7 +498,10 @@ export function blockHtml(block, ctx) {
   const { data, vm } = ctx;
   const uk = unitKind(block.unit, vm);
   const fields = unitFields(uk, vm);
-  const units = [...unitRows(block, data, vm, ctx.sampled), ...addedUnits(block, ctx.answers, vm)];
+  // what the task shows in place of a unit's value (`task.shown`, paperlens/plants.py): drawn, never saved
+  const shown = new Map((ctx.shown || []).map((s) => [s.unit, s]));
+  const units = [...unitRows(block, data, vm, ctx.sampled), ...addedUnits(block, ctx.answers, vm)]
+    .map((u) => (shown.has(u.key) ? { ...u, row: { ...(u.row || {}), [shown.get(u.key).field]: shown.get(u.key).value } } : u));
   const showDefs = (block.show || []).map((n) => fields.get(n)).filter(Boolean);
   const qdefs = block.questions || [];
   const addDefs = ((block.add || {}).fields || []);

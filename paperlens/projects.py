@@ -100,6 +100,14 @@ def _merge_gates(gates: list[dict]) -> dict:
                 for k in ("total", "checked", "pending", "disagreed", "papers"):
                     a[k] += int(b.get(k) or 0)
         g["by_coder"] = sorted(acc.values(), key=lambda a: a.get("label") or "")
+        if any(x.get("plants") for x in gates):                     # the attention checks, summed per coder over the runs
+            pl: dict[str, dict] = {}
+            for x in gates:
+                for b in x.get("plants") or []:
+                    a = pl.setdefault(b["user_id"], {**b, "planted": 0, "caught": 0, "missed": 0, "open": 0})
+                    for k in ("planted", "caught", "missed", "open"):
+                        a[k] += int(b.get(k) or 0)
+            g["plants"] = sorted(pl.values(), key=lambda a: a.get("label") or "")
         g["assigned"] = all(bool(x.get("assigned")) for x in gates if x.get("coders"))
         g["n_coders"] = max(int(x.get("n_coders") or 0) for x in gates)
         waits = [int(x["needs_coders"]) for x in gates if x.get("needs_coders")]

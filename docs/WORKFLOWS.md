@@ -691,7 +691,25 @@ flagged units (✕ takes the flags back), the added ones, any the grid could not
 questions still open (where their `required_when` holds) and the paper its `paper` answers; the
 cells show ✓ once confirmed. The owner reads the same grid and every unit as a row. The extraction
 check (`genai-work-check`) works so: the drawn table with its mapping, a click per error, then
-"Everything else correct". `blind.fields`
+"Everything else correct".
+
+**Planted errors.** A template with a `flags` block may say `plants: {"share", "seed", "kinds"}`
+(`paperlens/plants.py`): about `share` of each coder's papers show one deliberate error on the
+table — a cited value altered (`value`: two digits swapped, the last digit moved, the sign flipped,
+the stars changed) or one part of a cell's mapping swapped for a part another cited cell of the
+exhibit has (`mapping`). The draw is a function of the seed, the run, the step, the paper and the
+coder, and no plant is drawn on a paper the coder has already answered on. The record is never
+touched: the coder's task view carries the plant beside the data (`task.shown`), the workspace
+draws it from there and never saves it, and for a value the exhibit's transcription in the pane is
+altered to match (the view only). The plant is **caught** when the coder's first answer to its
+question (the value's or the mapping's flag question) is not the answer `confirm` gives, **missed**
+when it is; a catch is told at once (the answer's response carries `caught`, the workspace says
+"well spotted" and shows the cell as it truly is), a miss is not. Plants live in `review_plant`;
+the owner reads them per paper in the owner's task view (`plants`), per coder on the task
+(`gate.plants`: planted, caught, missed, open — never in a coder's queue or project page), and all
+of them through `GET /api/workflow-runs/{id}/plants?step=` — the list an analysis of the answers
+leaves out. `plants` is outside the template's id. The extraction check plants in a third of the
+papers (`share: 0.33`), values and mappings. `blind.fields`
 names the fields whose model values never reach the coder's payload (nor the quotes on them, the
 model's ratings, the items' `bears_on`); `blind.paper_fields: "unshown"` drops every paper field
 no block shows. `evidence: "none"` on a stage lists no items. A question may carry a field's name

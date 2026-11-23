@@ -3847,7 +3847,8 @@ function taskCellsBlock(st, recs) {
   box.innerHTML = `<div class="evi-sub stg-head">Fields</div>` + (st.blocks || []).map((bl) => blockHtml(bl, {
     data: DATA, vm: VM, answers: DATA.answers || {}, byCoder: DATA.answers_by_coder || null, editable: CODER && !RO, owner: !CODER,
     evidence: DATA.evidence || [], sampled: DATA.task.sampled || null,               // sampled: a row review's drawn rows of this paper
-    items: itemRows(DATA, (DATA.template || {}).items) })).join("");                // a grid's transcriptions
+    items: itemRows(DATA, (DATA.template || {}).items),                             // a grid's transcriptions
+    shown: DATA.task.shown || [], caught: DATA.task.caught || [], plants: DATA.plants || [] })).join("");   // attention checks (paperlens/plants.py)
   return box;
 }
 function keepAnswers(unitKey, recId, answers) {                  // the server's answers on one unit, into DATA
@@ -3859,13 +3860,35 @@ async function saveAnswer(unitKey, recId, values) {
   const r = await api.answers(DATA.document_id, { task: taskKey(), record_id: recId || null, unit: unitKey, answers: values });
   keepAnswers(unitKey, recId, r.answers);
   updateTaskOwed();
+  if (r.caught && r.caught.length) noteCaught(r.caught);
   return r;
+}
+// An attention check just caught (paperlens/plants.py): the cell is shown as it truly is again,
+// the transcription in the pane too, and the coder is told — nothing to correct there.
+async function noteCaught(caught) {
+  const units = new Set(caught.map((c) => c.unit));
+  DATA.task.shown = (DATA.task.shown || []).filter((s) => !units.has(s.unit));
+  DATA.task.caught = [...(DATA.task.caught || []).filter((c) => !units.has(c.unit)), ...caught];
+  toast("✓ Well spotted — that was one of the planted checks. Nothing to correct there.");
+  try {
+    const fresh = await api.documentView(DOCID, VIEW_AS, QUEUE && QUEUE.task ? QUEUE.task : null);
+    const items = (DATA.template || {}).items;
+    if (items && fresh && fresh.paper_metadata && DATA.document_id === fresh.document_id) DATA.paper_metadata = { ...DATA.paper_metadata, [items]: fresh.paper_metadata[items] };
+  } catch { /* the cell already shows truly; the pane follows on the next load */ }
+  rerenderKeep();
+}
+function toast(text) {
+  const t = document.createElement("div"); t.className = "tq-toast"; t.textContent = text;
+  document.body.appendChild(t);
+  setTimeout(() => t.classList.add("tq-toast-out"), 5200);
+  setTimeout(() => t.remove(), 6000);
 }
 // several units in one request (all land or none); `via` names how ("confirm": the one-click "everything else correct")
 async function saveAnswers(items, via = null) {
   const r = await api.answers(DATA.document_id, { task: taskKey(), items, ...(via ? { via } : {}) });
   for (const out of r.items || []) keepAnswers(out.unit, out.record_id, out.answers);
   updateTaskOwed();
+  if (r.caught && r.caught.length) noteCaught(r.caught);
   return r;
 }
 function wireTaskPanel(panel, recs) {

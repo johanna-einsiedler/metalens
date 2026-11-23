@@ -11,6 +11,9 @@ never on the record. A preset's ``display.review`` keeps working as its implicit
   * ``blind``     — fields whose model values never reach the coder's payload (``fields``), and
                     whether every paper field no block shows is dropped (``paper_fields: "unshown"``)
   * ``stages``    — ordered; each ``{id, label, help, evidence, blocks}``
+  * ``plants``    — attention checks (paperlens/plants.py): ``{share, seed, kinds}`` — about ``share``
+                    of a coder's papers show one deliberate error (``value``, ``mapping``) on the
+                    table of the template's ``layout: "flags"`` block; never on the record
   * ``blocks``    — ``{unit, label, help, show, title, marks, group_by_entry, where, only_sampled,
                     mask_numbers, stack, questions, add, sections, inline, layout, columns, grid,
                     confirm}`` — ``layout: "rows"`` draws the units as one table (a row each, the
@@ -52,7 +55,8 @@ WHERE_OPS = ("eq", "in", "not_in", "not_null", "null", "gt", "gte", "lt", "lte",
 IDENTITY = ("title", "doi", "year", "authors", "journal")           # the paper's identity: always a paper unit's fields
 
 _ALLOWED = {
-    "root": {"format", "id", "version", "meta", "for", "layout", "items", "verify", "blind", "stages"},
+    "root": {"format", "id", "version", "meta", "for", "layout", "items", "verify", "blind", "stages", "plants"},
+    "plants": {"share", "seed", "kinds"},
     "meta": {"title", "tagline", "description", "hidden", "brands"},
     "blind": {"fields", "paper_fields"},
     "stage": {"id", "label", "help", "evidence", "blocks"},
@@ -318,6 +322,29 @@ def validate(tpl: dict, pspec: dict | None = None, *, resolver: Callable[[str], 
             _validate_block(bl, f"{at}.blocks[{j}]", pspec, E, W, blind=bf)
             if isinstance(bl, dict) and bl.get("grid") is not None and not tpl.get("items"):
                 E(f"{at}.blocks[{j}].grid reads the exhibit's transcription from the template's items table: name it in $.items")
+    pl = tpl.get("plants")
+    if pl is not None:
+        flags_bl = next((bl for st in stages if isinstance(st, dict) for bl in st.get("blocks") or [] if isinstance(bl, dict) and bl.get("layout") == "flags"), None)
+        if not isinstance(pl, dict):
+            E("$.plants must be {share, seed, kinds}")
+        else:
+            unknown(pl, "plants", "$.plants")
+            sh = pl.get("share")
+            if not (isinstance(sh, (int, float)) and not isinstance(sh, bool) and 0 < sh <= 1):
+                E("$.plants.share must be a number above 0 and at most 1 (the share of a coder's papers with a planted error)")
+            if not (isinstance(pl.get("seed"), str) and pl["seed"]):
+                E("$.plants.seed must be a string (the draw's seed)")
+            kinds = pl.get("kinds", ["value", "mapping"])
+            if not isinstance(kinds, list) or not kinds or any(k not in ("value", "mapping") for k in kinds):
+                E("$.plants.kinds must list 'value' and/or 'mapping'")
+            if flags_bl is None:
+                E("$.plants needs a block with layout 'flags': the errors are planted on its table")
+            elif isinstance(kinds, list):
+                g = flags_bl.get("grid") if isinstance(flags_bl.get("grid"), dict) else {}
+                if "value" in kinds and not g.get("value"):
+                    E("$.plants: a 'value' plant needs grid.value (the field holding the printed value)")
+                if "mapping" in kinds and not isinstance(g.get("mapping"), dict):
+                    E("$.plants: a 'mapping' plant needs grid.mapping")
     paper_qs = {q["name"]: q for st in stages if isinstance(st, dict) for bl in st.get("blocks") or []
                 if isinstance(bl, dict) and bl.get("unit") == "paper" for q in bl.get("questions") or [] if isinstance(q, dict) and isinstance(q.get("name"), str)}
     for i, st in enumerate(stages):

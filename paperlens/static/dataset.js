@@ -785,6 +785,7 @@ function renderWorkflowCard(host, w) {
     const coders = st.gate && st.gate.coders
       ? (st.gate.needs_coders ? ` <span class="muted">· waits for ${st.gate.needs_coders} coders per paper (${st.gate.n_coders || 0} added${mine ? ", see Coders below" : ""})</span>`
         : ` <span class="muted">· by coder: ${(st.gate.by_coder || []).map((b) => mine ? `<a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}&coder=${esc(b.user_id)}" title="this coder's queue, read-only">${esc(b.label)}</a> ${b.checked}/${b.total}` : `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}</span>`)
+        + (mine ? plantsLine(st.gate.plants) : "")
       : "";
     const me = w.viewer_coder, mineGate = me && st.gate && st.gate.coders ? (st.gate.by_coder || []).find((b) => b.user_id === me.user_id) : null;
     const codeNow = mineGate && mineGate.pending ? ` <a href="/workspace?queue=${esc(st.gate.run_id)}:${esc(st.id)}"><b>code your ${mineGate.pending} →</b></a>` : "";
@@ -1102,6 +1103,13 @@ async function loadProjectReleases() {
   }).join("") + (r.head && r.head.changed ? `<p class="muted" style="margin:4px 0 0;font-size:12.5px">The project moved since v${list[0].number}.</p>` : "");
 }
 
+// the attention checks of a task (paperlens/plants.py): per coder, the planted errors caught of
+// those they have answered, and how many still wait for an answer — the owner's line only
+function plantsLine(pl) {
+  if (!Array.isArray(pl) || !pl.length) return "";
+  return ` · <span title="planted errors (attention checks): caught of those the coder has answered; + open: shown, not answered yet">attention checks: ${pl.map((b) => `${esc(b.label)} ${b.caught}/${b.caught + b.missed}${b.open ? ` (+${b.open} open)` : ""}`).join(", ")}</span>`;
+}
+
 // ── the review tasks of a project's latest run: each task's template and datasets, its gate, and
 // who reviews which paper (the owner moves a paper between coders until a verdict was given) ──
 async function loadTasks() {
@@ -1119,7 +1127,8 @@ async function loadTasks() {
     const prog = (g.total ? `${g.checked} of ${g.total} checked${g.disagreed ? `, ${g.disagreed} disagreed` : ""}` : g.mode ? "nothing to check" : "not opened yet")
       + (nRuns > 1 ? ` · over ${nRuns} runs` : "");
     const mine = myId && (g.by_coder || []).find((b) => b.user_id === myId);
-    const people = (g.by_coder || []).length ? ` · by coder: ${g.by_coder.map((b) => `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}` : "";
+    const people = ((g.by_coder || []).length ? ` · by coder: ${g.by_coder.map((b) => `${esc(b.label)} ${b.checked}/${b.total}`).join(", ")}` : "")
+      + (OWNER ? plantsLine(g.plants) : "");
     const waits = g.needs_coders ? ` · <span class="badge tier-sample_verified">waits for ${g.needs_coders} coders per paper</span>` : "";
     // the owner's hand on the task: how many of the project's people review each paper, over the workflow's number
     const cfgN = t.config && typeof t.config.coders === "number" ? t.config.coders : null;
