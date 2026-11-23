@@ -1377,6 +1377,47 @@ def pdf_to_highlighted_images(
     return images
 
 
+class _CachedPage:
+    """A page whose text layers are built once per set of flags. A fitz ``search_for`` or
+    ``get_text`` reads the page's content stream into a new TextPage on every call — some 25 ms
+    on a page drawn with many vector paths — and locating a paper's quotes makes thousands of
+    them (each quote's candidates on its page, twice each; the fallbacks across every page): 896
+    quotes over eight such pages took more than half an hour. The results are the page's own —
+    the TextPage the call would have built (same flags, no clip), kept. Anything else (a clip,
+    rendering, images) goes to the page itself."""
+
+    __slots__ = ("page", "_tps")
+
+    def __init__(self, page):
+        self.page, self._tps = page, {}
+
+    def _tp(self, flags: int):
+        tp = self._tps.get(flags)
+        if tp is None:
+            tp = self._tps[flags] = self.page.get_textpage(flags=flags)
+        return tp
+
+    def search_for(self, text, *, flags=None, **kw):
+        import fitz
+        if kw:                                              # a clip, quads: the page's own call
+            return self.page.search_for(text, flags=flags, **kw)
+        f = (fitz.TEXT_DEHYPHENATE | fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_PRESERVE_LIGATURES
+             | fitz.TEXT_MEDIABOX_CLIP) if flags is None else flags   # what search_for uses by default
+        return self.page.search_for(text, textpage=self._tp(f))
+
+    def get_text(self, option: str = "text", *, flags=None, **kw):
+        import fitz
+        opt = (option or "text").lower()
+        default = {"text": fitz.TEXTFLAGS_TEXT, "words": fitz.TEXTFLAGS_WORDS, "blocks": fitz.TEXTFLAGS_BLOCKS,
+                   "dict": fitz.TEXTFLAGS_DICT, "rawdict": fitz.TEXTFLAGS_RAWDICT}.get(opt)
+        if kw or default is None:                          # a clip, sorting, another format: the page's own call
+            return self.page.get_text(option, flags=flags, **kw)
+        return self.page.get_text(option, textpage=self._tp(default if flags is None else flags))
+
+    def __getattr__(self, name):
+        return getattr(self.page, name)
+
+
 def pdf_to_pages_with_rects(
     pdf_bytes: bytes,
     evidence_items: list[dict],
@@ -1418,6 +1459,12 @@ def pdf_to_pages_with_rects(
     pages: list[str]       = []
     highlights: list[dict] = []
     scanned_pages: list[int] = []
+    _cached: dict[int, _CachedPage] = {}
+
+    def _pg(page_idx: int) -> _CachedPage:                 # each page's text layers read once (see _CachedPage)
+        if page_idx not in _cached:
+            _cached[page_idx] = _CachedPage(doc[page_idx])
+        return _cached[page_idx]
 
     mat   = fitz.Matrix(dpi / 72, dpi / 72)
     scale = dpi / 72.0  # PDF points → image pixels
@@ -1442,7 +1489,7 @@ def pdf_to_pages_with_rects(
     def _page_key(page_idx: int) -> str:
         if page_idx not in page_keys:
             try:
-                page_keys[page_idx] = _key(doc[page_idx].get_text("text"))
+                page_keys[page_idx] = _key(_pg(page_idx).get_text("text"))
             except Exception:                                      # an unreadable page is never skipped
                 page_keys[page_idx] = None
         return page_keys[page_idx]
@@ -1451,7 +1498,7 @@ def pdf_to_pages_with_rects(
         ck, pk = _key(cand), _page_key(page_idx)
         if ck and pk is not None and ck not in pk:
             return False
-        pg = doc[page_idx]
+        pg = _pg(page_idx)
         if pg.search_for(cand):
             return True
         if _DEHY:
@@ -1464,7 +1511,7 @@ def pdf_to_pages_with_rects(
     def _page_has(page_idx: int, cands: list, norm: str) -> bool:
         if any(_page_contains(page_idx, c) for c in cands):
             return True
-        return bool(_prose_word_rects(doc[page_idx], norm))   # punctuation-insensitive fallback
+        return bool(_prose_word_rects(_pg(page_idx), norm))   # punctuation-insensitive fallback
 
     def _resolve_page(ev: dict) -> int | None:
         cited = ev.get("page")
@@ -1483,7 +1530,7 @@ def pdf_to_pages_with_rects(
                 if _page_contains(pidx, c):
                     return pidx + 1
         for pidx in range(n_pages):                        # last resort: token-sequence match
-            if _prose_word_rects(doc[pidx], norm):
+            if _prose_word_rects(_pg(pidx), norm):
                 return pidx + 1
         return cited if cited_ok else None                 # not found anywhere → cited (no rect)
 
@@ -1494,7 +1541,7 @@ def pdf_to_pages_with_rects(
             by_page.setdefault(rp, []).append(ev)
 
     for page_idx in range(min(len(doc), MAX_RENDER_PAGES)):
-        page      = doc[page_idx]
+        page      = _pg(page_idx)
         page_1idx = page_idx + 1
 
         # Detect scanned pages — either no usable text layer at all OR a
