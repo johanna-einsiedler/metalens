@@ -385,6 +385,31 @@ def search_text_rects(pdf_bytes: bytes, text: str, *, dpi: int = DISPLAY_DPI,
         doc.close()
 
 
+def text_words(pdf_bytes: bytes, *, dpi: int = DISPLAY_DPI) -> list[dict]:
+    """The PDF's text layer for the viewer's search box, which searches it in the browser:
+    ``[{"page": p, "w": [[x, y, w, h, text, line], …]}, …]``, one entry per page (a page without
+    text has none), the words in reading order with their boxes in image pixels (the viewer's DPI)
+    and ``line`` the same number for the words of one printed line. Ligatures come out as their
+    letters."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        scale = dpi / 72.0
+        flags = getattr(fitz, "TEXT_PRESERVE_WHITESPACE", 0) | getattr(fitz, "TEXT_MEDIABOX_CLIP", 0)
+        out: list[dict] = []
+        for p in range(1, len(doc) + 1):
+            words = doc[p - 1].get_text("words", flags=flags)
+            if not words:
+                continue
+            words.sort(key=lambda w: (w[5], w[6], w[7]))              # block, line, word: the reading order
+            out.append({"page": p, "w": [[round(w[0] * scale), round(w[1] * scale),               # whole pixels: enough to box a hit
+                                          round((w[2] - w[0]) * scale), round((w[3] - w[1]) * scale),
+                                          w[4], w[5] * 10000 + w[6]] for w in words]})
+        return out
+    finally:
+        doc.close()
+
+
 def pdf_to_images(pdf_bytes: bytes, dpi: int = EXTRACTION_DPI, fmt: str = "png") -> list[str]:
     """Convert PDF bytes to a list of base64-encoded images, one per page.
 
