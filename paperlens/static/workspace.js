@@ -2397,7 +2397,7 @@ function renderTableCard(panel, rec) {
     + `<div class="verify verify-foot tc-foot"><span class="verify-lead muted">Checked the whole table?</span>`
     + `<button class="vbtn ok${status === "verified" ? " on" : ""}" data-status="verified">✓ verify table</button>`
     + `<button class="vbtn flag${status === "flagged" ? " on" : ""}" data-status="flagged">⚑ flag table</button>`
-    + (RO ? "" : `<input class="tc-note" placeholder="note — why flagged, what is off, a table that is no regression table (optional)" value="${esc(((recs.find((r) => r.note && r.note.text) || {}).note || {}).text || "")}" title="stored with the verdict, on every column, with your name and the time"/>`) + `</div>`;
+    + (RO ? "" : `<input class="tc-note" placeholder="note — why flagged, what is off, a table that is no regression table (optional)" value="${esc(((recs.find((r) => r.note && r.note.text) || {}).note || {}).text || "")}" title="saved as you leave the box (or press Enter), on every column of this table, with your name and the time; it does not change the verdict"/>`) + `</div>`;
   panel.appendChild(card);
   wireSiblingLinks(card);
   wireSheet(card, rec);
@@ -2418,7 +2418,20 @@ function renderTableCard(panel, rec) {
   wireColumnSection(card.querySelector(".tc-col"), rec);
   wireAsked(card);
   if (!RO) card.querySelectorAll(".tc-foot .vbtn").forEach((b) => (b.onclick = () => sendVerifyTable(card, recs, b.dataset.status)));
+  const tn = card.querySelector(".tc-note");
+  if (tn && !RO) tn.onchange = () => saveTableNote(recs, tn.value.trim());
   if (JOINT) wireJointClaims(card);
+}
+// The note under a table, saved as its box is left (change: on blur or Enter), on every column of the table, as a
+// note of its own ("noted": the verdict stays what the buttons last set). It used to go only with a press of
+// "verify table" / "flag table", so a note written after the verdict was never sent and was gone on the next redraw.
+function saveTableNote(recs, text) {
+  if (recs.every((r) => (((r.note || {}).text) || "") === text)) return;
+  const at = new Date().toISOString();
+  recs.forEach((r) => { r.note = text ? { text, status: "noted", by: "you", at } : null; });   // a redraw shows it at once
+  Promise.all(recs.map((r) => queueSave(r.id, "note", () => api.verify(r.id, { status: "noted", notes: text }))))
+    .then(() => maybeOfferRepublish())
+    .catch((e) => alert("Couldn't save the table's note: " + e.message));
 }
 // what the checks and the model's output say about the table, summed over its columns; the cells
 // themselves carry the marks

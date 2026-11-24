@@ -196,3 +196,28 @@ def test_a_grant_on_a_project_is_the_pool_the_tasks_draw_from() -> None:
     assert [c["scope"] for c in coders.coders_of(conn, members["tables"])] == ["group"]        # the pool, seen from a member
     assert coders.labels_for(conn, members["claims"])[a_id]["label"] == "coder_1"
     conn.close()
+
+
+def test_a_coders_note_after_the_flag_is_kept_and_the_flag_stays() -> None:
+    """The workspace saves a table's note on its own, after the verdict ("noted" on every column): in the coder's
+    coding the note is stored, the flag stays, the coder's view returns both, and an empty note clears it."""
+    _skip()
+    conn = records.connect(); records.init_db(conn)
+    owner, _oid, _ = _account("note-owner")
+    a, _aid, a_email = _account("note-coder")
+    ds, docs = _dataset_with_papers(owner, n=1)
+    assert owner.post(f"/api/datasets/{ds}/coders", json={"email": a_email}).status_code == 200
+    rids = [r["id"] for r in a.get(f"/api/documents/{docs[0]}/view").json()["records"]]
+    text = "I do not think this should be considered as a regression table"
+    for rid in rids:
+        assert a.post(f"/api/records/{rid}/verify", json={"status": "flagged"}).status_code == 200
+        assert a.post(f"/api/records/{rid}/verify", json={"status": "noted", "notes": text}).status_code == 200
+    recs = a.get(f"/api/documents/{docs[0]}/view").json()["records"]
+    assert all(r["verification_status"] == "flagged" and (r["note"] or {}).get("text") == text for r in recs)
+    assert all(r["verification_status"] == "unverified" and not r.get("note") for r in owner.get(f"/api/documents/{docs[0]}/view").json()["records"])   # the coding, not the record
+    assert a.post(f"/api/records/{rids[0]}/verify", json={"status": "noted", "notes": ""}).status_code == 200
+    r0 = next(r for r in a.get(f"/api/documents/{docs[0]}/view").json()["records"] if r["id"] == rids[0])
+    assert r0["verification_status"] == "flagged" and not r0["note"]
+    for d in docs:
+        records.delete_document(conn, d)
+    conn.close()
