@@ -8,6 +8,15 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A table's note is saved when it is written, not only with the verdict
+
+- The note box under a table ("note — why flagged, what is off, a table that is no regression table") was read
+  only when "verify table" or "flag table" was pressed. A coder who flagged a table and then wrote why saw the
+  note in the box, but it was never sent: switching to another table and back, or reloading, showed it empty,
+  with no error. The box now saves itself as it is left (or on Enter), on every column of the table, as a note
+  of its own: the verdict stays what the buttons last set, as with a claim's note. A note emptied is cleared.
+  Text written this way before the fix never reached the server and cannot be recovered.
+
 ### A review queue reaches every paper, opens the next one at once, and the PDF search answers as you type
 
 - A dataset's paper list (`GET /api/documents?dataset=`) gave its 50 most recent papers, and the workspace's
