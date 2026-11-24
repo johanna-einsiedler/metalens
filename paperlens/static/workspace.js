@@ -10,7 +10,7 @@
 import { api } from "/static/api.js";
 import { addPapersMenu } from "/static/addpapers.js";
 import { renderValue, renderFields, renderChild, renderConfBadge, renderConfDot, renderMarkdown, esc, formatKey, stripRowIds, freeChip, selectTitle, blankRow, parseTableMarkdown, captionNames } from "/static/grammar.js";
-import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, clearSelection, setContextEvidence, paintMarks, markRects } from "/static/pdfview.js";
+import { renderPages, jumpToEvidence, showEvidence, hideEvidence, flashRects, clearSelection, setContextEvidence, paintMarks, markRects, searchWords } from "/static/pdfview.js";
 import { saveToWorkspace } from "/static/save.js";
 import { renderGrid } from "/static/gridview.js";
 import { viewModel, indexEvidence, evidenceFor, entryTitle, childTitle, worstLevel, isLow, entryNeeds,
@@ -43,7 +43,7 @@ let CHAIN_RUNS = null;      // the drill-down payload of the open document's pip
 let AUTOADV = true;         // after ✓ / ⚑ jump to the next unreviewed entry
 let SHEET_LIST = (() => { try { return localStorage.getItem("metalens_sheet") === "list"; } catch { return false; } })();   // display.sheet: the generic typed table instead of the printed layout
 let QUEUE = null;                                        // ?queue=<run>:<step>: a review gate's worklist — the drawn records, in draw order
-let PREFETCH = null;                                     // a queue's first paper, fetched while the sidebar's lists still load: {docId, task, as, p}
+let PREFETCH = null;                                     // a queue paper's view fetched ahead (the first while the sidebar's lists load, then the next one): {docId, task, as, p, at}
 let QUEUE_ALL = false;                                   // show every entry of the open paper, not only the drawn ones
 let CODER = false;                                       // the viewer codes this dataset (paperlens/coders.py): what they see and change is their own coding
 let VIEW_AS = null;                                      // the owner looking at one coder's coding (?coder=<user id>), read-only
@@ -147,7 +147,19 @@ function mountPdfZoom() {
 // under the box names the pages found with their match counts, a click goes to the first match
 // on that page; Enter / Shift+Enter (or › ‹) walk the matches; the current match is painted as a
 // located value — it stays until the next pick (a cell, an item, a search) clears it; Esc clears.
+// The text layer is fetched once per paper (when the box is first focused) and searched in the browser
+// (pdfview.searchWords), so a look-up waits for no request; the server's search answers when it cannot be had.
 let SEARCH = { q: "", doc: null, hits: [], flat: [], cur: -1, truncated: false };
+let PDFTEXT = { doc: null, p: null, ready: false };
+function pdfText(doc) {
+  if (PDFTEXT.doc !== doc || !PDFTEXT.p) {
+    const slot = { doc, ready: false, p: null };
+    slot.p = api.pdfText(doc).then((r) => { slot.ready = true; return r.pages || []; });
+    slot.p.catch(() => { if (PDFTEXT === slot) PDFTEXT = { doc: null, p: null, ready: false }; });   // asked again next time
+    PDFTEXT = slot;
+  }
+  return PDFTEXT.p;
+}
 function mountPdfSearch() {
   const form = $("#pdfsearch"), input = $("#pdfsearch-q"), k = $("#pdfsearch-k"), list = $("#pdfsearch-list");
   if (!form || !input) return;
@@ -177,19 +189,23 @@ function mountPdfSearch() {
     const q = input.value.trim();
     if (!q) { clear(); return; }
     if (q.length < 2 || !DOCID || (q === SEARCH.q && SEARCH.doc === DOCID)) return;
-    const my = ++seq; form.classList.add("busy");
+    const my = ++seq, doc = DOCID; form.classList.add("busy");
     try {
-      const r = await api.searchPdf(DOCID, q);
-      if (my !== seq) return;
+      let r;
+      try { r = searchWords(await pdfText(doc), q); }
+      catch { r = await api.searchPdf(doc, q); }                 // no text layer to be had: the server looks it up
+      if (my !== seq || doc !== DOCID) return;
       const hits = r.hits || [];
-      SEARCH = { q, doc: DOCID, hits, truncated: !!r.truncated, cur: -1, flat: hits.flatMap((h) => h.rects.map((rect) => ({ page: h.page, rect }))) };
+      SEARCH = { q, doc, hits, truncated: !!r.truncated, cur: -1, flat: hits.flatMap((h) => h.rects.map((rect) => ({ page: h.page, rect }))) };
       if (SEARCH.flat.length) go(0); else { clearSelection(); show(); }
     } catch (e) {
-      if (my !== seq) return;
-      SEARCH = { q, doc: DOCID, hits: [], flat: [], cur: -1, truncated: false }; show(); k.textContent = "failed"; k.title = e.message || "";
+      if (my !== seq || doc !== DOCID) return;
+      SEARCH = { q, doc, hits: [], flat: [], cur: -1, truncated: false }; show(); k.textContent = "failed"; k.title = e.message || "";
     } finally { if (my === seq) form.classList.remove("busy"); }
   };
-  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 350); });
+  // the text layer is asked for as the box is entered, so it is usually there by the time a word is typed
+  input.addEventListener("focus", () => { if (DOCID && !form.hidden) pdfText(DOCID).catch(() => {}); });
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, PDFTEXT.doc === DOCID && PDFTEXT.ready ? 80 : 350); });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault(); clearTimeout(timer);
@@ -465,7 +481,7 @@ async function init() {
     // the dataset's paper lists load, instead of after them; load() takes this request when it opens that paper
     const first = wantDoc || ((QUEUE.documents || []).find((d) => d.n_checked < d.n_items) || {}).document_id;
     if (first) {
-      PREFETCH = { docId: first, task: QUEUE.task || null, as: VIEW_AS, p: api.documentView(first, VIEW_AS, QUEUE.task || null) };
+      PREFETCH = { docId: first, task: QUEUE.task || null, as: VIEW_AS, p: api.documentView(first, VIEW_AS, QUEUE.task || null), at: Date.now() };
       PREFETCH.p.catch(() => {});                          // a failure surfaces when load() awaits it
       const qd = (QUEUE.documents || []).find((d) => d.document_id === first);
       queueWaiting(`Opening ${qd ? (qd.title || qd.filename || "the paper") : "the paper"}…`);
@@ -821,11 +837,47 @@ function queueWaiting(text) {
   const pb = $("#panelbody"); if (pb) pb.innerHTML = text ? `<p class="muted">${esc(text)}</p>` : "";
   if (text) $("#pages").innerHTML = `<p class="muted">${esc(text)}</p>`;
 }
-// the prefetched view of a queue's first paper, once, when load() opens that same paper through the same task as the same reader
+// the prefetched view of a queue paper, once, when load() opens that same paper through the same task as the same reader
+// while its page addresses still work (they are signed for ten minutes)
+const PREFETCH_FRESH_MS = 8 * 60 * 1000;
 function takePrefetch(docId, task) {
-  const hit = PREFETCH && PREFETCH.docId === docId && PREFETCH.task === task && PREFETCH.as === VIEW_AS ? PREFETCH.p : null;
+  const hit = PREFETCH && PREFETCH.docId === docId && PREFETCH.task === task && PREFETCH.as === VIEW_AS
+    && Date.now() - PREFETCH.at < PREFETCH_FRESH_MS ? PREFETCH : null;
   PREFETCH = null;
   return hit;
+}
+// While a queue paper is worked on, the one "done" opens next (queueAdvance's pick) is fetched: its view, then its page
+// images, three at a time at low priority once this paper's pages are in — so the next paper opens without a wait.
+function prefetchNext(docId) {
+  if (!QUEUE || DOCID !== docId) return;
+  const next = DOCS.find((d) => { const q = queuePaper(d); return q && q.n_checked < q.n_items && d.document_id !== docId; });
+  if (!next) return;
+  const task = QUEUE.task || null;
+  if (PREFETCH && PREFETCH.docId === next.document_id && PREFETCH.task === task && PREFETCH.as === VIEW_AS
+      && Date.now() - PREFETCH.at < PREFETCH_FRESH_MS) return;
+  const slot = { docId: next.document_id, task, as: VIEW_AS, p: api.documentView(next.document_id, VIEW_AS, task), at: Date.now(), imgs: new Map() };
+  PREFETCH = slot;
+  slot.p.then(async (view) => {
+    await pagesSettled(6000);
+    let first = null;
+    try { first = openingPage(view, viewModel(view)); } catch { /* the pages in order */ }
+    const pages = (view.pages || []).filter((pg) => pg.url);
+    const urls = [...pages.filter((pg) => first && (pg.page === first || pg.page === first + 1)),
+                  ...pages.filter((pg) => !(first && (pg.page === first || pg.page === first + 1)))].map((pg) => pg.url);
+    let i = 0;
+    const warm = () => {
+      if (PREFETCH !== slot || i >= urls.length) return;      // opened (renderPages asks for the rest) or replaced
+      const img = new Image(); img.fetchPriority = "low"; img.decoding = "async";
+      img.onload = img.onerror = warm; img.src = urls[i]; slot.imgs.set(urls[i++], img);   // renderPages puts these very images in place
+    };
+    for (let k = 0; k < 3; k++) warm();
+  }).catch(() => {});                                       // a failure surfaces when load() asks again
+}
+// the open paper's page images all loaded (or failed), or `ms` passed
+function pagesSettled(ms) {
+  const imgs = [...document.querySelectorAll("#pages img.pageimg")].filter((img) => !img.complete);
+  return Promise.race([Promise.all(imgs.map((img) => new Promise((r) => { img.addEventListener("load", r, { once: true }); img.addEventListener("error", r, { once: true }); }))),
+                       new Promise((r) => setTimeout(r, ms))]);
 }
 function queueDoc(docId) { return QUEUE && (QUEUE.documents || []).find((d) => d.document_id === docId); }
 // a sidebar entry's share of the queue: its own document's and, in a joint review, its partners'
@@ -964,7 +1016,8 @@ async function load(docId) {
   if (DOCID !== docId) return;      // the coder moved on again meanwhile
   const partner = ((DOCS.find((d) => d.document_id === docId) || {}).partners || [])[0] || null;   // only a joint review groups partners
   const task = QUEUE && QUEUE.task ? QUEUE.task : null;      // a task's queue: the document through its template
-  const [view, pview] = await Promise.all([takePrefetch(docId, task) || api.documentView(docId, VIEW_AS, task), partner ? api.documentView(partner.document_id, VIEW_AS, task).catch(() => null) : null]);
+  const pre = takePrefetch(docId, task);
+  const [view, pview] = await Promise.all([pre ? pre.p : api.documentView(docId, VIEW_AS, task), partner ? api.documentView(partner.document_id, VIEW_AS, task).catch(() => null) : null]);
   if (DOCID !== docId) return;
   DATA = view;
   // "Screened — no records" sentinels aren't data rows: drop them so the review shows the
@@ -993,7 +1046,7 @@ async function load(docId) {
   if (TRIAGE === "contested" && !hasChain()) TRIAGE = "low_conf";
   if (!TRIAGE_FROM_URL && !stored && VM.triage === "checks_first" && (DATA.findings || []).length) TRIAGE = "checks";
   if (TRIAGE === "checks" && !(DATA.findings || []).length) TRIAGE = "low_conf";   // nothing found here: the next best order
-  renderPages($("#pages"), DATA.pages, JOINT ? [...DATA.evidence, ...JOINT.data.evidence] : DATA.evidence);
+  renderPages($("#pages"), DATA.pages, JOINT ? [...DATA.evidence, ...JOINT.data.evidence] : DATA.evidence, { first: openingPage(), ready: pre && pre.imgs });
   resetPdfSearch();
   paintMarks(DATA.highlights || []);
   renderPanel();
@@ -1002,6 +1055,7 @@ async function load(docId) {
   if (DOCID !== docId) return;
   if (chainSpec()) loadChainAux(docId);
   if (JOINT) loadJointCross(docId); else loadCitedBy(docId);
+  prefetchNext(docId);
 }
 
 // The partner document of a joint review: its records (the drawn ones in a queue), its view model,
@@ -4021,15 +4075,27 @@ function wireTaskPanel(panel, recs) {
 }
 // The first drawn unit of a stage (a block with only_sampled) that has a located passage: {page, ids}
 // shaped as an evidence group, for stageShowItem to move the PDF there.
-function drawnAnchor(st) {
-  const sampled = (DATA.task || {}).sampled || null;
+// The page the PDF pane opens at, when it is known before the panel is drawn (renderPages asks for it first; a queue's
+// next paper warms it first): a task stage without evidence opens at its drawn exhibit. Null otherwise — the pages
+// load in order. `data`/`vm`: the open paper's, or a view fetched ahead and its view model.
+function openingPage(data = DATA, vm = VM) {
+  const rv = vm && !vm.legacy && vm.review && vm.review.layout === "stages" ? vm.review : null;
+  if (!rv || !(data && data.task && data.template && Array.isArray(data.template.stages))) return null;
+  const stages = rv.stages || [];
+  const st = stages[Math.max(0, Math.min(STAGE, stages.length - 1))] || {};
+  if (st.evidence !== "none" || !Array.isArray(st.blocks)) return null;
+  const a = drawnAnchor(st, data, vm);
+  return (a && a.page) || null;
+}
+function drawnAnchor(st, data = DATA, vm = VM) {           // the open paper's, unless a view fetched ahead is named
+  const sampled = (data.task || {}).sampled || null;
   if (!sampled) return null;
   for (const bl of st.blocks || []) {
     if (!bl || !bl.only_sampled) continue;
-    for (const u of unitRows(bl, DATA, VM, sampled)) {
+    for (const u of unitRows(bl, data, vm, sampled)) {
       if (!u.path) continue;
-      const ids = (DATA.evidence || []).map((ev, i) => [ev, i]).filter(([ev]) => ev.field_path === u.path).map(([, i]) => i);
-      const page = ids.length ? (DATA.evidence[ids[0]] || {}).page : (u.row || {}).page;
+      const ids = (data.evidence || []).map((ev, i) => [ev, i]).filter(([ev]) => ev.field_path === u.path).map(([, i]) => i);
+      const page = ids.length ? (data.evidence[ids[0]] || {}).page : (u.row || {}).page;
       if (ids.length || page) return { n: 0, kind: "anchor", page: page || null, ids, snippet: "", paper: [], entry: new Map(), lower: [], names: new Set() };
     }
   }

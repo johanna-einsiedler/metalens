@@ -2,8 +2,14 @@
 const SVGNS = "http://www.w3.org/2000/svg";
 let CTX = new Set();   // evidence ids of the current entry / tab — applied to rects as they are drawn
 
-export function renderPages(root, pages, evidence) {
+// `opts.first`: the page the pane opens at — its image (and the next page's) is asked for first and at high priority,
+// the others at low, so the table the coder starts on is not the last picture to arrive. A page not loaded yet keeps
+// the shape of the first page that is (`--page-ratio`, CSS), so the pane can scroll to a page before the ones above it
+// have arrived. `opts.ready`: page images already fetched (a queue's next paper, by url) — put in place as they are,
+// since the store's answers carry no caching headers and a new <img> of the same url would ask again.
+export function renderPages(root, pages, evidence, opts = {}) {
   root.innerHTML = "";
+  root.style.removeProperty("--page-ratio");
   if (!pages || !pages.length) {
     root.innerHTML = '<p class="muted" style="padding:18px">No PDF is attached to this paper, so there are no pages to show. '
       + 'The evidence quotes and page numbers are still listed with each value. To see them highlighted, import the PDF together with the results on the <a href="/import">Import</a> page.</p>';
@@ -11,13 +17,19 @@ export function renderPages(root, pages, evidence) {
   }
   const byPage = {};
   (evidence || []).forEach((ev, i) => { (byPage[ev.page] ||= []).push({ ev, i }); });
+  const first = Number(opts.first) || 0;
+  const soon = (p) => first && (p === first || p === first + 1);
+  const early = [], later = [];          // each page's image request: the opening page's (and the next) first
 
   pages.forEach((pg) => {
     const wrap = document.createElement("div");
     wrap.className = "page"; wrap.id = `page-${pg.page}`;
     const label = document.createElement("div");
     label.className = "pagelabel"; label.textContent = `p${pg.page}`;
-    const img = document.createElement("img");
+    const pre = opts.ready && opts.ready.get(pg.url);
+    const adopt = !!pre && !(pre.complete && !pre.naturalWidth);      // fetched, or on its way (a failed one is asked again)
+    const img = adopt ? pre : document.createElement("img");
+    if (adopt) img.onload = img.onerror = null;
     img.className = "pageimg"; img.alt = `page ${pg.page}`;
     const svg = document.createElementNS(SVGNS, "svg");
     svg.classList.add("overlay"); svg.setAttribute("preserveAspectRatio", "none");
@@ -29,6 +41,7 @@ export function renderPages(root, pages, evidence) {
     const draw = () => {
       if (drawn || !img.naturalWidth) return;
       drawn = true;
+      if (!root.style.getPropertyValue("--page-ratio")) root.style.setProperty("--page-ratio", `${img.naturalWidth} / ${img.naturalHeight}`);
       svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
       // The same rectangle is often cited many times (a reference row every condition points
       // at); nine translucent fills stacked make the text unreadable. Paint each distinct
@@ -56,11 +69,60 @@ export function renderPages(root, pages, evidence) {
       });
     };
     img.addEventListener("load", draw);
-    img.src = pg.url;
-    if (img.complete) draw();            // cached (Safari may not fire load) → draw now
+    if (first) img.fetchPriority = soon(pg.page) ? "high" : "low";
+    const start = () => { if (!adopt) img.src = pg.url; if (img.complete) draw(); };   // cached (Safari may not fire load) → draw now
+    (soon(pg.page) ? early : later).push(start);
     wrap.append(label, img, svg);
     root.appendChild(wrap);
   });
+  [...early, ...later].forEach((s) => s());
+}
+
+// The PDF pane's search in the browser, over the text layer (GET /api/documents/{id}/text: per page `w`, the words as
+// [x, y, w, h, text, line]): every place `q` is printed — case-insensitive, across word and line breaks (a line break
+// reads as a space) — as /api/documents/{id}/search answers it, without a request per keystroke. A match boxes the part
+// of each word it covers by that part's share of the word's letters, one box per printed line. `limit` caps the boxes
+// over all pages; `truncated` says it was reached. Under two characters finds nothing.
+export function searchWords(pages, q, limit = 300) {
+  const norm = (s) => String(s == null ? "" : s).normalize("NFKC").toLowerCase();
+  const needle = norm(q).replace(/\s+/g, " ").trim();
+  const hits = [];
+  if (needle.length < 2) return { hits, truncated: false };
+  let kept = 0;
+  for (const pg of pages || []) {
+    const w = pg.w || [];
+    let text = "";
+    const at = [];                       // word i spans text[at[i][0], at[i][1])
+    for (let i = 0; i < w.length; i++) {
+      const t = norm(w[i][4]);
+      at.push([text.length, text.length + t.length]);
+      text += t + " ";
+    }
+    const rects = [];
+    for (let k = text.indexOf(needle); k >= 0; k = text.indexOf(needle, k + needle.length)) {
+      const end = k + needle.length;
+      let lo = 0, hi = at.length;        // the first word ending after the match starts
+      while (lo < hi) { const m = (lo + hi) >> 1; if (at[m][1] <= k) lo = m + 1; else hi = m; }
+      let cur = null;
+      for (let i = lo; i < at.length && at[i][0] < end; i++) {
+        const [s, e] = at[i], len = Math.max(1, e - s);
+        const [x, y, ww, hh, , line] = w[i];
+        const x0 = x + ww * (Math.max(0, k - s) / len), x1 = x + ww * (Math.min(len, end - s) / len);
+        if (cur && cur.line === line) { cur.x0 = Math.min(cur.x0, x0); cur.x1 = Math.max(cur.x1, x1); cur.y0 = Math.min(cur.y0, y); cur.y1 = Math.max(cur.y1, y + hh); }
+        else { if (cur) rects.push(cur); cur = { line, x0, x1, y0: y, y1: y + hh }; }
+      }
+      if (cur) rects.push(cur);
+    }
+    if (!rects.length) continue;
+    const room = limit - kept;
+    if (room <= 0) return { hits, truncated: true };
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const cut = rects.slice(0, room).map((r) => [r2(r.x0), r2(r.y0), r2(r.x1 - r.x0), r2(r.y1 - r.y0)]);
+    hits.push({ page: pg.page, rects: cut });
+    kept += cut.length;
+    if (cut.length < rects.length) return { hits, truncated: true };
+  }
+  return { hits, truncated: false };
 }
 
 // Clear the current single selection: unpaint any selected/flashing pre-drawn rect, and

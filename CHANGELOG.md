@@ -8,6 +8,30 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### A review queue reaches every paper, opens the next one at once, and the PDF search answers as you type
+
+- A dataset's paper list (`GET /api/documents?dataset=`) gave its 50 most recent papers, and the workspace's
+  sidebar is built from it: a queue keeps the queue's papers of that list, so in a dataset of more than 50
+  papers a coder's queue lost the rest (on the live check, 20 of one coder's 46 papers and 22 of another's 45
+  were reachable; the queue bar still counted all of them). A dataset's list now holds every paper; without a
+  dataset the list is still the 50 most recent, and an explicit `limit` still applies.
+- The PDF pane's search box asked the server on every pause in typing (about a second each on the live site).
+  The PDF's text layer (`GET /api/documents/{id}/text`: the words with their boxes, page by page, from
+  `pdf_utils.text_words`) is now fetched once per paper, as the box is entered, and searched in the browser
+  (`pdfview.searchWords`): the same matches and boxes as `/search` (checked on eight papers), a few
+  milliseconds a look-up. `/search` still answers when the text layer cannot be had.
+- While a queue paper is worked on, the paper "done" opens next is fetched: its view, then its page images
+  (the drawn exhibit's page first, three at a time at low priority once the open paper's pages are in). The
+  next paper then opens without a request (0.06 s against about 5 s on the live check queue) with its pages
+  in place; the fetched images are put on the page as they are, since the store's answers carry no caching
+  headers. A view fetched more than eight minutes earlier is fetched again (its page addresses are signed for
+  ten).
+- The page the PDF pane opens at (a task's drawn exhibit) is asked for first and at high priority, the next
+  page with it, the others at low; it arrived last of nineteen before. A page not loaded yet keeps the shape
+  of the first page that is, so the pane scrolls to the exhibit before the pages above it have arrived.
+- The extraction check's instructions now say, part by part, what a cited value is mapped to (task, arms,
+  outcome, subgroup, timing), one sentence each, in place of the paragraph on what to click.
+
 ### The extraction check names the parts of a mapping and says what they stand for
 
 - A cell's mapping is shown as its parts (task · arms · outcome · subgroup · timing), and a coder saw "T1" or

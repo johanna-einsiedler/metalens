@@ -644,7 +644,7 @@ def count_documents_for_session(conn: psycopg.Connection, session_id: str | None
     return int(row[0]) if row else 0
 
 
-def list_documents(conn: psycopg.Connection, limit: int = 50, *,
+def list_documents(conn: psycopg.Connection, limit: int | None = 50, *,
                    owner_user_id: str | None = None, session_id: str | None = None,
                    dataset_id: str | None = None, as_coder: str | None = None) -> list[dict]:
     """Recent extraction documents with their paper title + record count (viewer index).
@@ -657,7 +657,7 @@ def list_documents(conn: psycopg.Connection, limit: int = 50, *,
     None) it returns all documents — back-compat for tests/admin. ``dataset_id``
     further restricts to documents with records in that project. ``as_coder`` (a user id) lists
     the documents of the datasets that account codes too, with ITS verdicts counted (its coding,
-    not the record's status) — the sidebar a coder works from."""
+    not the record's status) — the sidebar a coder works from. ``limit`` None: every one."""
     rows = conn.execute(
         """SELECT d.id, d.paper_id, d.schema_id, d.created_at, d.filename,
                   p.title, p.doi,

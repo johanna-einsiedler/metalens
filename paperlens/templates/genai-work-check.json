@@ -20,7 +20,7 @@
       "id": "cells",
       "label": "Cells",
       "evidence": "none",
-      "help": "One exhibit of this paper, drawn at random among those the extraction read estimates from, laid out as a table from its transcription; the PDF on the right opens at it. Compare the two. Click a value that is not exactly as printed (it is listed below: type it as printed), a mapping that is wrong (the outcome, subgroup, arms or horizon a cell is read into — shown once where it holds for several cells; a click flags every cell it covers), or a cell of this exhibit that estimates an AI-versus-reference contrast and is not cited (it is added below: give the estimate it should feed, or leave that blank). Then press *Everything else correct*, set *Full review needed* when what you saw makes the paper's whole extraction doubtful, and press done.",
+      "help": "What a cited value is mapped to, part by part:\n- **Task**: the work the people did, numbered T1, T2 … in this paper (what each one is: under the table).\n- **Arms**: the group that worked with the AI, against the reference group it is compared with (people without the AI, or the same people before or after it).\n- **Outcome**: what was measured on the work.\n- **Subgroup**: the part of the sample the estimate is for; full sample when it is for everyone.\n- **Timing**: when the outcome was measured, relative to getting the AI; post-treatment when the paper names no particular time.",
       "blocks": [
         {
           "unit": "paper_metadata.exhibits",

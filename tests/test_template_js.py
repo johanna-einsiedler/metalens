@@ -202,7 +202,9 @@ def test_the_check_task_is_worked_on_the_table_flags_listed_beneath() -> None:
     assert [m for m in re.findall(r'>([^<>]+)</button>', top)] == ["T1", "AI vs none", "all"]
     assert 'data-units="[[&quot;&quot;, &quot;exhibit_cells#o0&quot;], [&quot;&quot;, &quot;exhibit_cells#o1&quot;]]"' in top or \
            'data-units="[[&quot;&quot;,&quot;exhibit_cells#o0&quot;],[&quot;&quot;,&quot;exhibit_cells#o1&quot;]]"' in top
-    assert re.search(r'<tr class="tq-gp"><td colspan="\d+">Panel A: [^<]*<span class="tq-gp-map">→ <button[^>]*>events</button><button[^>]*>A</button>', html)
+    # each chip carries its part's kind (grid.mapping.parts) in front of the text
+    assert re.search(r'<tr class="tq-gp"><td colspan="\d+">Panel A: [^<]*<span class="tq-gp-map">→ <button[^>]*><span class="tq-part-k">outcome</span>events</button>'
+                     r'<button[^>]*><span class="tq-part-k">timing</span>A</button>', html)
     # the bar and the rows: what needs words — the flagged value, the unplaced cell, the added one; not the confirmed or open placed ones
     assert '<button type="button" class="btn tq-confirm"' in html and "Everything else correct" in html
     assert "4 cited · 1 confirmed · 1 flagged · 1 missed · <b>2 open</b>" in html                   # o3, and o2 (unplaced, so listed below)

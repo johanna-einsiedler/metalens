@@ -583,13 +583,17 @@ def papers_records(paper_id: str, db=Depends(get_db)) -> dict:
 
 
 @app.get("/api/documents")
-def list_documents(limit: int = 50, dataset: str | None = None, db=Depends(get_db),
+def list_documents(limit: int | None = None, dataset: str | None = None, db=Depends(get_db),
                    who: Principal = Depends(principal)) -> dict:
     """The principal's extraction documents (their workspace index); optionally
     restricted to a single project via ``dataset`` — a dataset the caller codes lists its
-    documents with the caller's own verdicts counted."""
+    documents with the caller's own verdicts counted. ``limit`` defaults to the 50 most recent,
+    and to all of them for a dataset: the workspace's sidebar (and a review queue's, which
+    keeps the queue's papers of this list) needs every one."""
     from . import coders
     as_coder = who.user_id if dataset and coders.is_coder(db, dataset, who) else None
+    if limit is None and not dataset:
+        limit = 50
     return {"documents": records.list_documents(
         db, limit=limit, owner_user_id=who.user_id, session_id=who.session_id,
         dataset_id=dataset, as_coder=as_coder)}
@@ -813,6 +817,21 @@ def search_document(document_id: str, q: str, db=Depends(get_db),
         return {"hits": [], "n": 0, "truncated": False, "no_pdf": True}
     hits, truncated = pdf_utils.search_text_rects(store.get(key), q)
     return {"hits": hits, "n": sum(len(h["rects"]) for h in hits), "truncated": truncated}
+
+
+@app.get("/api/documents/{document_id}/text")
+def document_text(document_id: str, db=Depends(get_db), who: Principal = Depends(principal)) -> dict:
+    """Owner-only: the PDF's words with their boxes in image pixels, page by page
+    (``pdf_utils.text_words``) — fetched once per paper, so the PDF pane's search box looks a text up
+    in the browser instead of asking ``/search`` on every keystroke. ``no_pdf`` when there is none."""
+    if not _doc_reader(db, document_id, who)[0]:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    from . import pdf_utils
+    store = storage.get_store()
+    key = storage.pdf_key(records.pdf_document_id(db, document_id) or document_id)
+    if not store.exists(key):
+        return {"pages": [], "no_pdf": True}
+    return {"pages": pdf_utils.text_words(store.get(key))}
 
 
 # ── the coder's marks: sentences kept with the paper, tied to no cell ─────────────────────────

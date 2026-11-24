@@ -171,3 +171,28 @@ def test_deleting_all_records_keeps_paper_in_dataset(monkeypatch) -> None:
     docs = records.list_documents(conn, session_id=sess, dataset_id=ds["id"])
     hit = [d for d in docs if d["document_id"] == doc_id]
     assert hit and hit[0]["screened"] is True and hit[0]["n_records"] == 0
+
+
+def test_a_datasets_list_holds_every_paper_not_the_50_most_recent() -> None:
+    """The workspace's sidebar is built from this list, and a review queue keeps the queue's papers of it: a dataset
+    of more than 50 papers listed only its 50 most recent, and a coder's queue lost the rest. Without a dataset the
+    list is still the 50 most recent; an explicit limit still applies."""
+    if not _db_ok():
+        import pytest; pytest.skip("no Postgres")
+    import fixtures
+    from fastapi.testclient import TestClient
+    conn = records.connect(); records.init_db(conn)
+    sess = f"sess-list-{os.urandom(3).hex()}"
+    ds = records.create_dataset(conn, title="Many papers", schema_id="human-ai-collab@v1", session_id=sess)
+    conn.commit()
+    c = TestClient(appmod.app); h = {"X-Session-Id": sess}
+    result = json.loads(fixtures.FORESTPLOT_JSON)
+    docs = [c.post("/api/ingest", json={"result": result, "dataset_id": ds["id"]}, headers=h).json()["document_id"] for _ in range(52)]
+    try:
+        assert len(c.get("/api/documents", params={"dataset": ds["id"]}, headers=h).json()["documents"]) == 52
+        assert len(c.get("/api/documents", headers=h).json()["documents"]) == 50
+        assert len(c.get("/api/documents", params={"dataset": ds["id"], "limit": 7}, headers=h).json()["documents"]) == 7
+    finally:
+        for d in docs:
+            records.delete_document(conn, d)
+        conn.close()
