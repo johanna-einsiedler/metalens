@@ -1,10 +1,6 @@
-# Robustness at Scale: regression tables
-
-The *Economics regression tables* contract (every field of it, unchanged) plus the fields the robustness workflow writes on each column after the pipeline's upload — `headline`, `n_main`, `main_of` and `pointed` from the claim chain, `reproduction`, `cells_graded`, `cells_matched`, `sign_flips`, `sample_mismatch` and `failure_reason` from the grading of the re-estimation — and the paper's totals. The upload never carries these; the compute steps fill them and every value lands as an audited correction by the engine.
-
-What follows is the card of the tables contract.
-
 ## Introduction
+
+The *Economics regression tables* contract, every field of it unchanged, plus the fields the robustness workflow writes on each column after the pipeline's upload — `headline`, `n_main`, `main_of` and `pointed` from the claim chain; `reproduction`, `cells_graded`, `cells_matched`, `sign_flips`, `sample_mismatch` and `failure_reason` from the grading of the re-estimation — and the paper's totals. The upload never carries these; the workflow's compute steps fill them and every value lands as an audited correction by the engine. What follows is the card of the tables contract.
 
 Empirical economics articles typically present their main findings in regression tables. This preset identifies for each table in a paper whether it is a regression table or not. For every regression table it extracts every printed cell with its row type — a coefficient, a standard error, a t-statistic, a p-value, a confidence-interval bound, R², the number of observations, an F-statistic, another summary statistic, a Yes/No marker, or a panel header — the regressor the column is about, the link from each inferential statistic (a standard error, t-statistic, p-value or confidence bound) to its respective coefficient, and a specification complete enough to re-run the regression given the data.
 
