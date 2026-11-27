@@ -404,12 +404,21 @@ def pass_steps(spec: dict) -> list[dict]:
 
 
 def _reads_for(conn, run: dict, st: dict, pdf_sha256: str) -> dict[str, dict]:
-    """{declared read name: the primary output of the workflow step that fills it}."""
+    """{declared read name: what the workflow step that fills it holds for this paper} — a pass
+    step by the pass's name, its primary output; a data step (an extract step, a compute that
+    makes documents) by its step id, its document for the paper as a fields compute sees the
+    one it edits (``record_of``: the records' field values and the paper fields)."""
     from . import workflow_spec as ws
     by_id = ws.steps_by_id(run["workflow"])
     out: dict[str, dict] = {}
     for sid in st.get("reads") or []:
         src = by_id.get(sid) or {}
+        if src.get("kind") != "pass":
+            did = document_of(conn, run["id"], sid, pdf_sha256)
+            if did is None:
+                raise LookupError(f"{st['id']} reads {sid!r}, which has no document for this paper yet")
+            out[sid] = record_of(conn, did)
+            continue
         code = str(src.get("pass") or "").partition("@")[0]
         name = code.partition(".")[2]
         row = get_output(conn, run["id"], sid, pdf_sha256)

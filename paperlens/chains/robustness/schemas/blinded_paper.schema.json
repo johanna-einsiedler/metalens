@@ -1,0 +1,515 @@
+{
+ "$defs": {
+  "BlindedCell": {
+   "description": "One cell as the reproduction agent sees it.\n\nStructure is retained in full -- labels, indices, row types and the\ncoefficient/SE linkage -- so the agent knows exactly which quantity goes\nwhere. Only the value is withheld, and only where BLIND_POLICY says so.",
+   "properties": {
+    "blinded": {
+     "description": "True when this cell must be reproduced. False when the value below is given (sample size, Yes/No markers).",
+     "title": "Blinded",
+     "type": "boolean"
+    },
+    "col_index": {
+     "title": "Col Index",
+     "type": "integer"
+    },
+    "column_label": {
+     "title": "Column Label",
+     "type": "string"
+    },
+    "is_string": {
+     "default": false,
+     "title": "Is String",
+     "type": "boolean"
+    },
+    "numeric_value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Null when blinded",
+     "title": "Numeric Value"
+    },
+    "raw_text": {
+     "default": "",
+     "description": "Empty when blinded",
+     "title": "Raw Text",
+     "type": "string"
+    },
+    "refers_to": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Refers To"
+    },
+    "row_index": {
+     "title": "Row Index",
+     "type": "integer"
+    },
+    "row_label": {
+     "title": "Row Label",
+     "type": "string"
+    },
+    "row_type": {
+     "enum": [
+      "coefficient",
+      "se",
+      "p_value",
+      "ci",
+      "t_stat",
+      "statistic_r2",
+      "statistic_n_obs",
+      "statistic_f",
+      "statistic_other",
+      "string",
+      "panel_header"
+     ],
+     "title": "Row Type",
+     "type": "string"
+    },
+    "significance_stars": {
+     "default": 0,
+     "description": "0 when blinded",
+     "title": "Significance Stars",
+     "type": "integer"
+    },
+    "statistic_detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Statistic Detail"
+    }
+   },
+   "required": [
+    "row_label",
+    "column_label",
+    "row_index",
+    "col_index",
+    "row_type",
+    "blinded"
+   ],
+   "title": "BlindedCell",
+   "type": "object"
+  },
+  "BlindedRegression": {
+   "properties": {
+    "cells": {
+     "items": {
+      "$ref": "#/$defs/BlindedCell"
+     },
+     "title": "Cells",
+     "type": "array"
+    },
+    "column": {
+     "title": "Column",
+     "type": "string"
+    },
+    "data_available": {
+     "default": true,
+     "title": "Data Available",
+     "type": "boolean"
+    },
+    "data_detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Why the data is unavailable. Reaches the reproduction agent as prose, so it is scanned by the leak test.",
+     "title": "Data Detail"
+    },
+    "data_status": {
+     "default": "unknown",
+     "enum": [
+      "runnable",
+      "not_runnable",
+      "unknown"
+     ],
+     "title": "Data Status",
+     "type": "string"
+    },
+    "n_blinded": {
+     "default": 0,
+     "title": "N Blinded",
+     "type": "integer"
+    },
+    "outcome_variable": {
+     "title": "Outcome Variable",
+     "type": "string"
+    },
+    "page": {
+     "title": "Page",
+     "type": "string"
+    },
+    "panel": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Panel"
+    },
+    "regression_id": {
+     "title": "Regression Id",
+     "type": "string"
+    },
+    "result_class": {
+     "default": "unclassified",
+     "enum": [
+      "headline",
+      "normal",
+      "robustness",
+      "unclassified"
+     ],
+     "title": "Result Class",
+     "type": "string"
+    },
+    "spec": {
+     "$ref": "#/$defs/RegressionSpec"
+    },
+    "table_number": {
+     "title": "Table Number",
+     "type": "string"
+    },
+    "table_title": {
+     "title": "Table Title",
+     "type": "string"
+    },
+    "target_regressors": {
+     "items": {
+      "$ref": "#/$defs/BlindedTargetRegressor"
+     },
+     "title": "Target Regressors",
+     "type": "array"
+    }
+   },
+   "required": [
+    "regression_id",
+    "table_number",
+    "table_title",
+    "column",
+    "page",
+    "outcome_variable",
+    "spec"
+   ],
+   "title": "BlindedRegression",
+   "type": "object"
+  },
+  "BlindedTargetRegressor": {
+   "description": "Identifies the focal coefficient WITHOUT the `why` prose.\n\n`why` is dropped rather than kept: it routinely paraphrases the abstract,\nwhich is where the effect sizes are.",
+   "properties": {
+    "name": {
+     "title": "Name",
+     "type": "string"
+    },
+    "row_index": {
+     "title": "Row Index",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "name",
+    "row_index"
+   ],
+   "title": "BlindedTargetRegressor",
+   "type": "object"
+  },
+  "IVSpec": {
+   "properties": {
+    "endogenous": {
+     "title": "Endogenous",
+     "type": "string"
+    },
+    "instruments": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Instruments",
+     "type": "array"
+    }
+   },
+   "required": [
+    "endogenous"
+   ],
+   "title": "IVSpec",
+   "type": "object"
+  },
+  "RegressionSpec": {
+   "description": "Everything someone with the DATA but not the CODE needs to re-run this.\n\nThree rules the prompt enforces, because they separate a runnable spec from\na useless one: enumerate every control individually (never \"demographic\ncontrols\"); dereference cross-references (\"controls as in Table A3\");\nand state sample restrictions operationally, with the rule and the N.",
+   "properties": {
+    "cluster_level": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Clustering dimension(s), e.g. 'state' or 'state x year'",
+     "title": "Cluster Level"
+    },
+    "controls": {
+     "description": "EVERY control individually. Never an aggregate description.",
+     "items": {
+      "type": "string"
+     },
+     "title": "Controls",
+     "type": "array"
+    },
+    "data_construction_steps": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Data Construction Steps",
+     "type": "array"
+    },
+    "design": {
+     "default": "unknown",
+     "description": "The identification design this column rests on, as the paper argues it (not the estimator): rct, did_event, iv, rdd, soo_matching, panel_fe, bunching, synthetic_control",
+     "enum": [
+      "rct",
+      "did_event",
+      "iv",
+      "rdd",
+      "soo_matching",
+      "panel_fe",
+      "bunching",
+      "synthetic_control",
+      "other",
+      "unknown"
+     ],
+     "title": "Design",
+     "type": "string"
+    },
+    "fixed_effects": {
+     "description": "Each FE dimension, e.g. ['firm', 'year']",
+     "items": {
+      "type": "string"
+     },
+     "title": "Fixed Effects",
+     "type": "array"
+    },
+    "iv": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/IVSpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "model_type": {
+     "enum": [
+      "OLS",
+      "2SLS",
+      "IV",
+      "reduced_form",
+      "first_stage",
+      "probit",
+      "logit",
+      "tobit",
+      "poisson",
+      "negative_binomial",
+      "GMM",
+      "diff_in_diff",
+      "RD",
+      "quantile",
+      "other",
+      "unknown"
+     ],
+     "title": "Model Type",
+     "type": "string"
+    },
+    "outcome_construction": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "How the dependent variable is built from raw data",
+     "title": "Outcome Construction"
+    },
+    "reproduction_notes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Reproduction Notes"
+    },
+    "sample_restrictions": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Operational restriction: the rule AND the resulting N where stated",
+     "title": "Sample Restrictions"
+    },
+    "se_type": {
+     "default": "unknown",
+     "enum": [
+      "classical",
+      "robust",
+      "clustered",
+      "two_way_clustered",
+      "bootstrap",
+      "newey_west",
+      "conley",
+      "wild_bootstrap",
+      "other",
+      "unknown"
+     ],
+     "title": "Se Type",
+     "type": "string"
+    },
+    "time_period": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Time Period"
+    },
+    "unit_of_observation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Unit Of Observation"
+    },
+    "weights_type": {
+     "default": "unknown",
+     "enum": [
+      "aweight",
+      "pweight",
+      "fweight",
+      "iweight",
+      "none",
+      "unknown"
+     ],
+     "title": "Weights Type",
+     "type": "string"
+    },
+    "weights_variable": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Weights Variable"
+    }
+   },
+   "required": [
+    "model_type"
+   ],
+   "title": "RegressionSpec",
+   "type": "object"
+  }
+ },
+ "properties": {
+  "artid": {
+   "title": "Artid",
+   "type": "string"
+  },
+  "blind_n_obs": {
+   "default": false,
+   "title": "Blind N Obs",
+   "type": "boolean"
+  },
+  "blinded_at": {
+   "title": "Blinded At",
+   "type": "string"
+  },
+  "n_blinded": {
+   "default": 0,
+   "title": "N Blinded",
+   "type": "integer"
+  },
+  "n_cells": {
+   "default": 0,
+   "title": "N Cells",
+   "type": "integer"
+  },
+  "policy": {
+   "additionalProperties": {
+    "type": "boolean"
+   },
+   "description": "The BLIND_POLICY actually applied, recorded so a run is interpretable without knowing which flags were set",
+   "title": "Policy",
+   "type": "object"
+  },
+  "regressions": {
+   "items": {
+    "$ref": "#/$defs/BlindedRegression"
+   },
+   "title": "Regressions",
+   "type": "array"
+  },
+  "source_model": {
+   "title": "Source Model",
+   "type": "string"
+  }
+ },
+ "required": [
+  "artid",
+  "source_model",
+  "blinded_at",
+  "policy"
+ ],
+ "title": "BlindedPaper",
+ "type": "object"
+}

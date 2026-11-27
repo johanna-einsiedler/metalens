@@ -21,10 +21,11 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-CHAINS = ("_demo", "genai_work")         # explicit, in import order; a chain adds itself here
+CHAINS = ("_demo", "genai_work", "robustness")   # explicit, in import order; a chain adds itself here (robustness: rendered from the project's package)
 KINDS = ("pass", "match", "compute", "check")
 REGISTRY: dict[str, dict] = {}
 _LOADED = False
@@ -49,15 +50,37 @@ def register(chain_id: str, items: dict[str, dict], base_dir: Path) -> None:
         REGISTRY[code] = e
 
 
+def installed() -> list[str]:
+    """The chains installed beside the engine: importable module names in ``PAPERLENS_CHAINS``
+    (os.pathsep-separated), each a package with ``CHAIN_ID`` and ``register()`` like a bundled
+    one — a project's own chain, installed with ``pip install -e``, run by a local Metalens."""
+    return [m.strip() for m in (os.environ.get("PAPERLENS_CHAINS") or "").split(os.pathsep) if m.strip()]
+
+
 def load() -> dict[str, dict]:
-    """Every chain's entries, imported once."""
+    """Every chain's entries, imported once: the bundled chains, then the installed ones. A
+    bundled chain id wins — an installed chain of the same id is skipped, so a rendered copy
+    in the engine and the package it came from never register twice."""
     global _LOADED
     if not _LOADED:
+        ids: set[str] = set()
         for cid in CHAINS:
             mod = importlib.import_module(f"paperlens.chains.{cid}")
-            register(cid, mod.register(), Path(mod.__file__).parent)
+            register(cid, mod.register(), Path(mod.__file__).parent); ids.add(cid)
+        for name in installed():
+            mod = importlib.import_module(name)
+            cid = str(getattr(mod, "CHAIN_ID", "") or name.rpartition(".")[2])
+            if cid in ids:
+                continue
+            register(cid, mod.register(), Path(mod.__file__).parent); ids.add(cid)
         _LOADED = True
     return REGISTRY
+
+
+def reset() -> None:
+    """Forget the loaded chains (tests that change ``PAPERLENS_CHAINS``)."""
+    global _LOADED
+    REGISTRY.clear(); _LOADED = False
 
 
 def get(code: str) -> dict | None:

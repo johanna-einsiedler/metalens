@@ -561,14 +561,16 @@ def _validate_compute(st, at, E, W, *, resolver, pin_known, earlier, by_id, pres
     produces = (entry or {}).get("produces")
     reads = st.get("reads", [])
     if not isinstance(reads, list) or any(not isinstance(r, str) for r in reads):
-        E(f"{at}.reads must list earlier pass steps"); reads = []
+        E(f"{at}.reads must list earlier pass or data steps"); reads = []
     names: dict[str, str] = {}
     for r in reads:
         src = by_id.get(r) if r in earlier else None
-        if src is None or src.get("kind") != "pass":
-            E(f"{at}.reads: {r!r} is not an earlier pass step")
-        else:
+        if src is not None and src.get("kind") == "pass":
             names[str(src.get("pass") or "").partition("@")[0].partition(".")[2]] = r
+        elif src is not None and src.get("kind") in DATA_KINDS and (src.get("kind") != "compute" or src.get("preset")):
+            names[r] = r                        # a data step is read by its step id: its documents, as the edited document is seen
+        else:
+            E(f"{at}.reads: {r!r} is not an earlier pass step or data step")
     if entry is not None:
         for need in entry.get("reads") or []:
             if need not in names:

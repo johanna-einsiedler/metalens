@@ -272,7 +272,7 @@ REGISTRY: dict[str, dict] = {
                "params": {"ignore": {"type": "list", "default": ["uncited_value", "uncited_row", "missing_confidence"]}},
                "fn": check_schema},
     "regression-cells": {"label": "the printed cells of a regression column hang together",
-                         "applies_to": {"presets": ["econ-regression-tables", "register-tables"], "unit": "entries"}, "inputs": 1,
+                         "applies_to": {"presets": ["econ-regression-tables", "register-tables", "robustness-regressions"], "unit": "entries"}, "inputs": 1,
                          "params": {"t_tolerance": {"type": "number", "default": 0.15},
                                     "star_legend": {"type": "table", "default": [[3, 0.01], [2, 0.05], [1, 0.1]]}},
                          "codes": {"se_dangling_ref": "error", "se_refers_noncoef": "error", "coef_many_se": "error", "numeric_mismatch": "error",
@@ -291,7 +291,7 @@ REGISTRY: dict[str, dict] = {
               "params": {"rules": {"type": "table", "default": []}},
               "codes": {}, "fn": check_rules},                       # the codes are the rules' own (params.rules[].code)
     "claims-vs-tables": {"label": "point estimates against the transcribed table cells of the companion dataset",
-                         "applies_to": {"presets": ["register-claims"], "unit": "results", "companion": ["register-tables", "econ-regression-tables"]},
+                         "applies_to": {"presets": ["register-claims"], "unit": "results", "companion": ["register-tables", "econ-regression-tables", "robustness-regressions"]},
                          "inputs": 1, "needs_companion": True, "params": {},
                          "codes": {"estimate_mismatch": "error", "exhibit_unlinked": "warn"},
                          "fn": check_claims_vs_tables},

@@ -1,0 +1,108 @@
+{
+ "$defs": {
+  "Evidence": {
+   "properties": {
+    "field": {
+     "description": "Which extracted field this substantiates",
+     "title": "Field",
+     "type": "string"
+    },
+    "page": {
+     "description": "Page where the snippet appears, as printed",
+     "title": "Page",
+     "type": "string"
+    },
+    "snippet": {
+     "description": "Short verbatim quotation from the paper",
+     "title": "Snippet",
+     "type": "string"
+    },
+    "source": {
+     "enum": [
+      "abstract",
+      "introduction",
+      "conclusion",
+      "table",
+      "table_notes",
+      "body"
+     ],
+     "title": "Source",
+     "type": "string"
+    }
+   },
+   "required": [
+    "snippet",
+    "page",
+    "source",
+    "field"
+   ],
+   "title": "Evidence",
+   "type": "object"
+  }
+ },
+ "description": "Stage 1a: the empirical-vs-theoretical gate.",
+ "properties": {
+  "design_evidence": {
+   "items": {
+    "$ref": "#/$defs/Evidence"
+   },
+   "title": "Design Evidence",
+   "type": "array"
+  },
+  "evidence": {
+   "items": {
+    "$ref": "#/$defs/Evidence"
+   },
+   "title": "Evidence",
+   "type": "array"
+  },
+  "identification_design": {
+   "default": "unknown",
+   "enum": [
+    "rct",
+    "did_event",
+    "iv",
+    "rdd",
+    "soo_matching",
+    "panel_fe",
+    "bunching",
+    "synthetic_control",
+    "other",
+    "unknown"
+   ],
+   "title": "Identification Design",
+   "type": "string"
+  },
+  "is_empirical": {
+   "title": "Is Empirical",
+   "type": "boolean"
+  },
+  "primary_type": {
+   "enum": [
+    "empirical_causal",
+    "empirical_experiment",
+    "empirical_descriptive",
+    "empirical_structural_estimation",
+    "empirical_meta_analysis",
+    "theory_model",
+    "theory_calibration",
+    "theory_methodological",
+    "theory_review",
+    "other"
+   ],
+   "title": "Primary Type",
+   "type": "string"
+  },
+  "reasoning": {
+   "title": "Reasoning",
+   "type": "string"
+  }
+ },
+ "required": [
+  "is_empirical",
+  "primary_type",
+  "reasoning"
+ ],
+ "title": "PaperClassification",
+ "type": "object"
+}

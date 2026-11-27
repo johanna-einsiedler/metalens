@@ -1,0 +1,58 @@
+{
+ "$defs": {
+  "LeakJudgement": {
+   "properties": {
+    "confidence": {
+     "enum": [
+      "high",
+      "medium",
+      "low"
+     ],
+     "title": "Confidence",
+     "type": "string"
+    },
+    "decision": {
+     "enum": [
+      "remove",
+      "keep"
+     ],
+     "title": "Decision",
+     "type": "string"
+    },
+    "index": {
+     "description": "The CASE number this judgement answers",
+     "title": "Index",
+     "type": "integer"
+    },
+    "reasoning": {
+     "description": "Two or three sentences. Name what the number refers to in this text.",
+     "title": "Reasoning",
+     "type": "string"
+    }
+   },
+   "required": [
+    "index",
+    "decision",
+    "confidence",
+    "reasoning"
+   ],
+   "title": "LeakJudgement",
+   "type": "object"
+  }
+ },
+ "description": "One judgement per case, in a single call.\n\nBatched because a session per leak would mean 234 sessions to clear twelve\npapers. Each case carries its own value, field and context, and the index\nis echoed back so a misaligned answer is caught rather than silently\nattached to the wrong leak.",
+ "properties": {
+  "judgements": {
+   "items": {
+    "$ref": "#/$defs/LeakJudgement"
+   },
+   "title": "Judgements",
+   "type": "array"
+  }
+ },
+ "required": [
+  "judgements"
+ ],
+ "title": "LeakBatch",
+ "type": "object"
+}

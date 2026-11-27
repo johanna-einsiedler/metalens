@@ -107,7 +107,11 @@ def test_every_bundled_review_step_says_what_it_is_for() -> None:
         for st in spec["steps"]:
             if st.get("kind") == "review":
                 assert st.get("purpose") in ws.PURPOSES, (f, st["id"])
-                assert st["purpose"] == ("routed" if (st.get("where") or {}).get("paper_metadata.routed") else "audit")
+                # a bundled review whose `where` keeps the PAPERS a rule sent on (`paper_metadata.routed: true`, a
+                # paper count above zero) is routed; a `where` over a table's rows (which rows to check) or none is an audit
+                where = st.get("where") or {}
+                routed = any(k.startswith("paper_metadata.") and v is not False and v != {"eq": False} for k, v in where.items())
+                assert st["purpose"] == ("routed" if routed else "audit"), (f, st["id"], where)
 
 
 # ── the stamp ─────────────────────────────────────────────────────────────────

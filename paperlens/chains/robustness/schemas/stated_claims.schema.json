@@ -1,0 +1,335 @@
+{
+ "$defs": {
+  "Anchor": {
+   "properties": {
+    "quote": {
+     "description": "the ABSTRACT sentence that states or announces this finding, verbatim",
+     "title": "Quote",
+     "type": "string"
+    }
+   },
+   "required": [
+    "quote"
+   ],
+   "title": "Anchor",
+   "type": "object"
+  },
+  "Claim": {
+   "properties": {
+    "anchor": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Anchor"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "cause": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Cause"
+    },
+    "effect": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Effect"
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/Evidence"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "id": {
+     "description": "S1, S2, ...",
+     "title": "Id",
+     "type": "string"
+    },
+    "magnitude_stated": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Magnitude Stated"
+    },
+    "moderator": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Moderator"
+    },
+    "qualifies": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Qualifies",
+     "type": "array"
+    },
+    "refined_by_introduction": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Refined By Introduction"
+    },
+    "relation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Relation"
+    },
+    "scope": {
+     "$ref": "#/$defs/Scope"
+    },
+    "sign": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "+ | - | 0 | mixed; null unless type=edge",
+     "title": "Sign"
+    },
+    "source_section": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "abstract | introduction | both",
+     "title": "Source Section"
+    },
+    "statement": {
+     "description": "directional, no numbers, no scope",
+     "title": "Statement",
+     "type": "string"
+    },
+    "support": {
+     "description": "explicit | assembled | weak",
+     "title": "Support",
+     "type": "string"
+    },
+    "support_note": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Support Note"
+    },
+    "type": {
+     "description": "edge | comparison | not_causal",
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "type",
+    "statement",
+    "support"
+   ],
+   "title": "Claim",
+   "type": "object"
+  },
+  "Evidence": {
+   "properties": {
+    "page": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Page"
+    },
+    "quote": {
+     "title": "Quote",
+     "type": "string"
+    },
+    "role": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "anchor | names_variables | gives_direction | gives_magnitude | scope",
+     "title": "Role"
+    },
+    "section": {
+     "description": "abstract | introduction",
+     "title": "Section",
+     "type": "string"
+    }
+   },
+   "required": [
+    "quote",
+    "section"
+   ],
+   "title": "Evidence",
+   "type": "object"
+  },
+  "Scope": {
+   "properties": {
+    "identification": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Identification"
+    },
+    "period": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Period"
+    },
+    "population": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Population"
+    },
+    "setting": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Setting"
+    }
+   },
+   "title": "Scope",
+   "type": "object"
+  }
+ },
+ "properties": {
+  "abstract_text": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "description": "the paper's abstract, verbatim as printed in the PDF",
+   "title": "Abstract Text"
+  },
+  "claim_source": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "description": "abstract | introduction | conclusion: the section that decided which claims exist",
+   "title": "Claim Source"
+  },
+  "claims": {
+   "items": {
+    "$ref": "#/$defs/Claim"
+   },
+   "title": "Claims",
+   "type": "array"
+  },
+  "not_applicable": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Not Applicable"
+  }
+ },
+ "title": "StatedClaims",
+ "type": "object"
+}

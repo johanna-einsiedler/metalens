@@ -1,0 +1,841 @@
+{
+ "$defs": {
+  "Cell": {
+   "description": "One printed cell of a regression table column.",
+   "properties": {
+    "col_index": {
+     "description": "0-based column position within the table",
+     "title": "Col Index",
+     "type": "integer"
+    },
+    "column_label": {
+     "description": "Column label exactly as printed",
+     "title": "Column Label",
+     "type": "string"
+    },
+    "is_string": {
+     "default": false,
+     "description": "True for non-numeric structural cells ('Yes'/'No'/checkmark). Never blinded — these are structure, not results.",
+     "title": "Is String",
+     "type": "boolean"
+    },
+    "numeric_value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Parsed number: stars, parentheses, commas and % stripped. null for non-numeric cells.",
+     "title": "Numeric Value"
+    },
+    "raw_text": {
+     "description": "Cell text verbatim, e.g. '0.94***' or '(0.31)'",
+     "title": "Raw Text",
+     "type": "string"
+    },
+    "refers_to": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "row_index of the coefficient this cell belongs to. Set on se / p_value / ci / t_stat rows; null on coefficient rows.",
+     "title": "Refers To"
+    },
+    "row_index": {
+     "description": "0-based row position within the column",
+     "title": "Row Index",
+     "type": "integer"
+    },
+    "row_label": {
+     "description": "Row label exactly as printed in the table",
+     "title": "Row Label",
+     "type": "string"
+    },
+    "row_type": {
+     "description": "What kind of quantity this cell holds",
+     "enum": [
+      "coefficient",
+      "se",
+      "p_value",
+      "ci",
+      "t_stat",
+      "statistic_r2",
+      "statistic_n_obs",
+      "statistic_f",
+      "statistic_other",
+      "string",
+      "panel_header"
+     ],
+     "title": "Row Type",
+     "type": "string"
+    },
+    "significance_level": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "0.1, 0.05, 0.01, or null",
+     "title": "Significance Level"
+    },
+    "significance_stars": {
+     "default": 0,
+     "description": "Count of stars: 0-3",
+     "title": "Significance Stars",
+     "type": "integer"
+    },
+    "statistic_detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "For row_type='statistic_other', what it is (e.g. 'adjusted R-squared', 'mean of dep. var.')",
+     "title": "Statistic Detail"
+    }
+   },
+   "required": [
+    "row_label",
+    "column_label",
+    "row_index",
+    "col_index",
+    "raw_text",
+    "row_type"
+   ],
+   "title": "Cell",
+   "type": "object"
+  },
+  "Criterion": {
+   "description": "One Young headline criterion, with the evidence behind it.",
+   "properties": {
+    "page": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Page"
+    },
+    "snippet": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Verbatim quotation supporting this judgement",
+     "title": "Snippet"
+    },
+    "value": {
+     "title": "Value",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "value"
+   ],
+   "title": "Criterion",
+   "type": "object"
+  },
+  "Evidence": {
+   "properties": {
+    "field": {
+     "description": "Which extracted field this substantiates",
+     "title": "Field",
+     "type": "string"
+    },
+    "page": {
+     "description": "Page where the snippet appears, as printed",
+     "title": "Page",
+     "type": "string"
+    },
+    "snippet": {
+     "description": "Short verbatim quotation from the paper",
+     "title": "Snippet",
+     "type": "string"
+    },
+    "source": {
+     "enum": [
+      "abstract",
+      "introduction",
+      "conclusion",
+      "table",
+      "table_notes",
+      "body"
+     ],
+     "title": "Source",
+     "type": "string"
+    }
+   },
+   "required": [
+    "snippet",
+    "page",
+    "source",
+    "field"
+   ],
+   "title": "Evidence",
+   "type": "object"
+  },
+  "HeadlineCriteria": {
+   "description": "Young's definition, as separately-evidenced criteria.\n\n`result_class` is DERIVED from these in code (see derive_result_class), not\nasserted by the model, so the label can never disagree with its own\ncriteria.\n\nThese are judged in a SEPARATE whole-paper pass (src/extract/headline.py),\nnot during table extraction. Two of the four criteria are comparative:\n\"preferred specification\" is a claim relative to the paper's other columns,\nand \"not robustness or mechanism\" is a claim about the paper's structure\n(Table 5 is a robustness table *because* Table 2 is the main one). A call\nscoped to one table can see neither, so judging there was unsound as well\nas expensive.",
+   "properties": {
+    "critique_override_applied": {
+     "$ref": "#/$defs/Criterion",
+     "description": "True only when the paper critiques a standard specification and THIS is the stronger standard spec"
+    },
+    "mentioned_in_narrative": {
+     "$ref": "#/$defs/Criterion",
+     "description": "Referenced in the abstract, introduction, or conclusion"
+    },
+    "not_robustness_or_mechanism": {
+     "$ref": "#/$defs/Criterion",
+     "description": "True when this is NOT framed as a robustness check, sensitivity/placebo test, or mechanism exploration"
+    },
+    "preferred_specification": {
+     "$ref": "#/$defs/Criterion",
+     "description": "Authors treat this as a/the preferred specification"
+    },
+    "reasoning": {
+     "description": "One sentence on why the criteria fall as they do",
+     "title": "Reasoning",
+     "type": "string"
+    }
+   },
+   "required": [
+    "mentioned_in_narrative",
+    "preferred_specification",
+    "not_robustness_or_mechanism",
+    "critique_override_applied",
+    "reasoning"
+   ],
+   "title": "HeadlineCriteria",
+   "type": "object"
+  },
+  "IVSpec": {
+   "properties": {
+    "endogenous": {
+     "title": "Endogenous",
+     "type": "string"
+    },
+    "instruments": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Instruments",
+     "type": "array"
+    }
+   },
+   "required": [
+    "endogenous"
+   ],
+   "title": "IVSpec",
+   "type": "object"
+  },
+  "PaperClassification": {
+   "description": "Stage 1a: the empirical-vs-theoretical gate.",
+   "properties": {
+    "design_evidence": {
+     "items": {
+      "$ref": "#/$defs/Evidence"
+     },
+     "title": "Design Evidence",
+     "type": "array"
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/Evidence"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "identification_design": {
+     "default": "unknown",
+     "enum": [
+      "rct",
+      "did_event",
+      "iv",
+      "rdd",
+      "soo_matching",
+      "panel_fe",
+      "bunching",
+      "synthetic_control",
+      "other",
+      "unknown"
+     ],
+     "title": "Identification Design",
+     "type": "string"
+    },
+    "is_empirical": {
+     "title": "Is Empirical",
+     "type": "boolean"
+    },
+    "primary_type": {
+     "enum": [
+      "empirical_causal",
+      "empirical_experiment",
+      "empirical_descriptive",
+      "empirical_structural_estimation",
+      "empirical_meta_analysis",
+      "theory_model",
+      "theory_calibration",
+      "theory_methodological",
+      "theory_review",
+      "other"
+     ],
+     "title": "Primary Type",
+     "type": "string"
+    },
+    "reasoning": {
+     "title": "Reasoning",
+     "type": "string"
+    }
+   },
+   "required": [
+    "is_empirical",
+    "primary_type",
+    "reasoning"
+   ],
+   "title": "PaperClassification",
+   "type": "object"
+  },
+  "PaperMetadata": {
+   "properties": {
+    "authors": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Authors",
+     "type": "array"
+    },
+    "doi": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Doi"
+    },
+    "title": {
+     "title": "Title",
+     "type": "string"
+    },
+    "year": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Year"
+    }
+   },
+   "required": [
+    "title"
+   ],
+   "title": "PaperMetadata",
+   "type": "object"
+  },
+  "Regression": {
+   "description": "One regression = one table column (or one panel x column cell block).",
+   "properties": {
+    "cells": {
+     "items": {
+      "$ref": "#/$defs/Cell"
+     },
+     "title": "Cells",
+     "type": "array"
+    },
+    "column": {
+     "description": "Column label as printed, e.g. '(3)'",
+     "title": "Column",
+     "type": "string"
+    },
+    "evidence": {
+     "items": {
+      "$ref": "#/$defs/Evidence"
+     },
+     "title": "Evidence",
+     "type": "array"
+    },
+    "headline_criteria": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/HeadlineCriteria"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "notes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Notes"
+    },
+    "outcome_variable": {
+     "title": "Outcome Variable",
+     "type": "string"
+    },
+    "page": {
+     "title": "Page",
+     "type": "string"
+    },
+    "panel": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Panel"
+    },
+    "regression_id": {
+     "description": "Stable id: '<artid>::T<table>::<panel or _>::C<column>'",
+     "title": "Regression Id",
+     "type": "string"
+    },
+    "spec": {
+     "$ref": "#/$defs/RegressionSpec"
+    },
+    "table_number": {
+     "description": "As printed, e.g. 'Table 2' or 'Table A3'",
+     "title": "Table Number",
+     "type": "string"
+    },
+    "table_title": {
+     "title": "Table Title",
+     "type": "string"
+    },
+    "target_regressors": {
+     "items": {
+      "$ref": "#/$defs/TargetRegressor"
+     },
+     "title": "Target Regressors",
+     "type": "array"
+    }
+   },
+   "required": [
+    "regression_id",
+    "table_number",
+    "table_title",
+    "column",
+    "page",
+    "outcome_variable",
+    "spec"
+   ],
+   "title": "Regression",
+   "type": "object"
+  },
+  "RegressionSpec": {
+   "description": "Everything someone with the DATA but not the CODE needs to re-run this.\n\nThree rules the prompt enforces, because they separate a runnable spec from\na useless one: enumerate every control individually (never \"demographic\ncontrols\"); dereference cross-references (\"controls as in Table A3\");\nand state sample restrictions operationally, with the rule and the N.",
+   "properties": {
+    "cluster_level": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Clustering dimension(s), e.g. 'state' or 'state x year'",
+     "title": "Cluster Level"
+    },
+    "controls": {
+     "description": "EVERY control individually. Never an aggregate description.",
+     "items": {
+      "type": "string"
+     },
+     "title": "Controls",
+     "type": "array"
+    },
+    "data_construction_steps": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Data Construction Steps",
+     "type": "array"
+    },
+    "design": {
+     "default": "unknown",
+     "description": "The identification design this column rests on, as the paper argues it (not the estimator): rct, did_event, iv, rdd, soo_matching, panel_fe, bunching, synthetic_control",
+     "enum": [
+      "rct",
+      "did_event",
+      "iv",
+      "rdd",
+      "soo_matching",
+      "panel_fe",
+      "bunching",
+      "synthetic_control",
+      "other",
+      "unknown"
+     ],
+     "title": "Design",
+     "type": "string"
+    },
+    "fixed_effects": {
+     "description": "Each FE dimension, e.g. ['firm', 'year']",
+     "items": {
+      "type": "string"
+     },
+     "title": "Fixed Effects",
+     "type": "array"
+    },
+    "iv": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/IVSpec"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "model_type": {
+     "enum": [
+      "OLS",
+      "2SLS",
+      "IV",
+      "reduced_form",
+      "first_stage",
+      "probit",
+      "logit",
+      "tobit",
+      "poisson",
+      "negative_binomial",
+      "GMM",
+      "diff_in_diff",
+      "RD",
+      "quantile",
+      "other",
+      "unknown"
+     ],
+     "title": "Model Type",
+     "type": "string"
+    },
+    "outcome_construction": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "How the dependent variable is built from raw data",
+     "title": "Outcome Construction"
+    },
+    "reproduction_notes": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Reproduction Notes"
+    },
+    "sample_restrictions": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "Operational restriction: the rule AND the resulting N where stated",
+     "title": "Sample Restrictions"
+    },
+    "se_type": {
+     "default": "unknown",
+     "enum": [
+      "classical",
+      "robust",
+      "clustered",
+      "two_way_clustered",
+      "bootstrap",
+      "newey_west",
+      "conley",
+      "wild_bootstrap",
+      "other",
+      "unknown"
+     ],
+     "title": "Se Type",
+     "type": "string"
+    },
+    "time_period": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Time Period"
+    },
+    "unit_of_observation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Unit Of Observation"
+    },
+    "weights_type": {
+     "default": "unknown",
+     "enum": [
+      "aweight",
+      "pweight",
+      "fweight",
+      "iweight",
+      "none",
+      "unknown"
+     ],
+     "title": "Weights Type",
+     "type": "string"
+    },
+    "weights_variable": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Weights Variable"
+    }
+   },
+   "required": [
+    "model_type"
+   ],
+   "title": "RegressionSpec",
+   "type": "object"
+  },
+  "TableInventory": {
+   "description": "Pass 1: what tables exist. Drives per-table chunking in pass 2.",
+   "properties": {
+    "tables": {
+     "items": {
+      "$ref": "#/$defs/TableStub"
+     },
+     "title": "Tables",
+     "type": "array"
+    }
+   },
+   "title": "TableInventory",
+   "type": "object"
+  },
+  "TableStub": {
+   "description": "One entry of the table inventory (pass 1 of extraction).",
+   "properties": {
+    "is_regression_table": {
+     "title": "Is Regression Table",
+     "type": "boolean"
+    },
+    "n_columns_estimated": {
+     "description": "How many regression columns this table reports",
+     "title": "N Columns Estimated",
+     "type": "integer"
+    },
+    "page": {
+     "title": "Page",
+     "type": "string"
+    },
+    "table_number": {
+     "title": "Table Number",
+     "type": "string"
+    },
+    "table_title": {
+     "title": "Table Title",
+     "type": "string"
+    }
+   },
+   "required": [
+    "table_number",
+    "table_title",
+    "page",
+    "is_regression_table",
+    "n_columns_estimated"
+   ],
+   "title": "TableStub",
+   "type": "object"
+  },
+  "TargetRegressor": {
+   "description": "The coefficient(s) the column is about.\n\nModel-emitted with evidence, never inferred by substring matching. In the\nold stack this flag came from `var_name.lower() in treatment_definition`\nwith \"first row wins\" as fallback — and it is the denominator of every\ndownstream match rate.",
+   "properties": {
+    "name": {
+     "description": "Row label of the regressor of interest, as printed",
+     "title": "Name",
+     "type": "string"
+    },
+    "row_index": {
+     "description": "row_index of its coefficient cell",
+     "title": "Row Index",
+     "type": "integer"
+    },
+    "why": {
+     "description": "Why this is the coefficient of interest",
+     "title": "Why",
+     "type": "string"
+    }
+   },
+   "required": [
+    "name",
+    "row_index",
+    "why"
+   ],
+   "title": "TargetRegressor",
+   "type": "object"
+  }
+ },
+ "properties": {
+  "artid": {
+   "title": "Artid",
+   "type": "string"
+  },
+  "classification": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/PaperClassification"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "extracted_at": {
+   "title": "Extracted At",
+   "type": "string"
+  },
+  "inventory": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/TableInventory"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "inventory_note": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Inventory Note"
+  },
+  "model": {
+   "title": "Model",
+   "type": "string"
+  },
+  "no_regression_tables": {
+   "default": false,
+   "description": "Paper genuinely contains no regression tables. Zero regressions here is a finding, not a failed extraction.",
+   "title": "No Regression Tables",
+   "type": "boolean"
+  },
+  "paper_metadata": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/PaperMetadata"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "regressions": {
+   "items": {
+    "$ref": "#/$defs/Regression"
+   },
+   "title": "Regressions",
+   "type": "array"
+  },
+  "tables_failed": {
+   "description": "table_numbers whose extraction call failed",
+   "items": {
+    "type": "string"
+   },
+   "title": "Tables Failed",
+   "type": "array"
+  },
+  "usage": {
+   "additionalProperties": true,
+   "title": "Usage",
+   "type": "object"
+  }
+ },
+ "required": [
+  "artid",
+  "model",
+  "extracted_at"
+ ],
+ "title": "PaperExtraction",
+ "type": "object"
+}

@@ -455,8 +455,13 @@ release freezes the dataset's rows with its badge (`credibility.validations`).
 
 A **chain** (`paperlens/chains/<chain>/`) is registered code a workflow runs per paper — the
 project-specific knowledge (prompts, taxonomy, rules) is the chain's content, the engine knows the
-registry (`paperlens/chains/__init__.py`, the pattern of `checks.REGISTRY`). A step of kind `pass`
-names a pass at its PIN:
+registry (`paperlens/chains/__init__.py`, the pattern of `checks.REGISTRY`). The bundled chains are
+the tuple `CHAINS`; a chain installed beside the engine — a project's own package with `CHAIN_ID`
+and `register()`, `pip install -e` from its repository — is named in `PAPERLENS_CHAINS`
+(os.pathsep-separated importable module names) and loads after them; a bundled id wins, so a
+rendered copy in the engine and the package it came from never register twice (the `robustness`
+chain is such a copy: `metalens/sync/render.py` of the Robustness-at-Scale project writes it). A
+step of kind `pass` names a pass at its PIN:
 
 ```jsonc
 {"id": "estimands", "kind": "pass", "pass": "genai_work.estimands@3f1a9c2e", "reads": ["exhibits"],
@@ -586,7 +591,18 @@ A step of kind `compute` runs a chain's registered deterministic code per paper,
  "preset": "genai-work-extraction@ddf3b7fd", "dataset": "extraction"}
 {"id": "route", "kind": "compute", "fn": "genai_work.route", "edits": "extraction", "writes": ["paper.routed", "paper.route_reasons"],
  "findings": ["record"], "params": {"threshold": 6}}
+{"id": "grade", "kind": "compute", "fn": "robustness.grade", "edits": "tables", "reads": ["reproduced"],
+ "writes": ["reproduction", "cells_graded", "cells_matched", "sign_flips", "sample_mismatch", "failure_reason", "paper.match_rate", "…"]}
 ```
+
+`reads` names earlier pass steps (the pass's name is the key of `ctx.read`) and earlier DATA steps —
+an extract step, a compute that makes documents — by their step id: `ctx.read("reproduced")` is
+that step's document for the paper in the shape of the one the compute edits (`{document_id,
+records: [{id, entry_index, field_values}], paper_metadata}`), so a compute can write on one
+dataset of a group what another says about the same paper (the robustness workflow's `headlines`
+reads the claims, its `grade` the re-estimations, both edit the tables). The compute's registration
+declares the names it reads; a data read waits for the step's document the way a pass read waits
+for the output, and fails the paper when that step failed for it.
 
 A compute that PRODUCES documents (`preset`, an optional `dataset` role) builds one document per
 paper from the outputs of the passes it `reads` (`ctx.read`, `ctx.pages`, `ctx.paper`,

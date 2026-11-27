@@ -1,0 +1,187 @@
+{
+ "format": 2,
+ "id": "reproduced-regressions",
+ "version": 1,
+ "meta": {
+  "title": "Robustness at Scale: re-estimated regressions",
+  "tagline": "What the re-estimation agent got when it ran the deposited code for every regression of an article: a value per withheld cell, the N achieved, or why it could not.",
+  "description": "One entry per regression the pipeline's re-estimation answered for (`reproduce/<artid>.result.json`): status, method, the reason for a failure, the achieved sample size, the do-file and command that produced it, and one reproduced value per cell of the blinded grid, positioned by row index. Produced OUTSIDE Metalens by a sandboxed agent driving Stata over the replication package; this preset is the schema the results are imported into. The robustness workflow's grade step reads these against the regression tables of the same paper.",
+  "mode": "import",
+  "hidden": false,
+  "brands": [
+   "metalens"
+  ],
+  "authors": [
+   {
+    "family": "Einsiedler",
+    "given": "Johanna",
+    "orcid": "0000-0002-6312-6861",
+    "affiliation": "University of Basel; University of Copenhagen"
+   }
+  ],
+  "keywords": [
+   "reproduction",
+   "re-estimation",
+   "regression tables",
+   "replication packages",
+   "economics"
+  ],
+  "license": "CC-BY-4.0"
+ },
+ "card": {
+  "file": "reproduced-regressions.card.md"
+ },
+ "prompt": {},
+ "paper": {
+  "fields": [
+   {
+    "name": "run_id",
+    "type": "string",
+    "label": "Run",
+    "evidence": "none",
+    "help": "the re-estimation run that produced the results"
+   },
+   {
+    "name": "model",
+    "type": "string",
+    "label": "Model",
+    "evidence": "none",
+    "help": "the agent's model"
+   },
+   {
+    "name": "stata_version",
+    "type": "string",
+    "label": "Stata",
+    "evidence": "none",
+    "help": "the Stata edition and version the code ran under"
+   },
+   {
+    "name": "n_targets",
+    "type": "integer",
+    "label": "Targets",
+    "evidence": "none",
+    "help": "regressions the agent was asked to re-estimate"
+   },
+   {
+    "name": "n_changes",
+    "type": "integer",
+    "label": "Edits to the package",
+    "evidence": "none",
+    "help": "edits the agent made to the deposited code to run it"
+   }
+  ]
+ },
+ "entries": {
+  "key": "targets",
+  "label": "Re-estimated regression",
+  "cardinality": "many",
+  "id_field": "regression_id",
+  "title": "{regression_id}",
+  "evidence": "none",
+  "help": "one regression of the blinded grid: what the agent got for it, or why it could not run it",
+  "fields": [
+   {
+    "name": "regression_id",
+    "type": "string",
+    "required": true,
+    "label": "Regression",
+    "evidence": "none",
+    "help": "the regression's id in the tables of the same paper: table::panel::column"
+   },
+   {
+    "name": "status",
+    "type": "enum",
+    "required": true,
+    "label": "Status",
+    "options": [
+     "ok",
+     "failed"
+    ],
+    "evidence": "none"
+   },
+   {
+    "name": "method",
+    "type": "enum",
+    "label": "Method",
+    "options": [
+     "stata",
+     "bypass",
+     "not_attempted"
+    ],
+    "evidence": "none",
+    "help": "stata: the deposited code ran; bypass: the agent estimated it another way; not_attempted: the data check ruled it out"
+   },
+   {
+    "name": "reason",
+    "type": "string",
+    "label": "Failure reason",
+    "evidence": "none",
+    "help": "data_missing_from_deposit, regression_not_in_code, code_error_unfixable, stata_unavailable, stata_edition_limit, ambiguous_spec, sample_mismatch, ..."
+   },
+   {
+    "name": "detail",
+    "type": "text",
+    "label": "Detail",
+    "evidence": "none",
+    "help": "the concrete obstacle, when it failed"
+   },
+   {
+    "name": "n_obs",
+    "type": "number",
+    "label": "N achieved",
+    "evidence": "none",
+    "help": "the sample size the re-estimation achieved, not the printed one"
+   },
+   {
+    "name": "do_file",
+    "type": "string",
+    "label": "Do-file",
+    "evidence": "none"
+   },
+   {
+    "name": "command",
+    "type": "text",
+    "label": "Command",
+    "evidence": "none",
+    "help": "the estimation command as Stata ran it"
+   },
+   {
+    "name": "spec_id",
+    "type": "string",
+    "label": "Captured specification",
+    "evidence": "none",
+    "help": "the emit_spec bundle the values came from"
+   },
+   {
+    "name": "cells",
+    "type": "table",
+    "label": "Reproduced cells",
+    "evidence": "none",
+    "help": "one row per cell of the blinded grid the agent filled, positioned by the row index of the tables",
+    "columns": [
+     {
+      "name": "row_index",
+      "type": "integer",
+      "required": true,
+      "label": "Row index"
+     },
+     {
+      "name": "col_index",
+      "type": "integer",
+      "label": "Column index"
+     },
+     {
+      "name": "raw_text",
+      "type": "string",
+      "label": "As Stata printed it"
+     },
+     {
+      "name": "numeric_value",
+      "type": "number",
+      "label": "Value"
+     }
+    ]
+   }
+  ]
+ }
+}
