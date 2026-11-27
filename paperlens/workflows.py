@@ -1515,11 +1515,21 @@ def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete:
     that lands (its job advances the run) dispatches the next."""
     from . import passes, worker
     js = jobs(conn, run["id"], sr["step_id"])
-    staged = {p["pdf_sha256"]: p for p in passes.papers_of(conn, run["id"])}
     doc_step = bool(st.get("preset"))
     ed = st.get("edits") if not doc_step else None
     upstream = {o: {x["pdf_sha256"]: x["status"] for x in jobs(conn, run["id"], o)}     # once per advance, not once per paper
                 for o in [*(st.get("reads") or []), *([ed] if ed else [])]}
+    # the step's papers: those staged for the run (a chain's uploads, with their page text) and those
+    # that landed in the step it edits (a supplied upload the plan listed — or did not: it gets a job here)
+    staged = {p["pdf_sha256"] for p in passes.papers_of(conn, run["id"])}
+    if ed:
+        landed_in_ed = {sha for sha, s_ in upstream[ed].items() if s_ in JOB_DONE}
+        for sha in sorted(landed_in_ed - {j["pdf_sha256"] for j in js}):
+            conn.execute("INSERT INTO workflow_job (id, run_id, step_id, pdf_sha256, status) VALUES (%s::uuid, %s::uuid, %s, %s, 'pending')",
+                         (str(uuid.uuid4()), run["id"], sr["step_id"], sha))
+        if landed_in_ed - {j["pdf_sha256"] for j in js}:
+            js = jobs(conn, run["id"], sr["step_id"])
+        staged |= landed_in_ed
     in_flight = sum(1 for j in js if j["status"] in ("queued", "running") and j.get("job_id"))
     for j in js:
         if j["status"] != "pending" or j["pdf_sha256"] not in staged:
@@ -1532,7 +1542,8 @@ def _advance_compute(conn, run: dict, sr: dict, st: dict, by_id: dict, complete:
             continue
         if in_flight >= COMPUTE_IN_FLIGHT:
             continue                                              # the queue holds enough of this step: a landing paper dispatches the next
-        ready = all(passes.get_output(conn, run["id"], o, j["pdf_sha256"]) is not None for o in (st.get("reads") or []))
+        ready = all((passes.get_output(conn, run["id"], o, j["pdf_sha256"]) if (by_id.get(o) or {}).get("kind") == "pass"
+                     else passes.document_of(conn, run["id"], o, j["pdf_sha256"])) is not None for o in (st.get("reads") or []))
         did = passes.document_of(conn, run["id"], ed, j["pdf_sha256"]) if ed else None
         if not ready or (ed and did is None):
             continue                                              # its inputs are not there yet: the barrier waits

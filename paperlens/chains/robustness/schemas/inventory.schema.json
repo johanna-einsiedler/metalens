@@ -1,0 +1,51 @@
+{
+ "$defs": {
+  "TableStub": {
+   "description": "One entry of the table inventory (pass 1 of extraction).",
+   "properties": {
+    "is_regression_table": {
+     "title": "Is Regression Table",
+     "type": "boolean"
+    },
+    "n_columns_estimated": {
+     "description": "How many regression columns this table reports",
+     "title": "N Columns Estimated",
+     "type": "integer"
+    },
+    "page": {
+     "title": "Page",
+     "type": "string"
+    },
+    "table_number": {
+     "title": "Table Number",
+     "type": "string"
+    },
+    "table_title": {
+     "title": "Table Title",
+     "type": "string"
+    }
+   },
+   "required": [
+    "table_number",
+    "table_title",
+    "page",
+    "is_regression_table",
+    "n_columns_estimated"
+   ],
+   "title": "TableStub",
+   "type": "object"
+  }
+ },
+ "description": "Pass 1: what tables exist. Drives per-table chunking in pass 2.",
+ "properties": {
+  "tables": {
+   "items": {
+    "$ref": "#/$defs/TableStub"
+   },
+   "title": "Tables",
+   "type": "array"
+  }
+ },
+ "title": "TableInventory",
+ "type": "object"
+}

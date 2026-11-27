@@ -1,0 +1,99 @@
+{
+ "$defs": {
+  "ManifestEntry": {
+   "description": "What the session agent says it wrote for one table.",
+   "properties": {
+    "file": {
+     "description": "Filename written under tables/, e.g. 'T2.json'",
+     "title": "File",
+     "type": "string"
+    },
+    "is_regression_table": {
+     "title": "Is Regression Table",
+     "type": "boolean"
+    },
+    "n_regressions": {
+     "title": "N Regressions",
+     "type": "integer"
+    },
+    "note": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Note"
+    },
+    "status": {
+     "default": "written",
+     "enum": [
+      "written",
+      "skipped_not_regression",
+      "failed"
+     ],
+     "title": "Status",
+     "type": "string"
+    },
+    "table_number": {
+     "title": "Table Number",
+     "type": "string"
+    }
+   },
+   "required": [
+    "table_number",
+    "file",
+    "is_regression_table",
+    "n_regressions"
+   ],
+   "title": "ManifestEntry",
+   "type": "object"
+  }
+ },
+ "description": "Final answer of a whole-paper extraction session.\n\nAdvisory only. The files on disk are the result; assembly globs the\ndirectory and validates whatever is there. A session killed on budget or\nturns leaves no manifest but keeps every table it had already written --\nwhich is the entire point of writing incrementally.",
+ "properties": {
+  "inventory_note": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "description": "When no_regression_tables is true, what the paper reports instead",
+   "title": "Inventory Note"
+  },
+  "no_regression_tables": {
+   "default": false,
+   "description": "True only when the paper genuinely contains no regression tables at all (e.g. results reported solely in figures).",
+   "title": "No Regression Tables",
+   "type": "boolean"
+  },
+  "notes": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Notes"
+  },
+  "tables_written": {
+   "items": {
+    "$ref": "#/$defs/ManifestEntry"
+   },
+   "title": "Tables Written",
+   "type": "array"
+  }
+ },
+ "title": "SessionManifest",
+ "type": "object"
+}

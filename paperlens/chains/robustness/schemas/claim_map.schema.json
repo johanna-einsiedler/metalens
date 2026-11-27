@@ -1,0 +1,243 @@
+{
+ "$defs": {
+  "IntroEvidence": {
+   "properties": {
+    "page": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Page"
+    },
+    "quote": {
+     "title": "Quote",
+     "type": "string"
+    },
+    "section": {
+     "description": "abstract | introduction | body",
+     "title": "Section",
+     "type": "string"
+    }
+   },
+   "required": [
+    "quote",
+    "section"
+   ],
+   "title": "IntroEvidence",
+   "type": "object"
+  },
+  "MappedClaim": {
+   "properties": {
+    "confidence": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "high | medium | low",
+     "title": "Confidence"
+    },
+    "id": {
+     "description": "the stated claim's id, S<n>",
+     "title": "Id",
+     "type": "string"
+    },
+    "introduction_evidence": {
+     "items": {
+      "$ref": "#/$defs/IntroEvidence"
+     },
+     "title": "Introduction Evidence",
+     "type": "array"
+    },
+    "matches": {
+     "items": {
+      "$ref": "#/$defs/Match"
+     },
+     "title": "Matches",
+     "type": "array"
+    },
+    "unmatched_reason": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Unmatched Reason"
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "title": "MappedClaim",
+   "type": "object"
+  },
+  "Match": {
+   "properties": {
+    "derivation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "arithmetic from printed values to the stated number when it is a combination of estimates; null when it is the coefficient itself",
+     "title": "Derivation"
+    },
+    "estimand": {
+     "description": "<claim id>/<subgroup>/<horizon>",
+     "title": "Estimand",
+     "type": "string"
+    },
+    "horizon": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Horizon"
+    },
+    "outcome_relation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "direct | proxy",
+     "title": "Outcome Relation"
+    },
+    "pointed_to": {
+     "default": "none",
+     "description": "number | reference | none: does the abstract or introduction single this estimate out",
+     "title": "Pointed To",
+     "type": "string"
+    },
+    "pointer_quote": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "the verbatim sentence that points to this estimate; null when pointed_to is none",
+     "title": "Pointer Quote"
+    },
+    "preferred_wording": {
+     "default": false,
+     "description": "the body calls this specification preferred, baseline, main or benchmark",
+     "title": "Preferred Wording",
+     "type": "boolean"
+    },
+    "regression_id": {
+     "description": "id of the regression column, exactly as listed in B",
+     "title": "Regression Id",
+     "type": "string"
+    },
+    "role": {
+     "description": "main | supporting | robustness | heterogeneity",
+     "title": "Role",
+     "type": "string"
+    },
+    "sign_consistent": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Sign Consistent"
+    },
+    "subgroup": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Subgroup"
+    },
+    "target_row": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "description": "the [row] number of the coefficient that carries the claim",
+     "title": "Target Row"
+    },
+    "treatment_relation": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "direct | proxy | assignment",
+     "title": "Treatment Relation"
+    },
+    "why": {
+     "title": "Why",
+     "type": "string"
+    }
+   },
+   "required": [
+    "regression_id",
+    "target_row",
+    "estimand",
+    "role",
+    "why"
+   ],
+   "title": "Match",
+   "type": "object"
+  }
+ },
+ "properties": {
+  "claims": {
+   "items": {
+    "$ref": "#/$defs/MappedClaim"
+   },
+   "title": "Claims",
+   "type": "array"
+  }
+ },
+ "title": "ClaimMap",
+ "type": "object"
+}

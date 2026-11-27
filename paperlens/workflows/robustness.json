@@ -1,0 +1,237 @@
+{
+ "format": 1,
+ "id": "robustness",
+ "version": 3,
+ "meta": {
+  "title": "Robustness at Scale: tables, claims and re-estimations",
+  "tagline": "The regression tables, the claims and the re-estimated values of the same papers, three linked datasets, one process: uploaded from the pipeline, checked against each other, the headline columns and the reproduction verdicts written on the tables, reviewed paper by paper, released together.",
+  "description": "One workflow over three datasets of the Robustness-at-Scale pipeline: every new paper's tables, claims and re-estimation files enter the group together with its PDF; each side is re-checked against its contract, the printed cells against each other, the cited estimates against the paper's own tables; then two deterministic steps write on the tables what the other two sides say about each column — whether a main estimate of a stated claim links to it (a headline result), and how its re-estimation from the deposited code graded at printed precision — and a joint review walks both sides of each paper before the datasets are released as one. Everything that needs the replication package, Stata or a sandboxed agent (the data check, the workspace, the re-estimation, the provenance) runs in the pipeline; Metalens holds its outputs and puts the hand decisions in front of reviewers.",
+  "authors": [
+   {
+    "family": "Einsiedler",
+    "given": "Johanna",
+    "orcid": "0000-0002-6312-6861",
+    "affiliation": "University of Basel; University of Copenhagen"
+   }
+  ],
+  "keywords": [
+   "regression tables",
+   "claims",
+   "reproduction",
+   "re-estimation",
+   "headline results",
+   "cross-check",
+   "economics",
+   "linked datasets"
+  ],
+  "license": "CC-BY-4.0",
+  "brands": [
+   "metalens"
+  ]
+ },
+ "card": {
+  "file": "robustness.card.md"
+ },
+ "dataset": {
+  "unit": "paper",
+  "key": "pdf_sha256"
+ },
+ "steps": [
+  {
+   "id": "tables",
+   "kind": "extract",
+   "label": "Regression tables",
+   "dataset": "tables",
+   "preset": "robustness-regressions@f4c44d40",
+   "source": "supplied",
+   "help": "one entry per estimated column, transcribed by the pipeline outside Metalens (metalens/sync/export.py) and uploaded here with the PDF; the headline and reproduction fields stay empty until the compute steps fill them"
+  },
+  {
+   "id": "claims",
+   "kind": "extract",
+   "label": "Claims and their results",
+   "dataset": "claims",
+   "preset": "register-claims@f7387875",
+   "source": "supplied",
+   "help": "the claims the paper states and the results that carry them, transcribed by the pipeline and uploaded with the same PDF"
+  },
+  {
+   "id": "reproduced",
+   "kind": "extract",
+   "label": "Re-estimated regressions",
+   "dataset": "reproduced",
+   "preset": "reproduced-regressions@c70c19eb",
+   "source": "supplied",
+   "help": "what the re-estimation agent got when it ran the deposited code for each regression of the blinded grid (reproduce/<artid>.result.json), uploaded with the same PDF; a paper the pipeline did not re-estimate has no file here"
+  },
+  {
+   "id": "contract_tables",
+   "kind": "check",
+   "label": "Contract check (tables)",
+   "check": "schema",
+   "over": [
+    "tables"
+   ],
+   "on_fail": "note"
+  },
+  {
+   "id": "numbers",
+   "kind": "check",
+   "label": "Number check",
+   "check": "regression-cells",
+   "over": [
+    "tables"
+   ],
+   "on_fail": "note",
+   "severity": "error",
+   "help": "every standard error names its coefficient, the parsed number is the printed one, stars agree with the level and the p-value, t with coefficient over se, the stated N with the printed N"
+  },
+  {
+   "id": "contract_claims",
+   "kind": "check",
+   "label": "Contract check (claims)",
+   "check": "schema",
+   "over": [
+    "claims"
+   ],
+   "on_fail": "note"
+  },
+  {
+   "id": "links",
+   "kind": "check",
+   "label": "Estimates against the tables",
+   "check": "claims-vs-tables",
+   "over": [
+    "claims"
+   ],
+   "on_fail": "note",
+   "severity": "error",
+   "help": "each cited point estimate against the coefficient cells of the same paper's tables (the group's tables dataset); a resolved column with no matching cell is an error, an exhibit no column matches a warning"
+  },
+  {
+   "id": "contract_reproduced",
+   "kind": "check",
+   "label": "Contract check (re-estimations)",
+   "check": "schema",
+   "over": [
+    "reproduced"
+   ],
+   "on_fail": "note"
+  },
+  {
+   "id": "headlines",
+   "kind": "compute",
+   "label": "Headline regressions",
+   "fn": "robustness.headlines",
+   "edits": "tables",
+   "reads": [
+    "claims"
+   ],
+   "writes": [
+    "headline",
+    "n_main",
+    "main_of",
+    "pointed",
+    "paper.n_headline",
+    "paper.n_main_links",
+    "paper.n_main_unlinked"
+   ],
+   "help": "the claim chain's rule, deterministic: a regression column is a headline result when at least one main estimate of a stated claim (an edge or a comparison) links to it; written on each column with the claims it carries and whether the text points to it; a main result that names no column of the tables is a finding"
+  },
+  {
+   "id": "grade",
+   "kind": "compute",
+   "label": "Grade the re-estimation",
+   "fn": "robustness.grade",
+   "edits": "tables",
+   "reads": [
+    "reproduced"
+   ],
+   "writes": [
+    "reproduction",
+    "cells_graded",
+    "cells_matched",
+    "sign_flips",
+    "sample_mismatch",
+    "failure_reason",
+    "paper.reproduced_total",
+    "paper.reproduced_ok",
+    "paper.n_cells_graded",
+    "paper.n_cells_matched",
+    "paper.match_rate",
+    "paper.n_sign_flips",
+    "paper.sample_mismatches",
+    "paper.scale_note"
+   ],
+   "params": {
+    "apply_scale": true
+   },
+   "help": "the pipeline's grading, deterministic: every withheld cell of a column against its reproduced value at half the last printed digit, sign never ignored, a whole-paper rescaling by a power of ten detected and recorded; one verdict per column (match, partial, mismatch, sign_flip, failed, not_attempted, not_returned), the paper's match rate, and a finding per cell that did not reproduce"
+  },
+  {
+   "id": "joint",
+   "kind": "review",
+   "purpose": "audit",
+   "label": "Joint review",
+   "over": [
+    "tables",
+    "claims"
+   ],
+   "help": "every new paper on both sides: its regression columns with their headline and reproduction verdicts, then its claims with their verdicts against the tables, in one worklist",
+   "mode": "all",
+   "unit": "paper",
+   "blocks": "release",
+   "asks": {
+    "tables": [
+     "target_regressors",
+     "se_type",
+     "fixed_effects",
+     "controls",
+     "notes"
+    ],
+    "claims": [
+     "type",
+     "statement",
+     "cause",
+     "effect",
+     "sign",
+     "qualifies",
+     "anchor_quote",
+     "intro_sentence",
+     "results",
+     "notes"
+    ]
+   }
+  },
+  {
+   "id": "flips",
+   "kind": "review",
+   "purpose": "routed",
+   "label": "Sign flips",
+   "over": [
+    "tables"
+   ],
+   "help": "a paper whose re-estimation reproduced a value at the right size with the wrong sign: a person decides whether the published table, the transcription or the re-estimation is wrong; never holds the release",
+   "mode": "all",
+   "unit": "paper",
+   "where": {
+    "paper_metadata.n_sign_flips": {
+     "gt": 0
+    }
+   },
+   "coders": 1,
+   "blocks": "none"
+  },
+  {
+   "id": "release",
+   "kind": "release",
+   "label": "Release",
+   "gate": [
+    "tables",
+    "claims",
+    "reproduced",
+    "joint"
+   ]
+  }
+ ]
+}

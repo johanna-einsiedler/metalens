@@ -8,6 +8,26 @@ published to PyPI as `maseminer` and deployed as the hosted Metalens / MASEMiner
 The first release of the new engine. Version numbers continue from the previous MASEMiner
 app (last release 1.1.0), which this engine replaces; its source is tagged `legacy-sqlite`.
 
+### The robustness workflow: a project's chain writes on its tables what the other datasets say
+
+- A compute step's `reads` may name earlier DATA steps (an extract step, a compute that makes documents)
+  beside pass steps: `ctx.read("<step id>")` is that step's document for the paper, in the shape of the
+  document the compute edits. The step waits for the document as it waits for a pass output and fails
+  the paper when that step failed for it. The validator says "is not an earlier pass step or data step".
+- Chains installed beside the engine: `PAPERLENS_CHAINS` names importable packages (`CHAIN_ID`,
+  `register()`), loaded after the bundled ones; a bundled id wins. `chains.reset()` for tests.
+- The `robustness` chain, rendered from the Robustness-at-Scale project's `metalens/robustness_chain`
+  package (its prompts and schemas, and two computes that run the project's own code): `robustness.headlines`
+  marks the regression columns a main estimate of a stated claim links to (from the claims document),
+  `robustness.grade` grades every withheld cell against its re-estimated value at half the last printed
+  digit (from the re-estimations document) — one verdict per column, the paper's match rate, a finding per
+  cell that did not reproduce. Two presets: `robustness-regressions` (the econ-regression-tables contract
+  plus the written fields) and `reproduced-regressions` (one entry per re-estimated regression); the
+  workflow `robustness` (three supplied datasets, the checks, both computes, the joint review, a routed
+  review of the papers with a sign flip, the release), and `robustness-regressions` / `robustness-claims`
+  for one side each. The `regression-cells` and `claims-vs-tables` checks accept the new tables preset.
+  The bundled `econ-*` workflows stay until the datasets declared on them have moved.
+
 ### A table's note is saved when it is written, not only with the verdict
 
 - The note box under a table ("note — why flagged, what is off, a table that is no regression table") was read
